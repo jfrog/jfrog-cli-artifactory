@@ -1,4 +1,4 @@
-package cli
+package evidencecli
 
 import (
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
@@ -6,7 +6,7 @@ import (
 
 func GetJfrogCliArtifactoryApp() components.App {
 	app := components.CreateEmbeddedApp(
-		"artifactory",
+		"evidence",
 		getCommands(),
 	)
 	return app
