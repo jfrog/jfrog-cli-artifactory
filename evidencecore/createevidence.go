@@ -16,8 +16,6 @@ import (
 	"strings"
 )
 
-const minimalLifecycleArtifactoryVersion = "7.80.0"
-
 type EvidenceCreateCommand struct {
 	serverDetails     *config.ServerDetails
 	predicateFilePath string
@@ -123,29 +121,9 @@ func (ec *EvidenceCreateCommand) Run() error {
 		(*privateKey).KeyID = ec.keyId
 	}
 
-	var signers []dsse.Signer
-
-	// create actual singers
-	if privateKey.KeyType == cryptolib.ECDSAKeyType {
-		ecdsaSinger, err := cryptolib.NewECDSASignerVerifierFromSSLibKey(privateKey)
-		if err != nil {
-			return err
-		}
-		signers = append(signers, ecdsaSinger)
-	} else if privateKey.KeyType == cryptolib.RSAKeyType {
-		rsaSinger, err := cryptolib.NewRSAPSSSignerVerifierFromSSLibKey(privateKey)
-		if err != nil {
-			return err
-		}
-		signers = append(signers, rsaSinger)
-	} else if privateKey.KeyType == cryptolib.ED25519KeyType {
-		ed25519Singer, err := cryptolib.NewED25519SignerVerifierFromSSLibKey(privateKey)
-		if err != nil {
-			return err
-		}
-		signers = append(signers, ed25519Singer)
-	} else {
-		return errors.New("unsupported key type")
+	signers, err := createSigners(privateKey)
+	if err != nil {
+		return err
 	}
 
 	// Use the signers to create an envelope signer
@@ -210,4 +188,32 @@ func (ec *EvidenceCreateCommand) Run() error {
 	}
 
 	return nil
+}
+
+func createSigners(privateKey *cryptolib.SSLibKey) ([]dsse.Signer, error) {
+	var signers []dsse.Signer
+
+	// create actual singers
+	if privateKey.KeyType == cryptolib.ECDSAKeyType {
+		ecdsaSinger, err := cryptolib.NewECDSASignerVerifierFromSSLibKey(privateKey)
+		if err != nil {
+			return nil, err
+		}
+		signers = append(signers, ecdsaSinger)
+	} else if privateKey.KeyType == cryptolib.RSAKeyType {
+		rsaSinger, err := cryptolib.NewRSAPSSSignerVerifierFromSSLibKey(privateKey)
+		if err != nil {
+			return nil, err
+		}
+		signers = append(signers, rsaSinger)
+	} else if privateKey.KeyType == cryptolib.ED25519KeyType {
+		ed25519Singer, err := cryptolib.NewED25519SignerVerifierFromSSLibKey(privateKey)
+		if err != nil {
+			return nil, err
+		}
+		signers = append(signers, ed25519Singer)
+	} else {
+		return nil, errors.New("unsupported key type")
+	}
+	return signers, nil
 }
