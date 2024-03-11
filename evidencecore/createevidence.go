@@ -3,6 +3,7 @@ package evidencecore
 import (
 	"encoding/json"
 	"errors"
+	"github.com/jfrog/jfrog-client-go/artifactory"
 	"os"
 	"strings"
 
@@ -154,8 +155,8 @@ func (ec *EvidenceCreateCommand) Run() error {
 	if ec.evidenceName != "" {
 		evdName = "/" + ec.evidenceName + ".json.evd"
 	}
-	evidenceFilePath := tempDirPath + evdName
-	evidenceFile, err := os.Create(evidenceFilePath)
+	localEvidenceFilePath := tempDirPath + evdName
+	evidenceFile, err := os.Create(localEvidenceFilePath)
 	if err != nil {
 		return err
 	}
@@ -173,10 +174,17 @@ func (ec *EvidenceCreateCommand) Run() error {
 		return err
 	}
 
-	// upload evidencecore file to artifactory
+	// Verify if the file already exists in artifactory
+	rtEvidencePath := strings.Split(intotoStatement.Subject[0].Uri, "/")
+	err = ec.shouldOverrideExistingEvidence(rtEvidencePath, evdName, err, servicesManager)
+	if err != nil {
+		return err
+	}
+
+	// Upload evidencecore file to artifactory
 	commonParams := rtServicesUtils.CommonParams{
-		Pattern: evidenceFilePath,
-		Target:  strings.Split(intotoStatement.Subject[0].Uri, "/")[0] + "/",
+		Pattern: localEvidenceFilePath,
+		Target:  rtEvidencePath[0] + "/",
 	}
 	var uploadParamsArray []services.UploadParams
 	uploadParamsArray = append(uploadParamsArray, services.UploadParams{
@@ -188,6 +196,15 @@ func (ec *EvidenceCreateCommand) Run() error {
 		return err
 	}
 
+	return nil
+}
+
+func (ec *EvidenceCreateCommand) shouldOverrideExistingEvidence(rtEvidencePath []string, evdName string, err error, servicesManager artifactory.ArtifactoryServicesManager) error {
+	filePath := strings.Join(rtEvidencePath[:len(rtEvidencePath)-1], "/") + evdName
+	remoteFile, err := servicesManager.FileInfo(filePath)
+	if remoteFile != nil && !ec.override {
+		return errors.New("file is already exists, use --override to override")
+	}
 	return nil
 }
 

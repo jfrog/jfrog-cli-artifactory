@@ -18,7 +18,7 @@ import (
 func GetCommands() []components.Command {
 	return []components.Command{
 		{
-			Name:        "create-evidencecli",
+			Name:        "create-evidence",
 			Aliases:     []string{"attest", "att"},
 			Flags:       docs.GetCommandFlags(docs.CreateEvidence),
 			Description: createevidence.GetDescription(),
@@ -26,7 +26,7 @@ func GetCommands() []components.Command {
 			Action:      createEvidenceCmd,
 		},
 		{
-			Name:        "verify-evidencecli",
+			Name:        "verify-evidence",
 			Aliases:     []string{"verify", "v"},
 			Flags:       docs.GetCommandFlags(docs.VerifyEvidence),
 			Description: verifyevidence.GetDescription(),
@@ -52,9 +52,14 @@ func createEvidenceCmd(c *components.Context) error {
 		return err
 	}
 
+	var override bool
+	if len(c.Arguments) == 1 {
+		override = c.Arguments[0] == docs.EvdOverride
+	}
+
 	createCmd := evidencecore.NewEvidenceCreateCommand().SetServerDetails(evdDetails).SetPredicateFilePath(c.GetStringFlagValue(docs.EvdPredicate)).
 		SetPredicateType(c.GetStringFlagValue(docs.EvdPredicateType)).SetSubjects(c.GetStringFlagValue(docs.EvdSubjects)).SetKey(c.GetStringFlagValue(docs.EvdKey)).
-		SetKeyId(c.GetStringFlagValue(docs.EvdKeyId)).SetEvidenceName(c.GetStringFlagValue(docs.EvdName)).SetOverride(c.GetBoolFlagValue(docs.EvdOverride))
+		SetKeyId(c.GetStringFlagValue(docs.EvdKeyId)).SetEvidenceName(c.GetStringFlagValue(docs.EvdName)).SetOverride(override)
 	return commands.Exec(createCmd)
 }
 
@@ -77,10 +82,10 @@ func validateVerifyEvidenceContext(c *components.Context) error {
 		return err
 	}
 	if !c.IsFlagSet(docs.EvdKey) || assertValueProvided(c, docs.EvdKey) != nil {
-		return errorutils.CheckErrorf("'key' is a mandatory fiels for creating a custom evidencecli: --%s", docs.EvdKey)
+		return errorutils.CheckErrorf("'key' is a mandatory fiels for creating a custom evidence: --%s", docs.EvdKey)
 	}
 	if !c.IsFlagSet(docs.EvdName) || assertValueProvided(c, docs.EvdName) != nil {
-		return errorutils.CheckErrorf("'key' is a mandatory fiels for creating a custom evidencecli: --%s", docs.EvdName)
+		return errorutils.CheckErrorf("'key' is a mandatory fiels for creating a custom evidence: --%s", docs.EvdName)
 	}
 
 	return nil
@@ -92,7 +97,7 @@ func evidenceDetailsByFlags(c *components.Context) (*coreConfig.ServerDetails, e
 		return nil, err
 	}
 	if evdDetails.Url == "" {
-		return nil, errors.New("platform URL is mandatory for evidencecli commands")
+		return nil, errors.New("platform URL is mandatory for evidence commands")
 	}
 	PlatformToEvidenceUrls(evdDetails)
 	return evdDetails, nil
@@ -103,21 +108,21 @@ func validateCreateEvidenceContext(c *components.Context) error {
 		return err
 	}
 
-	if len(c.Arguments) > 0 {
+	if len(c.Arguments) > 1 {
 		return pluginsCommon.WrongNumberOfArgumentsHandler(c)
 	}
 
 	if !c.IsFlagSet(docs.EvdPredicate) || assertValueProvided(c, docs.EvdPredicate) != nil {
-		return errorutils.CheckErrorf("'predicate' is a mandatory fiels for creating a custom evidencecli: --%s", docs.EvdPredicate)
+		return errorutils.CheckErrorf("'predicate' is a mandatory fiels for creating a custom evidence: --%s", docs.EvdPredicate)
 	}
 	if !c.IsFlagSet(docs.EvdPredicateType) || assertValueProvided(c, docs.EvdPredicateType) != nil {
-		return errorutils.CheckErrorf("'predicate' is a mandatory fiels for creating a custom evidencecli: --%s", docs.EvdPredicateType)
+		return errorutils.CheckErrorf("'predicate' is a mandatory fiels for creating a custom evidence: --%s", docs.EvdPredicateType)
 	}
 	if !c.IsFlagSet(docs.EvdSubjects) || assertValueProvided(c, docs.EvdSubjects) != nil {
-		return errorutils.CheckErrorf("'subject' is a mandatory fiels for creating a custom evidencecli: --%s", docs.EvdSubjects)
+		return errorutils.CheckErrorf("'subject' is a mandatory fiels for creating a custom evidence: --%s", docs.EvdSubjects)
 	}
 	if !c.IsFlagSet(docs.EvdKey) || assertValueProvided(c, docs.EvdKey) != nil {
-		return errorutils.CheckErrorf("'key' is a mandatory fiels for creating a custom evidencecli: --%s", docs.EvdKey)
+		return errorutils.CheckErrorf("'key' is a mandatory fiels for creating a custom evidence: --%s", docs.EvdKey)
 	}
 
 	return nil
