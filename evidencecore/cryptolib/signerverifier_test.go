@@ -35,16 +35,21 @@ func TestLoadKey(t *testing.T) {
 	expectedRSAPrivateKey := strings.TrimSpace(strings.ReplaceAll(string(rsaPrivateKey), "\r\n", "\n"))
 	expectedRSAPrivateKeyPKCS8 := strings.TrimSpace(strings.ReplaceAll(string(rsaPrivateKeyPKCS8), "\r\n", "\n"))
 	expectedRSAPublicKey := strings.TrimSpace(strings.ReplaceAll(string(rsaPublicKey), "\r\n", "\n"))
+	//#nosec G101 - dummy key for test
 	expectedRSAKeyID := "4e8d20af09fcaed6c388a186427f94a5f7ff5591ec295f4aab2cff49ffe39e9b"
 
 	// ED25519 expected values
+	//#nosec G101 - dummy key for test
 	expectedED25519PrivateKey := "66f6ebad4aeb949b91c84c9cfd6ee351fc4fd544744bab6e30fb400ba13c6e9a3f586ce67329419fb0081bd995914e866a7205da463d593b3b490eab2b27fd3f"
+	//#nosec G101 - dummy key for test
 	expectedED25519PublicKey := "3f586ce67329419fb0081bd995914e866a7205da463d593b3b490eab2b27fd3f"
+	//#nosec G101 - dummy key for test
 	expectedED25519KeyID := "52e3b8e73279d6ebdd62a5016e2725ff284f569665eb92ccb145d83817a02997"
 
 	// ECDSA expected values
 	expectedECDSAPrivateKey := strings.TrimSpace(strings.ReplaceAll(string(ecdsaPrivateKey), "\r\n", "\n"))
 	expectedECDSAPublicKey := strings.TrimSpace(strings.ReplaceAll(string(ecdsaPublicKey), "\r\n", "\n"))
+	//#nosec G101 - dummy key for test
 	expectedECDSAKeyID := "98adf38602c48c5479e9a991ee3f8cbf541ee4f985e00f7a5fc4148d9a45b704"
 
 	tests := map[string]struct {
