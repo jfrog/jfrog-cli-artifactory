@@ -89,20 +89,29 @@ func (evc *EvidenceVerifyCommand) Run() error {
 			return err
 		}
 		err = ecdsaSinger.Verify(paeEnc, decodedKey)
+		if err != nil {
+			return err
+		}
 	case cryptolib.RSAKeyType:
 		rsaSinger, err := cryptolib.NewRSAPSSSignerVerifierFromSSLibKey(loadedKey)
 		if err != nil {
 			return err
 		}
 		err = rsaSinger.Verify(paeEnc, decodedKey)
+		if err != nil {
+			return err
+		}
 	case cryptolib.ED25519KeyType:
 		ed25519Singer, err := cryptolib.NewED25519SignerVerifierFromSSLibKey(loadedKey)
 		if err != nil {
 			return err
 		}
 		err = ed25519Singer.Verify(paeEnc, decodedKey)
+		if err != nil {
+			return err
+		}
 	default:
 		return errors.New("unsupported key type")
 	}
-	return err
+	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -93,11 +94,15 @@ func LoadKey(keyBytes []byte) (*SSLibKey, error) {
 
 	case ed25519.PrivateKey:
 		pubKeyBytes := k.Public()
+		pukBytes, ok := pubKeyBytes.(ed25519.PublicKey)
+		if !ok {
+			return nil, fmt.Errorf("couldnt convert to ecdsa public key bytes")
+		}
 		key = &SSLibKey{
 			KeyIDHashAlgorithms: KeyIDHashAlgorithms,
 			KeyType:             ED25519KeyType,
 			KeyVal: KeyVal{
-				Public:  strings.TrimSpace(hex.EncodeToString(pubKeyBytes.(ed25519.PublicKey))),
+				Public:  strings.TrimSpace(hex.EncodeToString(pukBytes)),
 				Private: strings.TrimSpace(hex.EncodeToString(k)),
 			},
 			Scheme: ED25519KeyType,
