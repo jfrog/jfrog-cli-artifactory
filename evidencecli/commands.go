@@ -17,7 +17,7 @@ import (
 
 const evdCategory = "Evidence"
 
-func getCommands() []components.Command {
+func GetCommands() []components.Command {
 	return []components.Command{
 		{
 			Name:        "create-evidencecli",

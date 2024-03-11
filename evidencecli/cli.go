@@ -7,7 +7,7 @@ import (
 func GetJfrogCliArtifactoryApp() components.App {
 	app := components.CreateEmbeddedApp(
 		"evidence",
-		getCommands(),
+		GetCommands(),
 	)
 	return app
 }
