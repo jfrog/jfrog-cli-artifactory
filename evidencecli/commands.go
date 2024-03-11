@@ -15,8 +15,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
-const evdCategory = "Evidence"
-
 func GetCommands() []components.Command {
 	return []components.Command{
 		{

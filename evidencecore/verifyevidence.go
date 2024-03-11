@@ -4,10 +4,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"os"
+
 	"github.com/jfrog/jfrog-cli-artifactory/evidencecore/cryptolib"
 	"github.com/jfrog/jfrog-cli-artifactory/evidencecore/dsse"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	"os"
 )
 
 type EvidenceVerifyCommand struct {
@@ -81,36 +82,27 @@ func (evc *EvidenceVerifyCommand) Run() error {
 	paeEnc := dsse.PAE(dsseEnvelope.PayloadType, decodedPayload)
 
 	// create actual verifier
-	if loadedKey.KeyType == cryptolib.ECDSAKeyType {
+	switch loadedKey.KeyType {
+	case cryptolib.ECDSAKeyType:
 		ecdsaSinger, err := cryptolib.NewECDSASignerVerifierFromSSLibKey(loadedKey)
 		if err != nil {
 			return err
 		}
 		err = ecdsaSinger.Verify(paeEnc, decodedKey)
-		if err != nil {
-			return err
-		}
-	} else if loadedKey.KeyType == cryptolib.RSAKeyType {
+	case cryptolib.RSAKeyType:
 		rsaSinger, err := cryptolib.NewRSAPSSSignerVerifierFromSSLibKey(loadedKey)
 		if err != nil {
 			return err
 		}
 		err = rsaSinger.Verify(paeEnc, decodedKey)
-		if err != nil {
-			return err
-		}
-	} else if loadedKey.KeyType == cryptolib.ED25519KeyType {
+	case cryptolib.ED25519KeyType:
 		ed25519Singer, err := cryptolib.NewED25519SignerVerifierFromSSLibKey(loadedKey)
 		if err != nil {
 			return err
 		}
 		err = ed25519Singer.Verify(paeEnc, decodedKey)
-		if err != nil {
-			return err
-		}
-	} else {
+	default:
 		return errors.New("unsupported key type")
 	}
-
-	return nil
+	return err
 }

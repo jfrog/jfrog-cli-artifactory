@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"fmt"
-	"os"
 )
 
 const (
@@ -36,10 +35,14 @@ func NewECDSASignerVerifierFromSSLibKey(key *SSLibKey) (*ECDSASignerVerifier, er
 		return nil, fmt.Errorf("unable to create ECDSA signerverifier: %w", err)
 	}
 
+	puk, ok := publicParsedKey.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("couldnt convert to ecdsa public key")
+	}
 	sv := &ECDSASignerVerifier{
 		keyID:     key.KeyID,
-		curveSize: publicParsedKey.(*ecdsa.PublicKey).Params().BitSize,
-		public:    publicParsedKey.(*ecdsa.PublicKey),
+		curveSize: puk.Params().BitSize,
+		public:    puk,
 		private:   nil,
 	}
 
@@ -49,7 +52,11 @@ func NewECDSASignerVerifierFromSSLibKey(key *SSLibKey) (*ECDSASignerVerifier, er
 			return nil, fmt.Errorf("unable to create ECDSA signerverifier: %w", err)
 		}
 
-		sv.private = privateParsedKey.(*ecdsa.PrivateKey)
+		pk, ok := privateParsedKey.(*ecdsa.PrivateKey)
+		if !ok {
+			return nil, fmt.Errorf("couldnt convert to ecdsa private key")
+		}
+		sv.private = pk
 	}
 
 	return sv, nil
@@ -87,22 +94,6 @@ func (sv *ECDSASignerVerifier) KeyID() (string, error) {
 // ECDSASignerVerifier instance.
 func (sv *ECDSASignerVerifier) Public() crypto.PublicKey {
 	return sv.public
-}
-
-// LoadECDSAKeyFromFile returns an SSLibKey instance for an ECDSA key stored in
-// a file in the custom securesystemslib format.
-//
-// Deprecated: use LoadKey(). The custom serialization format has been
-// deprecated. Use
-// https://github.com/secure-systems-lab/securesystemslib/blob/main/docs/migrate_key.py
-// to convert your key.
-func LoadECDSAKeyFromFile(path string) (*SSLibKey, error) {
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("unable to load ECDSA key from file: %w", err)
-	}
-
-	return LoadKeyFromSSLibBytes(contents)
 }
 
 func getECDSAHashedData(data []byte, curveSize int) []byte {

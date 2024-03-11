@@ -3,6 +3,9 @@ package evidencecore
 import (
 	"encoding/json"
 	"errors"
+	"os"
+	"strings"
+
 	"github.com/jfrog/jfrog-cli-artifactory/evidencecore/cryptolib"
 	"github.com/jfrog/jfrog-cli-artifactory/evidencecore/dsse"
 	"github.com/jfrog/jfrog-cli-artifactory/evidencecore/intoto"
@@ -12,8 +15,6 @@ import (
 	rtServicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
-	"os"
-	"strings"
 )
 
 type EvidenceCreateCommand struct {
@@ -118,7 +119,7 @@ func (ec *EvidenceCreateCommand) Run() error {
 	}
 	// If keyId is provided, use it to the single key in the privateKeys slice
 	if ec.keyId != "" {
-		(*privateKey).KeyID = ec.keyId
+		privateKey.KeyID = ec.keyId
 	}
 
 	signers, err := createSigners(privateKey)
@@ -193,27 +194,28 @@ func (ec *EvidenceCreateCommand) Run() error {
 func createSigners(privateKey *cryptolib.SSLibKey) ([]dsse.Signer, error) {
 	var signers []dsse.Signer
 
-	// create actual singers
-	if privateKey.KeyType == cryptolib.ECDSAKeyType {
+	switch privateKey.KeyType {
+	case cryptolib.ECDSAKeyType:
 		ecdsaSinger, err := cryptolib.NewECDSASignerVerifierFromSSLibKey(privateKey)
 		if err != nil {
 			return nil, err
 		}
 		signers = append(signers, ecdsaSinger)
-	} else if privateKey.KeyType == cryptolib.RSAKeyType {
+	case cryptolib.RSAKeyType:
 		rsaSinger, err := cryptolib.NewRSAPSSSignerVerifierFromSSLibKey(privateKey)
 		if err != nil {
 			return nil, err
 		}
 		signers = append(signers, rsaSinger)
-	} else if privateKey.KeyType == cryptolib.ED25519KeyType {
+	case cryptolib.ED25519KeyType:
 		ed25519Singer, err := cryptolib.NewED25519SignerVerifierFromSSLibKey(privateKey)
 		if err != nil {
 			return nil, err
 		}
 		signers = append(signers, ed25519Singer)
-	} else {
+	default:
 		return nil, errors.New("unsupported key type")
 	}
+
 	return signers, nil
 }

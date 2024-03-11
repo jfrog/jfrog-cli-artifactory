@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -37,22 +36,32 @@ func NewRSAPSSSignerVerifierFromSSLibKey(key *SSLibKey) (*RSAPSSSignerVerifier, 
 		return nil, fmt.Errorf("unable to create RSA-PSS signerverifier: %w", err)
 	}
 
+	puk, ok := publicParsedKey.(*rsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("couldnt convert to rsa public key")
+	}
+
 	if len(key.KeyVal.Private) > 0 {
 		_, privateParsedKey, err := decodeAndParsePEM([]byte(key.KeyVal.Private))
 		if err != nil {
 			return nil, fmt.Errorf("unable to create RSA-PSS signerverifier: %w", err)
 		}
 
+		pkParsed, ok := privateParsedKey.(*rsa.PrivateKey)
+		if !ok {
+			return nil, fmt.Errorf("couldnt convert to rsa private key")
+		}
+
 		return &RSAPSSSignerVerifier{
 			keyID:   key.KeyID,
-			public:  publicParsedKey.(*rsa.PublicKey),
-			private: privateParsedKey.(*rsa.PrivateKey),
+			public:  puk,
+			private: pkParsed,
 		}, nil
 	}
 
 	return &RSAPSSSignerVerifier{
 		keyID:   key.KeyID,
-		public:  publicParsedKey.(*rsa.PublicKey),
+		public:  puk,
 		private: nil,
 	}, nil
 }
@@ -89,22 +98,6 @@ func (sv *RSAPSSSignerVerifier) KeyID() (string, error) {
 // RSAPSSSignerVerifier instance.
 func (sv *RSAPSSSignerVerifier) Public() crypto.PublicKey {
 	return sv.public
-}
-
-// LoadRSAPSSKeyFromFile returns an SSLibKey instance for an RSA key stored in a
-// file.
-//
-// Deprecated: use LoadKey(). The custom serialization format has been
-// deprecated. Use
-// https://github.com/secure-systems-lab/securesystemslib/blob/main/docs/migrate_key.py
-// to convert your key.
-func LoadRSAPSSKeyFromFile(path string) (*SSLibKey, error) {
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("unable to load RSA key from file: %w", err)
-	}
-
-	return LoadRSAPSSKeyFromBytes(contents)
 }
 
 // LoadRSAPSSKeyFromBytes is a function that takes a byte array as input. This
