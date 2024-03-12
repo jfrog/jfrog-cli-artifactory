@@ -45,7 +45,7 @@ var flagsMap = map[string]components.Flag{
 	EvdKey:           components.NewStringFlag(EvdKey, "[Mandatory] Path for a key pair (pk, puk).` `"),
 	EvdKeyId:         components.NewStringFlag(EvdKeyId, "[Optional] KeyId` `"),
 	EvdName:          components.NewStringFlag(EvdName, "[Optional] The name of the evidence to be created.` `"),
-	EvdOverride:      components.NewStringFlag(EvdOverride, "[Default: false] Set to true to override evidence, if exists, in Artifactory.` `"),
+	EvdOverride:      components.NewBoolFlag(EvdOverride, "[Default: false] Set to true to override evidence, if exists, in Artifactory.` `"),
 }
 var commandFlags = map[string][]string{
 	CreateEvidence: {

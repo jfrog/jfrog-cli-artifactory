@@ -52,14 +52,9 @@ func createEvidenceCmd(c *components.Context) error {
 		return err
 	}
 
-	var override bool
-	if len(c.Arguments) == 1 {
-		override = c.Arguments[0] == docs.EvdOverride
-	}
-
 	createCmd := evidencecore.NewEvidenceCreateCommand().SetServerDetails(evdDetails).SetPredicateFilePath(c.GetStringFlagValue(docs.EvdPredicate)).
 		SetPredicateType(c.GetStringFlagValue(docs.EvdPredicateType)).SetSubjects(c.GetStringFlagValue(docs.EvdSubjects)).SetKey(c.GetStringFlagValue(docs.EvdKey)).
-		SetKeyId(c.GetStringFlagValue(docs.EvdKeyId)).SetEvidenceName(c.GetStringFlagValue(docs.EvdName)).SetOverride(override)
+		SetKeyId(c.GetStringFlagValue(docs.EvdKeyId)).SetEvidenceName(c.GetStringFlagValue(docs.EvdName)).SetOverride(c.GetBoolFlagValue(docs.EvdOverride))
 	return commands.Exec(createCmd)
 }
 
