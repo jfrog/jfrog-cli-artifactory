@@ -108,7 +108,7 @@ func validateCreateEvidenceContext(c *components.Context) error {
 	}
 
 	if !c.IsFlagSet(docs.EvdPredicate) || assertValueProvided(c, docs.EvdPredicate) != nil {
-		return errorutils.CheckErrorf("'predicate' is a mandatory fiels for creating a custom evidence: --%s", docs.EvdPredicate)
+		return errorutils.CheckErrorf("'predicate' is a mandatory field for creating a custom evidence: --%s", docs.EvdPredicate)
 	}
 	if !c.IsFlagSet(docs.EvdPredicateType) || assertValueProvided(c, docs.EvdPredicateType) != nil {
 		return errorutils.CheckErrorf("'predicate' is a mandatory fiels for creating a custom evidence: --%s", docs.EvdPredicateType)
