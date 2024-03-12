@@ -1,10 +1,10 @@
-package evidencecli
+package cli
 
 import (
 	"errors"
-	"github.com/jfrog/jfrog-cli-artifactory/evidencecli/docs/createevidence"
-	verify "github.com/jfrog/jfrog-cli-artifactory/evidencecli/docs/verifyevidence"
-	"github.com/jfrog/jfrog-cli-artifactory/evidencecore"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/attest"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/verify"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
@@ -35,10 +35,9 @@ func GetCommands() []components.Command {
 	}
 }
 
-func platformToEvidenceUrls(evdDetails *coreConfig.ServerDetails) {
-	evdDetails.ArtifactoryUrl = utils.AddTrailingSlashIfNeeded(evdDetails.Url) + "artifactory/"
-	evdDetails.LifecycleUrl = utils.AddTrailingSlashIfNeeded(evdDetails.Url) + "lifecycle/"
-	evdDetails.Url = ""
+func platformToEvidenceUrls(rtDetails *coreConfig.ServerDetails) {
+	rtDetails.ArtifactoryUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "artifactory/"
+	rtDetails.LifecycleUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "lifecycle/"
 }
 
 func createEvidence(c *components.Context) error {
@@ -51,9 +50,15 @@ func createEvidence(c *components.Context) error {
 		return err
 	}
 
-	createCmd := evidencecore.NewEvidenceCreateCommand().SetServerDetails(artifactoryClient).SetPredicateFilePath(c.GetStringFlagValue(EvdPredicate)).
-		SetPredicateType(c.GetStringFlagValue(EvdPredicateType)).SetSubjects(c.GetStringFlagValue(EvdSubjects)).SetKey(c.GetStringFlagValue(EvdKey)).
-		SetKeyId(c.GetStringFlagValue(EvdKeyId)).SetEvidenceName(c.GetStringFlagValue(EvdName)).SetOverride(c.GetBoolFlagValue(EvdOverride))
+	createCmd := evidence.NewEvidenceCreateCommand().
+		SetServerDetails(artifactoryClient).
+		SetPredicateFilePath(c.GetStringFlagValue(EvdPredicate)).
+		SetPredicateType(c.GetStringFlagValue(EvdPredicateType)).
+		SetSubjects(c.GetStringFlagValue(EvdSubjects)).
+		SetKey(c.GetStringFlagValue(EvdKey)).
+		SetKeyId(c.GetStringFlagValue(EvdKeyId)).
+		SetEvidenceName(c.GetStringFlagValue(EvdName)).
+		SetOverride(c.GetBoolFlagValue(EvdOverride))
 	return commands.Exec(createCmd)
 }
 
@@ -67,7 +72,10 @@ func verifyEvidence(c *components.Context) error {
 		return err
 	}
 
-	verifyCmd := evidencecore.NewEvidenceVerifyCommand().SetServerDetails(artifactoryClient).SetKey(c.GetStringFlagValue(EvdKey)).SetEvidenceName(c.GetStringFlagValue(EvdName))
+	verifyCmd := evidence.NewEvidenceVerifyCommand().
+		SetServerDetails(artifactoryClient).
+		SetKey(c.GetStringFlagValue(EvdKey)).
+		SetEvidenceName(c.GetStringFlagValue(EvdName))
 	return commands.Exec(verifyCmd)
 }
 

@@ -1,15 +1,15 @@
-package evidencecore
+package evidence
 
 import (
 	"encoding/json"
 	"errors"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/cryptox"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/intoto"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"os"
 	"strings"
 
-	"github.com/jfrog/jfrog-cli-artifactory/evidencecore/cryptolib"
-	"github.com/jfrog/jfrog-cli-artifactory/evidencecore/dsse"
-	"github.com/jfrog/jfrog-cli-artifactory/evidencecore/intoto"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
@@ -114,7 +114,7 @@ func (ec *EvidenceCreateCommand) Run() error {
 		return errorutils.CheckError(err)
 	}
 
-	privateKey, err := cryptolib.ReadKey(keyFile)
+	privateKey, err := cryptox.ReadKey(keyFile)
 	if err != nil {
 		return errorutils.CheckError(err)
 	}
@@ -135,7 +135,7 @@ func (ec *EvidenceCreateCommand) Run() error {
 	}
 
 	// Iterate over all the signers and sign the dsse envelope
-	signedEnvelope, err := envelopeSigner.SignPayload(intoto.DssePayloadType, intotoJson)
+	signedEnvelope, err := envelopeSigner.SignPayload(intoto.PayloadType, intotoJson)
 	if err != nil {
 		return errorutils.CheckError(err)
 	}
@@ -207,24 +207,24 @@ func (ec *EvidenceCreateCommand) shouldOverrideExistingEvidence(rtEvidencePath [
 	return nil
 }
 
-func createSigners(privateKey *cryptolib.SSLibKey) ([]dsse.Signer, error) {
+func createSigners(privateKey *cryptox.SSLibKey) ([]dsse.Signer, error) {
 	var signers []dsse.Signer
 
 	switch privateKey.KeyType {
-	case cryptolib.ECDSAKeyType:
-		ecdsaSinger, err := cryptolib.NewECDSASignerVerifierFromSSLibKey(privateKey)
+	case cryptox.ECDSAKeyType:
+		ecdsaSinger, err := cryptox.NewECDSASignerVerifierFromSSLibKey(privateKey)
 		if err != nil {
 			return nil, err
 		}
 		signers = append(signers, ecdsaSinger)
-	case cryptolib.RSAKeyType:
-		rsaSinger, err := cryptolib.NewRSAPSSSignerVerifierFromSSLibKey(privateKey)
+	case cryptox.RSAKeyType:
+		rsaSinger, err := cryptox.NewRSAPSSSignerVerifierFromSSLibKey(privateKey)
 		if err != nil {
 			return nil, err
 		}
 		signers = append(signers, rsaSinger)
-	case cryptolib.ED25519KeyType:
-		ed25519Singer, err := cryptolib.NewED25519SignerVerifierFromSSLibKey(privateKey)
+	case cryptox.ED25519KeyType:
+		ed25519Singer, err := cryptox.NewED25519SignerVerifierFromSSLibKey(privateKey)
 		if err != nil {
 			return nil, err
 		}

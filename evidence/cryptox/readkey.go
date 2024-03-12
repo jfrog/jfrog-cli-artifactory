@@ -1,4 +1,4 @@
-package cryptolib
+package cryptox
 
 func ReadKey(fileContent []byte) (*SSLibKey, error) {
 	slibKey, err := LoadKey(fileContent)

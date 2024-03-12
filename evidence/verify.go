@@ -1,13 +1,13 @@
-package evidencecore
+package evidence
 
 import (
 	"encoding/base64"
 	"encoding/json"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/cryptox"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"os"
 
-	"github.com/jfrog/jfrog-cli-artifactory/evidencecore/cryptolib"
-	"github.com/jfrog/jfrog-cli-artifactory/evidencecore/dsse"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
 
@@ -57,7 +57,7 @@ func (evc *EvidenceVerifyCommand) Run() error {
 		return errorutils.CheckError(err)
 	}
 	// Load key from file
-	loadedKey, err := cryptolib.LoadKey(key)
+	loadedKey, err := cryptox.LoadKey(key)
 	if err != nil {
 		return errorutils.CheckError(err)
 	}
@@ -83,8 +83,8 @@ func (evc *EvidenceVerifyCommand) Run() error {
 
 	// create actual verifier
 	switch loadedKey.KeyType {
-	case cryptolib.ECDSAKeyType:
-		ecdsaSinger, err := cryptolib.NewECDSASignerVerifierFromSSLibKey(loadedKey)
+	case cryptox.ECDSAKeyType:
+		ecdsaSinger, err := cryptox.NewECDSASignerVerifierFromSSLibKey(loadedKey)
 		if err != nil {
 			return err
 		}
@@ -92,8 +92,8 @@ func (evc *EvidenceVerifyCommand) Run() error {
 		if err != nil {
 			return err
 		}
-	case cryptolib.RSAKeyType:
-		rsaSinger, err := cryptolib.NewRSAPSSSignerVerifierFromSSLibKey(loadedKey)
+	case cryptox.RSAKeyType:
+		rsaSinger, err := cryptox.NewRSAPSSSignerVerifierFromSSLibKey(loadedKey)
 		if err != nil {
 			return err
 		}
@@ -101,8 +101,8 @@ func (evc *EvidenceVerifyCommand) Run() error {
 		if err != nil {
 			return err
 		}
-	case cryptolib.ED25519KeyType:
-		ed25519Singer, err := cryptolib.NewED25519SignerVerifierFromSSLibKey(loadedKey)
+	case cryptox.ED25519KeyType:
+		ed25519Singer, err := cryptox.NewED25519SignerVerifierFromSSLibKey(loadedKey)
 		if err != nil {
 			return err
 		}

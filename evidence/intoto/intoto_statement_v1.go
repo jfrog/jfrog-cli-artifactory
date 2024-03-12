@@ -8,28 +8,28 @@ import (
 	"github.com/jfrog/jfrog-client-go/artifactory"
 )
 
-const DssePayloadType = "application/vnd.in-toto+json"
-const IntotoType = "https://in-toto.io/Statement/v0.1"
+const PayloadType = "application/vnd.in-toto+json"
+const StatementType = "https://in-toto.io/Statement/v0.1"
 
 type Statement struct {
-	Type          string          `json:"_type"`
-	Subject       []Descriptor    `json:"subject"`
-	PredicateType string          `json:"predicateType"`
-	Predicate     json.RawMessage `json:"predicate,omitempty"`
+	Type          string               `json:"_type"`
+	Subject       []ResourceDescriptor `json:"subject"`
+	PredicateType string               `json:"predicateType"`
+	Predicate     json.RawMessage      `json:"predicate"`
 }
 
-type Descriptor struct {
-	Uri    string    `json:"uri"`
-	Digest DigestSet `json:"digest"`
+type ResourceDescriptor struct {
+	Uri    string `json:"uri"`
+	Digest Digest `json:"digest"`
 }
 
-type DigestSet struct {
+type Digest struct {
 	Sha256 string `json:"sha256"`
 }
 
 func NewStatement(predicate []byte, predicateType string) *Statement {
 	return &Statement{
-		Type:          IntotoType,
+		Type:          StatementType,
 		PredicateType: predicateType,
 		Predicate:     predicate,
 	}
@@ -37,7 +37,7 @@ func NewStatement(predicate []byte, predicateType string) *Statement {
 
 func (s *Statement) SetSubject(servicesManager artifactory.ArtifactoryServicesManager, subjects string) error {
 	subjectsSlice := strings.Split(subjects, ";")
-	s.Subject = make([]Descriptor, len(subjectsSlice))
+	s.Subject = make([]ResourceDescriptor, len(subjectsSlice))
 	for i, subject := range subjectsSlice {
 		subjectAndSha := strings.Split(subject, "@")
 		s.Subject[i].Uri = subjectAndSha[0]

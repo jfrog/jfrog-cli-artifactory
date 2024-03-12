@@ -1,4 +1,4 @@
-package evidencecli
+package cli
 
 import (
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
@@ -47,9 +47,10 @@ var flagsMap = map[string]components.Flag{
 	EvdName:          components.NewStringFlag(EvdName, "[Optional] The name of the evidence to be created."),
 	EvdOverride:      components.NewBoolFlag(EvdOverride, "[Default: false] Set to true to override evidence, if exists, in Artifactory."),
 }
+
 var commandFlags = map[string][]string{
 	CreateEvidence: {
-		EvdPredicate, EvdPredicateType, EvdSubjects, EvdKey, EvdKeyId, EvdName, EvdOverride,
+		url, user, password, accessToken, ServerId, EvdPredicate, EvdPredicateType, EvdSubjects, EvdKey, EvdKeyId, EvdName, EvdOverride,
 	},
 	VerifyEvidence: {
 		EvdKey, EvdName,

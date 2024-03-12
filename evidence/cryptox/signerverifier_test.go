@@ -1,4 +1,4 @@
-package cryptolib
+package cryptox
 
 import (
 	_ "embed"
