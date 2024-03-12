@@ -176,7 +176,7 @@ func (ec *EvidenceCreateCommand) Run() error {
 
 	// Verify if the file already exists in artifactory
 	rtEvidencePath := strings.Split(intotoStatement.Subject[0].Uri, "/")
-	err = ec.shouldOverrideExistingEvidence(rtEvidencePath, evdName, err, servicesManager)
+	err = ec.shouldOverrideExistingEvidence(rtEvidencePath, evdName, servicesManager)
 	if err != nil {
 		return err
 	}
@@ -199,9 +199,9 @@ func (ec *EvidenceCreateCommand) Run() error {
 	return nil
 }
 
-func (ec *EvidenceCreateCommand) shouldOverrideExistingEvidence(rtEvidencePath []string, evdName string, err error, servicesManager artifactory.ArtifactoryServicesManager) error {
+func (ec *EvidenceCreateCommand) shouldOverrideExistingEvidence(rtEvidencePath []string, evdName string, servicesManager artifactory.ArtifactoryServicesManager) error {
 	filePath := strings.Join(rtEvidencePath[:len(rtEvidencePath)-1], "/") + evdName
-	remoteFile, err := servicesManager.FileInfo(filePath)
+	remoteFile, _ := servicesManager.FileInfo(filePath)
 	if remoteFile != nil && !ec.override {
 		return errors.New("file is already exists, use --override to override")
 	}
