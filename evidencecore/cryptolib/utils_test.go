@@ -39,6 +39,7 @@ func TestDecodeParsePEM(t *testing.T) {
 
 func TestParsePEMKey(t *testing.T) {
 	pem, _, err := decodeAndParsePEM(rsaPrivateKey)
+	assert.NoError(t, err)
 	key, err := parsePEMKey(pem.Bytes)
 	assert.NoError(t, err)
 	assert.NotNil(t, key)

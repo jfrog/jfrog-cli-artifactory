@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/x509"
 	"fmt"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
@@ -98,24 +97,4 @@ func (sv *RSAPSSSignerVerifier) KeyID() (string, error) {
 // RSAPSSSignerVerifier instance.
 func (sv *RSAPSSSignerVerifier) Public() crypto.PublicKey {
 	return sv.public
-}
-
-func marshalAndGeneratePEM(key interface{}) ([]byte, error) {
-	var pubKeyBytes []byte
-	var err error
-
-	switch k := key.(type) {
-	case *rsa.PublicKey:
-		pubKeyBytes, err = x509.MarshalPKIXPublicKey(k)
-	case *rsa.PrivateKey:
-		pubKeyBytes, err = x509.MarshalPKIXPublicKey(k.Public())
-	default:
-		return nil, errorutils.CheckError(fmt.Errorf("unexpected key type: %T", k))
-	}
-
-	if err != nil {
-		return nil, errorutils.CheckError(err)
-	}
-
-	return generatePEMBlock(pubKeyBytes, PublicKeyPEM), nil
 }
