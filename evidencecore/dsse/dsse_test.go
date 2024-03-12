@@ -12,7 +12,8 @@ func TestVerify(t *testing.T) {
 		PayloadType: "payloadType",
 		Signatures:  nil,
 	}
-	env.Verify()
+	err := env.Verify()
+	assert.NoError(t, err)
 }
 
 func TestPAE(t *testing.T) {
