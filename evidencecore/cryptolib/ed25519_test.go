@@ -1,6 +1,7 @@
 package cryptolib
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"github.com/secure-systems-lab/go-securesystemslib/cjson"
 	"github.com/stretchr/testify/assert"
@@ -11,14 +12,10 @@ import (
 
 func TestED25519SignerVerifierWithMetablockFileAndPEMKey(t *testing.T) {
 	key, err := LoadKey(ed25519PublicKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	sv, err := NewED25519SignerVerifierFromSSLibKey(key)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	metadataBytes, err := os.ReadFile(filepath.Join("testdata", "test-ed25519.52e3b8e7.link"))
 	if err != nil {
@@ -50,4 +47,51 @@ func TestED25519SignerVerifierWithMetablockFileAndPEMKey(t *testing.T) {
 
 	err = sv.Verify(encodedBytes, decodedSig)
 	assert.Nil(t, err)
+}
+
+func TestSignED25519(t *testing.T) {
+	key, err := LoadKey(ed25519PrivateKey)
+	assert.NoError(t, err)
+
+	sv, err := NewED25519SignerVerifierFromSSLibKey(key)
+	assert.NoError(t, err)
+
+	signed, err := sv.Sign([]byte("data"))
+	assert.NoError(t, err)
+	assert.NotNil(t, signed)
+}
+
+func TestVerifyED25519(t *testing.T) {
+	key, err := LoadKey(ed25519PublicKey)
+	assert.NoError(t, err)
+
+	sv, err := NewED25519SignerVerifierFromSSLibKey(key)
+	assert.NoError(t, err)
+
+	sig := "lMUNogZzwUQwo1FX7mv00H61rgKvVXwyLDBlLsfjgj0YS9LVVp7kMO+VbEOEvVTA3w5yPDVfwBqLyXfYmFFXCw=="
+	decodedSig, _ := base64.StdEncoding.DecodeString(sig)
+	err = sv.Verify([]byte("data"), decodedSig)
+	assert.NoError(t, err)
+}
+
+func TestKeyIDED25519(t *testing.T) {
+	key, err := LoadKey(ed25519PublicKey)
+	assert.NoError(t, err)
+
+	sv, err := NewED25519SignerVerifierFromSSLibKey(key)
+	assert.NoError(t, err)
+	id, err := sv.KeyID()
+	assert.NoError(t, err)
+	assert.NotNil(t, id)
+}
+
+func TestPublicED25519(t *testing.T) {
+	key, err := LoadKey(ed25519PublicKey)
+	assert.NoError(t, err)
+
+	sv, err := NewED25519SignerVerifierFromSSLibKey(key)
+	assert.NoError(t, err)
+
+	pk := sv.Public()
+	assert.NotNil(t, pk)
 }

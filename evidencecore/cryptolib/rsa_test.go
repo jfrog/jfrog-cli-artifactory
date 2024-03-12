@@ -1,6 +1,7 @@
 package cryptolib
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"github.com/secure-systems-lab/go-securesystemslib/cjson"
 	"github.com/stretchr/testify/assert"
@@ -11,14 +12,10 @@ import (
 
 func TestRsaSignerVerifierWithMetablockFileAndPEMKey(t *testing.T) {
 	key, err := LoadKey(rsaPublicKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	sv, err := NewRSAPSSSignerVerifierFromSSLibKey(key)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 
 	metadataBytes, err := os.ReadFile(filepath.Join("testdata", "test-rsa.4e8d20af.link"))
 	if err != nil {
@@ -43,4 +40,51 @@ func TestRsaSignerVerifierWithMetablockFileAndPEMKey(t *testing.T) {
 	_, err = cjson.EncodeCanonical(mb.Signed)
 	assert.Nil(t, err)
 
+}
+
+func TestSignRSA(t *testing.T) {
+	key, err := LoadKey(rsaPrivateKey)
+	assert.NoError(t, err)
+
+	sv, err := NewRSAPSSSignerVerifierFromSSLibKey(key)
+	assert.NoError(t, err)
+
+	signed, err := sv.Sign([]byte("data"))
+	assert.NoError(t, err)
+	assert.NotNil(t, signed)
+}
+
+func TestVerifyRSA(t *testing.T) {
+	key, err := LoadKey(rsaPublicKey)
+	assert.NoError(t, err)
+
+	sv, err := NewRSAPSSSignerVerifierFromSSLibKey(key)
+	assert.NoError(t, err)
+
+	sig := "tiG+euVE8T4huGOd+JjTroPq1S7cIAEJD9ggRw3uyw7aOTqHbx95Sj28Dx4nyqvhvbZZXQn5crqx5fhmdCOlFnBdzf/qgZyQ3AQ4Br9j/qwdCPcHop43v7o093Or6Xms0ikG11PpOIormXYktmU8v0qIajZ76ILCUnCZN5MfzDJ7Xg8AN5FU7lIaeyb4H0TLqiGukKu99cvC863aI3dmNz3UAz2wWwZmltCZCuO6wy71ABgPpI2RjPKR00XdTHaGSrswP+uFlhlqBIh8RDqWhHlEx9U8bpeBrgb2Y9DL/NSgMrgIWigm7yKr5Gym7cj5HfCPaQIAei6jR+DN2xhCDlvgN1Ztljipan5b9CSE+47Nz47ttIi3abDGU/QUbRob525NPr1b8oqjrUXu4cWYPsNiiMlioh0cF8o0U2lnKy9TnP3FlzEYGfCt5XjDnyuilWJC7y5shFCFC6qtsiS5AbsDVGl+OU2004fM+zXo5AcUhPJsJpgoPjBX33X9JgXf"
+	decodedSig, _ := base64.StdEncoding.DecodeString(sig)
+	err = sv.Verify([]byte("data"), decodedSig)
+	assert.NoError(t, err)
+}
+
+func TestKeyIDRSA(t *testing.T) {
+	key, err := LoadKey(rsaPublicKey)
+	assert.NoError(t, err)
+
+	sv, err := NewRSAPSSSignerVerifierFromSSLibKey(key)
+	assert.NoError(t, err)
+	id, err := sv.KeyID()
+	assert.NoError(t, err)
+	assert.NotNil(t, id)
+}
+
+func TestPublicRSA(t *testing.T) {
+	key, err := LoadKey(rsaPublicKey)
+	assert.NoError(t, err)
+
+	sv, err := NewRSAPSSSignerVerifierFromSSLibKey(key)
+	assert.NoError(t, err)
+
+	pk := sv.Public()
+	assert.NotNil(t, pk)
 }

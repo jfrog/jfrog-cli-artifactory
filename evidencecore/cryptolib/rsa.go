@@ -8,7 +8,6 @@ import (
 	"crypto/x509"
 	"fmt"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
-	"strings"
 )
 
 const (
@@ -99,47 +98,6 @@ func (sv *RSAPSSSignerVerifier) KeyID() (string, error) {
 // RSAPSSSignerVerifier instance.
 func (sv *RSAPSSSignerVerifier) Public() crypto.PublicKey {
 	return sv.public
-}
-
-// LoadRSAPSSKeyFromBytes is a function that takes a byte array as input. This
-// byte array should represent a PEM encoded RSA key, as PEM encoding is
-// required.  The function returns an SSLibKey instance, which is a struct that
-// holds the key data.
-//
-// Deprecated: use LoadKey() for all key types, RSA is no longer the only key
-// that uses PEM serialization.
-func LoadRSAPSSKeyFromBytes(contents []byte) (*SSLibKey, error) {
-	pemData, keyObj, err := decodeAndParsePEM(contents)
-	if err != nil {
-		return nil, errorutils.CheckError(fmt.Errorf("unable to load RSA key from file: %w", err))
-	}
-
-	key := &SSLibKey{
-		KeyType:             RSAKeyType,
-		Scheme:              RSAKeyScheme,
-		KeyIDHashAlgorithms: KeyIDHashAlgorithms,
-		KeyVal:              KeyVal{},
-	}
-
-	pubKeyBytes, err := marshalAndGeneratePEM(keyObj)
-	if err != nil {
-		return nil, errorutils.CheckError(fmt.Errorf("unable to load RSA key from file: %w", err))
-	}
-	key.KeyVal.Public = strings.TrimSpace(string(pubKeyBytes))
-
-	if _, ok := keyObj.(*rsa.PrivateKey); ok {
-		key.KeyVal.Private = strings.TrimSpace(string(generatePEMBlock(pemData.Bytes, RSAPrivateKeyPEM)))
-	}
-
-	if len(key.KeyID) == 0 {
-		keyID, err := calculateKeyID(key)
-		if err != nil {
-			return nil, errorutils.CheckError(fmt.Errorf("unable to load RSA key from file: %w", err))
-		}
-		key.KeyID = keyID
-	}
-
-	return key, nil
 }
 
 func marshalAndGeneratePEM(key interface{}) ([]byte, error) {

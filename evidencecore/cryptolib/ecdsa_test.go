@@ -1,6 +1,7 @@
 package cryptolib
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"github.com/secure-systems-lab/go-securesystemslib/cjson"
 	"github.com/stretchr/testify/assert"
@@ -44,4 +45,56 @@ func TestECDSASignerVerifierWithMetablockFileAndPEMKey(t *testing.T) {
 
 	err = sv.Verify(encodedBytes, decodedSig)
 	assert.Nil(t, err)
+}
+
+func TestSignECDSA(t *testing.T) {
+	key, err := LoadKey(ecdsaPrivateKey)
+	assert.NoError(t, err)
+
+	sv, err := NewECDSASignerVerifierFromSSLibKey(key)
+	assert.NoError(t, err)
+
+	signed, err := sv.Sign([]byte("data"))
+	assert.NoError(t, err)
+	assert.NotNil(t, signed)
+}
+
+func TestVerifyECDSA(t *testing.T) {
+	key, err := LoadKey(ecdsaPublicKey)
+	assert.NoError(t, err)
+
+	sv, err := NewECDSASignerVerifierFromSSLibKey(key)
+	assert.NoError(t, err)
+
+	sig := "MEQCICnduG51TlGtJPP7ziZaVcTRV97TkLrKQRUFl+s4IaQfAiBKVltC5NzHTRC2iqwg7KTaiC693CJjiIOkJMFOgq4jfQ=="
+	decodedSig, _ := base64.StdEncoding.DecodeString(sig)
+	err = sv.Verify([]byte("data"), decodedSig)
+	assert.NoError(t, err)
+}
+
+func TestKeyIDECDSA(t *testing.T) {
+	key, err := LoadKey(ecdsaPublicKey)
+	assert.NoError(t, err)
+
+	sv, err := NewECDSASignerVerifierFromSSLibKey(key)
+	assert.NoError(t, err)
+	id, err := sv.KeyID()
+	assert.NoError(t, err)
+	assert.NotNil(t, id)
+}
+
+func TestPublicECDSA(t *testing.T) {
+	key, err := LoadKey(ecdsaPublicKey)
+	assert.NoError(t, err)
+
+	sv, err := NewECDSASignerVerifierFromSSLibKey(key)
+	assert.NoError(t, err)
+
+	pk := sv.Public()
+	assert.NotNil(t, pk)
+}
+
+func TestGetECDSAHashedData(t *testing.T) {
+	data := getECDSAHashedData([]byte("data"), 256)
+	assert.NotNil(t, data)
 }
