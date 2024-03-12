@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"fmt"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
 const (
@@ -27,17 +28,17 @@ type ECDSASignerVerifier struct {
 // SSLibKey.
 func NewECDSASignerVerifierFromSSLibKey(key *SSLibKey) (*ECDSASignerVerifier, error) {
 	if len(key.KeyVal.Public) == 0 {
-		return nil, ErrInvalidKey
+		return nil, errorutils.CheckError(ErrInvalidKey)
 	}
 
 	_, publicParsedKey, err := decodeAndParsePEM([]byte(key.KeyVal.Public))
 	if err != nil {
-		return nil, fmt.Errorf("unable to create ECDSA signerverifier: %w", err)
+		return nil, errorutils.CheckError(fmt.Errorf("unable to create ECDSA signerverifier: %w", err))
 	}
 
 	puk, ok := publicParsedKey.(*ecdsa.PublicKey)
 	if !ok {
-		return nil, fmt.Errorf("couldnt convert to ecdsa public key")
+		return nil, errorutils.CheckError(fmt.Errorf("couldnt convert to ecdsa public key"))
 	}
 	sv := &ECDSASignerVerifier{
 		keyID:     key.KeyID,
@@ -49,12 +50,12 @@ func NewECDSASignerVerifierFromSSLibKey(key *SSLibKey) (*ECDSASignerVerifier, er
 	if len(key.KeyVal.Private) > 0 {
 		_, privateParsedKey, err := decodeAndParsePEM([]byte(key.KeyVal.Private))
 		if err != nil {
-			return nil, fmt.Errorf("unable to create ECDSA signerverifier: %w", err)
+			return nil, errorutils.CheckError(fmt.Errorf("unable to create ECDSA signerverifier: %w", err))
 		}
 
 		pk, ok := privateParsedKey.(*ecdsa.PrivateKey)
 		if !ok {
-			return nil, fmt.Errorf("couldnt convert to ecdsa private key")
+			return nil, errorutils.CheckError(fmt.Errorf("couldnt convert to ecdsa private key"))
 		}
 		sv.private = pk
 	}
@@ -65,7 +66,7 @@ func NewECDSASignerVerifierFromSSLibKey(key *SSLibKey) (*ECDSASignerVerifier, er
 // Sign creates a signature for `data`.
 func (sv *ECDSASignerVerifier) Sign(data []byte) ([]byte, error) {
 	if sv.private == nil {
-		return nil, ErrNotPrivateKey
+		return nil, errorutils.CheckError(ErrNotPrivateKey)
 	}
 
 	hashedData := getECDSAHashedData(data, sv.curveSize)
@@ -78,7 +79,7 @@ func (sv *ECDSASignerVerifier) Verify(data []byte, sig []byte) error {
 	hashedData := getECDSAHashedData(data, sv.curveSize)
 
 	if ok := ecdsa.VerifyASN1(sv.public, hashedData, sig); !ok {
-		return ErrSignatureVerificationFailed
+		return errorutils.CheckError(ErrSignatureVerificationFailed)
 	}
 
 	return nil

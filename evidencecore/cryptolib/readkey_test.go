@@ -3,12 +3,13 @@ package cryptolib
 import (
 	"github.com/stretchr/testify/assert"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
 func TestReadKey(t *testing.T) {
-	files, err := os.ReadDir("test-data")
-	assert.Nil(t, err)
+	files, err := os.ReadDir("testdata")
+	assert.NoError(t, err)
 	assert.Equal(t, 14, len(files))
 	var keyFiles []os.DirEntry
 	keysToValidate := []string{"ecdsa-test-key-pem", "ed25519-test-key-pem", "rsa-test-key"}
@@ -23,9 +24,9 @@ func TestReadKey(t *testing.T) {
 	assert.Equal(t, 3, len(keyFiles))
 
 	for _, file := range keyFiles {
-		keyFile, err := os.ReadFile("test-data" + "/" + file.Name())
+		keyFile, err := os.ReadFile(filepath.Join("testdata", file.Name()))
 		assert.Nil(t, err)
-		keys, err := ReadKey(keyFile) // "test-data"
+		keys, err := ReadKey(keyFile)
 		assert.Nil(t, err)
 		assert.NotNil(t, keys)
 	}

@@ -4,9 +4,9 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"hash"
 	"testing"
 
@@ -24,28 +24,6 @@ var (
 	ErrFailedPEMParsing = errors.New("failed parsing the PEM block: unsupported PEM type")
 )
 
-// LoadKeyFromSSLibBytes returns a pointer to a Key instance created from the
-// contents of the bytes. The key contents are expected to be in the custom
-// securesystemslib format.
-//
-// Deprecated: use LoadKey() for all key types, RSA is no longer the only key
-// that uses PEM serialization.
-func LoadKeyFromSSLibBytes(contents []byte) (*SSLibKey, error) {
-	var key *SSLibKey
-	if err := json.Unmarshal(contents, &key); err != nil {
-		return LoadRSAPSSKeyFromBytes(contents)
-	}
-	if len(key.KeyID) == 0 {
-		keyID, err := calculateKeyID(key)
-		if err != nil {
-			return nil, err
-		}
-		key.KeyID = keyID
-	}
-
-	return key, nil
-}
-
 func calculateKeyID(k *SSLibKey) (string, error) {
 	key := map[string]any{
 		"keytype":               k.KeyType,
@@ -57,7 +35,7 @@ func calculateKeyID(k *SSLibKey) (string, error) {
 	}
 	canonical, err := cjson.EncodeCanonical(key)
 	if err != nil {
-		return "", err
+		return "", errorutils.CheckError(err)
 	}
 	digest := sha256.Sum256(canonical)
 	return hex.EncodeToString(digest[:]), nil
@@ -94,7 +72,7 @@ func decodeAndParsePEM(pemBytes []byte) (*pem.Block, any, error) {
 	// Therefore we can drop this via using the blank identifier "_"
 	data, _ := pem.Decode(pemBytes)
 	if data == nil {
-		return nil, nil, ErrNoPEMBlock
+		return nil, nil, errorutils.CheckError(ErrNoPEMBlock)
 	}
 
 	// Try to load private key, if this fails try to load
@@ -134,7 +112,7 @@ func parsePEMKey(data []byte) (any, error) {
 	if err == nil {
 		return key, nil
 	}
-	return nil, ErrFailedPEMParsing
+	return nil, errorutils.CheckErrorf("PEM parsing failed %w", ErrFailedPEMParsing)
 }
 
 func hashBeforeSigning(data []byte, h hash.Hash) []byte {
@@ -142,11 +120,11 @@ func hashBeforeSigning(data []byte, h hash.Hash) []byte {
 	return h.Sum(nil)
 }
 
-func hexDecode(t *testing.T, data string) []byte {
+func hexDecode(t *testing.T, data string) ([]byte, error) {
 	t.Helper()
 	b, err := hex.DecodeString(data)
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
-	return b
+	return b, nil
 }

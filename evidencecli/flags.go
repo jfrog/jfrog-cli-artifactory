@@ -1,4 +1,4 @@
-package docs
+package evidencecli
 
 import (
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
@@ -34,18 +34,18 @@ const (
 var flagsMap = map[string]components.Flag{
 	// Common commands flags
 	ServerId:    components.NewStringFlag(ServerId, "Server ID configured using the config command."),
-	url:         components.NewStringFlag(url, "JFrog Xray URL."),
+	url:         components.NewStringFlag(url, "JFrog Platform URL."),
 	user:        components.NewStringFlag(user, "JFrog username."),
 	password:    components.NewStringFlag(password, "JFrog password."),
 	accessToken: components.NewStringFlag(accessToken, "JFrog access token."),
 
-	EvdPredicate:     components.NewStringFlag(EvdPredicate, "[Mandatory] Path for a file containing the predicate. The file should contain a valid JSON predicate.` `"),
-	EvdPredicateType: components.NewStringFlag(EvdPredicateType, "[Mandatory] The type of the predicate.` `"),
-	EvdSubjects:      components.NewStringFlag(EvdSubjects, "[Mandatory] Path for a file containing the subject.` `"),
-	EvdKey:           components.NewStringFlag(EvdKey, "[Mandatory] Path for a key pair (pk, puk).` `"),
-	EvdKeyId:         components.NewStringFlag(EvdKeyId, "[Optional] KeyId` `"),
-	EvdName:          components.NewStringFlag(EvdName, "[Optional] The name of the evidence to be created.` `"),
-	EvdOverride:      components.NewBoolFlag(EvdOverride, "[Default: false] Set to true to override evidence, if exists, in Artifactory.` `"),
+	EvdPredicate:     components.NewStringFlag(EvdPredicate, "[Mandatory] Path for a file containing the predicate. The file should contain a valid JSON predicate."),
+	EvdPredicateType: components.NewStringFlag(EvdPredicateType, "[Mandatory] The type of the predicate."),
+	EvdSubjects:      components.NewStringFlag(EvdSubjects, "[Mandatory] Path for a file containing the subject."),
+	EvdKey:           components.NewStringFlag(EvdKey, "[Mandatory] Path for a key pair (pk, puk)."),
+	EvdKeyId:         components.NewStringFlag(EvdKeyId, "[Optional] KeyId"),
+	EvdName:          components.NewStringFlag(EvdName, "[Optional] The name of the evidence to be created."),
+	EvdOverride:      components.NewBoolFlag(EvdOverride, "[Default: false] Set to true to override evidence, if exists, in Artifactory."),
 }
 var commandFlags = map[string][]string{
 	CreateEvidence: {

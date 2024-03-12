@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"strings"
 )
 
@@ -48,7 +49,7 @@ type KeyVal struct {
 func LoadKey(keyBytes []byte) (*SSLibKey, error) {
 	pemBlock, rawKey, err := decodeAndParsePEM(keyBytes)
 	if err != nil {
-		return nil, err
+		return nil, errorutils.CheckError(err)
 	}
 
 	var key *SSLibKey
@@ -56,7 +57,7 @@ func LoadKey(keyBytes []byte) (*SSLibKey, error) {
 	case *rsa.PublicKey:
 		pubKeyBytes, err := x509.MarshalPKIXPublicKey(k)
 		if err != nil {
-			return nil, err
+			return nil, errorutils.CheckError(err)
 		}
 		key = &SSLibKey{
 			KeyIDHashAlgorithms: KeyIDHashAlgorithms,
@@ -70,7 +71,7 @@ func LoadKey(keyBytes []byte) (*SSLibKey, error) {
 	case *rsa.PrivateKey:
 		pubKeyBytes, err := x509.MarshalPKIXPublicKey(k.Public())
 		if err != nil {
-			return nil, err
+			return nil, errorutils.CheckError(err)
 		}
 		key = &SSLibKey{
 			KeyIDHashAlgorithms: KeyIDHashAlgorithms,
@@ -96,7 +97,7 @@ func LoadKey(keyBytes []byte) (*SSLibKey, error) {
 		pubKeyBytes := k.Public()
 		pukBytes, ok := pubKeyBytes.(ed25519.PublicKey)
 		if !ok {
-			return nil, fmt.Errorf("couldnt convert to ecdsa public key bytes")
+			return nil, errorutils.CheckError(fmt.Errorf("couldnt convert to ecdsa public key bytes"))
 		}
 		key = &SSLibKey{
 			KeyIDHashAlgorithms: KeyIDHashAlgorithms,
@@ -111,7 +112,7 @@ func LoadKey(keyBytes []byte) (*SSLibKey, error) {
 	case *ecdsa.PublicKey:
 		pubKeyBytes, err := x509.MarshalPKIXPublicKey(k)
 		if err != nil {
-			return nil, err
+			return nil, errorutils.CheckError(err)
 		}
 		key = &SSLibKey{
 			KeyIDHashAlgorithms: KeyIDHashAlgorithms,
@@ -125,7 +126,7 @@ func LoadKey(keyBytes []byte) (*SSLibKey, error) {
 	case *ecdsa.PrivateKey:
 		pubKeyBytes, err := x509.MarshalPKIXPublicKey(k.Public())
 		if err != nil {
-			return nil, err
+			return nil, errorutils.CheckError(err)
 		}
 		key = &SSLibKey{
 			KeyIDHashAlgorithms: KeyIDHashAlgorithms,
@@ -138,12 +139,12 @@ func LoadKey(keyBytes []byte) (*SSLibKey, error) {
 		}
 
 	default:
-		return nil, ErrUnknownKeyType
+		return nil, errorutils.CheckError(ErrUnknownKeyType)
 	}
 
 	keyID, err := calculateKeyID(key)
 	if err != nil {
-		return nil, err
+		return nil, errorutils.CheckError(err)
 	}
 	key.KeyID = keyID
 

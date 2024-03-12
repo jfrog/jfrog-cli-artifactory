@@ -3,6 +3,7 @@ package dsse
 import (
 	"encoding/base64"
 	"errors"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
 // ErrNoSigners indicates that no signer was provided.
@@ -17,17 +18,17 @@ type EnvelopeSigner struct {
 NewEnvelopeSigner creates an EnvelopeSigner that uses 1+ Signer algorithms to
 sign the data.
 */
-func NewEnvelopeSigner(p ...Signer) (*EnvelopeSigner, error) {
+func NewEnvelopeSigner(singer ...Signer) (*EnvelopeSigner, error) {
 	var providers []Signer
 
-	for _, s := range p {
+	for _, s := range singer {
 		if s != nil {
 			providers = append(providers, s)
 		}
 	}
 
 	if len(providers) == 0 {
-		return nil, ErrNoSigners
+		return nil, errorutils.CheckError(ErrNoSigners)
 	}
 
 	return &EnvelopeSigner{

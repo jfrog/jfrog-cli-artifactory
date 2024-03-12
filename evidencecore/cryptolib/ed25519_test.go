@@ -20,7 +20,7 @@ func TestED25519SignerVerifierWithMetablockFileAndPEMKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	metadataBytes, err := os.ReadFile(filepath.Join("test-data", "test-ed25519.52e3b8e7.link"))
+	metadataBytes, err := os.ReadFile(filepath.Join("testdata", "test-ed25519.52e3b8e7.link"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,8 @@ func TestED25519SignerVerifierWithMetablockFileAndPEMKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	decodedSig := hexDecode(t, mb.Signatures[0].Sig)
+	decodedSig, err := hexDecode(t, mb.Signatures[0].Sig)
+	assert.Nil(t, err)
 
 	err = sv.Verify(encodedBytes, decodedSig)
 	assert.Nil(t, err)

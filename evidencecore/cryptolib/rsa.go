@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"fmt"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"strings"
 )
 
@@ -28,28 +29,28 @@ type RSAPSSSignerVerifier struct {
 // SSLibKey.
 func NewRSAPSSSignerVerifierFromSSLibKey(key *SSLibKey) (*RSAPSSSignerVerifier, error) {
 	if len(key.KeyVal.Public) == 0 {
-		return nil, ErrInvalidKey
+		return nil, errorutils.CheckError(ErrInvalidKey)
 	}
 
 	_, publicParsedKey, err := decodeAndParsePEM([]byte(key.KeyVal.Public))
 	if err != nil {
-		return nil, fmt.Errorf("unable to create RSA-PSS signerverifier: %w", err)
+		return nil, errorutils.CheckError(fmt.Errorf("unable to create RSA-PSS signerverifier: %w", err))
 	}
 
 	puk, ok := publicParsedKey.(*rsa.PublicKey)
 	if !ok {
-		return nil, fmt.Errorf("couldnt convert to rsa public key")
+		return nil, errorutils.CheckError(fmt.Errorf("couldnt convert to rsa public key"))
 	}
 
 	if len(key.KeyVal.Private) > 0 {
 		_, privateParsedKey, err := decodeAndParsePEM([]byte(key.KeyVal.Private))
 		if err != nil {
-			return nil, fmt.Errorf("unable to create RSA-PSS signerverifier: %w", err)
+			return nil, errorutils.CheckError(fmt.Errorf("unable to create RSA-PSS signerverifier: %w", err))
 		}
 
 		pkParsed, ok := privateParsedKey.(*rsa.PrivateKey)
 		if !ok {
-			return nil, fmt.Errorf("couldnt convert to rsa private key")
+			return nil, errorutils.CheckError(fmt.Errorf("couldnt convert to rsa private key"))
 		}
 
 		return &RSAPSSSignerVerifier{
@@ -69,7 +70,7 @@ func NewRSAPSSSignerVerifierFromSSLibKey(key *SSLibKey) (*RSAPSSSignerVerifier, 
 // Sign creates a signature for `data`.
 func (sv *RSAPSSSignerVerifier) Sign(data []byte) ([]byte, error) {
 	if sv.private == nil {
-		return nil, ErrNotPrivateKey
+		return nil, errorutils.CheckError(ErrNotPrivateKey)
 	}
 
 	hashedData := hashBeforeSigning(data, sha256.New())
@@ -82,7 +83,7 @@ func (sv *RSAPSSSignerVerifier) Verify(data []byte, sig []byte) error {
 	hashedData := hashBeforeSigning(data, sha256.New())
 
 	if err := rsa.VerifyPKCS1v15(sv.public, crypto.SHA256, hashedData, sig); err != nil {
-		return ErrSignatureVerificationFailed
+		return errorutils.CheckError(ErrSignatureVerificationFailed)
 	}
 
 	return nil
@@ -110,7 +111,7 @@ func (sv *RSAPSSSignerVerifier) Public() crypto.PublicKey {
 func LoadRSAPSSKeyFromBytes(contents []byte) (*SSLibKey, error) {
 	pemData, keyObj, err := decodeAndParsePEM(contents)
 	if err != nil {
-		return nil, fmt.Errorf("unable to load RSA key from file: %w", err)
+		return nil, errorutils.CheckError(fmt.Errorf("unable to load RSA key from file: %w", err))
 	}
 
 	key := &SSLibKey{
@@ -122,7 +123,7 @@ func LoadRSAPSSKeyFromBytes(contents []byte) (*SSLibKey, error) {
 
 	pubKeyBytes, err := marshalAndGeneratePEM(keyObj)
 	if err != nil {
-		return nil, fmt.Errorf("unable to load RSA key from file: %w", err)
+		return nil, errorutils.CheckError(fmt.Errorf("unable to load RSA key from file: %w", err))
 	}
 	key.KeyVal.Public = strings.TrimSpace(string(pubKeyBytes))
 
@@ -133,7 +134,7 @@ func LoadRSAPSSKeyFromBytes(contents []byte) (*SSLibKey, error) {
 	if len(key.KeyID) == 0 {
 		keyID, err := calculateKeyID(key)
 		if err != nil {
-			return nil, fmt.Errorf("unable to load RSA key from file: %w", err)
+			return nil, errorutils.CheckError(fmt.Errorf("unable to load RSA key from file: %w", err))
 		}
 		key.KeyID = keyID
 	}
@@ -151,11 +152,11 @@ func marshalAndGeneratePEM(key interface{}) ([]byte, error) {
 	case *rsa.PrivateKey:
 		pubKeyBytes, err = x509.MarshalPKIXPublicKey(k.Public())
 	default:
-		return nil, fmt.Errorf("unexpected key type: %T", k)
+		return nil, errorutils.CheckError(fmt.Errorf("unexpected key type: %T", k))
 	}
 
 	if err != nil {
-		return nil, err
+		return nil, errorutils.CheckError(err)
 	}
 
 	return generatePEMBlock(pubKeyBytes, PublicKeyPEM), nil

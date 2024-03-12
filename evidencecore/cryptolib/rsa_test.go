@@ -20,7 +20,7 @@ func TestRsaSignerVerifierWithMetablockFileAndPEMKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	metadataBytes, err := os.ReadFile(filepath.Join("test-data", "test-rsa.4e8d20af.link"))
+	metadataBytes, err := os.ReadFile(filepath.Join("testdata", "test-rsa.4e8d20af.link"))
 	if err != nil {
 		t.Fatal(err)
 	}

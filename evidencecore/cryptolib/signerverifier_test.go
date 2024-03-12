@@ -9,25 +9,25 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-//go:embed test-data/rsa-test-key
+//go:embed testdata/rsa-test-key
 var rsaPrivateKey []byte
 
-//go:embed test-data/rsa-test-key-pkcs8
+//go:embed testdata/rsa-test-key-pkcs8
 var rsaPrivateKeyPKCS8 []byte
 
-//go:embed test-data/rsa-test-key.pub
+//go:embed testdata/rsa-test-key.pub
 var rsaPublicKey []byte
 
-//go:embed test-data/ed25519-test-key-pem
+//go:embed testdata/ed25519-test-key-pem
 var ed25519PrivateKey []byte
 
-//go:embed test-data/ed25519-test-key-pem.pub
+//go:embed testdata/ed25519-test-key-pem.pub
 var ed25519PublicKey []byte
 
-//go:embed test-data/ecdsa-test-key-pem
+//go:embed testdata/ecdsa-test-key-pem
 var ecdsaPrivateKey []byte
 
-//go:embed test-data/ecdsa-test-key-pem.pub
+//go:embed testdata/ecdsa-test-key-pem.pub
 var ecdsaPublicKey []byte
 
 func TestLoadKey(t *testing.T) {

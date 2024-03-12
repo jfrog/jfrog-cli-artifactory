@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	plugins.PluginMain(evidencecli.GetJfrogCliArtifactoryApp())
+	plugins.PluginMain(GetJfrogCliArtifactoryApp())
 }
 
 func GetJfrogCliArtifactoryApp() components.App {

@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
 const ED25519KeyType = "ed25519"
@@ -21,19 +22,19 @@ type ED25519SignerVerifier struct {
 // SSLibKey.
 func NewED25519SignerVerifierFromSSLibKey(key *SSLibKey) (*ED25519SignerVerifier, error) {
 	if len(key.KeyVal.Public) == 0 {
-		return nil, ErrInvalidKey
+		return nil, errorutils.CheckError(ErrInvalidKey)
 	}
 
 	public, err := hex.DecodeString(key.KeyVal.Public)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create ED25519 signerverifier: %w", err)
+		return nil, errorutils.CheckError(fmt.Errorf("unable to create ED25519 signerverifier: %w", err))
 	}
 
 	var private []byte
 	if len(key.KeyVal.Private) > 0 {
 		private, err = hex.DecodeString(key.KeyVal.Private)
 		if err != nil {
-			return nil, fmt.Errorf("unable to create ED25519 signerverifier: %w", err)
+			return nil, errorutils.CheckError(fmt.Errorf("unable to create ED25519 signerverifier: %w", err))
 		}
 
 		// python-securesystemslib provides an interface to generate ed25519
@@ -57,7 +58,7 @@ func NewED25519SignerVerifierFromSSLibKey(key *SSLibKey) (*ED25519SignerVerifier
 // Sign creates a signature for `data`.
 func (sv *ED25519SignerVerifier) Sign(data []byte) ([]byte, error) {
 	if len(sv.private) == 0 {
-		return nil, ErrNotPrivateKey
+		return nil, errorutils.CheckError(ErrNotPrivateKey)
 	}
 
 	signature := ed25519.Sign(sv.private, data)
@@ -69,7 +70,7 @@ func (sv *ED25519SignerVerifier) Verify(data []byte, sig []byte) error {
 	if ok := ed25519.Verify(sv.public, data, sig); ok {
 		return nil
 	}
-	return ErrSignatureVerificationFailed
+	return errorutils.CheckError(ErrSignatureVerificationFailed)
 }
 
 // KeyID returns the identifier of the key used to create the

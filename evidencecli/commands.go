@@ -2,9 +2,8 @@ package evidencecli
 
 import (
 	"errors"
-	"github.com/jfrog/jfrog-cli-artifactory/evidencecli/docs"
 	"github.com/jfrog/jfrog-cli-artifactory/evidencecli/docs/createevidence"
-	"github.com/jfrog/jfrog-cli-artifactory/evidencecli/docs/verifyevidence"
+	verify "github.com/jfrog/jfrog-cli-artifactory/evidencecli/docs/verifyevidence"
 	"github.com/jfrog/jfrog-cli-artifactory/evidencecore"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
@@ -20,55 +19,55 @@ func GetCommands() []components.Command {
 		{
 			Name:        "create-evidence",
 			Aliases:     []string{"attest", "att"},
-			Flags:       docs.GetCommandFlags(docs.CreateEvidence),
-			Description: createevidence.GetDescription(),
-			Arguments:   createevidence.GetArguments(),
-			Action:      createEvidenceCmd,
+			Flags:       GetCommandFlags(CreateEvidence),
+			Description: attest.GetDescription(),
+			Arguments:   attest.GetArguments(),
+			Action:      createEvidence,
 		},
 		{
 			Name:        "verify-evidence",
 			Aliases:     []string{"verify", "v"},
-			Flags:       docs.GetCommandFlags(docs.VerifyEvidence),
-			Description: verifyevidence.GetDescription(),
-			Arguments:   verifyevidence.GetArguments(),
-			Action:      verifyEvidenceCmd,
+			Flags:       GetCommandFlags(VerifyEvidence),
+			Description: verify.GetDescription(),
+			Arguments:   verify.GetArguments(),
+			Action:      verifyEvidence,
 		},
 	}
 }
 
-func PlatformToEvidenceUrls(evdDetails *coreConfig.ServerDetails) {
+func platformToEvidenceUrls(evdDetails *coreConfig.ServerDetails) {
 	evdDetails.ArtifactoryUrl = utils.AddTrailingSlashIfNeeded(evdDetails.Url) + "artifactory/"
 	evdDetails.LifecycleUrl = utils.AddTrailingSlashIfNeeded(evdDetails.Url) + "lifecycle/"
 	evdDetails.Url = ""
 }
 
-func createEvidenceCmd(c *components.Context) error {
+func createEvidence(c *components.Context) error {
 	if err := validateCreateEvidenceContext(c); err != nil {
 		return err
 	}
 
-	evdDetails, err := evidenceDetailsByFlags(c)
+	artifactoryClient, err := evidenceDetailsByFlags(c)
 	if err != nil {
 		return err
 	}
 
-	createCmd := evidencecore.NewEvidenceCreateCommand().SetServerDetails(evdDetails).SetPredicateFilePath(c.GetStringFlagValue(docs.EvdPredicate)).
-		SetPredicateType(c.GetStringFlagValue(docs.EvdPredicateType)).SetSubjects(c.GetStringFlagValue(docs.EvdSubjects)).SetKey(c.GetStringFlagValue(docs.EvdKey)).
-		SetKeyId(c.GetStringFlagValue(docs.EvdKeyId)).SetEvidenceName(c.GetStringFlagValue(docs.EvdName)).SetOverride(c.GetBoolFlagValue(docs.EvdOverride))
+	createCmd := evidencecore.NewEvidenceCreateCommand().SetServerDetails(artifactoryClient).SetPredicateFilePath(c.GetStringFlagValue(EvdPredicate)).
+		SetPredicateType(c.GetStringFlagValue(EvdPredicateType)).SetSubjects(c.GetStringFlagValue(EvdSubjects)).SetKey(c.GetStringFlagValue(EvdKey)).
+		SetKeyId(c.GetStringFlagValue(EvdKeyId)).SetEvidenceName(c.GetStringFlagValue(EvdName)).SetOverride(c.GetBoolFlagValue(EvdOverride))
 	return commands.Exec(createCmd)
 }
 
-func verifyEvidenceCmd(c *components.Context) error {
+func verifyEvidence(c *components.Context) error {
 	if err := validateVerifyEvidenceContext(c); err != nil {
 		return err
 	}
 
-	evdDetails, err := evidenceDetailsByFlags(c)
+	artifactoryClient, err := evidenceDetailsByFlags(c)
 	if err != nil {
 		return err
 	}
 
-	verifyCmd := evidencecore.NewEvidenceVerifyCommand().SetServerDetails(evdDetails).SetKey(c.GetStringFlagValue(docs.EvdKey)).SetEvidenceName(c.GetStringFlagValue(docs.EvdName))
+	verifyCmd := evidencecore.NewEvidenceVerifyCommand().SetServerDetails(artifactoryClient).SetKey(c.GetStringFlagValue(EvdKey)).SetEvidenceName(c.GetStringFlagValue(EvdName))
 	return commands.Exec(verifyCmd)
 }
 
@@ -76,26 +75,26 @@ func validateVerifyEvidenceContext(c *components.Context) error {
 	if show, err := pluginsCommon.ShowCmdHelpIfNeeded(c, c.Arguments); show || err != nil {
 		return err
 	}
-	if !c.IsFlagSet(docs.EvdKey) || assertValueProvided(c, docs.EvdKey) != nil {
-		return errorutils.CheckErrorf("'key' is a mandatory fiels for creating a custom evidence: --%s", docs.EvdKey)
+	if !c.IsFlagSet(EvdKey) || assertValueProvided(c, EvdKey) != nil {
+		return errorutils.CheckErrorf("'key' is a mandatory field for creating a custom evidence: --%s", EvdKey)
 	}
-	if !c.IsFlagSet(docs.EvdName) || assertValueProvided(c, docs.EvdName) != nil {
-		return errorutils.CheckErrorf("'key' is a mandatory fiels for creating a custom evidence: --%s", docs.EvdName)
+	if !c.IsFlagSet(EvdName) || assertValueProvided(c, EvdName) != nil {
+		return errorutils.CheckErrorf("'key' is a mandatory field for creating a custom evidence: --%s", EvdName)
 	}
 
 	return nil
 }
 
 func evidenceDetailsByFlags(c *components.Context) (*coreConfig.ServerDetails, error) {
-	evdDetails, err := createServerDetailsWithConfigOffer(c)
+	artifactoryClient, err := pluginsCommon.CreateServerDetailsWithConfigOffer(c, true, commonCliUtils.Platform)
 	if err != nil {
 		return nil, err
 	}
-	if evdDetails.Url == "" {
+	if artifactoryClient.Url == "" {
 		return nil, errors.New("platform URL is mandatory for evidence commands")
 	}
-	PlatformToEvidenceUrls(evdDetails)
-	return evdDetails, nil
+	platformToEvidenceUrls(artifactoryClient)
+	return artifactoryClient, nil
 }
 
 func validateCreateEvidenceContext(c *components.Context) error {
@@ -107,17 +106,17 @@ func validateCreateEvidenceContext(c *components.Context) error {
 		return pluginsCommon.WrongNumberOfArgumentsHandler(c)
 	}
 
-	if !c.IsFlagSet(docs.EvdPredicate) || assertValueProvided(c, docs.EvdPredicate) != nil {
-		return errorutils.CheckErrorf("'predicate' is a mandatory fiels for creating a custom evidence: --%s", docs.EvdPredicate)
+	if !c.IsFlagSet(EvdPredicate) || assertValueProvided(c, EvdPredicate) != nil {
+		return errorutils.CheckErrorf("'predicate' is a mandatory field for creating a custom evidence: --%s", EvdPredicate)
 	}
-	if !c.IsFlagSet(docs.EvdPredicateType) || assertValueProvided(c, docs.EvdPredicateType) != nil {
-		return errorutils.CheckErrorf("'predicate' is a mandatory fiels for creating a custom evidence: --%s", docs.EvdPredicateType)
+	if !c.IsFlagSet(EvdPredicateType) || assertValueProvided(c, EvdPredicateType) != nil {
+		return errorutils.CheckErrorf("'predicate' is a mandatory field for creating a custom evidence: --%s", EvdPredicateType)
 	}
-	if !c.IsFlagSet(docs.EvdSubjects) || assertValueProvided(c, docs.EvdSubjects) != nil {
-		return errorutils.CheckErrorf("'subject' is a mandatory fiels for creating a custom evidence: --%s", docs.EvdSubjects)
+	if !c.IsFlagSet(EvdSubjects) || assertValueProvided(c, EvdSubjects) != nil {
+		return errorutils.CheckErrorf("'subjects' is a mandatory field for creating a custom evidence: --%s", EvdSubjects)
 	}
-	if !c.IsFlagSet(docs.EvdKey) || assertValueProvided(c, docs.EvdKey) != nil {
-		return errorutils.CheckErrorf("'key' is a mandatory fiels for creating a custom evidence: --%s", docs.EvdKey)
+	if !c.IsFlagSet(EvdKey) || assertValueProvided(c, EvdKey) != nil {
+		return errorutils.CheckErrorf("'key' is a mandatory field for creating a custom evidence: --%s", EvdKey)
 	}
 
 	return nil
@@ -128,8 +127,4 @@ func assertValueProvided(c *components.Context, fieldName string) error {
 		return errorutils.CheckErrorf("the --%s option is mandatory", fieldName)
 	}
 	return nil
-}
-
-func createServerDetailsWithConfigOffer(c *components.Context) (*coreConfig.ServerDetails, error) {
-	return pluginsCommon.CreateServerDetailsWithConfigOffer(c, true, commonCliUtils.Platform)
 }

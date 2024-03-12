@@ -3,6 +3,7 @@ package dsse
 import (
 	"encoding/base64"
 	"fmt"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 
 	"github.com/pkg/errors"
 )
@@ -17,10 +18,6 @@ type Signature struct {
 	KeyId string `json:"keyid"`
 	Sig   string `json:"sig"`
 }
-
-// type Verifier interface {
-// 	Verify(pae, signature []byte) error
-// }
 
 type Erroneous struct {
 	Error error
@@ -38,19 +35,19 @@ type GetVerifier func(keyId string) Verifier
 // of the envelope.
 func (e *Envelope) Verify(publicKeys ...Verifier) error {
 	if len(publicKeys) != len(e.Signatures) {
-		return errors.Errorf("envelope containes %d signatures, received %d keys", len(e.Signatures), len(publicKeys))
+		return errorutils.CheckErrorf("envelope contains %d signatures, received %d keys", len(e.Signatures), len(publicKeys))
 	}
 
 	for i, publicKey := range publicKeys {
 		signature := e.Signatures[i]
 		decodedSig, err := base64.StdEncoding.DecodeString(signature.Sig)
 		if err != nil {
-			return errors.Wrap(err, "decode envelope signature")
+			return errors.Wrap(errorutils.CheckError(err), "decode envelope signature")
 		}
 		pae := PAE(e.PayloadType, []byte(e.Payload))
 		err = publicKey.Verify(pae, decodedSig)
 		if err != nil {
-			return errors.Wrap(err, "verify envelope signature")
+			return errors.Wrap(errorutils.CheckError(err), "verify envelope signature")
 		}
 	}
 

@@ -2,7 +2,7 @@ package intoto
 
 import (
 	"encoding/json"
-	"errors"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"strings"
 
 	"github.com/jfrog/jfrog-client-go/artifactory"
@@ -15,7 +15,7 @@ type Statement struct {
 	Type          string          `json:"_type"`
 	Subject       []Descriptor    `json:"subject"`
 	PredicateType string          `json:"predicateType"`
-	Predicate     json.RawMessage `json:"predicate"`
+	Predicate     json.RawMessage `json:"predicate,omitempty"`
 }
 
 type Descriptor struct {
@@ -52,7 +52,7 @@ func (s *Statement) SetSubject(servicesManager artifactory.ArtifactoryServicesMa
 			return err
 		}
 		if subject.Digest.Sha256 != "" && res.Checksums.Sha256 != subject.Digest.Sha256 {
-			return errors.New("provided sha256 does not match the file's sha256")
+			return errorutils.CheckErrorf("provided sha256 does not match the file's sha256")
 		}
 		s.Subject[i].Digest.Sha256 = res.Checksums.Sha256
 	}
@@ -62,7 +62,7 @@ func (s *Statement) SetSubject(servicesManager artifactory.ArtifactoryServicesMa
 func (s *Statement) Marshal() ([]byte, error) {
 	intotoJson, err := json.Marshal(s)
 	if err != nil {
-		return nil, err
+		return nil, errorutils.CheckError(err)
 	}
 	return intotoJson, nil
 }
