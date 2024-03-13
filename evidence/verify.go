@@ -3,9 +3,9 @@ package evidence
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cryptox"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
-	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"os"
 
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -48,34 +48,34 @@ func (evc *EvidenceVerifyCommand) Run() error {
 	// Load evidence from file system
 	dsseFile, err := os.ReadFile(evc.evidenceName)
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 
 	// We assume that the evidence name is a path, so we can assume that it is a local file
 	key, err := os.ReadFile(evc.key)
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 	// Load key from file
 	loadedKey, err := cryptox.LoadKey(key)
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 	// Verify evidence with key
 	dsseEnvelope := dsse.Envelope{}
 	err = json.Unmarshal(dsseFile, &dsseEnvelope)
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 
 	// Decode payload and key
 	decodedPayload, err := base64.StdEncoding.DecodeString(dsseEnvelope.Payload)
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 	decodedKey, err := base64.StdEncoding.DecodeString(dsseEnvelope.Signatures[0].Sig) // This stage we support only one signature
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 
 	// Create PAE
@@ -111,7 +111,7 @@ func (evc *EvidenceVerifyCommand) Run() error {
 			return err
 		}
 	default:
-		return errorutils.CheckErrorf("unexpected key type: %T", loadedKey.KeyType)
+		return fmt.Errorf("unexpected key type: %T", loadedKey.KeyType)
 	}
 	return nil
 }

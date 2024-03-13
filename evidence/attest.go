@@ -85,38 +85,38 @@ func (ec *EvidenceCreateCommand) Run() error {
 	// Load predicate from file
 	predicate, err := os.ReadFile(ec.predicateFilePath)
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 
 	// Create services manager
 	serverDetails, err := ec.ServerDetails()
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 	servicesManager, err := utils.CreateUploadServiceManager(serverDetails, 1, 0, 0, false, nil)
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 
 	intotoStatement := intoto.NewStatement(predicate, ec.predicateType)
 	err = intotoStatement.SetSubject(servicesManager, ec.subjects)
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 	intotoJson, err := intotoStatement.Marshal()
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 
 	// Load private key from file
 	keyFile, err := os.ReadFile(ec.key)
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 
 	privateKey, err := cryptox.ReadKey(keyFile)
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 	// If keyId is provided, use it to the single key in the privateKeys slice
 	if ec.keyId != "" {
@@ -125,25 +125,25 @@ func (ec *EvidenceCreateCommand) Run() error {
 
 	signers, err := createSigners(privateKey)
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 
 	// Use the signers to create an envelope signer
 	envelopeSigner, err := dsse.NewEnvelopeSigner(signers...)
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 
 	// Iterate over all the signers and sign the dsse envelope
 	signedEnvelope, err := envelopeSigner.SignPayload(intoto.PayloadType, intotoJson)
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 
 	// create tmp dir for create evidencecore file and save dsse there
 	tempDirPath, err := fileutils.CreateTempDir()
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 	// Cleanup the temp working directory at the end.
 	defer func() {
@@ -158,7 +158,7 @@ func (ec *EvidenceCreateCommand) Run() error {
 	localEvidenceFilePath := tempDirPath + evdName
 	evidenceFile, err := os.Create(localEvidenceFilePath)
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 	defer func() {
 		err = errors.Join(err, errorutils.CheckError(evidenceFile.Close()))
@@ -167,20 +167,20 @@ func (ec *EvidenceCreateCommand) Run() error {
 	// Encode signedEnvelope into a byte slice
 	envelopeBytes, err := json.Marshal(signedEnvelope)
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 
 	// Write the encoded byte slice to the file
 	_, err = evidenceFile.Write(envelopeBytes)
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 
 	// Verify if the file already exists in artifactory
 	rtEvidencePath := strings.Split(intotoStatement.Subject[0].Uri, "/")
 	err = ec.shouldOverrideExistingEvidence(rtEvidencePath, evdName, servicesManager)
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
 
 	// Upload evidencecore file to artifactory
