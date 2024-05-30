@@ -142,11 +142,5 @@ func LoadKey(keyBytes []byte) (*SSLibKey, error) {
 		return nil, errorutils.CheckError(ErrUnknownKeyType)
 	}
 
-	keyID, err := calculateKeyID(key)
-	if err != nil {
-		return nil, errorutils.CheckError(err)
-	}
-	key.KeyID = keyID
-
 	return key, nil
 }

@@ -3,8 +3,7 @@ package cli
 import (
 	"errors"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence"
-	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/attest"
-	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/verify"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/create"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
@@ -18,26 +17,18 @@ func GetCommands() []components.Command {
 	return []components.Command{
 		{
 			Name:        "create-evidence",
-			Aliases:     []string{"attest", "att"},
+			Aliases:     []string{"create"},
 			Flags:       GetCommandFlags(CreateEvidence),
-			Description: attest.GetDescription(),
-			Arguments:   attest.GetArguments(),
+			Description: create.GetDescription(),
+			Arguments:   create.GetArguments(),
 			Action:      createEvidence,
-		},
-		{
-			Name:        "verify-evidence",
-			Aliases:     []string{"verify", "v"},
-			Flags:       GetCommandFlags(VerifyEvidence),
-			Description: verify.GetDescription(),
-			Arguments:   verify.GetArguments(),
-			Action:      verifyEvidence,
 		},
 	}
 }
 
 func platformToEvidenceUrls(rtDetails *coreConfig.ServerDetails) {
 	rtDetails.ArtifactoryUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "artifactory/"
-	rtDetails.LifecycleUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "lifecycle/"
+	rtDetails.EvidenceUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "evidence/"
 }
 
 func createEvidence(c *components.Context) error {
@@ -54,43 +45,10 @@ func createEvidence(c *components.Context) error {
 		SetServerDetails(artifactoryClient).
 		SetPredicateFilePath(c.GetStringFlagValue(EvdPredicate)).
 		SetPredicateType(c.GetStringFlagValue(EvdPredicateType)).
-		SetSubjects(c.GetStringFlagValue(EvdSubjects)).
+		SetSubject(c.GetStringFlagValue(EvdSubject)).
 		SetKey(c.GetStringFlagValue(EvdKey)).
-		SetKeyId(c.GetStringFlagValue(EvdKeyId)).
-		SetEvidenceName(c.GetStringFlagValue(EvdName)).
-		SetOverride(c.GetBoolFlagValue(EvdOverride))
+		SetKeyId(c.GetStringFlagValue(EvdKeyId))
 	return commands.Exec(createCmd)
-}
-
-func verifyEvidence(c *components.Context) error {
-	if err := validateVerifyEvidenceContext(c); err != nil {
-		return err
-	}
-
-	artifactoryClient, err := evidenceDetailsByFlags(c)
-	if err != nil {
-		return err
-	}
-
-	verifyCmd := evidence.NewEvidenceVerifyCommand().
-		SetServerDetails(artifactoryClient).
-		SetKey(c.GetStringFlagValue(EvdKey)).
-		SetEvidenceName(c.GetStringFlagValue(EvdName))
-	return commands.Exec(verifyCmd)
-}
-
-func validateVerifyEvidenceContext(c *components.Context) error {
-	if show, err := pluginsCommon.ShowCmdHelpIfNeeded(c, c.Arguments); show || err != nil {
-		return err
-	}
-	if !c.IsFlagSet(EvdKey) || assertValueProvided(c, EvdKey) != nil {
-		return errorutils.CheckErrorf("'key' is a mandatory field for creating a custom evidence: --%s", EvdKey)
-	}
-	if !c.IsFlagSet(EvdName) || assertValueProvided(c, EvdName) != nil {
-		return errorutils.CheckErrorf("'key' is a mandatory field for creating a custom evidence: --%s", EvdName)
-	}
-
-	return nil
 }
 
 func evidenceDetailsByFlags(c *components.Context) (*coreConfig.ServerDetails, error) {
@@ -120,8 +78,8 @@ func validateCreateEvidenceContext(c *components.Context) error {
 	if !c.IsFlagSet(EvdPredicateType) || assertValueProvided(c, EvdPredicateType) != nil {
 		return errorutils.CheckErrorf("'predicate' is a mandatory field for creating a custom evidence: --%s", EvdPredicateType)
 	}
-	if !c.IsFlagSet(EvdSubjects) || assertValueProvided(c, EvdSubjects) != nil {
-		return errorutils.CheckErrorf("'subjects' is a mandatory field for creating a custom evidence: --%s", EvdSubjects)
+	if !c.IsFlagSet(EvdSubject) || assertValueProvided(c, EvdSubject) != nil {
+		return errorutils.CheckErrorf("'subjects' is a mandatory field for creating a custom evidence: --%s", EvdSubject)
 	}
 	if !c.IsFlagSet(EvdKey) || assertValueProvided(c, EvdKey) != nil {
 		return errorutils.CheckErrorf("'key' is a mandatory field for creating a custom evidence: --%s", EvdKey)

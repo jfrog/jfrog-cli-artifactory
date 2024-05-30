@@ -6,27 +6,21 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cryptox"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/intoto"
-	"github.com/jfrog/jfrog-client-go/artifactory"
-	"os"
-	"strings"
-
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	"github.com/jfrog/jfrog-client-go/artifactory/services"
-	rtServicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
-	"github.com/jfrog/jfrog-client-go/utils/errorutils"
-	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
+	evidenceService "github.com/jfrog/jfrog-client-go/evidence/services"
+	clientlog "github.com/jfrog/jfrog-client-go/utils/log"
+	"os"
+	"strings"
 )
 
 type EvidenceCreateCommand struct {
 	serverDetails     *config.ServerDetails
 	predicateFilePath string
 	predicateType     string
-	subjects          string
+	subject           string
 	key               string
 	keyId             string
-	evidenceName      string
-	override          bool
 }
 
 func NewEvidenceCreateCommand() *EvidenceCreateCommand {
@@ -48,8 +42,8 @@ func (ec *EvidenceCreateCommand) SetPredicateType(predicateType string) *Evidenc
 	return ec
 }
 
-func (ec *EvidenceCreateCommand) SetSubjects(subjects string) *EvidenceCreateCommand {
-	ec.subjects = subjects
+func (ec *EvidenceCreateCommand) SetSubject(subject string) *EvidenceCreateCommand {
+	ec.subject = subject
 	return ec
 }
 
@@ -60,16 +54,6 @@ func (ec *EvidenceCreateCommand) SetKey(key string) *EvidenceCreateCommand {
 
 func (ec *EvidenceCreateCommand) SetKeyId(keyId string) *EvidenceCreateCommand {
 	ec.keyId = keyId
-	return ec
-}
-
-func (ec *EvidenceCreateCommand) SetEvidenceName(evidenceName string) *EvidenceCreateCommand {
-	ec.evidenceName = evidenceName
-	return ec
-}
-
-func (ec *EvidenceCreateCommand) SetOverride(override bool) *EvidenceCreateCommand {
-	ec.override = override
 	return ec
 }
 
@@ -98,8 +82,9 @@ func (ec *EvidenceCreateCommand) Run() error {
 		return err
 	}
 
-	intotoStatement := intoto.NewStatement(predicate, ec.predicateType)
-	err = intotoStatement.SetSubject(servicesManager, ec.subjects)
+	// Create intoto statement
+	intotoStatement := intoto.NewStatement(predicate, ec.predicateType, ec.serverDetails.User)
+	err = intotoStatement.SetSubject(servicesManager, ec.subject)
 	if err != nil {
 		return err
 	}
@@ -118,10 +103,8 @@ func (ec *EvidenceCreateCommand) Run() error {
 	if err != nil {
 		return err
 	}
-	// If keyId is provided, use it to the single key in the privateKeys slice
-	if ec.keyId != "" {
-		privateKey.KeyID = ec.keyId
-	}
+
+	privateKey.KeyID = ec.keyId
 
 	signers, err := createSigners(privateKey)
 	if err != nil {
@@ -140,70 +123,26 @@ func (ec *EvidenceCreateCommand) Run() error {
 		return err
 	}
 
-	// create tmp dir for create evidencecore file and save dsse there
-	tempDirPath, err := fileutils.CreateTempDir()
-	if err != nil {
-		return err
-	}
-	// Cleanup the temp working directory at the end.
-	defer func() {
-		err = errors.Join(err, fileutils.RemoveTempDir(tempDirPath))
-	}()
-
-	// Create the evidence file.
-	evdName := "/evidence.json.evd"
-	if ec.evidenceName != "" {
-		evdName = "/" + ec.evidenceName + ".json.evd"
-	}
-	localEvidenceFilePath := tempDirPath + evdName
-	evidenceFile, err := os.Create(localEvidenceFilePath)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		err = errors.Join(err, errorutils.CheckError(evidenceFile.Close()))
-	}()
-
 	// Encode signedEnvelope into a byte slice
 	envelopeBytes, err := json.Marshal(signedEnvelope)
 	if err != nil {
 		return err
 	}
 
-	// Write the encoded byte slice to the file
-	_, err = evidenceFile.Write(envelopeBytes)
+	evidenceManager, err := utils.CreateEvidenceServiceManager(serverDetails, false)
 	if err != nil {
 		return err
 	}
 
-	// Verify if the file already exists in artifactory
-	rtEvidencePath := strings.Split(intotoStatement.Subject[0].Uri, "/")
-	err = ec.shouldOverrideExistingEvidence(rtEvidencePath, evdName, servicesManager)
+	evidenceDetails := evidenceService.EvidenceDetails{
+		SubjectUri:  strings.Split(ec.subject, "@")[0],
+		DSSEFileRaw: envelopeBytes,
+	}
+	_, err = evidenceManager.UploadEvidence(evidenceDetails)
 	if err != nil {
 		return err
 	}
-
-	// Upload evidencecore file to artifactory
-	commonParams := rtServicesUtils.CommonParams{
-		Pattern: localEvidenceFilePath,
-		Target:  rtEvidencePath[0] + "/",
-	}
-	var uploadParamsArray []services.UploadParams
-	uploadParamsArray = append(uploadParamsArray, services.UploadParams{
-		CommonParams: &commonParams,
-		Flat:         true,
-	})
-	_, _, err = servicesManager.UploadFiles(uploadParamsArray...)
-
-	return err
-}
-
-func (ec *EvidenceCreateCommand) shouldOverrideExistingEvidence(rtEvidencePath []string, evdName string, servicesManager artifactory.ArtifactoryServicesManager) error {
-	filePath := strings.Join(rtEvidencePath[:len(rtEvidencePath)-1], "/") + evdName
-	remoteFile, _ := servicesManager.FileInfo(filePath)
-	if remoteFile != nil && !ec.override {
-		return errors.New("file is already exists, use --override to override")
-	}
+	clientlog.Output("Evidence is successfully created")
 	return nil
 }
 

@@ -33,7 +33,6 @@ func TestECDSASignerVerifierWithMetablockFileAndPEMKey(t *testing.T) {
 	assert.NoError(t, json.Unmarshal(metadataBytes, &mb))
 
 	assert.Equal(t, "304502201fbb03c0937504182a48c66f9218bdcb2e99a07ada273e92e5e543867f98c8d7022100dbfa7bbf74fd76d76c1d08676419cba85bbd81dfb000f3ac6a786693ddc508f5", mb.Signatures[0].Sig)
-	assert.Equal(t, sv.keyID, mb.Signatures[0].KeyID)
 
 	encodedBytes, err := cjson.EncodeCanonical(mb.Signed)
 	if err != nil {

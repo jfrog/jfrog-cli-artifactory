@@ -35,28 +35,21 @@ func TestLoadKey(t *testing.T) {
 	expectedRSAPrivateKey := strings.TrimSpace(strings.ReplaceAll(string(rsaPrivateKey), "\r\n", "\n"))
 	expectedRSAPrivateKeyPKCS8 := strings.TrimSpace(strings.ReplaceAll(string(rsaPrivateKeyPKCS8), "\r\n", "\n"))
 	expectedRSAPublicKey := strings.TrimSpace(strings.ReplaceAll(string(rsaPublicKey), "\r\n", "\n"))
-	//#nosec G101 - dummy key for test
-	expectedRSAKeyID := "4e8d20af09fcaed6c388a186427f94a5f7ff5591ec295f4aab2cff49ffe39e9b"
 
 	// ED25519 expected values
 	//#nosec G101 - dummy key for test
 	expectedED25519PrivateKey := "66f6ebad4aeb949b91c84c9cfd6ee351fc4fd544744bab6e30fb400ba13c6e9a3f586ce67329419fb0081bd995914e866a7205da463d593b3b490eab2b27fd3f"
 	//#nosec G101 - dummy key for test
 	expectedED25519PublicKey := "3f586ce67329419fb0081bd995914e866a7205da463d593b3b490eab2b27fd3f"
-	//#nosec G101 - dummy key for test
-	expectedED25519KeyID := "52e3b8e73279d6ebdd62a5016e2725ff284f569665eb92ccb145d83817a02997"
 
 	// ECDSA expected values
 	expectedECDSAPrivateKey := strings.TrimSpace(strings.ReplaceAll(string(ecdsaPrivateKey), "\r\n", "\n"))
 	expectedECDSAPublicKey := strings.TrimSpace(strings.ReplaceAll(string(ecdsaPublicKey), "\r\n", "\n"))
-	//#nosec G101 - dummy key for test
-	expectedECDSAKeyID := "98adf38602c48c5479e9a991ee3f8cbf541ee4f985e00f7a5fc4148d9a45b704"
 
 	tests := map[string]struct {
 		keyBytes           []byte
 		expectedPrivateKey string
 		expectedPublicKey  string
-		expectedKeyID      string
 		expectedKeyType    string
 		expectedScheme     string
 	}{
@@ -64,7 +57,6 @@ func TestLoadKey(t *testing.T) {
 			keyBytes:           rsaPrivateKey,
 			expectedPrivateKey: expectedRSAPrivateKey,
 			expectedPublicKey:  expectedRSAPublicKey,
-			expectedKeyID:      expectedRSAKeyID,
 			expectedKeyType:    RSAKeyType,
 			expectedScheme:     RSAKeyScheme,
 		},
@@ -72,7 +64,6 @@ func TestLoadKey(t *testing.T) {
 			keyBytes:           rsaPrivateKeyPKCS8,
 			expectedPrivateKey: expectedRSAPrivateKeyPKCS8,
 			expectedPublicKey:  expectedRSAPublicKey,
-			expectedKeyID:      expectedRSAKeyID,
 			expectedKeyType:    RSAKeyType,
 			expectedScheme:     RSAKeyScheme,
 		},
@@ -80,7 +71,6 @@ func TestLoadKey(t *testing.T) {
 			keyBytes:           rsaPublicKey,
 			expectedPrivateKey: "",
 			expectedPublicKey:  expectedRSAPublicKey,
-			expectedKeyID:      expectedRSAKeyID,
 			expectedKeyType:    RSAKeyType,
 			expectedScheme:     RSAKeyScheme,
 		},
@@ -88,7 +78,6 @@ func TestLoadKey(t *testing.T) {
 			keyBytes:           ed25519PrivateKey,
 			expectedPrivateKey: expectedED25519PrivateKey,
 			expectedPublicKey:  expectedED25519PublicKey,
-			expectedKeyID:      expectedED25519KeyID,
 			expectedKeyType:    ED25519KeyType,
 			expectedScheme:     ED25519KeyType,
 		},
@@ -96,7 +85,6 @@ func TestLoadKey(t *testing.T) {
 			keyBytes:           ed25519PublicKey,
 			expectedPrivateKey: "",
 			expectedPublicKey:  expectedED25519PublicKey,
-			expectedKeyID:      expectedED25519KeyID,
 			expectedKeyType:    ED25519KeyType,
 			expectedScheme:     ED25519KeyType,
 		},
@@ -104,7 +92,6 @@ func TestLoadKey(t *testing.T) {
 			keyBytes:           ecdsaPrivateKey,
 			expectedPrivateKey: expectedECDSAPrivateKey,
 			expectedPublicKey:  expectedECDSAPublicKey,
-			expectedKeyID:      expectedECDSAKeyID,
 			expectedKeyType:    ECDSAKeyType,
 			expectedScheme:     ECDSAKeyScheme,
 		},
@@ -112,7 +99,6 @@ func TestLoadKey(t *testing.T) {
 			keyBytes:           ecdsaPublicKey,
 			expectedPrivateKey: "",
 			expectedPublicKey:  expectedECDSAPublicKey,
-			expectedKeyID:      expectedECDSAKeyID,
 			expectedKeyType:    ECDSAKeyType,
 			expectedScheme:     ECDSAKeyScheme,
 		},
@@ -122,7 +108,6 @@ func TestLoadKey(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			key, err := LoadKey(test.keyBytes)
 			assert.Nil(t, err, fmt.Sprintf("unexpected error in test '%s'", name))
-			assert.Equal(t, test.expectedKeyID, key.KeyID)
 			assert.Equal(t, test.expectedPublicKey, key.KeyVal.Public)
 			assert.Equal(t, test.expectedPrivateKey, key.KeyVal.Private)
 			assert.Equal(t, test.expectedScheme, key.Scheme)
