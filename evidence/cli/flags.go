@@ -45,7 +45,7 @@ var flagsMap = map[string]components.Flag{
 
 var commandFlags = map[string][]string{
 	CreateEvidence: {
-		url, user, password, accessToken, ServerId,
+		url, user, password, accessToken, ServerId, EvdPredicate, EvdPredicateType, EvdSubject, EvdKey, EvdKeyId,
 	},
 }
 
