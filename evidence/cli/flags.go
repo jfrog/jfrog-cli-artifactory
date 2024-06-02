@@ -36,10 +36,10 @@ var flagsMap = map[string]components.Flag{
 	password:    components.NewStringFlag(password, "JFrog password.", func(f *components.StringFlag) { f.Mandatory = false }),
 	accessToken: components.NewStringFlag(accessToken, "JFrog access token.", func(f *components.StringFlag) { f.Mandatory = false }),
 
-	EvdPredicate:     components.NewStringFlag(EvdPredicate, "Path for a file containing the predicate. The file should contain a valid JSON predicate.", func(f *components.StringFlag) { f.Mandatory = true }),
-	EvdPredicateType: components.NewStringFlag(EvdPredicateType, "The type of the predicate.", func(f *components.StringFlag) { f.Mandatory = true }),
-	EvdSubject:       components.NewStringFlag(EvdSubject, "Path for a file containing the subject.", func(f *components.StringFlag) { f.Mandatory = true }),
-	EvdKey:           components.NewStringFlag(EvdKey, "Private key.", func(f *components.StringFlag) { f.Mandatory = true }),
+	EvdPredicate:     components.NewStringFlag(EvdPredicate, "Path to the predicate, arbitrary JSON.", func(f *components.StringFlag) { f.Mandatory = true }),
+	EvdPredicateType: components.NewStringFlag(EvdPredicateType, "Type of the predicate.", func(f *components.StringFlag) { f.Mandatory = true }),
+	EvdSubject:       components.NewStringFlag(EvdSubject, "Full path to some subjects' location, an artifact.", func(f *components.StringFlag) { f.Mandatory = true }),
+	EvdKey:           components.NewStringFlag(EvdKey, "Path to a private key that will sign the DSSE. Supported keys: 'ecdsa','rsa' and 'ed25519'.", func(f *components.StringFlag) { f.Mandatory = true }),
 	EvdKeyId:         components.NewStringFlag(EvdKeyId, "KeyId", func(f *components.StringFlag) { f.Mandatory = false }),
 }
 
