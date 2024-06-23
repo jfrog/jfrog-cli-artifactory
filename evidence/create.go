@@ -142,7 +142,7 @@ func (ec *EvidenceCreateCommand) Run() error {
 	if err != nil {
 		return err
 	}
-	clientlog.Output("Evidence is successfully created")
+	clientlog.Output("Evidence successfully created")
 	return nil
 }
 
