@@ -37,7 +37,7 @@ func NewStatement(predicate []byte, predicateType string, user string) *Statemen
 		Type:          StatementType,
 		PredicateType: predicateType,
 		Predicate:     predicate,
-		CreatedAt:     time.Now().Format(timeLayout),
+		CreatedAt:     time.Now().UTC().Format(timeLayout),
 		CreatedBy:     user,
 	}
 }
