@@ -18,7 +18,7 @@ type EvidenceCreateCommand struct {
 	serverDetails     *config.ServerDetails
 	predicateFilePath string
 	predicateType     string
-	subject           string
+	repoPath          string
 	key               string
 	keyId             string
 }
@@ -42,8 +42,8 @@ func (ec *EvidenceCreateCommand) SetPredicateType(predicateType string) *Evidenc
 	return ec
 }
 
-func (ec *EvidenceCreateCommand) SetSubject(subject string) *EvidenceCreateCommand {
-	ec.subject = subject
+func (ec *EvidenceCreateCommand) SetRepoPath(repoPath string) *EvidenceCreateCommand {
+	ec.repoPath = repoPath
 	return ec
 }
 
@@ -84,7 +84,7 @@ func (ec *EvidenceCreateCommand) Run() error {
 
 	// Create intoto statement
 	intotoStatement := intoto.NewStatement(predicate, ec.predicateType, ec.serverDetails.User)
-	err = intotoStatement.SetSubject(servicesManager, ec.subject)
+	err = intotoStatement.SetSubject(servicesManager, ec.repoPath)
 	if err != nil {
 		return err
 	}
@@ -135,14 +135,14 @@ func (ec *EvidenceCreateCommand) Run() error {
 	}
 
 	evidenceDetails := evidenceService.EvidenceDetails{
-		SubjectUri:  strings.Split(ec.subject, "@")[0],
+		SubjectUri:  strings.Split(ec.repoPath, "@")[0],
 		DSSEFileRaw: envelopeBytes,
 	}
 	_, err = evidenceManager.UploadEvidence(evidenceDetails)
 	if err != nil {
 		return err
 	}
-	clientlog.Output("Evidence successfully created")
+	clientlog.Info("Evidence successfully created")
 	return nil
 }
 

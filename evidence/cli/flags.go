@@ -22,7 +22,7 @@ const (
 	evidencePrefix   = "evd-"
 	EvdPredicate     = "predicate"
 	EvdPredicateType = "predicate-type"
-	EvdSubject       = "subject"
+	EvdRepoPath      = "repo-path"
 	EvdKey           = "key"
 	EvdKeyId         = "key-name"
 )
@@ -38,14 +38,14 @@ var flagsMap = map[string]components.Flag{
 
 	EvdPredicate:     components.NewStringFlag(EvdPredicate, "Path to the predicate, arbitrary JSON.", func(f *components.StringFlag) { f.Mandatory = true }),
 	EvdPredicateType: components.NewStringFlag(EvdPredicateType, "Type of the predicate.", func(f *components.StringFlag) { f.Mandatory = true }),
-	EvdSubject:       components.NewStringFlag(EvdSubject, "Full path to some subjects' location, an artifact.", func(f *components.StringFlag) { f.Mandatory = true }),
+	EvdRepoPath:      components.NewStringFlag(EvdRepoPath, "Full path to some artifact' location.", func(f *components.StringFlag) { f.Mandatory = true }),
 	EvdKey:           components.NewStringFlag(EvdKey, "Path to a private key that will sign the DSSE. Supported keys: 'ecdsa','rsa' and 'ed25519'.", func(f *components.StringFlag) { f.Mandatory = true }),
 	EvdKeyId:         components.NewStringFlag(EvdKeyId, "KeyId", func(f *components.StringFlag) { f.Mandatory = false }),
 }
 
 var commandFlags = map[string][]string{
 	CreateEvidence: {
-		url, user, password, accessToken, ServerId, EvdPredicate, EvdPredicateType, EvdSubject, EvdKey, EvdKeyId,
+		url, user, password, accessToken, ServerId, EvdPredicate, EvdPredicateType, EvdRepoPath, EvdKey, EvdKeyId,
 	},
 }
 

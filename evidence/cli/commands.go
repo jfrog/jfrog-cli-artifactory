@@ -45,7 +45,7 @@ func createEvidence(c *components.Context) error {
 		SetServerDetails(artifactoryClient).
 		SetPredicateFilePath(c.GetStringFlagValue(EvdPredicate)).
 		SetPredicateType(c.GetStringFlagValue(EvdPredicateType)).
-		SetSubject(c.GetStringFlagValue(EvdSubject)).
+		SetRepoPath(c.GetStringFlagValue(EvdRepoPath)).
 		SetKey(c.GetStringFlagValue(EvdKey)).
 		SetKeyId(c.GetStringFlagValue(EvdKeyId))
 	return commands.Exec(createCmd)
@@ -78,8 +78,8 @@ func validateCreateEvidenceContext(c *components.Context) error {
 	if !c.IsFlagSet(EvdPredicateType) || assertValueProvided(c, EvdPredicateType) != nil {
 		return errorutils.CheckErrorf("'predicate' is a mandatory field for creating a custom evidence: --%s", EvdPredicateType)
 	}
-	if !c.IsFlagSet(EvdSubject) || assertValueProvided(c, EvdSubject) != nil {
-		return errorutils.CheckErrorf("'subjects' is a mandatory field for creating a custom evidence: --%s", EvdSubject)
+	if !c.IsFlagSet(EvdRepoPath) || assertValueProvided(c, EvdRepoPath) != nil {
+		return errorutils.CheckErrorf("'repo-path' is a mandatory field for creating a custom evidence: --%s", EvdRepoPath)
 	}
 	if !c.IsFlagSet(EvdKey) || assertValueProvided(c, EvdKey) != nil {
 		return errorutils.CheckErrorf("'key' is a mandatory field for creating a custom evidence: --%s", EvdKey)
