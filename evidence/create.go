@@ -6,6 +6,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cryptox"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/intoto"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	evidenceService "github.com/jfrog/jfrog-client-go/evidence/services"
@@ -138,11 +139,21 @@ func (ec *EvidenceCreateCommand) Run() error {
 		SubjectUri:  strings.Split(ec.repoPath, "@")[0],
 		DSSEFileRaw: envelopeBytes,
 	}
-	_, err = evidenceManager.UploadEvidence(evidenceDetails)
+	body, err := evidenceManager.UploadEvidence(evidenceDetails)
 	if err != nil {
 		return err
 	}
-	clientlog.Info("Evidence successfully created")
+
+	createResponse := &model.CreateResponse{}
+	err = json.Unmarshal(body, createResponse)
+	if err != nil {
+		return err
+	}
+	if createResponse.Verified {
+		clientlog.Info("Evidence successfully created and verified")
+		return nil
+	}
+	clientlog.Info("Evidence successfully created but not verified")
 	return nil
 }
 
