@@ -94,10 +94,13 @@ func (ec *EvidenceCreateCommand) Run() error {
 		return err
 	}
 
-	// Load private key from file
-	keyFile, err := os.ReadFile(ec.key)
-	if err != nil {
-		return err
+	// Load private key from file if ec.key is not a path to a file then try to load it as a key
+	keyFile := []byte(ec.key)
+	if _, err := os.Stat(ec.key); err == nil {
+		keyFile, err = os.ReadFile(ec.key)
+		if err != nil {
+			return err
+		}
 	}
 
 	privateKey, err := cryptox.ReadKey(keyFile)
