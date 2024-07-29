@@ -26,12 +26,15 @@ func GetCommands() []components.Command {
 }
 
 func createEvidence(c *components.Context) error {
-	if err := validateContext(c); err != nil {
+	if err := validateCreateEvidenceContext(c); err != nil {
 		return err
 	}
 	subject, err := getAndValidateSubject(c)
 	if err != nil {
 		return err
+	}
+	if subject == "" {
+		return errors.New("subject must be one of the fields: repo-path, release-bundle")
 	}
 	artifactoryClient, err := evidenceDetailsByFlags(c)
 	if err != nil {
@@ -47,13 +50,25 @@ func createEvidence(c *components.Context) error {
 	return command.CreateEvidence(artifactoryClient)
 }
 
-func validateContext(c *components.Context) error {
+func validateCreateEvidenceContext(c *components.Context) error {
 	if show, err := pluginsCommon.ShowCmdHelpIfNeeded(c, c.Arguments); show || err != nil {
 		return err
 	}
+
 	if len(c.Arguments) > 1 {
 		return pluginsCommon.WrongNumberOfArgumentsHandler(c)
 	}
+
+	if !c.IsFlagSet(EvdPredicate) || assertValueProvided(c, EvdPredicate) != nil {
+		return errorutils.CheckErrorf("'predicate' is a mandatory field for creating a custom evidence: --%s", EvdPredicate)
+	}
+	if !c.IsFlagSet(EvdPredicateType) || assertValueProvided(c, EvdPredicateType) != nil {
+		return errorutils.CheckErrorf("'predicate' is a mandatory field for creating a custom evidence: --%s", EvdPredicateType)
+	}
+	if !c.IsFlagSet(EvdKey) || assertValueProvided(c, EvdKey) != nil {
+		return errorutils.CheckErrorf("'key' is a mandatory field for creating a custom evidence: --%s", EvdKey)
+	}
+
 	return nil
 }
 
@@ -73,7 +88,7 @@ func getAndValidateSubject(c *components.Context) (string, error) {
 		return "", errorutils.CheckErrorf("Subject must be one of the fields: repo-path, release-bundle")
 	}
 	if len(foundSubjects) > 1 {
-		return "", errorutils.CheckErrorf("multiple subjects found: [%s]. Please specify only one", strings.Join(foundSubjects, ", "))
+		return "", errorutils.CheckErrorf("multiple subjects found: [%s]", strings.Join(foundSubjects, ", "))
 	}
 	return foundSubjects[0], nil
 }

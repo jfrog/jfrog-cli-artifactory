@@ -17,14 +17,14 @@ func NewEvidenceReleaseBundleCommand(ctx *components.Context) EvidenceCommands {
 	}
 }
 
-func (ecc *EvidenceReleaseBundleCommand) CreateEvidence(artifactoryClient *coreConfig.ServerDetails) error {
+func (erc *EvidenceReleaseBundleCommand) CreateEvidence(artifactoryClient *coreConfig.ServerDetails) error {
 	createCmd := evidence.NewCreateEvidenceReleaseBundle().
 		SetServerDetails(artifactoryClient).
-		SetPredicateFilePath(ecc.c.GetStringFlagValue(EvdPredicate)).
-		SetPredicateType(ecc.c.GetStringFlagValue(EvdPredicateType)).
-		SetProject(ecc.c.GetStringFlagValue(project)).
-		SetReleaseBundle(ecc.c.GetStringFlagValue(releaseBundle)).
-		SetKey(ecc.c.GetStringFlagValue(EvdKey)).
-		SetKeyId(ecc.c.GetStringFlagValue(EvdKeyId))
+		SetPredicateFilePath(erc.c.GetStringFlagValue(EvdPredicate)).
+		SetPredicateType(erc.c.GetStringFlagValue(EvdPredicateType)).
+		SetProject(erc.c.GetStringFlagValue(project)).
+		SetReleaseBundle(erc.c.GetStringFlagValue(releaseBundle)).
+		SetKey(erc.c.GetStringFlagValue(EvdKey)).
+		SetKeyId(erc.c.GetStringFlagValue(EvdKeyId))
 	return commands.Exec(createCmd)
 }
