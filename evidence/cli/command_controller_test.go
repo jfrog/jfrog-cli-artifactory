@@ -30,16 +30,6 @@ func TestCreateEvidence_Context(t *testing.T) {
 			context:   createContext("somePredicate", "InToto", "PGP", "someBundle", "path"),
 			expectErr: true,
 		},
-		//{
-		//	name:      "ValidContext - With Subject ReleaseBundle",
-		//	context:   createContext("somePredicate", "InToto", "PGP", "someBundle", ""),
-		//	expectErr: false,
-		//},
-		//{
-		//	name:      "ValidContext - With Subject Repo-Path",
-		//	context:   createContext("somePredicate", "InToto", "PGP", "", "path"),
-		//	expectErr: false,
-		//},
 	}
 
 	for _, tt := range tests {
@@ -67,10 +57,7 @@ func createContext(predicate string, predicateType string, key string, rb string
 }
 
 func setStringFlagValue(ctx *components.Context, flagName, value string) {
-	// Get the reflect.Value of the context
 	val := reflect.ValueOf(ctx).Elem()
-
-	// Get the reflect.Value of the stringFlags field
 	stringFlags := val.FieldByName("stringFlags")
 
 	// If the field is not settable, we need to make it settable
@@ -78,11 +65,8 @@ func setStringFlagValue(ctx *components.Context, flagName, value string) {
 		stringFlags = reflect.NewAt(stringFlags.Type(), unsafe.Pointer(stringFlags.UnsafeAddr())).Elem()
 	}
 
-	// Initialize the map if it's nil
 	if stringFlags.IsNil() {
 		stringFlags.Set(reflect.MakeMap(stringFlags.Type()))
 	}
-
-	// Set the flag value
 	stringFlags.SetMapIndex(reflect.ValueOf(flagName), reflect.ValueOf(value))
 }
