@@ -19,7 +19,7 @@ const (
 	accessToken = "access-token"
 	project     = "project"
 
-	// Release Bundle flags
+	// RLM flags keys
 	releaseBundle = "release-bundle"
 
 	// Unique evidence flags

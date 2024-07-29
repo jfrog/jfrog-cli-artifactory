@@ -33,9 +33,6 @@ func createEvidence(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-	if subject == "" {
-		return errors.New("subject must be one of the fields: repo-path, release-bundle")
-	}
 	artifactoryClient, err := evidenceDetailsByFlags(c)
 	if err != nil {
 		return err
@@ -85,7 +82,7 @@ func getAndValidateSubject(c *components.Context) (string, error) {
 	}
 
 	if len(foundSubjects) == 0 {
-		return "", errorutils.CheckErrorf("Subject must be one of the fields: repo-path, release-bundle")
+		return "", errorutils.CheckErrorf("Subject must be one of the fields: [%s]", strings.Join(subjects, ", "))
 	}
 	if len(foundSubjects) > 1 {
 		return "", errorutils.CheckErrorf("multiple subjects found: [%s]", strings.Join(foundSubjects, ", "))
