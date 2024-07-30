@@ -3,81 +3,55 @@ package evidence
 import (
 	"fmt"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"strings"
 )
 
-type CreateEvidenceReleaseBundle struct {
-	CreateEvidenceBase
+type createEvidenceReleaseBundle struct {
+	createEvidenceBase
 	project       string
 	releaseBundle string
 }
 
-func NewCreateEvidenceReleaseBundle() *CreateEvidenceReleaseBundle {
-	return &CreateEvidenceReleaseBundle{}
+func NewCreateEvidenceReleaseBundle(serverDetails *coreConfig.ServerDetails, predicateFilePath string, predicateType string, key string, keyId string,
+	project string, releaseBundle string) Command {
+	return &createEvidenceReleaseBundle{
+		createEvidenceBase: createEvidenceBase{
+			serverDetails:     serverDetails,
+			predicateFilePath: predicateFilePath,
+			predicateType:     predicateType,
+			key:               key,
+			keyId:             keyId,
+		},
+		project:       project,
+		releaseBundle: releaseBundle,
+	}
 }
 
-func (c *CreateEvidenceReleaseBundle) SetServerDetails(serverDetails *config.ServerDetails) *CreateEvidenceReleaseBundle {
-	c.serverDetails = serverDetails
-	return c
-}
-
-func (c *CreateEvidenceReleaseBundle) SetPredicateFilePath(predicateFilePath string) *CreateEvidenceReleaseBundle {
-	c.predicateFilePath = predicateFilePath
-	return c
-}
-
-func (c *CreateEvidenceReleaseBundle) SetPredicateType(predicateType string) *CreateEvidenceReleaseBundle {
-	c.predicateType = predicateType
-	return c
-}
-
-func (c *CreateEvidenceReleaseBundle) SetProject(project string) *CreateEvidenceReleaseBundle {
-	c.project = project
-	return c
-}
-
-func (c *CreateEvidenceReleaseBundle) SetReleaseBundle(releaseBundle string) *CreateEvidenceReleaseBundle {
-	c.releaseBundle = releaseBundle
-	return c
-}
-
-func (c *CreateEvidenceReleaseBundle) SetKey(key string) *CreateEvidenceReleaseBundle {
-	c.key = key
-	return c
-}
-
-func (c *CreateEvidenceReleaseBundle) SetKeyId(keyId string) *CreateEvidenceReleaseBundle {
-	c.keyId = keyId
-	return c
-}
-
-func (c *CreateEvidenceReleaseBundle) CommandName() string {
+func (c *createEvidenceReleaseBundle) CommandName() string {
 	return "create-release-bundle-evidence"
 }
 
-func (c *CreateEvidenceReleaseBundle) ServerDetails() (*config.ServerDetails, error) {
+func (c *createEvidenceReleaseBundle) ServerDetails() (*config.ServerDetails, error) {
 	return c.serverDetails, nil
 }
 
-func (c *CreateEvidenceReleaseBundle) Run() error {
+func (c *createEvidenceReleaseBundle) Run() error {
 	artifactoryClient, err := c.createArtifactoryClient()
 	if err != nil {
 		log.Error("failed to create Artifactory client", err)
 		return err
 	}
-
 	subject, err := c.buildReleaseBundleSubjectPath(artifactoryClient)
 	if err != nil {
 		return err
 	}
-
 	envelope, err := c.createEnvelope(subject)
 	if err != nil {
 		return err
 	}
-
 	err = c.uploadEvidence(envelope, subject)
 	if err != nil {
 		return err
@@ -86,14 +60,17 @@ func (c *CreateEvidenceReleaseBundle) Run() error {
 	return nil
 }
 
-func (c *CreateEvidenceReleaseBundle) buildReleaseBundleSubjectPath(client artifactory.ArtifactoryServicesManager) (string, error) {
+func (c *createEvidenceReleaseBundle) buildReleaseBundleSubjectPath(artifactoryClient artifactory.ArtifactoryServicesManager) (string, error) {
 	releaseBundle := strings.Split(c.releaseBundle, ":")
+	if len(releaseBundle) != 2 {
+		return "", fmt.Errorf("invalid release bundle format. expected format is <name>:<version>")
+	}
 	name := releaseBundle[0]
 	version := releaseBundle[1]
 	repoKey := buildRepoKey(c.project)
 	manifestPath := buildManifestPath(repoKey, name, version)
 
-	manifestChecksum, err := getManifestPathChecksum(manifestPath, client)
+	manifestChecksum, err := getManifestPathChecksum(manifestPath, artifactoryClient)
 	if err != nil {
 		return "", err
 	}

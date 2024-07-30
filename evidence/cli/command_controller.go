@@ -25,6 +25,8 @@ func GetCommands() []components.Command {
 	}
 }
 
+var execFunc = exec
+
 func createEvidence(c *components.Context) error {
 	if err := validateCreateEvidenceContext(c); err != nil {
 		return err
@@ -33,18 +35,22 @@ func createEvidence(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-	artifactoryClient, err := evidenceDetailsByFlags(c)
+	serverDetails, err := evidenceDetailsByFlags(c)
 	if err != nil {
 		return err
 	}
+
 	var command EvidenceCommands
-	if subject == EvdRepoPath {
-		command = NewEvidenceCustomCommand(c)
+	switch subject {
+	case EvdRepoPath:
+		command = NewEvidenceCustomCommand(c, execFunc)
+	case releaseBundle:
+		command = NewEvidenceReleaseBundleCommand(c, execFunc)
+	default:
+		return errors.New("unsupported subject")
 	}
-	if subject == releaseBundle {
-		command = NewEvidenceReleaseBundleCommand(c)
-	}
-	return command.CreateEvidence(artifactoryClient)
+
+	return command.CreateEvidence(serverDetails)
 }
 
 func validateCreateEvidenceContext(c *components.Context) error {
@@ -60,29 +66,24 @@ func validateCreateEvidenceContext(c *components.Context) error {
 		return errorutils.CheckErrorf("'predicate' is a mandatory field for creating a custom evidence: --%s", EvdPredicate)
 	}
 	if !c.IsFlagSet(EvdPredicateType) || assertValueProvided(c, EvdPredicateType) != nil {
-		return errorutils.CheckErrorf("'predicate' is a mandatory field for creating a custom evidence: --%s", EvdPredicateType)
+		return errorutils.CheckErrorf("'predicate-type' is a mandatory field for creating a custom evidence: --%s", EvdPredicateType)
 	}
 	if !c.IsFlagSet(EvdKey) || assertValueProvided(c, EvdKey) != nil {
 		return errorutils.CheckErrorf("'key' is a mandatory field for creating a custom evidence: --%s", EvdKey)
 	}
-
 	return nil
 }
 
 func getAndValidateSubject(c *components.Context) (string, error) {
-	subjects := []string{
-		EvdRepoPath,
-		releaseBundle,
-	}
 	var foundSubjects []string
-	for _, key := range subjects {
+	for _, key := range subjectTypes {
 		if c.GetStringFlagValue(key) != "" {
 			foundSubjects = append(foundSubjects, key)
 		}
 	}
 
 	if len(foundSubjects) == 0 {
-		return "", errorutils.CheckErrorf("Subject must be one of the fields: [%s]", strings.Join(subjects, ", "))
+		return "", errorutils.CheckErrorf("Subject must be one of the fields: [%s]", strings.Join(subjectTypes, ", "))
 	}
 	if len(foundSubjects) > 1 {
 		return "", errorutils.CheckErrorf("multiple subjects found: [%s]", strings.Join(foundSubjects, ", "))
@@ -91,15 +92,15 @@ func getAndValidateSubject(c *components.Context) (string, error) {
 }
 
 func evidenceDetailsByFlags(c *components.Context) (*coreConfig.ServerDetails, error) {
-	artifactoryClient, err := pluginsCommon.CreateServerDetailsWithConfigOffer(c, true, commonCliUtils.Platform)
+	serverDetails, err := pluginsCommon.CreateServerDetailsWithConfigOffer(c, true, commonCliUtils.Platform)
 	if err != nil {
 		return nil, err
 	}
-	if artifactoryClient.Url == "" {
+	if serverDetails.Url == "" {
 		return nil, errors.New("platform URL is mandatory for evidence commands")
 	}
-	platformToEvidenceUrls(artifactoryClient)
-	return artifactoryClient, nil
+	platformToEvidenceUrls(serverDetails)
+	return serverDetails, nil
 }
 
 func platformToEvidenceUrls(rtDetails *coreConfig.ServerDetails) {

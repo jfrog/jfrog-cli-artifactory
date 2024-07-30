@@ -18,7 +18,7 @@ import (
 	"strings"
 )
 
-type CreateEvidenceBase struct {
+type createEvidenceBase struct {
 	serverDetails     *config.ServerDetails
 	predicateFilePath string
 	predicateType     string
@@ -26,7 +26,7 @@ type CreateEvidenceBase struct {
 	keyId             string
 }
 
-func (c *CreateEvidenceBase) createEnvelope(subject string) ([]byte, error) {
+func (c *createEvidenceBase) createEnvelope(subject string) ([]byte, error) {
 	statementJson, err := c.buildIntotoStatementJson(subject)
 	if err != nil {
 		return nil, err
@@ -45,13 +45,13 @@ func (c *CreateEvidenceBase) createEnvelope(subject string) ([]byte, error) {
 	return envelopeBytes, nil
 }
 
-func (c *CreateEvidenceBase) buildIntotoStatementJson(subject string) ([]byte, error) {
+func (c *createEvidenceBase) buildIntotoStatementJson(subject string) ([]byte, error) {
 	predicate, err := os.ReadFile(c.predicateFilePath)
 	if err != nil {
 		log.Warn(fmt.Sprintf("failed to read predicate file '%s'", predicate))
 		return nil, err
 	}
-
+	//client.NewClient(c.serverDetails)
 	artifactoryClient, err := c.createArtifactoryClient()
 	if err != nil {
 		log.Error("failed to create Artifactory client", err)
@@ -71,7 +71,7 @@ func (c *CreateEvidenceBase) buildIntotoStatementJson(subject string) ([]byte, e
 	return statementJson, nil
 }
 
-func (c *CreateEvidenceBase) uploadEvidence(envelope []byte, repoPath string) error {
+func (c *createEvidenceBase) uploadEvidence(envelope []byte, repoPath string) error {
 	evidenceManager, err := utils.CreateEvidenceServiceManager(c.serverDetails, false)
 	if err != nil {
 		log.Error("failed to create Evidence client", err)
@@ -101,7 +101,7 @@ func (c *CreateEvidenceBase) uploadEvidence(envelope []byte, repoPath string) er
 	return nil
 }
 
-func (c *CreateEvidenceBase) createArtifactoryClient() (artifactory.ArtifactoryServicesManager, error) {
+func (c *createEvidenceBase) createArtifactoryClient() (artifactory.ArtifactoryServicesManager, error) {
 	return utils.CreateUploadServiceManager(c.serverDetails, 1, 0, 0, false, nil)
 }
 

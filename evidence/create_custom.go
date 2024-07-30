@@ -2,65 +2,44 @@ package evidence
 
 import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
 
-type CreateEvidenceCustom struct {
-	CreateEvidenceBase
+type createEvidenceCustom struct {
+	createEvidenceBase
 	repoPath string
 }
 
-func NewCreateEvidenceCustom() *CreateEvidenceCustom {
-	return &CreateEvidenceCustom{}
+func NewCreateEvidenceCustom(serverDetails *coreConfig.ServerDetails, predicateFilePath string, predicateType string, key string, keyId string,
+	repoPath string) Command {
+	return &createEvidenceCustom{
+		createEvidenceBase: createEvidenceBase{
+			serverDetails:     serverDetails,
+			predicateFilePath: predicateFilePath,
+			predicateType:     predicateType,
+			key:               key,
+			keyId:             keyId,
+		},
+		repoPath: repoPath,
+	}
 }
 
-func (c *CreateEvidenceCustom) SetServerDetails(serverDetails *config.ServerDetails) *CreateEvidenceCustom {
-	c.serverDetails = serverDetails
-	return c
-}
-
-func (c *CreateEvidenceCustom) SetPredicateFilePath(predicateFilePath string) *CreateEvidenceCustom {
-	c.predicateFilePath = predicateFilePath
-	return c
-}
-
-func (c *CreateEvidenceCustom) SetPredicateType(predicateType string) *CreateEvidenceCustom {
-	c.predicateType = predicateType
-	return c
-}
-
-func (c *CreateEvidenceCustom) SetRepoPath(repoPath string) *CreateEvidenceCustom {
-	c.repoPath = repoPath
-	return c
-}
-
-func (c *CreateEvidenceCustom) SetKey(key string) *CreateEvidenceCustom {
-	c.key = key
-	return c
-}
-
-func (c *CreateEvidenceCustom) SetKeyId(keyId string) *CreateEvidenceCustom {
-	c.keyId = keyId
-	return c
-}
-
-func (c *CreateEvidenceCustom) CommandName() string {
+func (c *createEvidenceCustom) CommandName() string {
 	return "create-custom-evidence"
 }
 
-func (c *CreateEvidenceCustom) ServerDetails() (*config.ServerDetails, error) {
+func (c *createEvidenceCustom) ServerDetails() (*config.ServerDetails, error) {
 	return c.serverDetails, nil
 }
 
-func (c *CreateEvidenceCustom) Run() error {
+func (c *createEvidenceCustom) Run() error {
 	envelope, err := c.createEnvelope(c.repoPath)
 	if err != nil {
 		return err
 	}
-
 	err = c.uploadEvidence(envelope, c.repoPath)
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
