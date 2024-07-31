@@ -54,7 +54,6 @@ func (c *createEvidenceBase) buildIntotoStatementJson(subject string) ([]byte, e
 
 	artifactoryClient, err := c.createArtifactoryClient()
 	if err != nil {
-		log.Error("failed to create Artifactory client", err)
 		return nil, err
 	}
 
@@ -74,7 +73,6 @@ func (c *createEvidenceBase) buildIntotoStatementJson(subject string) ([]byte, e
 func (c *createEvidenceBase) uploadEvidence(envelope []byte, repoPath string) error {
 	evidenceManager, err := utils.CreateEvidenceServiceManager(c.serverDetails, false)
 	if err != nil {
-		log.Error("failed to create Evidence client", err)
 		return err
 	}
 
@@ -84,7 +82,6 @@ func (c *createEvidenceBase) uploadEvidence(envelope []byte, repoPath string) er
 	}
 	body, err := evidenceManager.UploadEvidence(evidenceDetails)
 	if err != nil {
-		log.Error("failed to upload evidence file", err)
 		return err
 	}
 

@@ -11,4 +11,5 @@ func exec(command commands.Command) error {
 var subjectTypes = []string{
 	repoPath,
 	releaseBundle,
+	build,
 }

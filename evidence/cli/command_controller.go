@@ -49,6 +49,8 @@ func createEvidence(c *components.Context) error {
 		command = NewEvidenceCustomCommand(c, execFunc)
 	case releaseBundle:
 		command = NewEvidenceReleaseBundleCommand(c, execFunc)
+	case build:
+		command = NewEvidenceBuildCommand(c, execFunc)
 	default:
 		return errors.New("unsupported subject")
 	}

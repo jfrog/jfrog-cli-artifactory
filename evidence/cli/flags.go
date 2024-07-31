@@ -21,6 +21,7 @@ const (
 
 	// RLM flags keys
 	releaseBundle = "release-bundle"
+	build         = "build"
 
 	// Unique evidence flags
 	evidencePrefix = "evd-"
@@ -42,6 +43,7 @@ var flagsMap = map[string]components.Flag{
 	project:     components.NewStringFlag(project, "Project key associated with the created evidence.", func(f *components.StringFlag) { f.Mandatory = false }),
 
 	releaseBundle: components.NewStringFlag(releaseBundle, "Release Bundle name and version. Format: <name>:<version>", func(f *components.StringFlag) { f.Mandatory = false }),
+	build:         components.NewStringFlag(build, "Build name and number. Format: <name>:<number>", func(f *components.StringFlag) { f.Mandatory = false }),
 
 	predicate:     components.NewStringFlag(predicate, "Path to the predicate, arbitrary JSON.", func(f *components.StringFlag) { f.Mandatory = true }),
 	predicateType: components.NewStringFlag(predicateType, "Type of the predicate.", func(f *components.StringFlag) { f.Mandatory = true }),
@@ -52,7 +54,7 @@ var flagsMap = map[string]components.Flag{
 
 var commandFlags = map[string][]string{
 	CreateEvidence: {
-		url, user, password, accessToken, ServerId, project, releaseBundle, predicate, predicateType, repoPath, key, keyId,
+		url, user, password, accessToken, ServerId, project, releaseBundle, build, predicate, predicateType, repoPath, key, keyId,
 	},
 }
 

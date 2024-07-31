@@ -1,17 +1,20 @@
 package evidence
 
 import (
-	"github.com/jfrog/jfrog-client-go/artifactory"
-	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
-type mockArtifactoryServicesManager struct {
+import (
+	"github.com/jfrog/jfrog-client-go/artifactory"
+	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+)
+
+type mockReleaseBundleArtifactoryServicesManager struct {
 	artifactory.EmptyArtifactoryServicesManager
 }
 
-func (m *mockArtifactoryServicesManager) FileInfo(relativePath string) (*utils.FileInfo, error) {
+func (m *mockReleaseBundleArtifactoryServicesManager) FileInfo(relativePath string) (*utils.FileInfo, error) {
 	fi := &utils.FileInfo{
 		Checksums: struct {
 			Sha1   string `json:"sha1,omitempty"`
@@ -75,7 +78,7 @@ func TestReleaseBundle(t *testing.T) {
 				project:       tt.project,
 				releaseBundle: tt.releaseBundle,
 			}
-			aa := &mockArtifactoryServicesManager{}
+			aa := &mockReleaseBundleArtifactoryServicesManager{}
 			path, err := c.buildReleaseBundleSubjectPath(aa)
 			if tt.expectError {
 				assert.Error(t, err)
