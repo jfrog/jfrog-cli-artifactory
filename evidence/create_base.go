@@ -51,7 +51,7 @@ func (c *createEvidenceBase) buildIntotoStatementJson(subject string) ([]byte, e
 		log.Warn(fmt.Sprintf("failed to read predicate file '%s'", predicate))
 		return nil, err
 	}
-	//client.NewClient(c.serverDetails)
+
 	artifactoryClient, err := c.createArtifactoryClient()
 	if err != nil {
 		log.Error("failed to create Artifactory client", err)

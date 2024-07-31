@@ -4,6 +4,7 @@ import (
 	"errors"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/create"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
+	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -25,7 +26,9 @@ func GetCommands() []components.Command {
 	}
 }
 
-var execFunc = exec
+var execFunc = func(command commands.Command) error {
+	return commands.Exec(command)
+}
 
 func createEvidence(c *components.Context) error {
 	if err := validateCreateEvidenceContext(c); err != nil {
@@ -42,7 +45,7 @@ func createEvidence(c *components.Context) error {
 
 	var command EvidenceCommands
 	switch subject {
-	case EvdRepoPath:
+	case repoPath:
 		command = NewEvidenceCustomCommand(c, execFunc)
 	case releaseBundle:
 		command = NewEvidenceReleaseBundleCommand(c, execFunc)
@@ -62,14 +65,14 @@ func validateCreateEvidenceContext(c *components.Context) error {
 		return pluginsCommon.WrongNumberOfArgumentsHandler(c)
 	}
 
-	if !c.IsFlagSet(EvdPredicate) || assertValueProvided(c, EvdPredicate) != nil {
-		return errorutils.CheckErrorf("'predicate' is a mandatory field for creating a custom evidence: --%s", EvdPredicate)
+	if !c.IsFlagSet(predicate) || assertValueProvided(c, predicate) != nil {
+		return errorutils.CheckErrorf("'predicate' is a mandatory field for creating a custom evidence: --%s", predicate)
 	}
-	if !c.IsFlagSet(EvdPredicateType) || assertValueProvided(c, EvdPredicateType) != nil {
-		return errorutils.CheckErrorf("'predicate-type' is a mandatory field for creating a custom evidence: --%s", EvdPredicateType)
+	if !c.IsFlagSet(predicateType) || assertValueProvided(c, predicateType) != nil {
+		return errorutils.CheckErrorf("'predicate-type' is a mandatory field for creating a custom evidence: --%s", predicateType)
 	}
-	if !c.IsFlagSet(EvdKey) || assertValueProvided(c, EvdKey) != nil {
-		return errorutils.CheckErrorf("'key' is a mandatory field for creating a custom evidence: --%s", EvdKey)
+	if !c.IsFlagSet(key) || assertValueProvided(c, key) != nil {
+		return errorutils.CheckErrorf("'key' is a mandatory field for creating a custom evidence: --%s", key)
 	}
 	return nil
 }

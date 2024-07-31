@@ -21,10 +21,10 @@ func NewEvidenceCustomCommand(ctx *components.Context, execute execCommandFunc) 
 func (ecc *evidenceCustomCommand) CreateEvidence(serverDetails *coreConfig.ServerDetails) error {
 	createCmd := evidence.NewCreateEvidenceCustom(
 		serverDetails,
-		ecc.ctx.GetStringFlagValue(EvdPredicate),
-		ecc.ctx.GetStringFlagValue(EvdPredicateType),
-		ecc.ctx.GetStringFlagValue(EvdKey),
-		ecc.ctx.GetStringFlagValue(EvdKeyId),
-		ecc.ctx.GetStringFlagValue(EvdRepoPath))
+		ecc.ctx.GetStringFlagValue(predicate),
+		ecc.ctx.GetStringFlagValue(predicateType),
+		ecc.ctx.GetStringFlagValue(key),
+		ecc.ctx.GetStringFlagValue(keyId),
+		ecc.ctx.GetStringFlagValue(repoPath))
 	return ecc.execute(createCmd)
 }

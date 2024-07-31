@@ -9,6 +9,6 @@ func exec(command commands.Command) error {
 }
 
 var subjectTypes = []string{
-	EvdRepoPath,
+	repoPath,
 	releaseBundle,
 }

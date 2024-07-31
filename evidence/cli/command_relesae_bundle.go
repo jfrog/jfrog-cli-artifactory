@@ -21,10 +21,10 @@ func NewEvidenceReleaseBundleCommand(ctx *components.Context, execute execComman
 func (erc *evidenceReleaseBundleCommand) CreateEvidence(serverDetails *coreConfig.ServerDetails) error {
 	createCmd := evidence.NewCreateEvidenceReleaseBundle(
 		serverDetails,
-		erc.ctx.GetStringFlagValue(EvdPredicate),
-		erc.ctx.GetStringFlagValue(EvdPredicateType),
-		erc.ctx.GetStringFlagValue(EvdKey),
-		erc.ctx.GetStringFlagValue(EvdKeyId),
+		erc.ctx.GetStringFlagValue(predicate),
+		erc.ctx.GetStringFlagValue(predicateType),
+		erc.ctx.GetStringFlagValue(key),
+		erc.ctx.GetStringFlagValue(keyId),
 		erc.ctx.GetStringFlagValue(project),
 		erc.ctx.GetStringFlagValue(releaseBundle))
 	return erc.execute(createCmd)

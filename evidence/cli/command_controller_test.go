@@ -15,52 +15,46 @@ func TestCreateEvidence_Context(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockExec := func(command commands.Command) error {
-		return nil
-	}
-
 	tests := []struct {
 		name      string
 		context   *components.Context
 		expectErr bool
-		mockExec  execCommandFunc
 	}{
 		{
 			name:      "InvalidContext - Missing Subject",
 			context:   createContext("somePredicate", "InToto", "PGP", "", ""),
 			expectErr: true,
-			mockExec:  mockExec,
 		},
 		{
 			name:      "InvalidContext - Missing Predicate",
 			context:   createContext("", "InToto", "PGP", "someBundle", ""),
 			expectErr: true,
-			mockExec:  mockExec,
 		},
 		{
 			name:      "InvalidContext - Subject Duplication",
 			context:   createContext("somePredicate", "InToto", "PGP", "someBundle", "path"),
 			expectErr: true,
-			mockExec:  mockExec,
 		},
 		{
 			name:      "ValidContext - ReleaseBundle",
 			context:   createContext("somePredicate", "InToto", "PGP", "someBundle:1", ""),
 			expectErr: false,
-			mockExec:  mockExec,
 		},
 		{
 			name:      "ValidContext - RepoPath",
 			context:   createContext("somePredicate", "InToto", "PGP", "", "path"),
 			expectErr: false,
-			mockExec:  mockExec,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 
-			execFunc = tt.mockExec             // Replace execFunc with the mockExec function
+			execFunc = func(command commands.Command) error {
+				return nil
+			}
+
+			// Replace execFunc with the mockExec function
 			defer func() { execFunc = exec }() // Restore original execFunc after test
 
 			err := createEvidence(tt.context)
@@ -77,10 +71,10 @@ func createContext(predicate string, predicateType string, key string, rb string
 	ctx := &components.Context{
 		Arguments: []string{},
 	}
-	setStringFlagValue(ctx, EvdPredicate, predicate)
-	setStringFlagValue(ctx, EvdPredicateType, predicateType)
-	setStringFlagValue(ctx, EvdKey, key)
-	setStringFlagValue(ctx, EvdRepoPath, repoPath)
+	setStringFlagValue(ctx, predicate, predicate)
+	setStringFlagValue(ctx, predicateType, predicateType)
+	setStringFlagValue(ctx, key, key)
+	setStringFlagValue(ctx, repoPath, repoPath)
 	setStringFlagValue(ctx, releaseBundle, rb)
 	return ctx
 }
