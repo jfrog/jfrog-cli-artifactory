@@ -3,7 +3,6 @@ package intoto
 import (
 	"encoding/json"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
-	"strings"
 	"time"
 
 	"github.com/jfrog/jfrog-client-go/artifactory"
@@ -42,18 +41,13 @@ func NewStatement(predicate []byte, predicateType string, user string) *Statemen
 	}
 }
 
-func (s *Statement) SetSubject(servicesManager artifactory.ArtifactoryServicesManager, subject string) error {
-	subjectAndSha := strings.Split(subject, "@")
+func (s *Statement) SetSubject(servicesManager artifactory.ArtifactoryServicesManager, subject, subjectSha256 string) error {
 	s.Subject = make([]ResourceDescriptor, 1)
-	if len(subjectAndSha) > 1 {
-		s.Subject[0].Digest.Sha256 = subjectAndSha[1]
-	}
-
-	res, err := servicesManager.FileInfo(subjectAndSha[0])
+	res, err := servicesManager.FileInfo(subject)
 	if err != nil {
 		return err
 	}
-	if s.Subject[0].Digest.Sha256 != "" && res.Checksums.Sha256 != s.Subject[0].Digest.Sha256 {
+	if res.Checksums.Sha256 != subjectSha256 {
 		return errorutils.CheckErrorf("provided sha256 does not match the file's sha256")
 	}
 	s.Subject[0].Digest.Sha256 = res.Checksums.Sha256

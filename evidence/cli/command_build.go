@@ -4,6 +4,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
 type evidenceBuildCommand struct {
@@ -18,14 +19,26 @@ func NewEvidenceBuildCommand(ctx *components.Context, execute execCommandFunc) E
 	}
 }
 
-func (erc *evidenceBuildCommand) CreateEvidence(serverDetails *coreConfig.ServerDetails) error {
+func (ebc *evidenceBuildCommand) CreateEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
+	err := ebc.validateEvidenceBuildContext(ctx)
+	if err != nil {
+		return err
+	}
+
 	createCmd := evidence.NewCreateEvidenceBuild(
 		serverDetails,
-		erc.ctx.GetStringFlagValue(predicate),
-		erc.ctx.GetStringFlagValue(predicateType),
-		erc.ctx.GetStringFlagValue(key),
-		erc.ctx.GetStringFlagValue(keyId),
-		erc.ctx.GetStringFlagValue(project),
-		erc.ctx.GetStringFlagValue(build))
-	return erc.execute(createCmd)
+		ebc.ctx.GetStringFlagValue(predicate),
+		ebc.ctx.GetStringFlagValue(predicateType),
+		ebc.ctx.GetStringFlagValue(key),
+		ebc.ctx.GetStringFlagValue(keyId),
+		ebc.ctx.GetStringFlagValue(project),
+		ebc.ctx.GetStringFlagValue(buildName),
+		ebc.ctx.GetStringFlagValue(buildNumber))
+	return ebc.execute(createCmd)
+}
+func (ebc *evidenceBuildCommand) validateEvidenceBuildContext(c *components.Context) error {
+	if !c.IsFlagSet(buildNumber) || assertValueProvided(c, buildNumber) != nil {
+		return errorutils.CheckErrorf("'buildNumber' is a mandatory field for creating a Release Bundle evidence: --%s", buildNumber)
+	}
+	return nil
 }

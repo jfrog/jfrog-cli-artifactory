@@ -26,8 +26,8 @@ type createEvidenceBase struct {
 	keyId             string
 }
 
-func (c *createEvidenceBase) createEnvelope(subject string) ([]byte, error) {
-	statementJson, err := c.buildIntotoStatementJson(subject)
+func (c *createEvidenceBase) createEnvelope(subject, subjectSha256 string) ([]byte, error) {
+	statementJson, err := c.buildIntotoStatementJson(subject, subjectSha256)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +45,7 @@ func (c *createEvidenceBase) createEnvelope(subject string) ([]byte, error) {
 	return envelopeBytes, nil
 }
 
-func (c *createEvidenceBase) buildIntotoStatementJson(subject string) ([]byte, error) {
+func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 string) ([]byte, error) {
 	predicate, err := os.ReadFile(c.predicateFilePath)
 	if err != nil {
 		log.Warn(fmt.Sprintf("failed to read predicate file '%s'", predicate))
@@ -58,7 +58,7 @@ func (c *createEvidenceBase) buildIntotoStatementJson(subject string) ([]byte, e
 	}
 
 	statement := intoto.NewStatement(predicate, c.predicateType, c.serverDetails.User)
-	err = statement.SetSubject(artifactoryClient, subject)
+	err = statement.SetSubject(artifactoryClient, subject, subjectSha256)
 	if err != nil {
 		return nil, err
 	}
