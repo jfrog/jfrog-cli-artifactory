@@ -29,63 +29,60 @@ func (m *mockReleaseBundleArtifactoryServicesManager) FileInfo(relativePath stri
 
 func TestReleaseBundle(t *testing.T) {
 	tests := []struct {
-		name          string
-		project       string
-		releaseBundle string
-		expectedPath  string
-		expectError   bool
+		name                 string
+		project              string
+		releaseBundle        string
+		releaseBundleVersion string
+		expectedPath         string
+		expectedCheckSum     string
+		expectError          bool
 	}{
 		{
-			name:          "Valid release bundle with project",
-			project:       "myProject",
-			releaseBundle: "bundleName:1.0.0",
-			expectedPath:  "myProject-release-bundles-v2/bundleName/1.0.0/release-bundle.json.evd@dummy_sha256",
-			expectError:   false,
+			name:                 "Valid release bundle with project",
+			project:              "myProject",
+			releaseBundle:        "bundleName",
+			releaseBundleVersion: "1.0.0",
+			expectedPath:         "myProject-release-bundles-v2/bundleName/1.0.0/release-bundle.json.evd",
+			expectedCheckSum:     "dummy_sha256",
+			expectError:          false,
 		},
 		{
-			name:          "Valid release bundle default project",
-			project:       "default",
-			releaseBundle: "bundleName:1.0.0",
-			expectedPath:  "release-bundles-v2/bundleName/1.0.0/release-bundle.json.evd@dummy_sha256",
-			expectError:   false,
+			name:                 "Valid release bundle default project",
+			project:              "default",
+			releaseBundle:        "bundleName",
+			releaseBundleVersion: "1.0.0",
+			expectedPath:         "release-bundles-v2/bundleName/1.0.0/release-bundle.json.evd",
+			expectedCheckSum:     "dummy_sha256",
+			expectError:          false,
 		},
 		{
-			name:          "Valid release bundle empty project",
-			project:       "default",
-			releaseBundle: "bundleName:1.0.0",
-			expectedPath:  "release-bundles-v2/bundleName/1.0.0/release-bundle.json.evd@dummy_sha256",
-			expectError:   false,
-		},
-		{
-			name:          "Invalid release bundle format 1",
-			project:       "myProject",
-			releaseBundle: "bundleName:1.0.0:111",
-			expectedPath:  "",
-			expectError:   true,
-		},
-		{
-			name:          "Invalid release bundle format 2",
-			project:       "myProject",
-			releaseBundle: "bundleName111",
-			expectedPath:  "",
-			expectError:   true,
+			name:                 "Valid release bundle empty project",
+			project:              "default",
+			releaseBundle:        "bundleName",
+			releaseBundleVersion: "1.0.0",
+			expectedPath:         "release-bundles-v2/bundleName/1.0.0/release-bundle.json.evd",
+			expectedCheckSum:     "dummy_sha256",
+			expectError:          false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &createEvidenceReleaseBundle{
-				project:       tt.project,
-				releaseBundle: tt.releaseBundle,
+				project:              tt.project,
+				releaseBundle:        tt.releaseBundle,
+				releaseBundleVersion: tt.releaseBundleVersion,
 			}
 			aa := &mockReleaseBundleArtifactoryServicesManager{}
-			path, err := c.buildReleaseBundleSubjectPath(aa)
+			path, sha256, err := c.buildReleaseBundleSubjectPath(aa)
 			if tt.expectError {
 				assert.Error(t, err)
+				assert.Empty(t, sha256)
 				assert.Empty(t, path)
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expectedPath, path)
+				assert.Equal(t, tt.expectedCheckSum, sha256)
 			}
 		})
 	}

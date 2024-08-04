@@ -4,6 +4,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
 type evidenceReleaseBundleCommand struct {
@@ -18,7 +19,12 @@ func NewEvidenceReleaseBundleCommand(ctx *components.Context, execute execComman
 	}
 }
 
-func (erc *evidenceReleaseBundleCommand) CreateEvidence(serverDetails *coreConfig.ServerDetails) error {
+func (erc *evidenceReleaseBundleCommand) CreateEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
+	err := erc.validateEvidenceReleaseBundleContext(ctx)
+	if err != nil {
+		return err
+	}
+
 	createCmd := evidence.NewCreateEvidenceReleaseBundle(
 		serverDetails,
 		erc.ctx.GetStringFlagValue(predicate),
@@ -26,6 +32,14 @@ func (erc *evidenceReleaseBundleCommand) CreateEvidence(serverDetails *coreConfi
 		erc.ctx.GetStringFlagValue(key),
 		erc.ctx.GetStringFlagValue(keyId),
 		erc.ctx.GetStringFlagValue(project),
-		erc.ctx.GetStringFlagValue(releaseBundle))
+		erc.ctx.GetStringFlagValue(releaseBundle),
+		erc.ctx.GetStringFlagValue(releaseBundleVersion))
 	return erc.execute(createCmd)
+}
+
+func (erc *evidenceReleaseBundleCommand) validateEvidenceReleaseBundleContext(c *components.Context) error {
+	if !c.IsFlagSet(releaseBundleVersion) || assertValueProvided(c, releaseBundleVersion) != nil {
+		return errorutils.CheckErrorf("'releaseBundleVersion' is a mandatory field for creating a Release Bundle evidence: --%s", releaseBundleVersion)
+	}
+	return nil
 }

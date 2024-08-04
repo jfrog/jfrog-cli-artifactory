@@ -9,17 +9,17 @@ import (
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"strings"
 )
 
 type createEvidenceBuild struct {
 	createEvidenceBase
-	project string
-	build   string
+	project     string
+	buildName   string
+	buildNumber string
 }
 
 func NewCreateEvidenceBuild(serverDetails *coreConfig.ServerDetails,
-	predicateFilePath, predicateType, key, keyId, project, build string) Command {
+	predicateFilePath, predicateType, key, keyId, project, buildName, buildNumber string) Command {
 	return &createEvidenceBuild{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
@@ -28,13 +28,14 @@ func NewCreateEvidenceBuild(serverDetails *coreConfig.ServerDetails,
 			key:               key,
 			keyId:             keyId,
 		},
-		project: project,
-		build:   build,
+		project:     project,
+		buildName:   buildName,
+		buildNumber: buildNumber,
 	}
 }
 
 func (c *createEvidenceBuild) CommandName() string {
-	return "create-build-evidence"
+	return "create-buildName-evidence"
 }
 
 func (c *createEvidenceBuild) ServerDetails() (*config.ServerDetails, error) {
@@ -47,11 +48,11 @@ func (c *createEvidenceBuild) Run() error {
 		log.Error("failed to create Artifactory client", err)
 		return err
 	}
-	subject, err := c.buildBuildInfoSubjectPath(artifactoryClient)
+	subject, sha256, err := c.buildBuildInfoSubjectPath(artifactoryClient)
 	if err != nil {
 		return err
 	}
-	envelope, err := c.createEnvelope(subject)
+	envelope, err := c.createEnvelope(subject, sha256)
 	if err != nil {
 		return err
 	}
@@ -63,26 +64,19 @@ func (c *createEvidenceBuild) Run() error {
 	return nil
 }
 
-func (c *createEvidenceBuild) buildBuildInfoSubjectPath(artifactoryClient artifactory.ArtifactoryServicesManager) (string, error) {
-	build := strings.Split(c.build, ":")
-	if len(build) != 2 {
-		return "", fmt.Errorf("invalid build format. expected format is <name>:<number>")
-	}
-	name := build[0]
-	number := build[1]
-
-	timestamp, err := getBuildLatestTimestamp(name, number, c.project, artifactoryClient)
+func (c *createEvidenceBuild) buildBuildInfoSubjectPath(artifactoryClient artifactory.ArtifactoryServicesManager) (string, string, error) {
+	timestamp, err := getBuildLatestTimestamp(c.buildName, c.buildNumber, c.project, artifactoryClient)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	repoKey := buildBuildInfoRepoKey(c.project)
-	buildInfoPath := buildBuildInfoPath(repoKey, name, number, timestamp)
+	buildInfoPath := buildBuildInfoPath(repoKey, c.buildName, c.buildNumber, timestamp)
 	buildInfoChecksum, err := getBuildInfoPathChecksum(buildInfoPath, artifactoryClient)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return buildInfoPath + "@" + buildInfoChecksum, nil
+	return buildInfoPath, buildInfoChecksum, nil
 }
 
 func getBuildLatestTimestamp(name string, number string, project string, artifactoryClient artifactory.ArtifactoryServicesManager) (string, error) {
@@ -96,7 +90,7 @@ func getBuildLatestTimestamp(name string, number string, project string, artifac
 		return "", err
 	}
 	if !ok {
-		errorMessage := fmt.Sprintf("failed to find build, name:%s, number:%s, project: %s", name, number, project)
+		errorMessage := fmt.Sprintf("failed to find buildName, name:%s, number:%s, project: %s", name, number, project)
 		return "", errorutils.CheckErrorf(errorMessage)
 	}
 	timestamp, err := utils.ParseIsoTimestamp(res.BuildInfo.Started)
@@ -121,7 +115,7 @@ func buildBuildInfoPath(repoKey string, name string, number string, timestamp st
 func getBuildInfoPathChecksum(buildInfoPath string, artifactoryClient artifactory.ArtifactoryServicesManager) (string, error) {
 	res, err := artifactoryClient.FileInfo(buildInfoPath)
 	if err != nil {
-		log.Warn(fmt.Sprintf("build info json path '%s' does not exist.", buildInfoPath))
+		log.Warn(fmt.Sprintf("buildName info json path '%s' does not exist.", buildInfoPath))
 		return "", err
 	}
 	return res.Checksums.Sha256, nil
