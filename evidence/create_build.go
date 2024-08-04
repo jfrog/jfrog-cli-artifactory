@@ -18,8 +18,8 @@ type createEvidenceBuild struct {
 	build   string
 }
 
-func NewCreateEvidenceBuild(serverDetails *coreConfig.ServerDetails, predicateFilePath string, predicateType string, key string, keyId string,
-	project string, build string) Command {
+func NewCreateEvidenceBuild(serverDetails *coreConfig.ServerDetails,
+	predicateFilePath, predicateType, key, keyId, project, build string) Command {
 	return &createEvidenceBuild{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
@@ -91,12 +91,12 @@ func getBuildLatestTimestamp(name string, number string, project string, artifac
 		BuildNumber: number,
 		ProjectKey:  project,
 	}
-	res, b, err := artifactoryClient.GetBuildInfo(buildInfo)
-	if !b {
+	res, ok, err := artifactoryClient.GetBuildInfo(buildInfo)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
 		errorMessage := fmt.Sprintf("failed to find build, name:%s, number:%s, project: %s", name, number, project)
-		if err != nil {
-			return "", err
-		}
 		return "", errorutils.CheckErrorf(errorMessage)
 	}
 	timestamp, err := utils.ParseIsoTimestamp(res.BuildInfo.Started)
