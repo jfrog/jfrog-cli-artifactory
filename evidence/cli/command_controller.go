@@ -31,7 +31,7 @@ var execFunc = func(command commands.Command) error {
 }
 
 func createEvidence(c *components.Context) error {
-	if err := validateCreateEvidenceCommonContext(c); err != nil {
+	if err := validateCreateEvidenceContext(c); err != nil {
 		return err
 	}
 	subject, err := getAndValidateSubject(c)
@@ -45,20 +45,20 @@ func createEvidence(c *components.Context) error {
 
 	var command EvidenceCommands
 	switch subject {
-	case subjectRepoPath:
+	case repoPath:
 		command = NewEvidenceCustomCommand(c, execFunc)
 	case releaseBundle:
 		command = NewEvidenceReleaseBundleCommand(c, execFunc)
-	case buildName:
+	case build:
 		command = NewEvidenceBuildCommand(c, execFunc)
 	default:
 		return errors.New("unsupported subject")
 	}
 
-	return command.CreateEvidence(c, serverDetails)
+	return command.CreateEvidence(serverDetails)
 }
 
-func validateCreateEvidenceCommonContext(c *components.Context) error {
+func validateCreateEvidenceContext(c *components.Context) error {
 	if show, err := pluginsCommon.ShowCmdHelpIfNeeded(c, c.Arguments); show || err != nil {
 		return err
 	}
@@ -68,13 +68,13 @@ func validateCreateEvidenceCommonContext(c *components.Context) error {
 	}
 
 	if !c.IsFlagSet(predicate) || assertValueProvided(c, predicate) != nil {
-		return errorutils.CheckErrorf("'predicate' is a mandatory field for creating evidence: --%s", predicate)
+		return errorutils.CheckErrorf("'predicate' is a mandatory field for creating a custom evidence: --%s", predicate)
 	}
 	if !c.IsFlagSet(predicateType) || assertValueProvided(c, predicateType) != nil {
-		return errorutils.CheckErrorf("'predicate-type' is a mandatory field for creating evidence: --%s", predicateType)
+		return errorutils.CheckErrorf("'predicate-type' is a mandatory field for creating a custom evidence: --%s", predicateType)
 	}
 	if !c.IsFlagSet(key) || assertValueProvided(c, key) != nil {
-		return errorutils.CheckErrorf("'key' is a mandatory field for creating evidence: --%s", key)
+		return errorutils.CheckErrorf("'key' is a mandatory field for creating a custom evidence: --%s", key)
 	}
 	return nil
 }

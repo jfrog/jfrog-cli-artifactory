@@ -6,17 +6,17 @@ import (
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/utils/log"
+	"strings"
 )
 
 type createEvidenceReleaseBundle struct {
 	createEvidenceBase
-	project              string
-	releaseBundle        string
-	releaseBundleVersion string
+	project       string
+	releaseBundle string
 }
 
-func NewCreateEvidenceReleaseBundle(serverDetails *coreConfig.ServerDetails, predicateFilePath, predicateType, key, keyId, project, releaseBundle,
-	releaseBundleVersion string) Command {
+func NewCreateEvidenceReleaseBundle(serverDetails *coreConfig.ServerDetails, predicateFilePath string, predicateType string, key string, keyId string,
+	project string, releaseBundle string) Command {
 	return &createEvidenceReleaseBundle{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
@@ -25,9 +25,8 @@ func NewCreateEvidenceReleaseBundle(serverDetails *coreConfig.ServerDetails, pre
 			key:               key,
 			keyId:             keyId,
 		},
-		project:              project,
-		releaseBundle:        releaseBundle,
-		releaseBundleVersion: releaseBundleVersion,
+		project:       project,
+		releaseBundle: releaseBundle,
 	}
 }
 
@@ -45,11 +44,11 @@ func (c *createEvidenceReleaseBundle) Run() error {
 		log.Error("failed to create Artifactory client", err)
 		return err
 	}
-	subject, sha256, err := c.buildReleaseBundleSubjectPath(artifactoryClient)
+	subject, err := c.buildReleaseBundleSubjectPath(artifactoryClient)
 	if err != nil {
 		return err
 	}
-	envelope, err := c.createEnvelope(subject, sha256)
+	envelope, err := c.createEnvelope(subject)
 	if err != nil {
 		return err
 	}
@@ -61,16 +60,22 @@ func (c *createEvidenceReleaseBundle) Run() error {
 	return nil
 }
 
-func (c *createEvidenceReleaseBundle) buildReleaseBundleSubjectPath(artifactoryClient artifactory.ArtifactoryServicesManager) (string, string, error) {
+func (c *createEvidenceReleaseBundle) buildReleaseBundleSubjectPath(artifactoryClient artifactory.ArtifactoryServicesManager) (string, error) {
+	releaseBundle := strings.Split(c.releaseBundle, ":")
+	if len(releaseBundle) != 2 {
+		return "", fmt.Errorf("invalid release bundle format. expected format is <name>:<version>")
+	}
+	name := releaseBundle[0]
+	version := releaseBundle[1]
 	repoKey := buildRepoKey(c.project)
-	manifestPath := buildManifestPath(repoKey, c.releaseBundle, c.releaseBundleVersion)
+	manifestPath := buildManifestPath(repoKey, name, version)
 
 	manifestChecksum, err := getManifestPathChecksum(manifestPath, artifactoryClient)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 
-	return manifestPath, manifestChecksum, nil
+	return manifestPath + "@" + manifestChecksum, nil
 }
 
 func buildRepoKey(project string) string {

@@ -22,32 +22,27 @@ func TestCreateEvidence_Context(t *testing.T) {
 	}{
 		{
 			name:      "InvalidContext - Missing Subject",
-			context:   createCustomContext("somePredicate", "InToto", "PGP", "", ""),
+			context:   createContext("somePredicate", "InToto", "PGP", "", ""),
 			expectErr: true,
 		},
 		{
 			name:      "InvalidContext - Missing Predicate",
-			context:   createCustomContext("", "InToto", "PGP", "someBundle", ""),
+			context:   createContext("", "InToto", "PGP", "someBundle", ""),
 			expectErr: true,
 		},
 		{
 			name:      "InvalidContext - Subject Duplication",
-			context:   createCustomAndRBContext("somePredicate", "InToto", "PGP", "someBundle", "1.0.0", "rb", "rbv"),
+			context:   createContext("somePredicate", "InToto", "PGP", "someBundle", "path"),
 			expectErr: true,
 		},
 		{
 			name:      "ValidContext - ReleaseBundle",
-			context:   createRBContext("somePredicate", "InToto", "PGP", "someBundle:1", "1.0.0"),
+			context:   createContext("somePredicate", "InToto", "PGP", "someBundle:1", ""),
 			expectErr: false,
 		},
 		{
 			name:      "ValidContext - RepoPath",
-			context:   createCustomContext("somePredicate", "InToto", "PGP", "path", "sha256"),
-			expectErr: false,
-		},
-		{
-			name:      "ValidContext - Build",
-			context:   createBuildContext("somePredicate", "InToto", "PGP", "name", "number"),
+			context:   createContext("somePredicate", "InToto", "PGP", "", "path"),
 			expectErr: false,
 		},
 	}
@@ -72,52 +67,15 @@ func TestCreateEvidence_Context(t *testing.T) {
 	}
 }
 
-func createCommonContext(ctx *components.Context, _predicate, _predicateType, _key string) *components.Context {
-	setStringFlagValue(ctx, predicate, _predicate)
-	setStringFlagValue(ctx, predicateType, _predicateType)
-	setStringFlagValue(ctx, key, _key)
-	return ctx
-}
-
-func createCustomAndRBContext(_predicate, _predicateType, _key, repoPath, sha256, rb, rbv string) *components.Context {
+func createContext(predicate string, predicateType string, key string, rb string, repoPath string) *components.Context {
 	ctx := &components.Context{
 		Arguments: []string{},
 	}
-	createCommonContext(ctx, _predicate, _predicateType, _key)
-	setStringFlagValue(ctx, subjectRepoPath, repoPath)
-	setStringFlagValue(ctx, subjectSha256, sha256)
+	setStringFlagValue(ctx, predicate, predicate)
+	setStringFlagValue(ctx, predicateType, predicateType)
+	setStringFlagValue(ctx, key, key)
+	setStringFlagValue(ctx, repoPath, repoPath)
 	setStringFlagValue(ctx, releaseBundle, rb)
-	setStringFlagValue(ctx, releaseBundleVersion, rbv)
-	return ctx
-}
-
-func createCustomContext(_predicate, _predicateType, _key, repoPath, sha256 string) *components.Context {
-	ctx := &components.Context{
-		Arguments: []string{},
-	}
-	createCommonContext(ctx, _predicate, _predicateType, _key)
-	setStringFlagValue(ctx, subjectRepoPath, repoPath)
-	setStringFlagValue(ctx, subjectSha256, sha256)
-	return ctx
-}
-
-func createRBContext(_predicate, _predicateType, _key, rb, rbv string) *components.Context {
-	ctx := &components.Context{
-		Arguments: []string{},
-	}
-	createCommonContext(ctx, _predicate, _predicateType, _key)
-	setStringFlagValue(ctx, releaseBundle, rb)
-	setStringFlagValue(ctx, releaseBundleVersion, rbv)
-	return ctx
-}
-
-func createBuildContext(_predicate, _predicateType, _key, _buildName, _buildNumber string) *components.Context {
-	ctx := &components.Context{
-		Arguments: []string{},
-	}
-	createCommonContext(ctx, _predicate, _predicateType, _key)
-	setStringFlagValue(ctx, buildName, _buildName)
-	setStringFlagValue(ctx, buildNumber, _buildNumber)
 	return ctx
 }
 

@@ -9,7 +9,7 @@ func exec(command commands.Command) error {
 }
 
 var subjectTypes = []string{
-	subjectRepoPath,
+	repoPath,
 	releaseBundle,
-	buildName,
+	build,
 }

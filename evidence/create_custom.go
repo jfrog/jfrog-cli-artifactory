@@ -7,12 +7,11 @@ import (
 
 type createEvidenceCustom struct {
 	createEvidenceBase
-	subjectRepoPath string
-	subjectSha256   string
+	repoPath string
 }
 
-func NewCreateEvidenceCustom(serverDetails *coreConfig.ServerDetails, predicateFilePath, predicateType, key, keyId, subjectRepoPath,
-	subjectSha256 string) Command {
+func NewCreateEvidenceCustom(serverDetails *coreConfig.ServerDetails, predicateFilePath string, predicateType string, key string, keyId string,
+	repoPath string) Command {
 	return &createEvidenceCustom{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
@@ -21,8 +20,7 @@ func NewCreateEvidenceCustom(serverDetails *coreConfig.ServerDetails, predicateF
 			key:               key,
 			keyId:             keyId,
 		},
-		subjectRepoPath: subjectRepoPath,
-		subjectSha256:   subjectSha256,
+		repoPath: repoPath,
 	}
 }
 
@@ -35,11 +33,11 @@ func (c *createEvidenceCustom) ServerDetails() (*config.ServerDetails, error) {
 }
 
 func (c *createEvidenceCustom) Run() error {
-	envelope, err := c.createEnvelope(c.subjectRepoPath, c.subjectSha256)
+	envelope, err := c.createEnvelope(c.repoPath)
 	if err != nil {
 		return err
 	}
-	err = c.uploadEvidence(envelope, c.subjectRepoPath)
+	err = c.uploadEvidence(envelope, c.repoPath)
 	if err != nil {
 		return err
 	}
