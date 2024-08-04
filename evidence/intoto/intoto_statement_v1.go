@@ -47,7 +47,7 @@ func (s *Statement) SetSubject(servicesManager artifactory.ArtifactoryServicesMa
 	if err != nil {
 		return err
 	}
-	if res.Checksums.Sha256 != subjectSha256 {
+	if subjectSha256 != "" && res.Checksums.Sha256 != subjectSha256 {
 		return errorutils.CheckErrorf("provided sha256 does not match the file's sha256")
 	}
 	s.Subject[0].Digest.Sha256 = res.Checksums.Sha256
