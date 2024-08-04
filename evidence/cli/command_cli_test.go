@@ -130,6 +130,19 @@ func TestCreateEvidence_Context(t *testing.T) {
 			},
 			expectErr: true,
 		},
+		{
+			name: "InvalidContext - Unsupported Basic Auth",
+			flags: []components.Flag{
+				setDefaultValue(predicate, predicate),
+				setDefaultValue(predicateType, "InToto"),
+				setDefaultValue(key, "PGP"),
+				setDefaultValue(releaseBundle, releaseBundle),
+				setDefaultValue("url", "url"),
+				setDefaultValue("user", "testUser"),
+				setDefaultValue("password", "testPassword"),
+			},
+			expectErr: true,
+		},
 	}
 
 	for _, tt := range tests {

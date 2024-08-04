@@ -105,6 +105,11 @@ func evidenceDetailsByFlags(ctx *components.Context) (*coreConfig.ServerDetails,
 		return nil, errors.New("platform URL is mandatory for evidence commands")
 	}
 	platformToEvidenceUrls(serverDetails)
+
+	if serverDetails.GetUser() != "" && serverDetails.GetPassword() != "" {
+		return nil, errors.New("evidence service does not support basic authentication")
+	}
+
 	return serverDetails, nil
 }
 
