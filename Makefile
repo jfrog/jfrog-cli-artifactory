@@ -9,6 +9,8 @@ GOARCH = $(shell go env GOARCH)
 # ----------------------------------------------------------------------------------------------------------------------
 export PROJECT_DIR = $(CURDIR)
 
+prereq:
+	$(GOCMD) install github.com/golang/mock/gomock@v1.6.0
 clean-mock:
 	@find . -name "*_mock.go" -delete
 
