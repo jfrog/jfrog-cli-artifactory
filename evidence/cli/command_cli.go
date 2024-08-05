@@ -26,9 +26,7 @@ func GetCommands() []components.Command {
 	}
 }
 
-var execFunc = func(command commands.Command) error {
-	return commands.Exec(command)
-}
+var execFunc = commands.Exec
 
 func createEvidence(c *components.Context) error {
 	if err := validateCreateEvidenceCommonContext(c); err != nil {
