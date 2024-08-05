@@ -17,7 +17,7 @@ func NewEvidenceCustomCommand(ctx *components.Context, execute execCommandFunc) 
 		execute: execute,
 	}
 }
-func (ecc *evidenceCustomCommand) CreateEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
+func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDetails *coreConfig.ServerDetails) error {
 	createCmd := evidence.NewCreateEvidenceCustom(
 		serverDetails,
 		ecc.ctx.GetStringFlagValue(predicate),

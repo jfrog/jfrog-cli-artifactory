@@ -88,7 +88,7 @@ func getAndValidateSubject(c *components.Context) (string, error) {
 	}
 
 	if len(foundSubjects) == 0 {
-		return "", errorutils.CheckErrorf("Subject must be one of the fields: [%s]", strings.Join(subjectTypes, ", "))
+		return "", errorutils.CheckErrorf("subject must be one of the fields: [%s]", strings.Join(subjectTypes, ", "))
 	}
 	if len(foundSubjects) > 1 {
 		return "", errorutils.CheckErrorf("multiple subjects found: [%s]", strings.Join(foundSubjects, ", "))

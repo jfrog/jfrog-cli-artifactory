@@ -36,8 +36,9 @@ func (ebc *evidenceBuildCommand) CreateEvidence(ctx *components.Context, serverD
 		ebc.ctx.GetStringFlagValue(buildNumber))
 	return ebc.execute(createCmd)
 }
-func (ebc *evidenceBuildCommand) validateEvidenceBuildContext(c *components.Context) error {
-	if !c.IsFlagSet(buildNumber) || assertValueProvided(c, buildNumber) != nil {
+
+func (ebc *evidenceBuildCommand) validateEvidenceBuildContext(ctx *components.Context) error {
+	if !ctx.IsFlagSet(buildNumber) || assertValueProvided(ctx, buildNumber) != nil {
 		return errorutils.CheckErrorf("'buildNumber' is a mandatory field for creating a Release Bundle evidence: --%s", buildNumber)
 	}
 	return nil

@@ -3,11 +3,15 @@ module github.com/jfrog/jfrog-cli-artifactory
 go 1.22.3
 
 require (
+	github.com/golang/mock v1.6.0
+	github.com/jfrog/build-info-go v1.9.29
+	github.com/jfrog/gofrog v1.7.4
 	github.com/jfrog/jfrog-cli-core/v2 v2.53.3
 	github.com/jfrog/jfrog-client-go v1.42.0
 	github.com/pkg/errors v0.9.1
 	github.com/secure-systems-lab/go-securesystemslib v0.8.0
 	github.com/stretchr/testify v1.9.0
+	github.com/urfave/cli v1.22.15
 )
 
 require (
@@ -40,8 +44,6 @@ require (
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/jedib0t/go-pretty/v6 v6.5.9 // indirect
 	github.com/jfrog/archiver/v3 v3.6.1 // indirect
-	github.com/jfrog/build-info-go v1.9.29 // indirect
-	github.com/jfrog/gofrog v1.7.4 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.3 // indirect
@@ -74,7 +76,6 @@ require (
 	github.com/spf13/viper v1.19.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/ulikunitz/xz v0.5.12 // indirect
-	github.com/urfave/cli v1.22.15 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	github.com/xo/terminfo v0.0.0-20210125001918-ca9a967f8778 // indirect

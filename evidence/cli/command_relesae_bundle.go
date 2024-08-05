@@ -37,8 +37,8 @@ func (erc *evidenceReleaseBundleCommand) CreateEvidence(ctx *components.Context,
 	return erc.execute(createCmd)
 }
 
-func (erc *evidenceReleaseBundleCommand) validateEvidenceReleaseBundleContext(c *components.Context) error {
-	if !c.IsFlagSet(releaseBundleVersion) || assertValueProvided(c, releaseBundleVersion) != nil {
+func (erc *evidenceReleaseBundleCommand) validateEvidenceReleaseBundleContext(ctx *components.Context) error {
+	if !ctx.IsFlagSet(releaseBundleVersion) || assertValueProvided(ctx, releaseBundleVersion) != nil {
 		return errorutils.CheckErrorf("'releaseBundleVersion' is a mandatory field for creating a Release Bundle evidence: --%s", releaseBundleVersion)
 	}
 	return nil
