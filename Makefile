@@ -11,6 +11,7 @@ export PROJECT_DIR = $(CURDIR)
 
 prereq:
 	$(GOCMD) install go.uber.org/mock/mockgen@v0.4.0
+
 clean-mock:
 	@find . -name "*_mock.go" -delete
 
