@@ -28,15 +28,15 @@ func GetCommands() []components.Command {
 
 var execFunc = commands.Exec
 
-func createEvidence(c *components.Context) error {
-	if err := validateCreateEvidenceCommonContext(c); err != nil {
+func createEvidence(ctx *components.Context) error {
+	if err := validateCreateEvidenceCommonContext(ctx); err != nil {
 		return err
 	}
-	subject, err := getAndValidateSubject(c)
+	subject, err := getAndValidateSubject(ctx)
 	if err != nil {
 		return err
 	}
-	serverDetails, err := evidenceDetailsByFlags(c)
+	serverDetails, err := evidenceDetailsByFlags(ctx)
 	if err != nil {
 		return err
 	}
@@ -44,43 +44,43 @@ func createEvidence(c *components.Context) error {
 	var command EvidenceCommands
 	switch subject {
 	case subjectRepoPath:
-		command = NewEvidenceCustomCommand(c, execFunc)
+		command = NewEvidenceCustomCommand(ctx, execFunc)
 	case releaseBundle:
-		command = NewEvidenceReleaseBundleCommand(c, execFunc)
+		command = NewEvidenceReleaseBundleCommand(ctx, execFunc)
 	case buildName:
-		command = NewEvidenceBuildCommand(c, execFunc)
+		command = NewEvidenceBuildCommand(ctx, execFunc)
 	default:
 		return errors.New("unsupported subject")
 	}
 
-	return command.CreateEvidence(c, serverDetails)
+	return command.CreateEvidence(ctx, serverDetails)
 }
 
-func validateCreateEvidenceCommonContext(c *components.Context) error {
-	if show, err := pluginsCommon.ShowCmdHelpIfNeeded(c, c.Arguments); show || err != nil {
+func validateCreateEvidenceCommonContext(ctx *components.Context) error {
+	if show, err := pluginsCommon.ShowCmdHelpIfNeeded(ctx, ctx.Arguments); show || err != nil {
 		return err
 	}
 
-	if len(c.Arguments) > 1 {
-		return pluginsCommon.WrongNumberOfArgumentsHandler(c)
+	if len(ctx.Arguments) > 1 {
+		return pluginsCommon.WrongNumberOfArgumentsHandler(ctx)
 	}
 
-	if !c.IsFlagSet(predicate) || assertValueProvided(c, predicate) != nil {
+	if !ctx.IsFlagSet(predicate) || assertValueProvided(ctx, predicate) != nil {
 		return errorutils.CheckErrorf("'predicate' is a mandatory field for creating evidence: --%s", predicate)
 	}
-	if !c.IsFlagSet(predicateType) || assertValueProvided(c, predicateType) != nil {
+	if !ctx.IsFlagSet(predicateType) || assertValueProvided(ctx, predicateType) != nil {
 		return errorutils.CheckErrorf("'predicate-type' is a mandatory field for creating evidence: --%s", predicateType)
 	}
-	if !c.IsFlagSet(key) || assertValueProvided(c, key) != nil {
+	if !ctx.IsFlagSet(key) || assertValueProvided(ctx, key) != nil {
 		return errorutils.CheckErrorf("'key' is a mandatory field for creating evidence: --%s", key)
 	}
 	return nil
 }
 
-func getAndValidateSubject(c *components.Context) (string, error) {
+func getAndValidateSubject(ctx *components.Context) (string, error) {
 	var foundSubjects []string
 	for _, key := range subjectTypes {
-		if c.GetStringFlagValue(key) != "" {
+		if ctx.GetStringFlagValue(key) != "" {
 			foundSubjects = append(foundSubjects, key)
 		}
 	}
@@ -94,8 +94,8 @@ func getAndValidateSubject(c *components.Context) (string, error) {
 	return foundSubjects[0], nil
 }
 
-func evidenceDetailsByFlags(c *components.Context) (*coreConfig.ServerDetails, error) {
-	serverDetails, err := pluginsCommon.CreateServerDetailsWithConfigOffer(c, true, commonCliUtils.Platform)
+func evidenceDetailsByFlags(ctx *components.Context) (*coreConfig.ServerDetails, error) {
+	serverDetails, err := pluginsCommon.CreateServerDetailsWithConfigOffer(ctx, true, commonCliUtils.Platform)
 	if err != nil {
 		return nil, err
 	}

@@ -26,7 +26,6 @@ const (
 	buildNumber          = "build-number"
 
 	// Unique evidence flags
-	evidencePrefix  = "evd-"
 	predicate       = "predicate"
 	predicateType   = "predicate-type"
 	subjectRepoPath = "subject-repo-path"
@@ -53,7 +52,7 @@ var flagsMap = map[string]components.Flag{
 	predicate:       components.NewStringFlag(predicate, "Path to the predicate, arbitrary JSON.", func(f *components.StringFlag) { f.Mandatory = true }),
 	predicateType:   components.NewStringFlag(predicateType, "Type of the predicate.", func(f *components.StringFlag) { f.Mandatory = true }),
 	subjectRepoPath: components.NewStringFlag(subjectRepoPath, "Full path to some subject' location.", func(f *components.StringFlag) { f.Mandatory = false }),
-	subjectSha256:   components.NewStringFlag(subjectSha256, "subject checksum sha256.", func(f *components.StringFlag) { f.Mandatory = false }),
+	subjectSha256:   components.NewStringFlag(subjectSha256, "Subject checksum sha256.", func(f *components.StringFlag) { f.Mandatory = false }),
 	key:             components.NewStringFlag(key, "Path to a private key that will sign the DSSE. Supported keys: 'ecdsa','rsa' and 'ed25519'.", func(f *components.StringFlag) { f.Mandatory = true }),
 	keyId:           components.NewStringFlag(keyId, "KeyId", func(f *components.StringFlag) { f.Mandatory = false }),
 }
