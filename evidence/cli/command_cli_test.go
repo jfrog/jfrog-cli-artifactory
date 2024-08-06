@@ -2,11 +2,11 @@ package cli
 
 import (
 	"flag"
-	"github.com/golang/mock/gomock"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/stretchr/testify/assert"
 	"github.com/urfave/cli"
+	"go.uber.org/mock/gomock"
 	"testing"
 )
 
