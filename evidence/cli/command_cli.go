@@ -49,6 +49,8 @@ func createEvidence(ctx *components.Context) error {
 		command = NewEvidenceReleaseBundleCommand(ctx, execFunc)
 	case buildName:
 		command = NewEvidenceBuildCommand(ctx, execFunc)
+	case packageName:
+		command = NewEvidencePackageCommand(ctx, execFunc)
 	default:
 		return errors.New("unsupported subject")
 	}
@@ -109,6 +111,7 @@ func evidenceDetailsByFlags(ctx *components.Context) (*coreConfig.ServerDetails,
 func platformToEvidenceUrls(rtDetails *coreConfig.ServerDetails) {
 	rtDetails.ArtifactoryUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "artifactory/"
 	rtDetails.EvidenceUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "evidence/"
+	rtDetails.MetadataUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "metadata/"
 }
 
 func assertValueProvided(c *components.Context, fieldName string) error {

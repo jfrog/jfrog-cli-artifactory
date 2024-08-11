@@ -12,4 +12,5 @@ var subjectTypes = []string{
 	subjectRepoPath,
 	releaseBundle,
 	buildName,
+	packageName,
 }

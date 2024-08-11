@@ -30,7 +30,7 @@ func (erc *evidenceReleaseBundleCommand) CreateEvidence(ctx *components.Context,
 		erc.ctx.GetStringFlagValue(predicate),
 		erc.ctx.GetStringFlagValue(predicateType),
 		erc.ctx.GetStringFlagValue(key),
-		erc.ctx.GetStringFlagValue(keyId),
+		erc.ctx.GetStringFlagValue(KeyAlias),
 		erc.ctx.GetStringFlagValue(project),
 		erc.ctx.GetStringFlagValue(releaseBundle),
 		erc.ctx.GetStringFlagValue(releaseBundleVersion))

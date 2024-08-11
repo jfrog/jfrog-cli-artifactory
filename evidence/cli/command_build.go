@@ -30,7 +30,7 @@ func (ebc *evidenceBuildCommand) CreateEvidence(ctx *components.Context, serverD
 		ebc.ctx.GetStringFlagValue(predicate),
 		ebc.ctx.GetStringFlagValue(predicateType),
 		ebc.ctx.GetStringFlagValue(key),
-		ebc.ctx.GetStringFlagValue(keyId),
+		ebc.ctx.GetStringFlagValue(KeyAlias),
 		ebc.ctx.GetStringFlagValue(project),
 		ebc.ctx.GetStringFlagValue(buildName),
 		ebc.ctx.GetStringFlagValue(buildNumber))

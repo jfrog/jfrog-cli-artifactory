@@ -65,7 +65,7 @@ func (c *createEvidenceReleaseBundle) buildReleaseBundleSubjectPath(artifactoryC
 	repoKey := buildRepoKey(c.project)
 	manifestPath := buildManifestPath(repoKey, c.releaseBundle, c.releaseBundleVersion)
 
-	manifestChecksum, err := getManifestPathChecksum(manifestPath, artifactoryClient)
+	manifestChecksum, err := c.getFileChecksum(manifestPath, artifactoryClient)
 	if err != nil {
 		return "", "", err
 	}
@@ -82,13 +82,4 @@ func buildRepoKey(project string) string {
 
 func buildManifestPath(repoKey, name, version string) string {
 	return fmt.Sprintf("%s/%s/%s/release-bundle.json.evd", repoKey, name, version)
-}
-
-func getManifestPathChecksum(manifestPath string, artifactoryClient artifactory.ArtifactoryServicesManager) (string, error) {
-	res, err := artifactoryClient.FileInfo(manifestPath)
-	if err != nil {
-		log.Warn(fmt.Sprintf("release bundle manifest path '%s' does not exist.", manifestPath))
-		return "", err
-	}
-	return res.Checksums.Sha256, nil
 }

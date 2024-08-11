@@ -102,6 +102,15 @@ func (c *createEvidenceBase) createArtifactoryClient() (artifactory.ArtifactoryS
 	return utils.CreateUploadServiceManager(c.serverDetails, 1, 0, 0, false, nil)
 }
 
+func (c *createEvidenceBase) getFileChecksum(path string, artifactoryClient artifactory.ArtifactoryServicesManager) (string, error) {
+	res, err := artifactoryClient.FileInfo(path)
+	if err != nil {
+		log.Warn(fmt.Sprintf("file path '%s' does not exist.", path))
+		return "", err
+	}
+	return res.Checksums.Sha256, nil
+}
+
 func createAndSignEnvelope(payloadJson []byte, key string, keyId string) (*dsse.Envelope, error) {
 	// Load private key from file if ec.key is not a path to a file then try to load it as a key
 	keyFile := []byte(key)

@@ -93,6 +93,43 @@ func TestCreateEvidence_Context(t *testing.T) {
 			},
 			expectErr: false,
 		},
+		{
+			name: "ValidContext - Package",
+			flags: []components.Flag{
+				setDefaultValue(predicate, predicate),
+				setDefaultValue(predicateType, "InToto"),
+				setDefaultValue(key, "PGP"),
+				setDefaultValue(packageName, packageName),
+				setDefaultValue(packageVersion, packageVersion),
+				setDefaultValue(packageRepoName, packageRepoName),
+				setDefaultValue("url", "url"),
+			},
+			expectErr: false,
+		},
+		{
+			name: "InvalidContext - Missing package version",
+			flags: []components.Flag{
+				setDefaultValue(predicate, predicate),
+				setDefaultValue(predicateType, "InToto"),
+				setDefaultValue(key, "PGP"),
+				setDefaultValue(packageName, packageName),
+				setDefaultValue(packageRepoName, packageRepoName),
+				setDefaultValue("url", "url"),
+			},
+			expectErr: true,
+		},
+		{
+			name: "InvalidContext - Missing package repository key",
+			flags: []components.Flag{
+				setDefaultValue(predicate, predicate),
+				setDefaultValue(predicateType, "InToto"),
+				setDefaultValue(key, "PGP"),
+				setDefaultValue(packageName, packageName),
+				setDefaultValue(packageVersion, packageVersion),
+				setDefaultValue("url", "url"),
+			},
+			expectErr: true,
+		},
 	}
 
 	for _, tt := range tests {
