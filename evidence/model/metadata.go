@@ -1,6 +1,6 @@
 package model
 
-type GraphqlResponse struct {
+type MetadataResponse struct {
 	Data VersionsData `json:"data"`
 }
 

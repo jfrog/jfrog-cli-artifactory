@@ -101,7 +101,7 @@ func (c *createEvidencePackage) getPackageVersionLeadArtifact(packageType string
 		return "", err
 	}
 
-	res := &model.GraphqlResponse{}
+	res := &model.MetadataResponse{}
 	err = json.Unmarshal(body, res)
 	if err != nil {
 		return "", err

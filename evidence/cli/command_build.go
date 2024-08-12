@@ -30,7 +30,7 @@ func (ebc *evidenceBuildCommand) CreateEvidence(ctx *components.Context, serverD
 		ebc.ctx.GetStringFlagValue(predicate),
 		ebc.ctx.GetStringFlagValue(predicateType),
 		ebc.ctx.GetStringFlagValue(key),
-		ebc.ctx.GetStringFlagValue(KeyAlias),
+		ebc.ctx.GetStringFlagValue(keyAlias),
 		ebc.ctx.GetStringFlagValue(project),
 		ebc.ctx.GetStringFlagValue(buildName),
 		ebc.ctx.GetStringFlagValue(buildNumber))
@@ -39,7 +39,7 @@ func (ebc *evidenceBuildCommand) CreateEvidence(ctx *components.Context, serverD
 
 func (ebc *evidenceBuildCommand) validateEvidenceBuildContext(ctx *components.Context) error {
 	if !ctx.IsFlagSet(buildNumber) || assertValueProvided(ctx, buildNumber) != nil {
-		return errorutils.CheckErrorf("'buildNumber' is a mandatory field for creating a Release Bundle evidence: --%s", buildNumber)
+		return errorutils.CheckErrorf("--%s is a mandatory field for creating a Release Bundle evidence", buildNumber)
 	}
 	return nil
 }

@@ -34,7 +34,7 @@ const (
 	subjectRepoPath = "subject-repo-path"
 	subjectSha256   = "subject-sha256"
 	key             = "key"
-	KeyAlias        = "key-alias"
+	keyAlias        = "key-alias"
 )
 
 // Flag keys mapped to their corresponding components.Flag definition.
@@ -60,7 +60,7 @@ var flagsMap = map[string]components.Flag{
 	subjectRepoPath: components.NewStringFlag(subjectRepoPath, "Full path to some subject' location.", func(f *components.StringFlag) { f.Mandatory = false }),
 	subjectSha256:   components.NewStringFlag(subjectSha256, "Subject checksum sha256.", func(f *components.StringFlag) { f.Mandatory = false }),
 	key:             components.NewStringFlag(key, "Path to a private key that will sign the DSSE. Supported keys: 'ecdsa','rsa' and 'ed25519'.", func(f *components.StringFlag) { f.Mandatory = true }),
-	KeyAlias:        components.NewStringFlag(KeyAlias, "Key alias", func(f *components.StringFlag) { f.Mandatory = false }),
+	keyAlias:        components.NewStringFlag(keyAlias, "Key alias", func(f *components.StringFlag) { f.Mandatory = false }),
 }
 
 var commandFlags = map[string][]string{
@@ -83,7 +83,7 @@ var commandFlags = map[string][]string{
 		subjectRepoPath,
 		subjectSha256,
 		key,
-		KeyAlias,
+		keyAlias,
 	},
 }
 

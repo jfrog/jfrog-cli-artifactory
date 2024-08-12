@@ -23,7 +23,7 @@ func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDe
 		ecc.ctx.GetStringFlagValue(predicate),
 		ecc.ctx.GetStringFlagValue(predicateType),
 		ecc.ctx.GetStringFlagValue(key),
-		ecc.ctx.GetStringFlagValue(KeyAlias),
+		ecc.ctx.GetStringFlagValue(keyAlias),
 		ecc.ctx.GetStringFlagValue(subjectRepoPath),
 		ecc.ctx.GetStringFlagValue(subjectSha256))
 	return ecc.execute(createCmd)
