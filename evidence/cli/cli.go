@@ -12,7 +12,7 @@ func GetJfrogCliArtifactoryApp() components.App {
 			Name:        "evd",
 			Description: "Evidence commands.",
 			Commands:    GetCommands(),
-			Category:    "Evidence",
+			Category:    "Command Namespaces",
 		},
 	)
 	return app
