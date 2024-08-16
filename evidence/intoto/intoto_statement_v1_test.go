@@ -47,7 +47,7 @@ func TestSetSubjectSha256NotEqual(t *testing.T) {
 	st := NewStatement([]byte(predicate), predicateType, "")
 	assert.NotNil(t, st)
 	aa := &mockArtifactoryServicesManager{}
-	err := st.SetSubject(aa, "path/to/file.txt@e77779f5a976c7f4a5406907790bb8cad6148406282f07cd143fd1de64ca169d")
+	err := st.SetSubject(aa, "path/to/file.txt", "e77779f5a976c7f4a5406907790bb8cad6148406282f07cd143fd1de64ca169d")
 	assert.Error(t, err)
 }
 
@@ -57,7 +57,7 @@ func TestSetSubjectSha256Equal(t *testing.T) {
 	st := NewStatement([]byte(predicate), predicateType, "")
 	assert.NotNil(t, st)
 	aa := &mockArtifactoryServicesManager{}
-	err := st.SetSubject(aa, "path/to/file.txt@e06f59f5a976c7f4a5406907790bb8cad6148406282f07cd143fd1de64ca169d")
+	err := st.SetSubject(aa, "path/to/file.txt", "e06f59f5a976c7f4a5406907790bb8cad6148406282f07cd143fd1de64ca169d")
 	assert.NoError(t, err)
 }
 

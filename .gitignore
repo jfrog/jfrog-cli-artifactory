@@ -9,3 +9,6 @@
 
 # IOS
 *.DS_Store
+
+# Go
+*_mock.go
