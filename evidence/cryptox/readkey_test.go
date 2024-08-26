@@ -10,7 +10,7 @@ import (
 func TestReadKey(t *testing.T) {
 	files, err := os.ReadDir("testdata")
 	assert.NoError(t, err)
-	assert.Equal(t, 14, len(files))
+	assert.Equal(t, 20, len(files))
 	var keyFiles []os.DirEntry
 	keysToValidate := []string{"ecdsa-test-key-pem", "ed25519-test-key-pem", "rsa-test-key"}
 	for _, file := range files {

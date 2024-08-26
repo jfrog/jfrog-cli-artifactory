@@ -1,12 +1,16 @@
 package cryptox
 
 import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"golang.org/x/crypto/ssh"
 	"hash"
 	"testing"
 
@@ -67,21 +71,37 @@ because LoadKey relies on decoded pemData for operating system
 interoperability.
 */
 func decodeAndParsePEM(pemBytes []byte) (*pem.Block, any, error) {
-	// pem.Decode returns the parsed pem block and a rest.
-	// The rest is everything, that could not be parsed as PEM block.
-	// Therefore we can drop this via using the blank identifier "_"
+	// Attempt to decode PEM block
 	data, _ := pem.Decode(pemBytes)
 	if data == nil {
 		return nil, nil, errorutils.CheckError(ErrNoPEMBlock)
 	}
 
-	// Try to load private key, if this fails try to load
-	// key as public key
+	if data.Type == "OPENSSH PRIVATE KEY" {
+		key, err := parseSSHKey(pemBytes)
+		if err != nil {
+			return nil, nil, errorutils.CheckError(ErrNoPEMBlock)
+		}
+		return data, key, nil
+	}
+	// Try to load private key, if this fails try to load key as public key
 	key, err := parsePEMKey(data.Bytes)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, errorutils.CheckError(err)
 	}
 	return data, key, nil
+}
+
+func parseSSHKey(keyBytes []byte) (any, error) {
+	key, err := ssh.ParseRawPrivateKey(keyBytes)
+	if err != nil {
+		return nil, errorutils.CheckError(ErrNoPEMBlock)
+	}
+	switch k := key.(type) {
+	case *ecdsa.PrivateKey, *ed25519.PrivateKey, *rsa.PrivateKey:
+		return k, nil
+	}
+	return nil, errorutils.CheckErrorf("PEM parsing failed %w", ErrFailedPEMParsing)
 }
 
 /*
@@ -91,6 +111,8 @@ in the given order:
   - PKCS8
   - PKCS1
   - PKIX
+  - ECDSA
+  - SSH
 
 On success it returns the parsed key and nil.
 On failure it returns nil and the error ErrFailedPEMParsing
@@ -112,6 +134,12 @@ func parsePEMKey(data []byte) (any, error) {
 	if err == nil {
 		return key, nil
 	}
+
+	key, err = parseSSHKey(data)
+	if err == nil {
+		return key, nil
+	}
+
 	return nil, errorutils.CheckErrorf("PEM parsing failed %w", ErrFailedPEMParsing)
 }
 

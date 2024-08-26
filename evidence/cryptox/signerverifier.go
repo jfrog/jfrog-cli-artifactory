@@ -24,8 +24,7 @@ var (
 )
 
 const (
-	PublicKeyPEM  = "PUBLIC KEY"
-	PrivateKeyPEM = "PRIVATE KEY"
+	PublicKeyPEM = "PUBLIC KEY"
 )
 
 type SSLibKey struct {
@@ -83,28 +82,44 @@ func LoadKey(keyBytes []byte) (*SSLibKey, error) {
 			Scheme: RSAKeyScheme,
 		}
 
-	case ed25519.PublicKey:
+	case ed25519.PublicKey, *ed25519.PublicKey:
+		var pubKey ed25519.PublicKey
+		if pk, ok := k.(ed25519.PublicKey); ok {
+			pubKey = pk
+		} else if pk, ok := k.(*ed25519.PublicKey); ok {
+			pubKey = *pk
+		} else {
+			return nil, errorutils.CheckError(fmt.Errorf("couldn't convert to ed25519 public key"))
+		}
 		key = &SSLibKey{
 			KeyIDHashAlgorithms: KeyIDHashAlgorithms,
 			KeyType:             ED25519KeyType,
 			KeyVal: KeyVal{
-				Public: strings.TrimSpace(hex.EncodeToString(k)),
+				Public: strings.TrimSpace(hex.EncodeToString(pubKey)),
 			},
 			Scheme: ED25519KeyType,
 		}
 
-	case ed25519.PrivateKey:
-		pubKeyBytes := k.Public()
+	case ed25519.PrivateKey, *ed25519.PrivateKey:
+		var privateKey ed25519.PrivateKey
+		if pk, ok := k.(ed25519.PrivateKey); ok {
+			privateKey = pk
+		} else if pk, ok := k.(*ed25519.PrivateKey); ok {
+			privateKey = *pk
+		} else {
+			return nil, errorutils.CheckError(fmt.Errorf("couldn't convert to ed25519 private key"))
+		}
+		pubKeyBytes := privateKey.Public()
 		pukBytes, ok := pubKeyBytes.(ed25519.PublicKey)
 		if !ok {
-			return nil, errorutils.CheckError(fmt.Errorf("couldnt convert to ecdsa public key bytes"))
+			return nil, errorutils.CheckError(fmt.Errorf("couldn't convert to ed25519 public key bytes"))
 		}
 		key = &SSLibKey{
 			KeyIDHashAlgorithms: KeyIDHashAlgorithms,
 			KeyType:             ED25519KeyType,
 			KeyVal: KeyVal{
 				Public:  strings.TrimSpace(hex.EncodeToString(pukBytes)),
-				Private: strings.TrimSpace(hex.EncodeToString(k)),
+				Private: strings.TrimSpace(hex.EncodeToString(privateKey)),
 			},
 			Scheme: ED25519KeyType,
 		}
@@ -133,7 +148,7 @@ func LoadKey(keyBytes []byte) (*SSLibKey, error) {
 			KeyType:             ECDSAKeyType,
 			KeyVal: KeyVal{
 				Public:  strings.TrimSpace(string(generatePEMBlock(pubKeyBytes, PublicKeyPEM))),
-				Private: strings.TrimSpace(string(generatePEMBlock(pemBlock.Bytes, PrivateKeyPEM))),
+				Private: strings.TrimSpace(string(generatePEMBlock(pemBlock.Bytes, pemBlock.Type))),
 			},
 			Scheme: ECDSAKeyScheme,
 		}

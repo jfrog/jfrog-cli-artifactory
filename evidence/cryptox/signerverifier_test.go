@@ -30,6 +30,15 @@ var ecdsaPrivateKey []byte
 //go:embed testdata/ecdsa-test-key-pem.pub
 var ecdsaPublicKey []byte
 
+//go:embed testdata/ssh-rsa-2048
+var sshRSAPrivateKey []byte
+
+//go:embed testdata/ssh-ecdsa-256
+var sshEcdsaPrivateKey []byte
+
+//go:embed testdata/ssh-ed25519-256
+var sshEd25519PrivateKey []byte
+
 func TestLoadKey(t *testing.T) {
 	// RSA expected values
 	expectedRSAPrivateKey := strings.TrimSpace(strings.ReplaceAll(string(rsaPrivateKey), "\r\n", "\n"))
@@ -46,12 +55,18 @@ func TestLoadKey(t *testing.T) {
 	expectedECDSAPrivateKey := strings.TrimSpace(strings.ReplaceAll(string(ecdsaPrivateKey), "\r\n", "\n"))
 	expectedECDSAPublicKey := strings.TrimSpace(strings.ReplaceAll(string(ecdsaPublicKey), "\r\n", "\n"))
 
+	// SSH private key expected values
+	expectedSSHECDSAPrivateKey := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(string(sshEcdsaPrivateKey), "\r\n", "\n"), "\n", ""))
+	expectedSSHED25519PrivateKey := "14d62acc5eabc0a430bb5eedfef691e0a8f57e03a7e618c7c980f89452ea231535f2ba08016fc052241cdf87ea0d632f777e99cb562bdf199317d06eb98781f2"
+	expectedSSHRSAPrivateKey := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(string(sshRSAPrivateKey), "\r\n", "\n"), "\n", ""))
+
 	tests := map[string]struct {
 		keyBytes           []byte
 		expectedPrivateKey string
 		expectedPublicKey  string
 		expectedKeyType    string
 		expectedScheme     string
+		removeNewLines     bool
 	}{
 		"RSA private key": {
 			keyBytes:           rsaPrivateKey,
@@ -102,14 +117,43 @@ func TestLoadKey(t *testing.T) {
 			expectedKeyType:    ECDSAKeyType,
 			expectedScheme:     ECDSAKeyScheme,
 		},
+		"SSH ECDSA private key": {
+			keyBytes:           sshEcdsaPrivateKey,
+			expectedPrivateKey: expectedSSHECDSAPrivateKey,
+			expectedPublicKey:  "",
+			expectedKeyType:    ECDSAKeyType,
+			expectedScheme:     ECDSAKeyScheme,
+			removeNewLines:     true,
+		},
+		"SSH ED25519 private key": {
+			keyBytes:           sshEd25519PrivateKey,
+			expectedPrivateKey: expectedSSHED25519PrivateKey,
+			expectedPublicKey:  "",
+			expectedKeyType:    ED25519KeyType,
+			expectedScheme:     ED25519KeyType,
+		},
+		"SSH RSA private key": {
+			keyBytes:           sshRSAPrivateKey,
+			expectedPrivateKey: expectedSSHRSAPrivateKey,
+			expectedPublicKey:  "",
+			expectedKeyType:    RSAKeyType,
+			expectedScheme:     RSAKeyScheme,
+			removeNewLines:     true,
+		},
 	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			key, err := LoadKey(test.keyBytes)
 			assert.Nil(t, err, fmt.Sprintf("unexpected error in test '%s'", name))
-			assert.Equal(t, test.expectedPublicKey, key.KeyVal.Public)
-			assert.Equal(t, test.expectedPrivateKey, key.KeyVal.Private)
+			if test.expectedPublicKey != "" {
+				assert.Equal(t, test.expectedPublicKey, key.KeyVal.Public)
+			}
+			if test.removeNewLines {
+				assert.Equal(t, test.expectedPrivateKey, strings.ReplaceAll(key.KeyVal.Private, "\n", ""))
+			} else {
+				assert.Equal(t, test.expectedPrivateKey, key.KeyVal.Private)
+			}
 			assert.Equal(t, test.expectedScheme, key.Scheme)
 			assert.Equal(t, test.expectedKeyType, key.KeyType)
 		})
