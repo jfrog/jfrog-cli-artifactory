@@ -15,7 +15,6 @@ const (
 	ServerId    = "server-id"
 	url         = "url"
 	user        = "user"
-	password    = "password"
 	accessToken = "access-token"
 	project     = "project"
 
@@ -43,7 +42,6 @@ var flagsMap = map[string]components.Flag{
 	ServerId:    components.NewStringFlag(ServerId, "Server ID configured using the config command.", func(f *components.StringFlag) { f.Mandatory = false }),
 	url:         components.NewStringFlag(url, "JFrog Platform URL.", func(f *components.StringFlag) { f.Mandatory = false }),
 	user:        components.NewStringFlag(user, "JFrog username.", func(f *components.StringFlag) { f.Mandatory = false }),
-	password:    components.NewStringFlag(password, "JFrog password.", func(f *components.StringFlag) { f.Mandatory = false }),
 	accessToken: components.NewStringFlag(accessToken, "JFrog access token.", func(f *components.StringFlag) { f.Mandatory = false }),
 	project:     components.NewStringFlag(project, "Project key associated with the created evidence.", func(f *components.StringFlag) { f.Mandatory = false }),
 
@@ -67,7 +65,6 @@ var commandFlags = map[string][]string{
 	CreateEvidence: {
 		url,
 		user,
-		password,
 		accessToken,
 		ServerId,
 		project,
