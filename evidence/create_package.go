@@ -108,7 +108,7 @@ func (c *createEvidencePackage) getPackageVersionLeadArtifact(packageType string
 	if err != nil {
 		leadArtifactPath, err := c.getPackageVersionLeadArtifactFromMetaData(packageType, metadataClient)
 		if err != nil {
-			return "", nil
+			return "", err
 		}
 		return c.buildLeadArtifactPath(leadArtifactPath), nil
 	}
