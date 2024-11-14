@@ -106,16 +106,15 @@ func (c *createEvidencePackage) getPackageVersionLeadArtifact(packageType string
 
 	leadArtifact, err := artifactoryClient.GetPackageLeadFile(leadFileRequest)
 	if err != nil {
-		log.Info("Trying to fetch LeadFile from metadata")
 		leadArtifactPath, err := c.getPackageVersionLeadArtifactFromMetaData(packageType, metadataClient)
 		if err != nil {
-			return "", err
+			return "", nil
 		}
-		return c.buildLeadArtifactPath(leadArtifactPath), err
+		return c.buildLeadArtifactPath(leadArtifactPath), nil
 	}
 	leadArtifactPath := strings.ReplaceAll(string(leadArtifact), ":", "/")
 
-	return leadArtifactPath, err
+	return leadArtifactPath, nil
 }
 
 func (c *createEvidencePackage) getPackageVersionLeadArtifactFromMetaData(packageType string, metadataClient metadata.Manager) (string, error) {
