@@ -1,7 +1,11 @@
 package evidence
 
 import (
+	"fmt"
+	"github.com/jfrog/jfrog-client-go/artifactory"
+	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/metadata"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,10 +25,33 @@ func (m *mockMetadataServiceManagerGoodResponse) GraphqlQuery(_ []byte) ([]byte,
 	return []byte(response), nil
 }
 
-func TestPackage(t *testing.T) {
+type mockMetadataServiceManagerBadResponse struct{}
+
+func (m *mockMetadataServiceManagerBadResponse) GraphqlQuery(_ []byte) ([]byte, error) {
+	return nil, fmt.Errorf("HTTP %d: Not Found", http.StatusNotFound)
+}
+
+type mockArtifactoryServicesManagerGoodResponse struct {
+	artifactory.EmptyArtifactoryServicesManager
+}
+
+func (m *mockArtifactoryServicesManagerGoodResponse) GetPackageLeadFile(services.LeadFileParams) ([]byte, error) {
+	return []byte("docker-local/MyLibrary/1.0.0/test.1.0.0.docker"), nil
+}
+
+type mockArtifactoryServicesManagerBadResponse struct {
+	artifactory.EmptyArtifactoryServicesManager
+}
+
+func (m *mockArtifactoryServicesManagerBadResponse) GetPackageLeadFile(services.LeadFileParams) ([]byte, error) {
+	return nil, fmt.Errorf("HTTP %d: Not Found", http.StatusNotFound)
+}
+
+func TestGetLeadFileFromMetadataService(t *testing.T) {
 	tests := []struct {
 		name                     string
 		metadataClientMock       metadata.Manager
+		artifactoryClientMock    *mockArtifactoryServicesManagerBadResponse
 		packageName              string
 		packageVersion           string
 		repoName                 string
@@ -33,8 +60,9 @@ func TestPackage(t *testing.T) {
 		expectError              bool
 	}{
 		{
-			name:                     "Get lead artifact successfully",
+			name:                     "Get lead artifact successfully from metadata service",
 			metadataClientMock:       &mockMetadataServiceManagerGoodResponse{},
+			artifactoryClientMock:    &mockArtifactoryServicesManagerBadResponse{},
 			packageName:              "test",
 			packageVersion:           "1.0.0",
 			repoName:                 "nuget-local",
@@ -45,6 +73,7 @@ func TestPackage(t *testing.T) {
 		{
 			name:                     "Duplicate package name and version in the same repository",
 			metadataClientMock:       &mockMetadataServiceManagerDuplicateRepositories{},
+			artifactoryClientMock:    &mockArtifactoryServicesManagerBadResponse{},
 			packageName:              "test",
 			packageVersion:           "1.0.0",
 			repoName:                 "nuget-local",
@@ -61,15 +90,63 @@ func TestPackage(t *testing.T) {
 				packageVersion:  tt.packageVersion,
 				packageRepoName: tt.repoName,
 			}
-			leadArtifact, err := c.getPackageVersionLeadArtifact(tt.packageType, tt.metadataClientMock)
-			leadArtifactPath := c.buildLeadArtifactPath(leadArtifact)
+			leadArtifactPath, err := c.getPackageVersionLeadArtifact(tt.packageType, tt.metadataClientMock, tt.artifactoryClientMock)
+
 			if tt.expectError {
 				assert.Error(t, err)
-				assert.Empty(t, leadArtifact)
+				assert.Empty(t, leadArtifactPath)
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expectedLeadArtifactPath, leadArtifactPath)
 			}
 		})
 	}
+}
+
+func TestGetLeadArtifactFromArtifactoryServiceSuccess(t *testing.T) {
+	metadataClientMock := &mockMetadataServiceManagerGoodResponse{}
+	artifactoryClientMock := &mockArtifactoryServicesManagerGoodResponse{}
+
+	c := &createEvidencePackage{
+		packageName:     "test",
+		packageVersion:  "1.0.0",
+		packageRepoName: "nuget-local",
+	}
+
+	leadArtifactPath, err := c.getPackageVersionLeadArtifact("nuget", metadataClientMock, artifactoryClientMock)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "docker-local/MyLibrary/1.0.0/test.1.0.0.docker", leadArtifactPath)
+}
+
+func TestGetLeadFileFromArtifactFailsFromMetadataSuccess(t *testing.T) {
+	metadataClientMock := &mockMetadataServiceManagerGoodResponse{}
+	artifactoryClientMock := &mockArtifactoryServicesManagerBadResponse{}
+
+	c := &createEvidencePackage{
+		packageName:     "test",
+		packageVersion:  "1.0.0",
+		packageRepoName: "nuget-local",
+	}
+
+	leadArtifactPath, err := c.getPackageVersionLeadArtifact("nuget", metadataClientMock, artifactoryClientMock)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "nuget-local/MyLibrary/1.0.0/test.1.0.0.nupkg", leadArtifactPath)
+}
+
+func TestGetLeadArtifactFailsBothServices(t *testing.T) {
+	metadataClientMock := &mockMetadataServiceManagerBadResponse{}
+	artifactoryClientMock := &mockArtifactoryServicesManagerBadResponse{}
+
+	c := &createEvidencePackage{
+		packageName:     "test",
+		packageVersion:  "1.0.0",
+		packageRepoName: "nuget-local",
+	}
+
+	leadArtifactPath, err := c.getPackageVersionLeadArtifact("nuget", metadataClientMock, artifactoryClientMock)
+
+	assert.Error(t, err)
+	assert.Empty(t, leadArtifactPath)
 }
