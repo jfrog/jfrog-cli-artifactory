@@ -93,7 +93,7 @@ func TestGetLeadFileFromMetadataService(t *testing.T) {
 			leadArtifactPath, err := c.getPackageVersionLeadArtifact(tt.packageType, tt.metadataClientMock, tt.artifactoryClientMock)
 
 			if tt.expectError {
-				assert.Nil(t, err)
+				assert.Error(t, err)
 				assert.Empty(t, leadArtifactPath)
 			} else {
 				assert.NoError(t, err)
@@ -147,6 +147,6 @@ func TestGetLeadArtifactFailsBothServices(t *testing.T) {
 
 	leadArtifactPath, err := c.getPackageVersionLeadArtifact("nuget", metadataClientMock, artifactoryClientMock)
 
-	assert.Nil(t, err)
+	assert.Error(t, err)
 	assert.Empty(t, leadArtifactPath)
 }
