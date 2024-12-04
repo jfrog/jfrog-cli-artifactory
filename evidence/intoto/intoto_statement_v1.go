@@ -21,6 +21,7 @@ type Statement struct {
 	Predicate     json.RawMessage      `json:"predicate"`
 	CreatedAt     string               `json:"createdAt"`
 	CreatedBy     string               `json:"createdBy"`
+	Markdown      string               `json:"markdown,omitempty"`
 }
 
 type ResourceDescriptor struct {
@@ -52,6 +53,10 @@ func (s *Statement) SetSubject(servicesManager artifactory.ArtifactoryServicesMa
 	}
 	s.Subject[0].Digest.Sha256 = res.Checksums.Sha256
 	return nil
+}
+
+func (s *Statement) SetMarkdown(markdown []byte) {
+	s.Markdown = string(markdown)
 }
 
 func (s *Statement) Marshal() ([]byte, error) {

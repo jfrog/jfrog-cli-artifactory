@@ -22,6 +22,7 @@ type createEvidenceBase struct {
 	serverDetails     *config.ServerDetails
 	predicateFilePath string
 	predicateType     string
+	markdownFilePath  string
 	key               string
 	keyId             string
 }
@@ -58,6 +59,11 @@ func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 str
 	}
 
 	statement := intoto.NewStatement(predicate, c.predicateType, c.serverDetails.User)
+	err = c.setMarkdown(statement)
+	if err != nil {
+		return nil, err
+	}
+
 	err = statement.SetSubject(artifactoryClient, subject, subjectSha256)
 	if err != nil {
 		return nil, err
@@ -68,6 +74,21 @@ func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 str
 		return nil, err
 	}
 	return statementJson, nil
+}
+
+func (c *createEvidenceBase) setMarkdown(statement *intoto.Statement) error {
+	if c.markdownFilePath != "" {
+		if !strings.HasSuffix(c.markdownFilePath, ".md") {
+			return fmt.Errorf("file '%s' does not have a .md extension", c.markdownFilePath)
+		}
+		markdown, err := os.ReadFile(c.markdownFilePath)
+		if err != nil {
+			log.Warn(fmt.Sprintf("failed to read markdown file '%s'", c.markdownFilePath))
+			return err
+		}
+		statement.SetMarkdown(markdown)
+	}
+	return nil
 }
 
 func (c *createEvidenceBase) uploadEvidence(envelope []byte, repoPath string) error {

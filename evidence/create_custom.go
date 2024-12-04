@@ -11,13 +11,14 @@ type createEvidenceCustom struct {
 	subjectSha256   string
 }
 
-func NewCreateEvidenceCustom(serverDetails *coreConfig.ServerDetails, predicateFilePath, predicateType, key, keyId, subjectRepoPath,
+func NewCreateEvidenceCustom(serverDetails *coreConfig.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, subjectRepoPath,
 	subjectSha256 string) Command {
 	return &createEvidenceCustom{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
 			predicateFilePath: predicateFilePath,
 			predicateType:     predicateType,
+			markdownFilePath:  markdownFilePath,
 			key:               key,
 			keyId:             keyId,
 		},

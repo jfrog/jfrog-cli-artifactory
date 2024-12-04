@@ -26,13 +26,14 @@ type createEvidencePackage struct {
 	packageRepoName string
 }
 
-func NewCreateEvidencePackage(serverDetails *coreConfig.ServerDetails, predicateFilePath, predicateType, key, keyId, packageName,
+func NewCreateEvidencePackage(serverDetails *coreConfig.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, packageName,
 	packageVersion, packageRepoName string) Command {
 	return &createEvidencePackage{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
 			predicateFilePath: predicateFilePath,
 			predicateType:     predicateType,
+			markdownFilePath:  markdownFilePath,
 			key:               key,
 			keyId:             keyId,
 		},

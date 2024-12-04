@@ -29,6 +29,7 @@ func (epc *evidencePackageCommand) CreateEvidence(ctx *components.Context, serve
 		serverDetails,
 		epc.ctx.GetStringFlagValue(predicate),
 		epc.ctx.GetStringFlagValue(predicateType),
+		epc.ctx.GetStringFlagValue(markdown),
 		epc.ctx.GetStringFlagValue(key),
 		epc.ctx.GetStringFlagValue(keyAlias),
 		epc.ctx.GetStringFlagValue(packageName),
