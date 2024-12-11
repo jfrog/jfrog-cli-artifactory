@@ -138,8 +138,8 @@ github.com/nwaples/rardecode v1.1.3 h1:cWCaZwfM5H7nAD6PyEdcVnczzV8i/JtotnyW/dD9l
 github.com/nwaples/rardecode v1.1.3/go.mod h1:5DzqNKiOdpKKBH87u8VlvAnPZMXcGRhxWkRpHbbfGS0=
 github.com/onsi/gomega v1.27.10 h1:naR28SdDFlqrG6kScpT8VWpu1xWY5nJRCF3XaYyBjhI=
 github.com/onsi/gomega v1.27.10/go.mod h1:RsS8tutOdbdgzbPtzzATp12yT7kM5I5aElG3evPbQ0M=
-github.com/oshratZairi/jfrog-cli-core/v2 v2.56.9-0.20241127142944-b39d0cc8f1c1 h1:4RpB6gtAbO5ODXneIHzF/+9Ty/kY+wcscQYbAEmoVYw=
-github.com/oshratZairi/jfrog-cli-core/v2 v2.56.9-0.20241127142944-b39d0cc8f1c1/go.mod h1:SThaC/fniC96oN8YgCsHjvOxp5rBM7IppuIybn1oxT0=
+github.com/oshratZairi/jfrog-cli-core/v2 v2.31.1-0.20241211104546-3e12a85de116 h1:mj3vWZsJurae/5f8BMSAWNPa6b31PGyiB4KC2fQuctg=
+github.com/oshratZairi/jfrog-cli-core/v2 v2.31.1-0.20241211104546-3e12a85de116/go.mod h1:RY74eDpw1WBxruSfZ0HO1ax7c1NAj+rbBgA/hVOJNME=
 github.com/pelletier/go-toml/v2 v2.2.2 h1:aYUidT7k73Pcl9nb2gScu7NSrKCSHIDE89b3+6Wq+LM=
 github.com/pelletier/go-toml/v2 v2.2.2/go.mod h1:1t835xjRzz80PqgE6HHgN2JOsmgYu/h4qDAS4n929Rs=
 github.com/pierrec/lz4/v4 v4.1.21 h1:yOVMLb6qSIDP67pl/5F7RepeKYu/VmTyEXvuMI5d9mQ=

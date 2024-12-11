@@ -37,12 +37,6 @@ const (
 	keyAlias        = "key-alias"
 )
 
-const (
-	// Evidence environments vars
-	evdSigningKey = "evd_signing_key"
-	evdKeyAlias   = "evd_key_alias"
-)
-
 // Flag keys mapped to their corresponding components.Flag definition.
 var flagsMap = map[string]components.Flag{
 	// Common commands flags

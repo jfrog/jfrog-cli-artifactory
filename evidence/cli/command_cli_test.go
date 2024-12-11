@@ -4,6 +4,7 @@ import (
 	"flag"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
+	coreUtils "github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/urfave/cli"
 	"go.uber.org/mock/gomock"
@@ -15,10 +16,10 @@ func TestCreateEvidence_Context(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	assert.NoError(t, os.Setenv(evdSigningKey, "PGP"), "Failed to set env: "+evdSigningKey)
-	assert.NoError(t, os.Setenv("JFROG_CLI_BUILD_NAME", buildName), "Failed to set env: JFROG_CLI_BUILD_NAME")
-	defer os.Unsetenv(evdSigningKey)
-	defer os.Unsetenv("JFROG_CLI_BUILD_NAME")
+	assert.NoError(t, os.Setenv(coreUtils.SigningKey, "PGP"), "Failed to set env: "+coreUtils.SigningKey)
+	assert.NoError(t, os.Setenv(coreUtils.BuildName, buildName), "Failed to set env: JFROG_CLI_BUILD_NAME")
+	defer os.Unsetenv(coreUtils.SigningKey)
+	defer os.Unsetenv(coreUtils.BuildName)
 
 	app := cli.NewApp()
 	app.Commands = []cli.Command{

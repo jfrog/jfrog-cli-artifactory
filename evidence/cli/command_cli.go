@@ -93,16 +93,16 @@ func ensureKeyExists(ctx *components.Context, key string) error {
 		return nil
 	}
 
-	signingKeyValue, _ := getEnvVariable(evdSigningKey)
+	signingKeyValue, _ := getEnvVariable(coreUtils.SigningKey)
 	if signingKeyValue == "" {
-		return errorutils.CheckErrorf("'key' or EVD_SIGNING_KEY must be provided when creating evidence: --%s", key)
+		return errorutils.CheckErrorf("JFROG_CLI_SIGNING_KEY env variable or --%s flag must be provided when creating evidence", key)
 	}
 	ctx.AddStringFlag(key, signingKeyValue)
 	return nil
 }
 
 func setKeyAliasIfProvided(ctx *components.Context, keyAlias string) {
-	evdKeyAliasValue, _ := getEnvVariable(evdKeyAlias)
+	evdKeyAliasValue, _ := getEnvVariable(coreUtils.KeyAlias)
 	if evdKeyAliasValue != "" {
 		ctx.AddStringFlag(keyAlias, evdKeyAliasValue)
 	}
