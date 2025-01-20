@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	CoreIntegrationTests = "github.com/bhanurp/jfrog-cli-artifactory/tests"
+	CoreIntegrationTests = "github.com/jfrog/jfrog-cli-artifactory/tests"
 )
 
 func init() {

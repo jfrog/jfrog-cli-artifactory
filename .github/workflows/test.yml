@@ -64,4 +64,4 @@ jobs:
         uses: jfrog/.github/actions/install-go-with-cache@main
 
       - name: Tests
-        run: go test -v github.com/bhanurp/jfrog-cli-artifactory/tests -timeout 0 -race
+        run: go test -v -race -cover ./...
