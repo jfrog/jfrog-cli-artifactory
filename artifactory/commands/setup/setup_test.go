@@ -37,6 +37,9 @@ var testCases = []struct {
 		user:     "myUser",
 		password: "myPassword",
 	},
+	{
+		name: "Anonymous Access",
+	},
 }
 
 func createTestSetupCommand(packageManager project.ProjectType) *SetupCommand {
