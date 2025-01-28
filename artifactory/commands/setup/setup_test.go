@@ -432,7 +432,7 @@ func TestSetupCommand_Maven(t *testing.T) {
 			settingsXmlContent := string(settingsXmlContentBytes)
 
 			// Check that the Artifactory URL is correctly set in settings.xml.
-			assert.Contains(t, settingsXmlContent, fmt.Sprintf("<url>%s</url>", mavenLoginCmd.serverDetails.ArtifactoryUrl))
+			assert.Contains(t, settingsXmlContent, fmt.Sprintf("<url>%s</url>", mavenLoginCmd.serverDetails.ArtifactoryUrl+"/"+mavenLoginCmd.repoName))
 
 			// Validate the mirror ID and name are set correctly.
 			assert.Contains(t, settingsXmlContent, fmt.Sprintf("<id>%s</id>", maven.ArtifactoryMirrorID))
