@@ -182,6 +182,7 @@ func AddSourceToNugetConfig(cmdType dotnet.ToolchainType, sourceUrl, user, passw
 	_, errOut, _, err := frogio.RunCmdWithOutputParser(cmd, false)
 	// If received an error that the source requires HTTPS, try to add the source with the allow-insecure-connections flag.
 	if err != nil && strings.Contains(errOut+err.Error(), "requires HTTPS sources") && strings.HasPrefix(sourceUrl, "http://") {
+		log.Warn("The url is http which is not supported by default. Trying to add the source with the 'allow-insecure-connections' flag.")
 		if cmdType == dotnet.DotnetCore {
 			cmd.CommandFlags = append(cmd.CommandFlags, flagPrefix+"allow-insecure-connections")
 		} else {
