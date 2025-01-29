@@ -16,7 +16,7 @@ require (
 	github.com/urfave/cli v1.22.16
 	go.uber.org/mock v0.4.0
 	golang.org/x/crypto v0.32.0
-	golang.org/x/exp v0.0.0-20250106191152-7588d65b2ba8
+	golang.org/x/exp v0.0.0-20250128182459-e0ece0dbea4c
 	golang.org/x/mod v0.22.0
 )
 
@@ -123,7 +123,7 @@ require (
 //replace github.com/jfrog/jfrog-cli-core/v2 => github.com/oshratZairi/jfrog-cli-core/v2 v2.56.9-0.20241127142944-b39d0cc8f1c1
 //replace github.com/jfrog/jfrog-cli-core/v2 => github.com/oshratZairi/jfrog-cli-core/v2 v2.31.1-0.20241211104546-3e12a85de116
 
-replace github.com/jfrog/jfrog-cli-core/v2 => github.com/sverdlov93/jfrog-cli-core/v2 v2.0.2-0.20250129105254-d5eb8fe36157
+replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.31.1-0.20250129121249-d5f4218e6901
 
 replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20250126110945-81abbdde452f
 
