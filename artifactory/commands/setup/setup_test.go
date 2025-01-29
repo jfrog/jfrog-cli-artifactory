@@ -119,7 +119,7 @@ func TestSetupCommand_Yarn(t *testing.T) {
 
 	// Back up the existing .yarnrc file and ensure restoration after the test.
 	restoreYarnrcFunc, err := ioutils.BackupFile(yarnrcFilePath, ".yarnrc.backup")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	defer func() {
 		assert.NoError(t, restoreYarnrcFunc())
 	}()
@@ -348,7 +348,7 @@ func testBuildToolLoginCommandConfigureDotnetNuget(t *testing.T, packageManager 
 
 	// Back up the existing NuGet.config and ensure restoration after the test.
 	restoreNugetConfigFunc, err := ioutils.BackupFile(nugetConfigFilePath, packageManager.String()+".config.backup")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	defer func() {
 		assert.NoError(t, restoreNugetConfigFunc())
 	}()
@@ -409,7 +409,7 @@ func TestSetupCommand_Maven(t *testing.T) {
 
 	// Back up the existing settings.xml file and ensure restoration after the test.
 	restoreSettingsXml, err := ioutils.BackupFile(settingsXml, ".settings.xml.backup")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	defer func() {
 		assert.NoError(t, restoreSettingsXml())
 	}()
@@ -449,7 +449,7 @@ func TestSetupCommand_Maven(t *testing.T) {
 				assert.Contains(t, settingsXmlContent, fmt.Sprintf("<password>%s</password>", testCase.password))
 			}
 
-			// Clean up the temporary settings.xml file (if needed).
+			// Clean up the temporary settings.xml file after the test.
 			assert.NoError(t, os.Remove(settingsXml))
 		})
 	}

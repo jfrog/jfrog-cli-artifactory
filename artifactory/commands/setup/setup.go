@@ -129,7 +129,7 @@ func (sc *SetupCommand) Run() (err error) {
 	}
 
 	// If the repository name is not provided, and the package manager is not Docker or Podman, prompt the user to select a repository.
-	// Docker and Podman do not require a repository name.
+	// Docker and Podman do not require a repository name as they authenticate directly with the platform and require the repository name as part of the image name.
 	if sc.repoName == "" && sc.packageManager != project.Docker && sc.packageManager != project.Podman {
 		// Prompt the user to select a virtual repository that matches the package manager.
 		if err = sc.promptUserToSelectRepository(); err != nil {
