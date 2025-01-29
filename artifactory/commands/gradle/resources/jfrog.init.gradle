@@ -13,6 +13,9 @@ gradle.settingsEvaluated { settings ->
                     password = artifactoryAccessToken
                 }
             }
+            if (artifactoryUrl.startsWith("http://")) {
+                allowInsecureProtocol = true
+            }
             gradlePluginPortal() // Fallback to Gradle Plugin Portal
         }
     }
@@ -25,6 +28,9 @@ allprojects { project ->
             credentials {
                 username = artifactoryUsername
                 password = artifactoryAccessToken
+            }
+            if (artifactoryUrl.startsWith("http://")) {
+                allowInsecureProtocol = true
             }
         }
     }
