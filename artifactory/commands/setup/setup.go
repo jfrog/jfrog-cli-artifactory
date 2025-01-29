@@ -26,7 +26,6 @@ import (
 	"net/url"
 	"os"
 	"slices"
-	"strings"
 )
 
 // packageManagerToRepositoryPackageType maps project types to corresponding Artifactory repository package types.
@@ -367,10 +366,10 @@ func (sc *SetupCommand) configureGradle() error {
 		username = auth.ExtractUsernameFromAccessToken(password)
 	}
 	initScriptAuthConfig := gradle.InitScriptAuthConfig{
-		ArtifactoryURL:           strings.TrimSuffix(sc.serverDetails.GetArtifactoryUrl(), "/"),
-		ArtifactoryRepositoryKey: sc.repoName,
-		ArtifactoryAccessToken:   password,
-		ArtifactoryUsername:      username,
+		ArtifactoryURL:         sc.serverDetails.GetArtifactoryUrl(),
+		GradleRepoName:         sc.repoName,
+		ArtifactoryAccessToken: password,
+		ArtifactoryUsername:    username,
 	}
 	initScript, err := gradle.GenerateInitScript(initScriptAuthConfig)
 	if err != nil {

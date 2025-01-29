@@ -13,6 +13,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/dependencies"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
+	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/spf13/viper"
@@ -242,10 +243,10 @@ func (gc *GradleCommand) setResult(result *commandsutils.Result) *GradleCommand 
 }
 
 type InitScriptAuthConfig struct {
-	ArtifactoryURL           string
-	ArtifactoryRepositoryKey string
-	ArtifactoryUsername      string
-	ArtifactoryAccessToken   string
+	ArtifactoryURL         string
+	GradleRepoName         string
+	ArtifactoryUsername    string
+	ArtifactoryAccessToken string
 }
 
 // GenerateInitScript generates a Gradle init script with the provided authentication configuration.
@@ -255,25 +256,26 @@ func GenerateInitScript(config InitScriptAuthConfig) (string, error) {
 		return "", fmt.Errorf("failed to parse Gradle init script template: %s", err)
 	}
 
+	// Remove possible trailing slashes from the Artifactory URL to avoid double slashes in the generated script
+	config.ArtifactoryURL = strings.TrimSuffix(config.ArtifactoryURL, "/")
 	var result strings.Builder
+	// Create a string from the template with the provided configuration
 	err = tmpl.Execute(&result, config)
 	if err != nil {
-		return "", fmt.Errorf("failed to execute Gradle init script template: %s", err)
+		return "", fmt.Errorf("failed to write auth configuration into the init script template: %s", err)
 	}
 
 	return result.String(), nil
 }
 
 // WriteInitScript writes the Gradle init script to the Gradle user home `init.d` directory,
-// which stores initialization scripts.
+// which stores initialization scripts. The final path should be `$GRADLE_USER_HOME/init.d/jfrog.init.gradle`.
+// More info on how Gradle invokes these init scripts can be found here:
+// https://docs.gradle.org/current/userguide/init_scripts.html#sec:using_an_init_script
 func WriteInitScript(initScript string) error {
 	gradleHome := os.Getenv(UserHomeEnv)
 	if gradleHome == "" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("failed to get user home directory: %w", err)
-		}
-		gradleHome = filepath.Join(homeDir, ".gradle")
+		gradleHome = filepath.Join(clientutils.GetUserHomeDir(), ".gradle")
 	}
 
 	initScriptsDir := filepath.Join(gradleHome, "init.d")

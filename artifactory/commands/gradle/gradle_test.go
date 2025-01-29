@@ -10,10 +10,10 @@ import (
 
 func TestGenerateInitScript(t *testing.T) {
 	config := InitScriptAuthConfig{
-		ArtifactoryURL:           "http://example.com/artifactory",
-		ArtifactoryRepositoryKey: "example-repo",
-		ArtifactoryUsername:      "user",
-		ArtifactoryAccessToken:   "token",
+		ArtifactoryURL:         "http://example.com/artifactory",
+		GradleRepoName:         "example-repo",
+		ArtifactoryUsername:    "user",
+		ArtifactoryAccessToken: "token",
 	}
 	script, err := GenerateInitScript(config)
 	assert.NoError(t, err)
