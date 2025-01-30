@@ -5,11 +5,13 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
 	cmdutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
+	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/maven"
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
 	"github.com/jfrog/jfrog-client-go/auth"
+	"github.com/jfrog/jfrog-client-go/utils/io"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
@@ -68,18 +70,17 @@ func TestSetupCommand_Pnpm(t *testing.T) {
 }
 
 func testSetupCommandNpmPnpm(t *testing.T, packageManager project.ProjectType) {
-	// Create a temporary directory to act as the environment's npmrc file location.
-	tempDir := t.TempDir()
-	npmrcFilePath := filepath.Join(tempDir, ".npmrc")
-
-	// Set NPM_CONFIG_USERCONFIG to point to the temporary npmrc file path.
-	t.Setenv("NPM_CONFIG_USERCONFIG", npmrcFilePath)
-
-	loginCmd := createTestSetupCommand(packageManager)
-
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			// Create a temporary directory to act as the environment's npmrc file location.
+			tempDir := t.TempDir()
+			npmrcFilePath := filepath.Join(tempDir, ".npmrc")
+
+			// Set NPM_CONFIG_USERCONFIG to point to the temporary npmrc file path.
+			t.Setenv("NPM_CONFIG_USERCONFIG", npmrcFilePath)
+
 			// Set up server details for the current test case's authentication type.
+			loginCmd := createTestSetupCommand(packageManager)
 			loginCmd.serverDetails.SetUser(testCase.user)
 			loginCmd.serverDetails.SetPassword(testCase.password)
 			loginCmd.serverDetails.SetAccessToken(testCase.accessToken)
@@ -119,7 +120,7 @@ func TestSetupCommand_Yarn(t *testing.T) {
 
 	// Back up the existing .yarnrc file and ensure restoration after the test.
 	restoreYarnrcFunc, err := ioutils.BackupFile(yarnrcFilePath, ".yarnrc.backup")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	defer func() {
 		assert.NoError(t, restoreYarnrcFunc())
 	}()
@@ -366,17 +367,27 @@ func TestBuildToolLoginCommand_configureDotnet(t *testing.T) {
 }
 
 func testBuildToolLoginCommandConfigureDotnetNuget(t *testing.T, packageManager project.ProjectType) {
-	var nugetConfigFilePath string
-
-	// Set the NuGet.config file path to a custom location.
-	if packageManager == project.Dotnet {
-		nugetConfigFilePath = filepath.Join(t.TempDir(), "NuGet.Config")
-		t.Setenv("DOTNET_CLI_HOME", filepath.Dir(nugetConfigFilePath))
-	} else {
-		nugetConfigFilePath = filepath.Join(t.TempDir(), "nuget.config")
-		t.Setenv("NUGET_CONFIG_FILE", nugetConfigFilePath)
+	// Retrieve the home directory and construct the NuGet.config file path.
+	homeDir, err := os.UserHomeDir()
+	assert.NoError(t, err)
+	var nugetConfigDir string
+	switch {
+	case io.IsWindows():
+		nugetConfigDir = filepath.Join("AppData", "Roaming")
+	case packageManager == project.Nuget:
+		nugetConfigDir = ".config"
+	default:
+		nugetConfigDir = ".nuget"
 	}
 
+	nugetConfigFilePath := filepath.Join(homeDir, nugetConfigDir, "NuGet", "NuGet.Config")
+
+	// Back up the existing NuGet.config and ensure restoration after the test.
+	restoreNugetConfigFunc, err := ioutils.BackupFile(nugetConfigFilePath, packageManager.String()+".config.backup")
+	require.NoError(t, err)
+	defer func() {
+		assert.NoError(t, restoreNugetConfigFunc())
+	}()
 	nugetLoginCmd := createTestSetupCommand(packageManager)
 
 	for _, testCase := range testCases {
@@ -396,7 +407,7 @@ func testBuildToolLoginCommandConfigureDotnetNuget(t *testing.T, packageManager 
 
 			nugetConfigContent := string(nugetConfigContentBytes)
 
-			assert.Contains(t, nugetConfigContent, fmt.Sprintf("add key=\"%s\" value=\"https://acme.jfrog.io/artifactory/api/nuget/v3/test-repo\"", dotnet.SourceName))
+			assert.Contains(t, nugetConfigContent, fmt.Sprintf("add key=\"%s\" value=\"https://acme.jfrog.io/artifactory/api/nuget/v3/test-repo/index.json\"", dotnet.SourceName))
 
 			if testCase.accessToken != "" {
 				// Validate token-based authentication (The token is encoded so we can't test it)
@@ -424,4 +435,58 @@ func TestIsSupportedPackageManager(t *testing.T) {
 
 	// Test unsupported package manager
 	assert.False(t, IsSupportedPackageManager(project.Cocoapods), "Package manager Cocoapods should not be supported")
+}
+
+func TestSetupCommand_Maven(t *testing.T) {
+	// Retrieve the home directory and construct the settings.xml file path.
+	homeDir, err := os.UserHomeDir()
+	assert.NoError(t, err)
+	settingsXml := filepath.Join(homeDir, ".m2", "settings.xml")
+
+	// Back up the existing settings.xml file and ensure restoration after the test.
+	restoreSettingsXml, err := ioutils.BackupFile(settingsXml, ".settings.xml.backup")
+	require.NoError(t, err)
+	defer func() {
+		assert.NoError(t, restoreSettingsXml())
+	}()
+
+	mavenLoginCmd := createTestSetupCommand(project.Maven)
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Set up server details for the current test case's authentication type.
+			mavenLoginCmd.serverDetails.SetUser(testCase.user)
+			mavenLoginCmd.serverDetails.SetPassword(testCase.password)
+			mavenLoginCmd.serverDetails.SetAccessToken(testCase.accessToken)
+
+			// Run the login command and ensure no errors occur.
+			require.NoError(t, mavenLoginCmd.Run())
+
+			// Read the contents of the temporary settings.xml file.
+			settingsXmlContentBytes, err := os.ReadFile(settingsXml)
+			assert.NoError(t, err)
+			settingsXmlContent := string(settingsXmlContentBytes)
+
+			// Check that the Artifactory URL is correctly set in settings.xml.
+			assert.Contains(t, settingsXmlContent, fmt.Sprintf("<url>%s</url>", mavenLoginCmd.serverDetails.ArtifactoryUrl+"/"+mavenLoginCmd.repoName))
+
+			// Validate the mirror ID and name are set correctly.
+			assert.Contains(t, settingsXmlContent, fmt.Sprintf("<id>%s</id>", maven.ArtifactoryMirrorID))
+			assert.Contains(t, settingsXmlContent, fmt.Sprintf("<name>%s</name>", mavenLoginCmd.repoName))
+
+			// Validate authentication credentials in the server section.
+			if testCase.accessToken != "" {
+				// Access token is set as password
+				assert.Contains(t, settingsXmlContent, fmt.Sprintf("<username>%s</username>", auth.ExtractUsernameFromAccessToken(testCase.accessToken)))
+				assert.Contains(t, settingsXmlContent, fmt.Sprintf("<password>%s</password>", testCase.accessToken))
+			} else if testCase.user != "" && testCase.password != "" {
+				// Basic authentication with username and password
+				assert.Contains(t, settingsXmlContent, fmt.Sprintf("<username>%s</username>", testCase.user))
+				assert.Contains(t, settingsXmlContent, fmt.Sprintf("<password>%s</password>", testCase.password))
+			}
+
+			// Clean up the temporary settings.xml file after the test.
+			assert.NoError(t, os.Remove(settingsXml))
+		})
+	}
 }

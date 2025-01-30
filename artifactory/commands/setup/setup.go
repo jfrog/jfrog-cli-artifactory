@@ -13,6 +13,7 @@ import (
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/container"
+	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/maven"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/npm"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/yarn"
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
@@ -51,6 +52,7 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	project.Go: repository.Go,
 
 	project.Gradle: repository.Gradle,
+	project.Maven: repository.Maven,
 }
 
 // SetupCommand configures registries and authentication for various package manager (npm, Yarn, Pip, Pipenv, Poetry, Go)
@@ -129,7 +131,9 @@ func (sc *SetupCommand) Run() (err error) {
 		return errorutils.CheckErrorf("unsupported package manager: %s", sc.packageManager)
 	}
 
-	if sc.repoName == "" {
+	// If the repository name is not provided, and the package manager is not Docker or Podman, prompt the user to select a repository.
+	// Docker and Podman do not require a repository name as they authenticate directly with the platform and require the repository name as part of the image name.
+	if sc.repoName == "" && sc.packageManager != project.Docker && sc.packageManager != project.Podman {
 		// Prompt the user to select a virtual repository that matches the package manager.
 		if err = sc.promptUserToSelectRepository(); err != nil {
 			return err
@@ -154,6 +158,8 @@ func (sc *SetupCommand) Run() (err error) {
 		err = sc.configureContainer()
 	case project.Gradle:
 		err = sc.configureGradle()
+	case project.Maven:
+		err = sc.configureMaven()
 	default:
 		err = errorutils.CheckErrorf("unsupported package manager: %s", sc.packageManager)
 	}
@@ -177,7 +183,7 @@ func (sc *SetupCommand) promptUserToSelectRepository() (err error) {
 	sc.repoName, err = utils.SelectRepositoryInteractively(
 		sc.serverDetails,
 		repoFilterParams,
-		fmt.Sprintf("To configure %s, we need you to select a %s repository in Artifactory", repoFilterParams.PackageType, repoFilterParams.RepoType))
+		fmt.Sprintf("To configure %s, we need you to select a %s repository in Artifactory:", repoFilterParams.PackageType, repoFilterParams.RepoType))
 
 	return err
 }
@@ -255,8 +261,6 @@ func (sc *SetupCommand) configureNpmPnpm() error {
 // For basic auth:
 //
 //	yarn config set //your-artifactory-url/artifactory/api/npm/<repo-name>/:_auth "<base64-encoded-username:password>"
-//
-// Note: Custom configuration file can be set by setting the YARN_RC_FILENAME environment variable.
 func (sc *SetupCommand) configureYarn() (err error) {
 	repoUrl := commandsutils.GetNpmRepositoryUrl(sc.repoName, sc.serverDetails.ArtifactoryUrl)
 	if err = yarn.ConfigSet(commandsutils.NpmConfigRegistryKey, repoUrl, "yarn", false); err != nil {
@@ -291,8 +295,6 @@ func (sc *SetupCommand) configureGo() error {
 // For NuGet:
 //
 //	nuget sources add -Name <JFrog-Artifactory> -Source "https://acme.jfrog.io/artifactory/api/nuget/{repository-name}" -Username <your-username> -Password <your-password>
-//
-// Note: Custom dotnet/nuget configuration file can be set by setting the DOTNET_CLI_HOME/NUGET_CONFIG_FILE environment variable.
 func (sc *SetupCommand) configureDotnetNuget() error {
 	// Retrieve repository URL and credentials for NuGet or .NET Core.
 	sourceUrl, user, password, err := dotnet.GetSourceDetails(sc.serverDetails, sc.repoName, false)
@@ -306,22 +308,13 @@ func (sc *SetupCommand) configureDotnetNuget() error {
 		toolchainType = bidotnet.Nuget
 	}
 
-	// Get config path from the environment if provided
-	customConfigPath := dotnet.GetConfigPathFromEnvIfProvided(toolchainType)
-	if customConfigPath != "" {
-		// Ensure the config file exists
-		if err = dotnet.CreateConfigFileIfNeeded(customConfigPath); err != nil {
-			return err
-		}
-	}
-
 	// Remove existing source if it exists
-	if err = dotnet.RemoveSourceFromNugetConfigIfExists(toolchainType, customConfigPath); err != nil {
+	if err = dotnet.RemoveSourceFromNugetConfigIfExists(toolchainType); err != nil {
 		return err
 	}
 
 	// Add the repository as a source in the NuGet configuration with credentials for authentication
-	return dotnet.AddSourceToNugetConfig(toolchainType, sourceUrl, user, password, customConfigPath)
+	return dotnet.AddSourceToNugetConfig(toolchainType, sourceUrl, user, password)
 }
 
 // configureContainer configures container managers like Docker or Podman to authenticate with JFrog Artifactory.
@@ -355,6 +348,29 @@ func (sc *SetupCommand) configureContainer() error {
 		&container.ContainerManagerLoginConfig{ServerDetails: sc.serverDetails},
 		containerManagerType,
 	)
+}
+
+// configureMaven updates the Maven settings.xml file to use the repo Url as mirror.
+func (sc *SetupCommand) configureMaven() error {
+	username := sc.serverDetails.GetUser()
+	password := sc.serverDetails.GetPassword()
+
+	// Get credentials from access-token if exists.
+	if sc.serverDetails.GetAccessToken() != "" {
+		if username == "" {
+			username = auth.ExtractUsernameFromAccessToken(sc.serverDetails.GetAccessToken())
+		}
+		password = sc.serverDetails.GetAccessToken()
+	}
+
+	settingsXml, err := maven.NewSettingsXmlManager()
+	if err != nil {
+		return fmt.Errorf("failed to create a new Maven settings.xml manager: %w", err)
+	}
+	if err = settingsXml.ConfigureArtifactoryMirror(sc.serverDetails.GetArtifactoryUrl(), sc.repoName, username, password); err != nil {
+		return fmt.Errorf("failed to update Artifactory mirror in Maven settings.xml: %w", err)
+	}
+	return nil
 }
 
 // configureGradle configures Gradle to use the specified Artifactory repository.
