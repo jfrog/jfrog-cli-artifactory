@@ -1,6 +1,6 @@
 module github.com/jfrog/jfrog-cli-artifactory
 
-go 1.23.5
+go 1.23.4
 
 require (
 	github.com/c-bata/go-prompt v0.2.5
