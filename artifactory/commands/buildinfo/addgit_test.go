@@ -1,22 +1,21 @@
 package buildinfo
 
 import (
+	buildinfo "github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-core/v2/common/build"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/log"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/tests"
+	testsutils "github.com/jfrog/jfrog-client-go/utils/tests"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
-
-	buildinfo "github.com/jfrog/build-info-go/entities"
-	testsutils "github.com/jfrog/jfrog-client-go/utils/tests"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
-	"github.com/jfrog/jfrog-cli-core/v2/common/build"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/log"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/tests"
 )
 
 const (
@@ -255,13 +254,20 @@ func TestAddGitDoCollect(t *testing.T) {
 		dotGitPath:         dotGitPath,
 	}
 
+	gitDetails := utils.GitLogDetails{DotGitPath: config.dotGitPath, LogLimit: config.issuesConfig.LogLimit, PrettyFormat: gitParsingPrettyFormat}
+	var issues []buildinfo.AffectedIssue
+	logRegExp, err := createLogRegExpHandler(config.issuesConfig, &issues)
+	if err != nil {
+		t.Error(err)
+	}
+
 	// Collect issues
-	issues, err := config.DoCollect(config.issuesConfig, "")
+	err = utils.ParseGitLogFromLastVcsRevision(gitDetails, logRegExp, "")
 	if err != nil {
 		t.Error(err)
 	}
 	if len(issues) != 2 {
-		// Error - should be empty
+		// Error - should find 2 issues
 		t.Errorf("Issues list expected to have 2 issues, instead found %d issues: %v", len(issues), issues)
 	}
 
@@ -276,7 +282,8 @@ func TestAddGitDoCollect(t *testing.T) {
 	baseDir, dotGitPath = tests.PrepareDotGitDir(t, originalFolder, filepath.Join("..", "testdata"))
 
 	// Collect issues - we pass a revision, so only 2 of the 4 existing issues should be collected
-	issues, err = config.DoCollect(config.issuesConfig, "6198a6294722fdc75a570aac505784d2ec0d1818")
+	issues = []buildinfo.AffectedIssue{}
+	err = utils.ParseGitLogFromLastVcsRevision(gitDetails, logRegExp, "6198a6294722fdc75a570aac505784d2ec0d1818")
 	if err != nil {
 		t.Error(err)
 	}
@@ -286,7 +293,8 @@ func TestAddGitDoCollect(t *testing.T) {
 	}
 
 	// Test collection with a made up revision - the command should not throw an error, and 0 issues should be returned.
-	issues, err = config.DoCollect(config.issuesConfig, "abcdefABCDEF1234567890123456789012345678")
+	issues = []buildinfo.AffectedIssue{}
+	err = utils.ParseGitLogFromLastVcsRevision(gitDetails, logRegExp, "abcdefABCDEF1234567890123456789012345678")
 	assert.NoError(t, err)
 	assert.Empty(t, issues)
 
