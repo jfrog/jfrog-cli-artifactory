@@ -1,12 +1,14 @@
 package setup
 
 import (
+	_ "embed"
 	"fmt"
 	bidotnet "github.com/jfrog/build-info-go/build/utils/dotnet"
 	biutils "github.com/jfrog/build-info-go/utils"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
-	gocommands "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/golang"
-	pythoncommands "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/python"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/golang"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/python"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/repository"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -49,6 +51,7 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 
 	project.Go: repository.Go,
 
+	project.Gradle: repository.Gradle,
 	project.Maven: repository.Maven,
 }
 
@@ -153,6 +156,8 @@ func (sc *SetupCommand) Run() (err error) {
 		err = sc.configureDotnetNuget()
 	case project.Docker, project.Podman:
 		err = sc.configureContainer()
+	case project.Gradle:
+		err = sc.configureGradle()
 	case project.Maven:
 		err = sc.configureMaven()
 	default:
@@ -190,16 +195,16 @@ func (sc *SetupCommand) promptUserToSelectRepository() (err error) {
 //
 // Note: Custom configuration file can be set by setting the PIP_CONFIG_FILE environment variable.
 func (sc *SetupCommand) configurePip() error {
-	repoWithCredsUrl, err := pythoncommands.GetPypiRepoUrl(sc.serverDetails, sc.repoName, false)
+	repoWithCredsUrl, err := python.GetPypiRepoUrl(sc.serverDetails, sc.repoName, false)
 	if err != nil {
 		return err
 	}
 	// If PIP_CONFIG_FILE is set, write the configuration to the custom config file manually.
 	// Using 'pip config set' native command is not supported together with PIP_CONFIG_FILE.
 	if customPipConfigPath := os.Getenv("PIP_CONFIG_FILE"); customPipConfigPath != "" {
-		return pythoncommands.CreatePipConfigManually(customPipConfigPath, repoWithCredsUrl)
+		return python.CreatePipConfigManually(customPipConfigPath, repoWithCredsUrl)
 	}
-	return pythoncommands.RunConfigCommand(project.Pip, []string{"set", "global.index-url", repoWithCredsUrl})
+	return python.RunConfigCommand(project.Pip, []string{"set", "global.index-url", repoWithCredsUrl})
 }
 
 // configurePoetry configures Poetry to use the specified repository and authentication credentials.
@@ -210,11 +215,11 @@ func (sc *SetupCommand) configurePip() error {
 //
 // Note: Custom configuration file can be set by setting the POETRY_CONFIG_DIR environment variable.
 func (sc *SetupCommand) configurePoetry() error {
-	repoUrl, username, password, err := pythoncommands.GetPypiRepoUrlWithCredentials(sc.serverDetails, sc.repoName, false)
+	repoUrl, username, password, err := python.GetPypiRepoUrlWithCredentials(sc.serverDetails, sc.repoName, false)
 	if err != nil {
 		return err
 	}
-	return pythoncommands.RunPoetryConfig(repoUrl.String(), username, password, sc.repoName)
+	return python.RunPoetryConfig(repoUrl.String(), username, password, sc.repoName)
 }
 
 // configureNpmPnpm configures npm to use the Artifactory repository URL and sets authentication. Pnpm supports the same commands.
@@ -274,7 +279,7 @@ func (sc *SetupCommand) configureYarn() (err error) {
 //
 //	go env -w GOPROXY=https://<user>:<token>@<your-artifactory-url>/artifactory/go/<repo-name>,direct
 func (sc *SetupCommand) configureGo() error {
-	repoWithCredsUrl, err := gocommands.GetArtifactoryRemoteRepoUrl(sc.serverDetails, sc.repoName, gocommands.GoProxyUrlParams{Direct: true})
+	repoWithCredsUrl, err := golang.GetArtifactoryRemoteRepoUrl(sc.serverDetails, sc.repoName, golang.GoProxyUrlParams{Direct: true})
 	if err != nil {
 		return err
 	}
@@ -366,4 +371,26 @@ func (sc *SetupCommand) configureMaven() error {
 		return fmt.Errorf("failed to update Artifactory mirror in Maven settings.xml: %w", err)
 	}
 	return nil
+}
+
+// configureGradle configures Gradle to use the specified Artifactory repository.
+func (sc *SetupCommand) configureGradle() error {
+	password := sc.serverDetails.GetPassword()
+	username := sc.serverDetails.GetUser()
+	if sc.serverDetails.GetAccessToken() != "" {
+		password = sc.serverDetails.GetAccessToken()
+		username = auth.ExtractUsernameFromAccessToken(password)
+	}
+	initScriptAuthConfig := gradle.InitScriptAuthConfig{
+		ArtifactoryURL:         sc.serverDetails.GetArtifactoryUrl(),
+		GradleRepoName:         sc.repoName,
+		ArtifactoryAccessToken: password,
+		ArtifactoryUsername:    username,
+	}
+	initScript, err := gradle.GenerateInitScript(initScriptAuthConfig)
+	if err != nil {
+		return err
+	}
+
+	return gradle.WriteInitScript(initScript)
 }

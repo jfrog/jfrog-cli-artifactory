@@ -1,6 +1,7 @@
 package gradle
 
 import (
+	_ "embed"
 	"fmt"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
@@ -12,15 +13,25 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/dependencies"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
+	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/spf13/viper"
+	"os"
 	"path/filepath"
+	"strings"
+	"text/template"
 )
+
+//go:embed resources/jfrog.init.gradle
+var gradleInitScript string
 
 const (
 	usePlugin  = "useplugin"
 	useWrapper = "usewrapper"
+
+	UserHomeEnv    = "GRADLE_USER_HOME"
+	InitScriptName = "jfrog.init.gradle"
 )
 
 type GradleCommand struct {
@@ -229,6 +240,53 @@ func (gc *GradleCommand) Result() *commandsutils.Result {
 func (gc *GradleCommand) setResult(result *commandsutils.Result) *GradleCommand {
 	gc.result = result
 	return gc
+}
+
+type InitScriptAuthConfig struct {
+	ArtifactoryURL         string
+	GradleRepoName         string
+	ArtifactoryUsername    string
+	ArtifactoryAccessToken string
+}
+
+// GenerateInitScript generates a Gradle init script with the provided authentication configuration.
+func GenerateInitScript(config InitScriptAuthConfig) (string, error) {
+	tmpl, err := template.New("gradleTemplate").Parse(gradleInitScript)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse Gradle init script template: %s", err)
+	}
+
+	// Remove possible trailing slashes from the Artifactory URL to avoid double slashes in the generated script
+	config.ArtifactoryURL = strings.TrimSuffix(config.ArtifactoryURL, "/")
+	var result strings.Builder
+	// Create a string from the template with the provided configuration
+	err = tmpl.Execute(&result, config)
+	if err != nil {
+		return "", fmt.Errorf("failed to write auth configuration into the init script template: %s", err)
+	}
+
+	return result.String(), nil
+}
+
+// WriteInitScript writes the Gradle init script to the Gradle user home `init.d` directory,
+// which stores initialization scripts. The final path should be `$GRADLE_USER_HOME/init.d/jfrog.init.gradle`.
+// More info on how Gradle invokes these init scripts can be found here:
+// https://docs.gradle.org/current/userguide/init_scripts.html#sec:using_an_init_script
+func WriteInitScript(initScript string) error {
+	gradleHome := os.Getenv(UserHomeEnv)
+	if gradleHome == "" {
+		gradleHome = filepath.Join(clientutils.GetUserHomeDir(), ".gradle")
+	}
+
+	initScriptsDir := filepath.Join(gradleHome, "init.d")
+	if err := os.MkdirAll(initScriptsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create Gradle init.d directory: %w", err)
+	}
+	jfrogInitScriptPath := filepath.Join(initScriptsDir, InitScriptName)
+	if err := os.WriteFile(jfrogInitScriptPath, []byte(initScript), 0644); err != nil {
+		return fmt.Errorf("failed to write Gradle init script to %s: %w", jfrogInitScriptPath, err)
+	}
+	return nil
 }
 
 func runGradle(vConfig *viper.Viper, tasks []string, deployableArtifactsFile string, configuration *build.BuildConfiguration, threads int, disableDeploy bool) error {

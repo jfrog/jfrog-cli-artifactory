@@ -1,0 +1,37 @@
+def artifactoryUrl = '{{ .ArtifactoryURL }}'
+def gradleRepoName = '{{ .GradleRepoName }}'
+def artifactoryUsername = '{{ .ArtifactoryUsername }}'
+def artifactoryAccessToken = '{{ .ArtifactoryAccessToken }}'
+
+gradle.settingsEvaluated { settings ->
+    settings.pluginManagement {
+        repositories {
+            maven {
+                url "${artifactoryUrl}/${gradleRepoName}"
+                credentials {
+                    username = artifactoryUsername
+                    password = artifactoryAccessToken
+                }
+            }
+            if (artifactoryUrl.startsWith("http://")) {
+                allowInsecureProtocol = true
+            }
+            gradlePluginPortal() // Fallback to Gradle Plugin Portal
+        }
+    }
+}
+
+allprojects { project ->
+    project.repositories {
+        maven {
+            url "${artifactoryUrl}/${gradleRepoName}"
+            credentials {
+                username = artifactoryUsername
+                password = artifactoryAccessToken
+            }
+            if (artifactoryUrl.startsWith("http://")) {
+                allowInsecureProtocol = true
+            }
+        }
+    }
+}
