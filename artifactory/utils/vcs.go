@@ -177,7 +177,7 @@ func validateGitAndGetVcsUrl(gitDetails *GitLogDetails) (string, error) {
 		return "", errorutils.CheckError(err)
 	}
 
-	(*gitDetails).DotGitPath, err = GetDotGit(gitDetails.DotGitPath)
+	gitDetails.DotGitPath, err = GetDotGit(gitDetails.DotGitPath)
 	if err != nil {
 		return "", err
 	}
