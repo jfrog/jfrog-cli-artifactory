@@ -1,44 +1,38 @@
+import org.gradle.util.GradleVersion
+
 def artifactoryUrl = '{{ .ArtifactoryURL }}'
 def gradleRepoName = '{{ .GradleRepoName }}'
 def artifactoryUsername = '{{ .ArtifactoryUsername }}'
 def artifactoryAccessToken = '{{ .ArtifactoryAccessToken }}'
-
-// Import the GradleVersion class
-import org.gradle.util.GradleVersion
-
 def gradleVersion = GradleVersion.current()
+def allowInsecure = gradleVersion >= GradleVersion.version("6.2") && artifactoryUrl.startsWith("http://")
 
-// Set up pluginManagement repositories
+void configureMavenRepo(repositories, String rtUrl, String rtUser, String rtPass, boolean allowInsecure) {
+    repositories.maven {
+        url rtUrl
+        credentials {
+            username = rtUser
+            password = rtPass
+        }
+        if (allowInsecure) {
+            allowInsecureProtocol = true
+        }
+    }
+}
+
+// Configure the pluginManagement repositories
 gradle.settingsEvaluated { settings ->
     settings.pluginManagement {
         repositories {
-            maven {
-                url "${artifactoryUrl}/${gradleRepoName}"
-                credentials {
-                    username = artifactoryUsername
-                    password = artifactoryAccessToken
-                }
-                if (gradleVersion >= GradleVersion.version("6.2") && artifactoryUrl.startsWith("http://")) {
-                    allowInsecureProtocol = true
-                }
-            }
+            configureMavenRepo(it, "${artifactoryUrl}/${gradleRepoName}", artifactoryUsername, artifactoryAccessToken, allowInsecure)
             gradlePluginPortal() // Fallback to Gradle Plugin Portal
         }
     }
 }
 
-// Set up project repositories
+// Configure the project repositories
 allprojects { project ->
     project.repositories {
-        maven {
-            url "${artifactoryUrl}/${gradleRepoName}"
-            credentials {
-                username = artifactoryUsername
-                password = artifactoryAccessToken
-            }
-            if (gradleVersion >= GradleVersion.version("6.2") && artifactoryUrl.startsWith("http://")) {
-                allowInsecureProtocol = true
-            }
-        }
+        configureMavenRepo(it, "${artifactoryUrl}/${gradleRepoName}", artifactoryUsername, artifactoryAccessToken, allowInsecure)
     }
 }
