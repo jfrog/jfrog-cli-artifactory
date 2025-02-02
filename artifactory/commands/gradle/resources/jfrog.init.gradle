@@ -14,6 +14,7 @@ void configureMavenRepo(repositories, String rtUrl, String rtUser, String rtPass
             username = rtUser
             password = rtPass
         }
+        // This is used when Artifactory is running in HTTP mode
         if (allowInsecure) {
             allowInsecureProtocol = true
         }
