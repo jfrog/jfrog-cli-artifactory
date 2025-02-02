@@ -2,6 +2,10 @@ def artifactoryUrl = '{{ .ArtifactoryURL }}'
 def gradleRepoName = '{{ .GradleRepoName }}'
 def artifactoryUsername = '{{ .ArtifactoryUsername }}'
 def artifactoryAccessToken = '{{ .ArtifactoryAccessToken }}'
+
+// Import the GradleVersion class
+import org.gradle.util.GradleVersion
+
 def gradleVersion = GradleVersion.current()
 
 // Set up pluginManagement repositories
