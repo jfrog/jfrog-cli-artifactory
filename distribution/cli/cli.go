@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	distributionCommands "github.com/jfrog/jfrog-cli-artifactory/distribution/commands"
-	releaseBundleDocs "github.com/jfrog/jfrog-cli-artifactory/distribution/docs"
 	"github.com/jfrog/jfrog-cli-artifactory/distribution/docs/releasebundlecreate"
 	"github.com/jfrog/jfrog-cli-artifactory/distribution/docs/releasebundledelete"
 	"github.com/jfrog/jfrog-cli-artifactory/distribution/docs/releasebundledistribute"
@@ -30,7 +29,7 @@ func GetCommands() []components.Command {
 	return []components.Command{
 		{
 			Name:        "release-bundle-create",
-			Flags:       releaseBundleDocs.GetCommandFlags(releaseBundleDocs.ReleaseBundleV1Create),
+			Flags:       GetCommandFlags(ReleaseBundleV1Create),
 			Aliases:     []string{"rbc"},
 			Description: releasebundlecreate.GetDescription(),
 			Arguments:   releasebundlecreate.GetArguments(),
@@ -39,7 +38,7 @@ func GetCommands() []components.Command {
 		},
 		{
 			Name:        "release-bundle-update",
-			Flags:       releaseBundleDocs.GetCommandFlags(releaseBundleDocs.ReleaseBundleV1Update),
+			Flags:       GetCommandFlags(ReleaseBundleV1Update),
 			Aliases:     []string{"rbu"},
 			Description: releasebundleupdate.GetDescription(),
 			Arguments:   releasebundleupdate.GetArguments(),
@@ -48,7 +47,7 @@ func GetCommands() []components.Command {
 		},
 		{
 			Name:        "release-bundle-sign",
-			Flags:       releaseBundleDocs.GetCommandFlags(releaseBundleDocs.ReleaseBundleV1Sign),
+			Flags:       GetCommandFlags(ReleaseBundleV1Sign),
 			Aliases:     []string{"rbs"},
 			Description: releasebundlesign.GetDescription(),
 			Arguments:   releasebundlesign.GetArguments(),
@@ -57,7 +56,7 @@ func GetCommands() []components.Command {
 		},
 		{
 			Name:        "release-bundle-distribute",
-			Flags:       releaseBundleDocs.GetCommandFlags(releaseBundleDocs.ReleaseBundleV1Distribute),
+			Flags:       GetCommandFlags(ReleaseBundleV1Distribute),
 			Aliases:     []string{"rbd"},
 			Description: releasebundledistribute.GetDescription(),
 			Arguments:   releasebundledistribute.GetArguments(),
@@ -66,7 +65,7 @@ func GetCommands() []components.Command {
 		},
 		{
 			Name:        "release-bundle-delete",
-			Flags:       releaseBundleDocs.GetCommandFlags(releaseBundleDocs.ReleaseBundleV1Delete),
+			Flags:       GetCommandFlags(ReleaseBundleV1Delete),
 			Aliases:     []string{"rbdel"},
 			Description: releasebundledelete.GetDescription(),
 			Arguments:   releasebundledelete.GetArguments(),
