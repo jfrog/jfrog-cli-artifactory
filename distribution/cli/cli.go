@@ -213,7 +213,7 @@ func releaseBundleDeleteCmd(c *components.Context) error {
 		return pluginsCommon.WrongNumberOfArgumentsHandler(c)
 	}
 	var distributionRules *spec.DistributionRules
-	if c.GetBoolFlagValue("dist-rules") {
+	if c.IsFlagSet("dist-rules") {
 		if c.GetBoolFlagValue("site") || c.GetBoolFlagValue("city") || c.GetBoolFlagValue("country-code") {
 			return pluginsCommon.PrintHelpAndReturnError("flag --dist-rules can't be used with --site, --city or --country-code", c)
 		}

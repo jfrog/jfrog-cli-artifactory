@@ -100,7 +100,7 @@ var flagsMap = map[string]components.Flag{
 	desc:               components.NewStringFlag(desc, "Description of the release bundle.", SetMandatoryFalse()),
 	exclusions:         components.NewStringFlag(exclusions, "List of semicolon-separated(;) exclusions. Exclusions can include the * and the ? wildcards.", SetMandatoryFalse()),
 	releaseNotesPath:   components.NewStringFlag(releaseNotesPath, "Path to a file describes the release notes for the release bundle version.", SetMandatoryFalse()),
-	releaseNotesSyntax: components.NewStringFlag(releaseNotesSyntax, "The syntax for the release notes. Can be one of 'markdown', 'asciidoc', or 'plain_text.", WithStrDefaultValue("plain_text"), SetMandatoryFalse()),
+	releaseNotesSyntax: components.NewStringFlag(releaseNotesSyntax, "The syntax for the release notes. Can be one of 'markdown', 'asciidoc', or 'plain_text.", SetMandatoryFalse()),
 	rbPassphrase:       components.NewStringFlag(passphrase, "The passphrase for the signing key.", SetMandatoryFalse()),
 	rbRepo:             components.NewStringFlag(repo, "A repository name at source Artifactory to store release bundle artifacts in. If not provided, Artifactory will use the default one.", SetMandatoryFalse()),
 	InsecureTls:        components.NewBoolFlag(InsecureTls, "Set to true to skip TLS certificates verification.", WithBoolDefaultValueFalse()),
