@@ -92,7 +92,7 @@ var flagsMap = map[string]components.Flag{
 	password:           components.NewStringFlag(password, "JFrog password.", SetMandatoryFalse()),
 	accessToken:        components.NewStringFlag(accessToken, "JFrog access token.", SetMandatoryFalse()),
 	serverId:           components.NewStringFlag(serverId, "Server ID configured using the 'jf config' command.", SetMandatoryFalse()),
-	specFlag:           components.NewStringFlag(specFlag, "Path to a File Spec.", SetMandatoryFalse()),
+	specFlag:           components.NewBoolFlag(specFlag, "Path to a File Spec.", WithBoolDefaultValueFalse()),
 	specVars:           components.NewStringFlag(specVars, "List of semicolon-separated(;) variables in the form of \"key1=value1;key2=value2;...\" to be replaced in the File Spec.", SetMandatoryFalse()),
 	targetProps:        components.NewStringFlag(targetProps, "List of semicolon-separated(;) properties, in the form of \"key1=value1;key2=value2;...\" to be added to the artifacts after distribution of the release bundle.", SetMandatoryFalse()),
 	rbDryRun:           components.NewBoolFlag(dryRun, "Set to true to disable communication with JFrog Distribution.", WithBoolDefaultValueFalse()),
