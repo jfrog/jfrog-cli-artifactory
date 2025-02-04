@@ -214,7 +214,7 @@ func releaseBundleDeleteCmd(c *components.Context) error {
 	}
 	var distributionRules *spec.DistributionRules
 	if c.IsFlagSet("dist-rules") {
-		if c.GetBoolFlagValue("site") || c.GetBoolFlagValue("city") || c.GetBoolFlagValue("country-code") {
+		if c.IsFlagSet("site") || c.IsFlagSet("city") || c.IsFlagSet("country-code") {
 			return pluginsCommon.PrintHelpAndReturnError("flag --dist-rules can't be used with --site, --city or --country-code", c)
 		}
 		var err error
