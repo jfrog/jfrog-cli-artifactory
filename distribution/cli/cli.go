@@ -279,7 +279,7 @@ func createReleaseBundleCreateUpdateParams(c *components.Context, bundleName, bu
 }
 
 func createDistributionDetailsByFlags(c *components.Context) (*coreConfig.ServerDetails, error) {
-	dsDetails, err := pluginsCommon.CreateServerDetailsWithConfigOffer(c, true, cliutils.Rt)
+	dsDetails, err := pluginsCommon.CreateServerDetailsWithConfigOffer(c, true, cliutils.Ds)
 	if err != nil {
 		return nil, err
 	}
