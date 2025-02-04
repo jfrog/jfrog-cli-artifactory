@@ -112,7 +112,7 @@ var flagsMap = map[string]components.Flag{
 	sync:               components.NewBoolFlag(sync, "Default: false: Set to true to enable sync distribution (the command execution will end when the distribution process ends)."),
 	maxWaitMinutes:     components.NewStringFlag(maxWaitMinutes, "Default: 60: Max minutes to wait for sync distribution."),
 	deleteFromDist:     components.NewBoolFlag(deleteFromDist, "Default: false: Set to true to delete release bundle version in JFrog Distribution itself after deletion is complete."),
-	deleteQuiet:        components.NewBoolFlag(deleteQuiet, "Default: false: Set to true to skip the delete confirmation message."),
+	deleteQuiet:        components.NewBoolFlag(quiet, "Default: false: Set to true to skip the delete confirmation message."),
 	CreateRepo:         components.NewBoolFlag(CreateRepo, "Default: false: Set to true to create the repository on the edge if it does not exist."),
 }
 
