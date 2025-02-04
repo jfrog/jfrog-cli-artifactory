@@ -76,7 +76,7 @@ func GetCommands() []components.Command {
 }
 
 func releaseBundleCreateCmd(c *components.Context) error {
-	if !(len(c.Arguments) == 2 && c.GetBoolFlagValue("spec") || (len(c.Arguments) == 3 && !c.GetBoolFlagValue("spec"))) {
+	if !(len(c.Arguments) == 2 && c.IsFlagSet("spec") || (len(c.Arguments) == 3 && !c.IsFlagSet("spec"))) {
 		return pluginsCommon.WrongNumberOfArgumentsHandler(c)
 	}
 	if c.GetBoolFlagValue("detailed-summary") && !c.GetBoolFlagValue("sign") {
@@ -84,7 +84,7 @@ func releaseBundleCreateCmd(c *components.Context) error {
 	}
 	var releaseBundleCreateSpec *spec.SpecFiles
 	var err error
-	if c.GetBoolFlagValue("spec") {
+	if c.IsFlagSet("spec") {
 		releaseBundleCreateSpec, err = GetSpec(c, true, true)
 	} else {
 		releaseBundleCreateSpec = createDefaultReleaseBundleSpec(c)
