@@ -154,7 +154,7 @@ func ParseGitLogFromLastBuild(serverDetails *utilsconfig.ServerDetails, buildCon
 // Returns the git log output for the VCS revision for the previous build in position previousBuildPos.
 // For previousBuildPos 0 the latest build is returned, for an input 1 the latest -1 is returned, etc. previousBuildPos must be 0 or above.
 // Calls git log with a custom format, and returns the output as is.
-// Return RevisionRangeError if revision isn't found.
+// Return RevisionRangeError if revision isn't found (due to git history modification).
 func GetPlainGitLogFromPreviousBuild(serverDetails *utilsconfig.ServerDetails, buildConfiguration *build.BuildConfiguration, gitDetails GitLogDetails, previousBuildPos int) (string, error) {
 	vcsUrl, err := validateGitAndGetVcsUrl(&gitDetails)
 	if err != nil {
