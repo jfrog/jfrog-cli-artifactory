@@ -8,8 +8,8 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/distribution/docs/releasebundledistribute"
 	"github.com/jfrog/jfrog-cli-artifactory/distribution/docs/releasebundlesign"
 	"github.com/jfrog/jfrog-cli-artifactory/distribution/docs/releasebundleupdate"
-	"github.com/jfrog/jfrog-cli-artifactory/distribution/summary"
 	"github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
+	buildInfoSummary "github.com/jfrog/jfrog-cli-core/v2/common/cliutils/summary"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
@@ -85,7 +85,7 @@ func releaseBundleCreateCmd(c *components.Context) error {
 	var releaseBundleCreateSpec *spec.SpecFiles
 	var err error
 	if c.IsFlagSet("spec") {
-		releaseBundleCreateSpec, err = GetSpec(c, true, true)
+		releaseBundleCreateSpec, err = cliutils.GetSpec(c, true, true)
 	} else {
 		releaseBundleCreateSpec = createDefaultReleaseBundleSpec(c)
 	}
@@ -111,7 +111,7 @@ func releaseBundleCreateCmd(c *components.Context) error {
 	err = commands.Exec(releaseBundleCreateCmd)
 	if releaseBundleCreateCmd.IsDetailedSummary() {
 		if summary := releaseBundleCreateCmd.GetSummary(); summary != nil {
-			return PrintBuildInfoSummaryReport(summary.IsSucceeded(), summary.GetSha256(), err)
+			return buildInfoSummary.PrintBuildInfoSummaryReport(summary.IsSucceeded(), summary.GetSha256(), err)
 		}
 	}
 	return err
@@ -127,7 +127,7 @@ func releaseBundleUpdateCmd(c *components.Context) error {
 	var releaseBundleUpdateSpec *spec.SpecFiles
 	var err error
 	if c.GetBoolFlagValue("spec") {
-		releaseBundleUpdateSpec, err = GetSpec(c, true, true)
+		releaseBundleUpdateSpec, err = cliutils.GetSpec(c, true, true)
 	} else {
 		releaseBundleUpdateSpec = createDefaultReleaseBundleSpec(c)
 	}
@@ -153,7 +153,7 @@ func releaseBundleUpdateCmd(c *components.Context) error {
 	err = commands.Exec(releaseBundleUpdateCmd)
 	if releaseBundleUpdateCmd.IsDetailedSummary() {
 		if updateBundleCmdSummary := releaseBundleUpdateCmd.GetSummary(); updateBundleCmdSummary != nil {
-			return summary.PrintBuildInfoSummaryReport(updateBundleCmdSummary.IsSucceeded(), updateBundleCmdSummary.GetSha256(), err)
+			return buildInfoSummary.PrintBuildInfoSummaryReport(updateBundleCmdSummary.IsSucceeded(), updateBundleCmdSummary.GetSha256(), err)
 		}
 	}
 	return err
@@ -176,7 +176,7 @@ func releaseBundleSignCmd(c *components.Context) error {
 	err = commands.Exec(releaseBundleSignCmd)
 	if releaseBundleSignCmd.IsDetailedSummary() {
 		if summary := releaseBundleSignCmd.GetSummary(); summary != nil {
-			return PrintBuildInfoSummaryReport(summary.IsSucceeded(), summary.GetSha256(), err)
+			return buildInfoSummary.PrintBuildInfoSummaryReport(summary.IsSucceeded(), summary.GetSha256(), err)
 		}
 	}
 	return err
