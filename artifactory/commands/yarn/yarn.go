@@ -78,6 +78,7 @@ func (yc *YarnCommand) SetArgs(args []string) *YarnCommand {
 func (yc *YarnCommand) Run() (err error) {
 	log.Info("Running Yarn...")
 	if err = yc.validateSupportedCommand(); err != nil {
+		log.Debug("Error occurred while validating the command with args: ", yc.yarnArgs, " with error: ", err)
 		return
 	}
 
@@ -88,11 +89,17 @@ func (yc *YarnCommand) Run() (err error) {
 	var filteredYarnArgs []string
 	yc.threads, _, _, _, filteredYarnArgs, yc.buildConfiguration, err = extractYarnOptionsFromArgs(yc.yarnArgs)
 	if err != nil {
+		log.Debug("Error occurred while extracting yarn opts: ", err)
 		return
 	}
 
 	if err = yc.preparePrerequisites(); err != nil {
 		return
+	}
+
+	err = verifyYarnVersion(yc.executablePath, filteredYarnArgs)
+	if err != nil {
+		return err
 	}
 
 	var missingDepsChan chan string
@@ -155,6 +162,27 @@ func (yc *YarnCommand) validateSupportedCommand() error {
 			// 'yarn npm *' commands other than 'info' and 'whoami' are not supported
 			if npmCommand != "info" && npmCommand != "whoami" {
 				return errorutils.CheckErrorf("The command 'jfrog rt yarn npm %s' is not supported.", npmCommand)
+			}
+		}
+		// validate 'yarn set version *' command
+		err := validateSupportedVersion(arg, yc.yarnArgs, index)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateSupportedVersion checks if the version to be set is supported.
+// currently version 4 is not supported.
+func validateSupportedVersion(arg string, yarnArgs []string, index int) error {
+	if arg == "set" && len(yarnArgs) > index {
+		setCommand := yarnArgs[index+1]
+		if setCommand == "version" && len(yarnArgs) > index+2 {
+			versionCommand := yarnArgs[index+2]
+			err := yarn.IsVersionSupported(versionCommand)
+			if err != nil {
+				return err
 			}
 		}
 	}
@@ -270,6 +298,34 @@ func GetYarnAuthDetails(server *config.ServerDetails, repo string) (registry, np
 	return
 }
 
+func verifyYarnVersion(executablePath string, filteredYarnArgs []string) error {
+	if skipVersionCheck(filteredYarnArgs) {
+
+		log.Debug("Skipping yarn version verification")
+		return nil
+	}
+	err := yarn.IsInstalledYarnVersionSupported(executablePath)
+	log.Debug("Yarn version verified")
+	if err != nil {
+		return err
+	}
+	log.Debug("Successfully verified yarn version")
+	return nil
+}
+
+func skipVersionCheck(filteredYarnArgs []string) bool {
+	// Allow 'yarn set version' command - (this will help to downgrade and upgrade yarn version)
+	if len(filteredYarnArgs) >= 2 && filteredYarnArgs[0] == "set" && filteredYarnArgs[1] == "version" {
+		return true
+	}
+
+	// Allow '--version' to check current version
+	if len(filteredYarnArgs) >= 1 && filteredYarnArgs[0] == "--version" {
+		return true
+	}
+	return false
+}
+
 func setArtifactoryAuth(server *config.ServerDetails) (auth.ServiceDetails, error) {
 	authArtDetails, err := server.CreateArtAuthConfig()
 	if err != nil {
@@ -327,6 +383,10 @@ func updateScopeRegistries(execPath, registry, npmAuthIdent, npmAuthToken string
 	npmScopesStr, err := yarn.ConfigGet(NpmScopesConfigName, execPath, true)
 	if err != nil {
 		return err
+	}
+	// If npmScopesStr is "undefined" it means that the npmScopes configuration does not exist in case using yarn version 4.
+	if npmScopesStr == "undefined" {
+		return nil
 	}
 	npmScopesMap := make(map[string]yarnNpmScope)
 	err = json.Unmarshal([]byte(npmScopesStr), &npmScopesMap)
