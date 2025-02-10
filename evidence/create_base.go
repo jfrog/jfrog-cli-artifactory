@@ -25,10 +25,31 @@ type createEvidenceBase struct {
 	markdownFilePath  string
 	key               string
 	keyId             string
+	flagType          FlagType
 }
 
 func (c *createEvidenceBase) createEnvelope(subject, subjectSha256 string) ([]byte, error) {
 	statementJson, err := c.buildIntotoStatementJson(subject, subjectSha256)
+	if err != nil {
+		return nil, err
+	}
+
+	signedEnvelope, err := createAndSignEnvelope(statementJson, c.key, c.keyId)
+	if err != nil {
+		return nil, err
+	}
+
+	envelopeBytes, err := json.Marshal(signedEnvelope)
+	if err != nil {
+		return nil, err
+	}
+	return envelopeBytes, nil
+}
+
+func (c *createEvidenceBase) createEnvelopeWithPredicateAndPredicateType(subject,
+	subjectSha256, predicateType string, predicate []byte) ([]byte, error) {
+	statementJson, err := c.buildIntotoStatementJsonWithPredicateAndPredicateType(subject,
+		subjectSha256, predicateType, predicate)
 	if err != nil {
 		return nil, err
 	}
@@ -59,6 +80,30 @@ func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 str
 	}
 
 	statement := intoto.NewStatement(predicate, c.predicateType, c.serverDetails.User)
+	err = c.setMarkdown(statement)
+	if err != nil {
+		return nil, err
+	}
+
+	err = statement.SetSubject(artifactoryClient, subject, subjectSha256)
+	if err != nil {
+		return nil, err
+	}
+	statementJson, err := statement.Marshal()
+	if err != nil {
+		log.Error("failed marshaling statement json file", err)
+		return nil, err
+	}
+	return statementJson, nil
+}
+
+func (c *createEvidenceBase) buildIntotoStatementJsonWithPredicateAndPredicateType(subject, subjectSha256, predicateType string, predicate []byte) ([]byte, error) {
+	artifactoryClient, err := c.createArtifactoryClient()
+	if err != nil {
+		return nil, err
+	}
+
+	statement := intoto.NewStatement(predicate, predicateType, c.serverDetails.User)
 	err = c.setMarkdown(statement)
 	if err != nil {
 		return nil, err

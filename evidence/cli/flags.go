@@ -26,6 +26,7 @@ const (
 	packageName          = "package-name"
 	packageVersion       = "package-version"
 	packageRepoName      = "package-repo-name"
+	typeFlag             = "type"
 
 	// Unique evidence flags
 	predicate       = "predicate"
@@ -53,9 +54,10 @@ var flagsMap = map[string]components.Flag{
 	packageName:          components.NewStringFlag(packageName, "Package name.", func(f *components.StringFlag) { f.Mandatory = false }),
 	packageVersion:       components.NewStringFlag(packageVersion, "Package version.", func(f *components.StringFlag) { f.Mandatory = false }),
 	packageRepoName:      components.NewStringFlag(packageRepoName, "Package repository Name.", func(f *components.StringFlag) { f.Mandatory = false }),
+	typeFlag:             components.NewStringFlag(typeFlag, "Type can contain 'gh-commiter' value.", func(f *components.StringFlag) { f.Mandatory = false }),
 
-	predicate:       components.NewStringFlag(predicate, "Path to the predicate, arbitrary JSON.", func(f *components.StringFlag) { f.Mandatory = true }),
-	predicateType:   components.NewStringFlag(predicateType, "Type of the predicate.", func(f *components.StringFlag) { f.Mandatory = true }),
+	predicate:       components.NewStringFlag(predicate, "Path to the predicate, arbitrary JSON.", func(f *components.StringFlag) { f.Mandatory = false }),
+	predicateType:   components.NewStringFlag(predicateType, "Type of the predicate.", func(f *components.StringFlag) { f.Mandatory = false }),
 	markdown:        components.NewStringFlag(markdown, "Markdown of the predicate.", func(f *components.StringFlag) { f.Mandatory = false }),
 	subjectRepoPath: components.NewStringFlag(subjectRepoPath, "Full path to some subject' location.", func(f *components.StringFlag) { f.Mandatory = false }),
 	subjectSha256:   components.NewStringFlag(subjectSha256, "Subject checksum sha256.", func(f *components.StringFlag) { f.Mandatory = false }),
@@ -77,6 +79,7 @@ var commandFlags = map[string][]string{
 		packageName,
 		packageVersion,
 		packageRepoName,
+		typeFlag,
 		predicate,
 		predicateType,
 		markdown,
