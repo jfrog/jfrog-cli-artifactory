@@ -23,8 +23,8 @@ github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5 h1:0CwZNZbxp69SHPd
 github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5/go.mod h1:wHh0iHkYZB8zMSxRWpUBQtwG5a7fFgvEO+odwuTv2gs=
 github.com/bhanurp/jfrog-cli-core/v2 v2.31.1-0.20250205145350-284c79cce51a h1:IHOUPqe3kJE1U6wYMlzMqFuB47d30PQZieh48vSXK+s=
 github.com/bhanurp/jfrog-cli-core/v2 v2.31.1-0.20250205145350-284c79cce51a/go.mod h1:Hx2houXADsNv0eRh4w5XCS2uSsPNPn1OmiSDdwGFB7g=
-github.com/bhanurp/jfrog-client-go v1.28.1-0.20250211125302-8824d0e90b1b h1:C91cQrktZquPV+cWMemkakADaG1uzgueodqUTDeTvqA=
-github.com/bhanurp/jfrog-client-go v1.28.1-0.20250211125302-8824d0e90b1b/go.mod h1:hDoUcW6LZme83YNFbdSRImV+di1x0GP+Nlw7fctkwtE=
+github.com/bhanurp/jfrog-client-go v1.28.1-0.20250211180958-fdd57acc1c22 h1:srjPEBWZZlqeDlgRsUxSETJT7o0nX7xbJOXVuY7sUBQ=
+github.com/bhanurp/jfrog-client-go v1.28.1-0.20250211180958-fdd57acc1c22/go.mod h1:hDoUcW6LZme83YNFbdSRImV+di1x0GP+Nlw7fctkwtE=
 github.com/bradleyjkemp/cupaloy/v2 v2.8.0 h1:any4BmKE+jGIaMpnU8YgH/I2LPiLBufr6oMMlVBbn9M=
 github.com/bradleyjkemp/cupaloy/v2 v2.8.0/go.mod h1:bm7JXdkRd4BHJk9HpwqAI8BoAY1lps46Enkdqw6aRX0=
 github.com/buger/jsonparser v1.1.1 h1:2PnMjfWD7wBILjqQbt530v576A/cAbQvEW9gGIpYMUs=
