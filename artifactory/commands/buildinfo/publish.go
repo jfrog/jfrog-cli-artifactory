@@ -129,7 +129,6 @@ func (bpc *BuildPublishCommand) Run() error {
 		}
 		bpc.buildConfiguration.SetBuildNumber(buildInfo.Number)
 	}
-	// Delete buildinfo when
 	if bpc.config.Overwrite {
 		err := servicesManager.DeleteBuildInfo(buildInfo, bpc.buildConfiguration.GetProject())
 		if err != nil {
