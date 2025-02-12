@@ -21,8 +21,6 @@ github.com/apache/camel-k/v2 v2.5.0 h1:voFPrxhuaedKn68RerS+QkXYXyZ+5tBfVaAc7QYOg
 github.com/apache/camel-k/v2 v2.5.0/go.mod h1:vLrJAJAp9EGxY54cUR7VHzIF70JHfFzk4OOaYRfLr44=
 github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5 h1:0CwZNZbxp69SHPdPJAN/hZIm0C4OItdklCFmMRWYpio=
 github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5/go.mod h1:wHh0iHkYZB8zMSxRWpUBQtwG5a7fFgvEO+odwuTv2gs=
-github.com/bhanurp/jfrog-cli-core/v2 v2.31.1-0.20250210054430-4438d1dc9111 h1:Wk3/bWer6kz//umPldNi0fcP4ng6bLTA3vcFFS42mBo=
-github.com/bhanurp/jfrog-cli-core/v2 v2.31.1-0.20250210054430-4438d1dc9111/go.mod h1:3vP0hv13zJYvhXlgKIXmWSN8ADvGUQgxVVCqcO8hOeM=
 github.com/bradleyjkemp/cupaloy/v2 v2.8.0 h1:any4BmKE+jGIaMpnU8YgH/I2LPiLBufr6oMMlVBbn9M=
 github.com/bradleyjkemp/cupaloy/v2 v2.8.0/go.mod h1:bm7JXdkRd4BHJk9HpwqAI8BoAY1lps46Enkdqw6aRX0=
 github.com/buger/jsonparser v1.1.1 h1:2PnMjfWD7wBILjqQbt530v576A/cAbQvEW9gGIpYMUs=
@@ -114,6 +112,8 @@ github.com/jfrog/build-info-go v1.10.9 h1:mdJ+wlLw2ReFsqC7rifJVlRYLEqYk38uXDYAOZ
 github.com/jfrog/build-info-go v1.10.9/go.mod h1:JcISnovFXKx3wWf3p1fcMmlPdt6adxScXvoJN4WXqIE=
 github.com/jfrog/gofrog v1.7.6 h1:QmfAiRzVyaI7JYGsB7cxfAJePAZTzFz0gRWZSE27c6s=
 github.com/jfrog/gofrog v1.7.6/go.mod h1:ntr1txqNOZtHplmaNd7rS4f8jpA5Apx8em70oYEe7+4=
+github.com/jfrog/jfrog-cli-core/v2 v2.31.1-0.20250212021126-e5223ab616af h1:XnyhhyARP1YCzYGdhk8ovpyZV+hSchiTGVTuejrZXsI=
+github.com/jfrog/jfrog-cli-core/v2 v2.31.1-0.20250212021126-e5223ab616af/go.mod h1:Hx2houXADsNv0eRh4w5XCS2uSsPNPn1OmiSDdwGFB7g=
 github.com/jfrog/jfrog-client-go v1.50.0 h1:t7v/zpLkPomHR6ZjVbPQ1WPQJd9IFKESK9Tt6phZz3k=
 github.com/jfrog/jfrog-client-go v1.50.0/go.mod h1:xHxwKBjPSUBd/FyCWgusfHmSWKUZTkfOZkTmntC2F5Y=
 github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=
