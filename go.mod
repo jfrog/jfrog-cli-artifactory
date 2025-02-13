@@ -122,9 +122,9 @@ require (
 //replace github.com/jfrog/jfrog-cli-core/v2 => github.com/oshratZairi/jfrog-cli-core/v2 v2.56.9-0.20241127142944-b39d0cc8f1c1
 //replace github.com/jfrog/jfrog-cli-core/v2 => github.com/oshratZairi/jfrog-cli-core/v2 v2.31.1-0.20241211104546-3e12a85de116
 
-replace github.com/jfrog/jfrog-cli-core/v2 => github.com/bhanurp/jfrog-cli-core/v2 v2.31.1-0.20250211181507-70a8e2e0ffa6
+replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.31.1-0.20250212021126-e5223ab616af
 
-replace github.com/jfrog/jfrog-client-go => github.com/bhanurp/jfrog-client-go v1.28.1-0.20250211180958-fdd57acc1c22
+replace github.com/jfrog/jfrog-client-go => github.com/bhanurp/jfrog-client-go v1.28.1-0.20250213094046-10d3186a130e
 
 //replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.31.1-0.20240811150357-12a9330a2d67
 //replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20240811142930-ab9715567376

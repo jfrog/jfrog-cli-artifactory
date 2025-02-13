@@ -1,6 +1,7 @@
 package buildinfo
 
 import (
+	buildinfo "github.com/jfrog/build-info-go/entities"
 	"strconv"
 	"testing"
 	"time"
@@ -52,5 +53,53 @@ func TestPrintBuildInfoLink(t *testing.T) {
 		buildPubComService, err := buildPubConf.getBuildInfoUiUrl(linkTypes[i].majorVersion, linkTypes[i].buildTime)
 		assert.NoError(t, err)
 		assert.Equal(t, buildPubComService, linkTypes[i].expected)
+	}
+}
+
+func TestCalculateBuildNumberFrequency(t *testing.T) {
+	tests := []struct {
+		name     string
+		runs     *buildinfo.BuildRuns
+		expected map[string]int
+	}{
+		{
+			name: "Single build number",
+			runs: &buildinfo.BuildRuns{
+				BuildsNumbers: []buildinfo.BuildRun{{Uri: "/1"}},
+			},
+			expected: map[string]int{"1": 1},
+		},
+		{
+			name: "Single build number with special characters",
+			runs: &buildinfo.BuildRuns{
+				BuildsNumbers: []buildinfo.BuildRun{{Uri: "/1-"}},
+			},
+			expected: map[string]int{"1-": 1},
+		},
+		{
+			name: "Multiple build numbers",
+			runs: &buildinfo.BuildRuns{
+				BuildsNumbers: []buildinfo.BuildRun{
+					{Uri: "/1"},
+					{Uri: "/2"},
+					{Uri: "/1"},
+				},
+			},
+			expected: map[string]int{"1": 2, "2": 1},
+		},
+		{
+			name: "No build numbers",
+			runs: &buildinfo.BuildRuns{
+				BuildsNumbers: []buildinfo.BuildRun{},
+			},
+			expected: map[string]int{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := calculateBuildNumberFrequency(tt.runs)
+			assert.Equal(t, tt.expected, result)
+		})
 	}
 }

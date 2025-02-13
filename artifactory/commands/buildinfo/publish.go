@@ -130,9 +130,17 @@ func (bpc *BuildPublishCommand) Run() error {
 		bpc.buildConfiguration.SetBuildNumber(buildInfo.Number)
 	}
 	if bpc.config.Overwrite {
-		err := servicesManager.DeleteBuildInfo(buildInfo, bpc.buildConfiguration.GetProject())
+		project := bpc.buildConfiguration.GetProject()
+		buildRuns, found, err := servicesManager.GetBuildRuns(services.BuildInfoParams{BuildName: buildName, BuildNumber: buildNumber, ProjectKey: project})
 		if err != nil {
 			return err
+		}
+		if found {
+			buildNumbersFrequency := calculateBuildNumberFrequency(buildRuns)
+			err = servicesManager.DeleteBuildInfo(buildInfo, project, buildNumbersFrequency[buildNumber])
+			if err != nil {
+				return err
+			}
 		}
 	}
 	summary, err := servicesManager.PublishBuildInfo(buildInfo, bpc.buildConfiguration.GetProject())
@@ -170,6 +178,15 @@ func (bpc *BuildPublishCommand) Run() error {
 
 	log.Info(logMsg)
 	return logJsonOutput(buildLink)
+}
+
+func calculateBuildNumberFrequency(runs *buildinfo.BuildRuns) map[string]int {
+	frequency := make(map[string]int)
+	for _, run := range runs.BuildsNumbers {
+		buildNumber := strings.TrimPrefix(run.Uri, "/")
+		frequency[buildNumber]++
+	}
+	return frequency
 }
 
 func logJsonOutput(buildInfoUiUrl string) error {
