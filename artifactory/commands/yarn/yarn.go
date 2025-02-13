@@ -95,6 +95,11 @@ func (yc *YarnCommand) Run() (err error) {
 		return
 	}
 
+	err = verifyYarnVersion(yc.executablePath, filteredYarnArgs)
+	if err != nil {
+		return err
+	}
+
 	var missingDepsChan chan string
 	var missingDependencies []string
 	if yc.collectBuildInfo {
@@ -155,6 +160,18 @@ func (yc *YarnCommand) validateSupportedCommand() error {
 			// 'yarn npm *' commands other than 'info' and 'whoami' are not supported
 			if npmCommand != "info" && npmCommand != "whoami" {
 				return errorutils.CheckErrorf("The command 'jfrog rt yarn npm %s' is not supported.", npmCommand)
+			}
+		}
+		// Do not allow upgrade to version 4
+		if arg == "set" && len(yc.yarnArgs) > index {
+			setCommand := yc.yarnArgs[index+1]
+			if setCommand == "version" && len(yc.yarnArgs) > index+2 {
+				versionCommand := yc.yarnArgs[index+2]
+				err := yarn.IsVersionSupported(versionCommand)
+				if err != nil {
+					return err
+				}
+				return nil
 			}
 		}
 	}
@@ -270,6 +287,30 @@ func GetYarnAuthDetails(server *config.ServerDetails, repo string) (registry, np
 	return
 }
 
+func verifyYarnVersion(executablePath string, filteredYarnArgs []string) error {
+	if skipVersionCheck(filteredYarnArgs) {
+		return nil
+	}
+	err := yarn.IsInstalledYarnVersionSupported(executablePath)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func skipVersionCheck(filteredYarnArgs []string) bool {
+	// Allow 'yarn set version' command - (this will help to downgrade and upgrade yarn version)
+	if len(filteredYarnArgs) >= 2 && filteredYarnArgs[0] == "set" && filteredYarnArgs[1] == "version" {
+		return true
+	}
+
+	// Allow '--version' to check current version
+	if len(filteredYarnArgs) >= 1 && filteredYarnArgs[0] == "--version" {
+		return true
+	}
+	return false
+}
+
 func setArtifactoryAuth(server *config.ServerDetails) (auth.ServiceDetails, error) {
 	authArtDetails, err := server.CreateArtAuthConfig()
 	if err != nil {
@@ -327,6 +368,10 @@ func updateScopeRegistries(execPath, registry, npmAuthIdent, npmAuthToken string
 	npmScopesStr, err := yarn.ConfigGet(NpmScopesConfigName, execPath, true)
 	if err != nil {
 		return err
+	}
+	// If npmScopesStr is "undefined" it means that the npmScopes configuration does not exist.
+	if npmScopesStr == "undefined" {
+		return nil
 	}
 	npmScopesMap := make(map[string]yarnNpmScope)
 	err = json.Unmarshal([]byte(npmScopesStr), &npmScopesMap)
