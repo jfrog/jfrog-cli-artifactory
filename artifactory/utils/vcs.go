@@ -4,6 +4,7 @@ import (
 	"errors"
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	gofrogcmd "github.com/jfrog/gofrog/io"
+	utils2 "github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	utilsconfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -16,6 +17,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -23,6 +25,113 @@ import (
 const (
 	revisionRangeErrPrefix = "fatal: Invalid revision range"
 )
+
+type BuildAndVcsDetails interface {
+	ParseGitLogFromLastVcsRevision(gitDetails GitLogDetails, logRegExp *gofrogcmd.CmdOutputPattern, lastVcsRevision string) (err error)
+	GetPlainGitLogFromPreviousBuild(serverDetails *utilsconfig.ServerDetails, buildConfiguration *build.BuildConfiguration, gitDetails GitLogDetails) (string, error)
+	GetLastBuildLink(serverDetails *utilsconfig.ServerDetails, buildConfiguration *build.BuildConfiguration) (string, error)
+}
+
+type GitLogDetails struct {
+	LogLimit     int
+	PrettyFormat string
+	// Optional
+	DotGitPath string
+}
+
+// ParseGitLogFromLastBuild Parses git commits from the last build's VCS revision.
+// Calls git log with a custom format, and parses each line of the output with regexp. logRegExp is used to parse the log lines.
+func ParseGitLogFromLastBuild(serverDetails *utilsconfig.ServerDetails, buildConfiguration *build.BuildConfiguration, gitDetails GitLogDetails, logRegExp *gofrogcmd.CmdOutputPattern) error {
+	vcsUrl, err := validateGitAndGetVcsUrl(&gitDetails)
+	if err != nil {
+		return err
+	}
+
+	// Get latest build's VCS revision from Artifactory.
+	lastVcsRevision, err := getLatestVcsRevision(serverDetails, buildConfiguration, vcsUrl)
+	if err != nil {
+		return err
+	}
+	return ParseGitLogFromLastVcsRevision(gitDetails, logRegExp, lastVcsRevision)
+}
+
+// GetPlainGitLogFromPreviousBuild Returns the git log output for the VCS revision for the previous build in position previousBuildPos.
+// For previousBuildPos 0 the latest build is returned, for an input 1 the latest -1 is returned, etc. previousBuildPos must be 0 or above.
+// Calls git log with a custom format, and returns the output as is.
+// Return RevisionRangeError if revision isn't found (due to git history modification).
+func GetPlainGitLogFromPreviousBuild(serverDetails *utilsconfig.ServerDetails, buildConfiguration *build.BuildConfiguration, gitDetails GitLogDetails) (string, error) {
+	vcsUrl, err := validateGitAndGetVcsUrl(&gitDetails)
+	if err != nil {
+		return "", err
+	}
+
+	lastVcsRevision, err := getVcsFromPreviousBuild(serverDetails, buildConfiguration, vcsUrl)
+	if err != nil {
+		return "", err
+	}
+
+	return getPlainGitLogFromLastVcsRevision(gitDetails, lastVcsRevision)
+}
+
+func GetLastBuildLink(serverDetails *utilsconfig.ServerDetails, buildConfiguration *build.BuildConfiguration) (string, error) {
+	lastPublishedBuildInfo, err := getPreviousBuild(serverDetails, buildConfiguration, 0)
+	if err != nil {
+		return "", err
+	}
+	uri, err := convertToUiLink(lastPublishedBuildInfo)
+	if err != nil {
+		return "", err
+	}
+	return uri, nil
+}
+
+// ParseGitLogFromLastVcsRevision Parses git log line by line, using the parser provided in logRegExp.
+// Git log is parsed from lastVcsRevision to HEAD.
+func ParseGitLogFromLastVcsRevision(gitDetails GitLogDetails, logRegExp *gofrogcmd.CmdOutputPattern, lastVcsRevision string) (err error) {
+	logCmd, cleanupFunc, err := prepareGitLogCommand(gitDetails, lastVcsRevision)
+	defer func() {
+		if cleanupFunc != nil {
+			err = errors.Join(err, cleanupFunc())
+		}
+	}()
+
+	errRegExp, err := createErrRegExpHandler(lastVcsRevision)
+	if err != nil {
+		return err
+	}
+
+	// Run git command.
+	_, _, exitOk, err := gofrogcmd.RunCmdWithOutputParser(logCmd, false, logRegExp, errRegExp)
+	if errorutils.CheckError(err) != nil {
+		var revisionRangeError RevisionRangeError
+		if errors.As(err, &revisionRangeError) {
+			// Revision not found in range. Ignore and return.
+			log.Info(err.Error())
+			return nil
+		}
+		return err
+	}
+	if !exitOk {
+		// May happen when trying to run git log for non-existing revision.
+		err = errorutils.CheckErrorf("failed executing git log command")
+	}
+	return err
+}
+
+// GetDotGit Looks for the .git directory in the current directory and its parents.
+func GetDotGit(providedDotGitPath string) (string, error) {
+	if providedDotGitPath != "" {
+		return providedDotGitPath, nil
+	}
+	dotGitPath, exists, err := fileutils.FindUpstream(".git", fileutils.Any)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return "", errorutils.CheckErrorf("Could not find .git")
+	}
+	return dotGitPath, nil
+}
 
 // Gets the vcs revision from the latest build in Artifactory.
 func getLatestVcsRevision(serverDetails *utilsconfig.ServerDetails, buildConfiguration *build.BuildConfiguration, vcsUrl string) (string, error) {
@@ -36,13 +145,13 @@ func getLatestVcsRevision(serverDetails *utilsconfig.ServerDetails, buildConfigu
 
 // Gets the vcs revision from the build in position "previousBuildPos" in Artifactory. previousBuildPos = 0 is the latest build.
 // previousBuildPos must be 0 or larger.
-func getVcsFromPreviousBuild(serverDetails *utilsconfig.ServerDetails, buildConfiguration *build.BuildConfiguration, vcsUrl string, previousBuildPos int) (string, error) {
-	buildInfo, err := getPreviousBuild(serverDetails, buildConfiguration, previousBuildPos)
+func getVcsFromPreviousBuild(serverDetails *utilsconfig.ServerDetails, buildConfiguration *build.BuildConfiguration, vcsUrl string) (string, error) {
+	buildInfo, err := getPreviousBuildsCommit(serverDetails, buildConfiguration)
 	if err != nil {
 		return "", err
 	}
 
-	return getMatchingRevisionFromBuild(buildInfo, vcsUrl), nil
+	return getMatchingRevisionFromBuild(&buildInfo.BuildInfo, vcsUrl), nil
 }
 
 // Returns the vcs revision that matches th provided vcs url.
@@ -85,7 +194,7 @@ func getLatestBuildInfo(serverDetails *utilsconfig.ServerDetails, buildConfigura
 // Returns the previous build in order provided by previousBuildPos. For previousBuildPos 0 the latest build is returned.
 // If previousBuildPos is not 0 or above, a general error will be returned.
 // If the build does not exist, or there are less previous build runs than requested, an empty build will be returned.
-func getPreviousBuild(serverDetails *utilsconfig.ServerDetails, buildConfiguration *build.BuildConfiguration, previousBuildPos int) (*buildinfo.BuildInfo, error) {
+func getPreviousBuild(serverDetails *utilsconfig.ServerDetails, buildConfiguration *build.BuildConfiguration, previousBuildPos int) (*buildinfo.PublishedBuildInfo, error) {
 	if previousBuildPos < 0 {
 		return nil, errorutils.CheckErrorf("invalid input for previous build position. Input must be a non negative number")
 	}
@@ -109,7 +218,7 @@ func getPreviousBuild(serverDetails *utilsconfig.ServerDetails, buildConfigurati
 	}
 	// Return if build not found, or not enough build runs were returned to match the requested previous position.
 	if !found || len(runs.BuildsNumbers)-1 < previousBuildPos {
-		return &buildinfo.BuildInfo{}, nil
+		return &buildinfo.PublishedBuildInfo{}, nil
 	}
 
 	// Get matching build number. Build numbers are returned sorted, from latest to oldest.
@@ -122,51 +231,100 @@ func getPreviousBuild(serverDetails *utilsconfig.ServerDetails, buildConfigurati
 	}
 	// If build was deleted between requests.
 	if !found {
-		return &buildinfo.BuildInfo{}, nil
+		return &buildinfo.PublishedBuildInfo{}, nil
 	}
 
-	return &publishedBuildInfo.BuildInfo, nil
+	return publishedBuildInfo, nil
 }
 
-type GitLogDetails struct {
-	LogLimit     int
-	PrettyFormat string
-	// Optional
-	DotGitPath string
-}
-
-// Parses git commits from the last build's VCS revision.
-// Calls git log with a custom format, and parses each line of the output with regexp. logRegExp is used to parse the log lines.
-func ParseGitLogFromLastBuild(serverDetails *utilsconfig.ServerDetails, buildConfiguration *build.BuildConfiguration, gitDetails GitLogDetails, logRegExp *gofrogcmd.CmdOutputPattern) error {
-	vcsUrl, err := validateGitAndGetVcsUrl(&gitDetails)
+// Retrieves the build information of the first build that has a different VCS commit hash compared to the latest build.
+// Iterates through previous builds in descending order until it finds a build with a different commit hash.
+// Returns an empty build info struct if no such build is found or if there are no previous builds available.
+func getPreviousBuildsCommit(serverDetails *utilsconfig.ServerDetails, buildConfiguration *build.BuildConfiguration) (*buildinfo.PublishedBuildInfo, error) {
+	// Create services manager to get build-info from Artifactory.
+	sm, err := utils.CreateServiceManager(serverDetails, -1, 0, false)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// Get latest build's VCS revision from Artifactory.
-	lastVcsRevision, err := getLatestVcsRevision(serverDetails, buildConfiguration, vcsUrl)
+	buildName, err := buildConfiguration.GetBuildName()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return ParseGitLogFromLastVcsRevision(gitDetails, logRegExp, lastVcsRevision)
+	projectKey := buildConfiguration.GetProject()
+	buildInfoParams := services.BuildInfoParams{BuildName: buildName, ProjectKey: projectKey}
+
+	runs, found, err := sm.GetBuildRuns(buildInfoParams)
+	if err != nil {
+		return nil, err
+	}
+	// Return if build not found, or not enough build runs were returned to match the requested previous position.
+	if !found || len(runs.BuildsNumbers) == 0 {
+		return &buildinfo.PublishedBuildInfo{}, nil
+	}
+
+	// Take the first log to get the reference for the first builds commit
+	lastBuildInfoParams := services.BuildInfoParams{BuildName: buildName, ProjectKey: projectKey}
+	lastBuildInfoParams.BuildNumber = strings.TrimPrefix(runs.BuildsNumbers[0].Uri, "/")
+	lastPublishedBuildInfo, found, err := sm.GetBuildInfo(lastBuildInfoParams)
+	if err != nil {
+		return nil, err
+	}
+	// If build was deleted between requests.
+	if !found {
+		return &buildinfo.PublishedBuildInfo{}, nil
+	}
+	for _, run := range runs.BuildsNumbers {
+		buildInfoParams.BuildNumber = strings.TrimPrefix(run.Uri, "/")
+
+		publishedBuildInfo, found, err := sm.GetBuildInfo(buildInfoParams)
+		if err != nil {
+			return nil, err
+		}
+		// If build was deleted between requests.
+		if !found {
+			return &buildinfo.PublishedBuildInfo{}, nil
+		}
+		// If the commit hash is different from the last build, return the build info
+		if publishedBuildInfo.BuildInfo.VcsList[0].Revision != lastPublishedBuildInfo.BuildInfo.VcsList[0].Revision {
+			return publishedBuildInfo, nil
+		}
+	}
+	return nil, errors.New("no previous builds commit has found")
 }
 
-// Returns the git log output for the VCS revision for the previous build in position previousBuildPos.
-// For previousBuildPos 0 the latest build is returned, for an input 1 the latest -1 is returned, etc. previousBuildPos must be 0 or above.
-// Calls git log with a custom format, and returns the output as is.
-// Return RevisionRangeError if revision isn't found (due to git history modification).
-func GetPlainGitLogFromPreviousBuild(serverDetails *utilsconfig.ServerDetails, buildConfiguration *build.BuildConfiguration, gitDetails GitLogDetails, previousBuildPos int) (string, error) {
-	vcsUrl, err := validateGitAndGetVcsUrl(&gitDetails)
+func convertToUiLink(info *buildinfo.PublishedBuildInfo) (string, error) {
+	datetime, err := utils2.ParseIsoTimestamp(info.BuildInfo.Started)
 	if err != nil {
 		return "", err
 	}
+	epochMillis := strconv.FormatInt(datetime.UnixNano()/1_000_000, 10)
+	re := regexp.MustCompile(`(https://.+?)/artifactory/api/build/([^/]+)/([^?]+)(\?.+)?`)
+	matches := re.FindStringSubmatch(info.Uri)
 
-	lastVcsRevision, err := getVcsFromPreviousBuild(serverDetails, buildConfiguration, vcsUrl, previousBuildPos)
-	if err != nil {
-		return "", err
+	if len(matches) < 4 {
+		return "", errors.New("invalid API URL format")
 	}
 
-	return getPlainGitLogFromLastVcsRevision(gitDetails, lastVcsRevision)
+	baseUrl := matches[1]
+	buildName := matches[2]
+	buildNumber := matches[3]
+	queryParams := ""
+	if len(matches) == 5 {
+		queryParams = matches[4] // Preserve query parameters if they exist
+	}
+
+	// Construct the UI-friendly URL
+	uiUrl := strings.Join([]string{
+		baseUrl,
+		"ui/builds",
+		buildName,
+		buildNumber,
+		epochMillis,
+		"Evidence" + queryParams,
+	}, "/")
+
+	return uiUrl, nil
 }
 
 // Validates git is in path, and returns the VCS url by searching in the .git directory.
@@ -199,39 +357,6 @@ func prepareGitLogCommand(gitDetails GitLogDetails, lastVcsRevision string) (log
 	}
 	err = errorutils.CheckError(os.Chdir(gitDetails.DotGitPath))
 	return
-}
-
-// Parses git log line by line, using the parser provided in logRegExp.
-// Git log is parsed from lastVcsRevision to HEAD.
-func ParseGitLogFromLastVcsRevision(gitDetails GitLogDetails, logRegExp *gofrogcmd.CmdOutputPattern, lastVcsRevision string) (err error) {
-	logCmd, cleanupFunc, err := prepareGitLogCommand(gitDetails, lastVcsRevision)
-	defer func() {
-		if cleanupFunc != nil {
-			err = errors.Join(err, cleanupFunc())
-		}
-	}()
-
-	errRegExp, err := createErrRegExpHandler(lastVcsRevision)
-	if err != nil {
-		return err
-	}
-
-	// Run git command.
-	_, _, exitOk, err := gofrogcmd.RunCmdWithOutputParser(logCmd, false, logRegExp, errRegExp)
-	if errorutils.CheckError(err) != nil {
-		var revisionRangeError RevisionRangeError
-		if errors.As(err, &revisionRangeError) {
-			// Revision not found in range. Ignore and return.
-			log.Info(err.Error())
-			return nil
-		}
-		return err
-	}
-	if !exitOk {
-		// May happen when trying to run git log for non-existing revision.
-		err = errorutils.CheckErrorf("failed executing git log command")
-	}
-	return err
 }
 
 // Runs git log from lastVcsRevision to HEAD, using the provided format, and returns the output as is.
@@ -276,22 +401,6 @@ func getRevisionRangeError(lastVcsRevision string) error {
 	// Revision could not be found in the revision range, probably due to a squash / revert. Ignore and return.
 	errMsg := "Revision: '" + lastVcsRevision + "' that was fetched from latest build info does not exist in the git revision range."
 	return RevisionRangeError{ErrorMsg: errMsg}
-}
-
-// Looks for the .git directory in the current directory and its parents.
-func GetDotGit(providedDotGitPath string) (string, error) {
-	if providedDotGitPath != "" {
-		return providedDotGitPath, nil
-	}
-	dotGitPath, exists, err := fileutils.FindUpstream(".git", fileutils.Any)
-	if err != nil {
-		return "", err
-	}
-	if !exists {
-		return "", errorutils.CheckErrorf("Could not find .git")
-	}
-	return dotGitPath, nil
-
 }
 
 // Gets vcs url from the .git directory.

@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/create"
+	jfrogArtClient "github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
@@ -11,6 +12,7 @@ import (
 	coreUtils "github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"golang.org/x/exp/slices"
 	"os"
 	"strings"
 )
@@ -34,7 +36,7 @@ func createEvidence(ctx *components.Context) error {
 	if err := validateCreateEvidenceCommonContext(ctx); err != nil {
 		return err
 	}
-	subject, err := getAndValidateSubject(ctx)
+	evidenceType, err := getAndValidateSubject(ctx)
 	if err != nil {
 		return err
 	}
@@ -43,21 +45,25 @@ func createEvidence(ctx *components.Context) error {
 		return err
 	}
 
-	var command EvidenceCommands
-	switch subject {
-	case subjectRepoPath:
-		command = NewEvidenceCustomCommand(ctx, execFunc)
-	case releaseBundle:
-		command = NewEvidenceReleaseBundleCommand(ctx, execFunc)
-	case buildName:
-		command = NewEvidenceBuildCommand(ctx, execFunc)
-	case packageName:
-		command = NewEvidencePackageCommand(ctx, execFunc)
-	default:
-		return errors.New("unsupported subject")
+	// Check for GitHub evidence type explicitly
+	if slices.Contains(evidenceType, typeFlag) || (slices.Contains(evidenceType, buildName) && slices.Contains(evidenceType, typeFlag)) {
+		return NewEvidenceGitHubCommand(ctx, execFunc).CreateEvidence(ctx, serverDetails)
 	}
 
-	return command.CreateEvidence(ctx, serverDetails)
+	// Map evidence types to their corresponding command functions
+	evidenceCommands := map[string]func(*components.Context, execCommandFunc) EvidenceCommands{
+		subjectRepoPath: NewEvidenceCustomCommand,
+		releaseBundle:   NewEvidenceReleaseBundleCommand,
+		buildName:       NewEvidenceBuildCommand,
+		packageName:     NewEvidencePackageCommand,
+	}
+
+	// Fetch command from map; return an error if not found
+	if commandFunc, exists := evidenceCommands[evidenceType[0]]; exists {
+		return commandFunc(ctx, execFunc).CreateEvidence(ctx, serverDetails)
+	}
+
+	return errors.New("unsupported subject")
 }
 
 func validateCreateEvidenceCommonContext(ctx *components.Context) error {
@@ -69,11 +75,11 @@ func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 		return pluginsCommon.WrongNumberOfArgumentsHandler(ctx)
 	}
 
-	if !ctx.IsFlagSet(predicate) || assertValueProvided(ctx, predicate) != nil {
+	if (!ctx.IsFlagSet(predicate) || assertValueProvided(ctx, predicate) != nil) && !ctx.IsFlagSet(typeFlag) {
 		return errorutils.CheckErrorf("'predicate' is a mandatory field for creating evidence: --%s", predicate)
 	}
 
-	if !ctx.IsFlagSet(predicateType) || assertValueProvided(ctx, predicateType) != nil {
+	if (!ctx.IsFlagSet(predicateType) || assertValueProvided(ctx, predicateType) != nil) && !ctx.IsFlagSet(typeFlag) {
 		return errorutils.CheckErrorf("'predicate-type' is a mandatory field for creating evidence: --%s", predicateType)
 	}
 
@@ -84,7 +90,6 @@ func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 	if !ctx.IsFlagSet(keyAlias) {
 		setKeyAliasIfProvided(ctx, keyAlias)
 	}
-
 	return nil
 }
 
@@ -93,7 +98,7 @@ func ensureKeyExists(ctx *components.Context, key string) error {
 		return nil
 	}
 
-	signingKeyValue, _ := getEnvVariable(coreUtils.SigningKey)
+	signingKeyValue, _ := jfrogArtClient.GetEnvVariable(coreUtils.SigningKey)
 	if signingKeyValue == "" {
 		return errorutils.CheckErrorf("JFROG_CLI_SIGNING_KEY env variable or --%s flag must be provided when creating evidence", key)
 	}
@@ -102,13 +107,13 @@ func ensureKeyExists(ctx *components.Context, key string) error {
 }
 
 func setKeyAliasIfProvided(ctx *components.Context, keyAlias string) {
-	evdKeyAliasValue, _ := getEnvVariable(coreUtils.KeyAlias)
+	evdKeyAliasValue, _ := jfrogArtClient.GetEnvVariable(coreUtils.KeyAlias)
 	if evdKeyAliasValue != "" {
 		ctx.AddStringFlag(keyAlias, evdKeyAliasValue)
 	}
 }
 
-func getAndValidateSubject(ctx *components.Context) (string, error) {
+func getAndValidateSubject(ctx *components.Context) ([]string, error) {
 	var foundSubjects []string
 	for _, key := range subjectTypes {
 		if ctx.GetStringFlagValue(key) != "" {
@@ -119,16 +124,16 @@ func getAndValidateSubject(ctx *components.Context) (string, error) {
 	if len(foundSubjects) == 0 {
 		// If we have no subject - we will try to create EVD on build
 		if !attemptSetBuildNameAndNumber(ctx) {
-			return "", errorutils.CheckErrorf("subject must be one of the fields: [%s]", strings.Join(subjectTypes, ", "))
+			return nil, errorutils.CheckErrorf("subject must be one of the fields: [%s]", strings.Join(subjectTypes, ", "))
 		}
 		foundSubjects = append(foundSubjects, buildName)
 	}
 
-	if err := validateFoundSubjects(foundSubjects); err != nil {
-		return "", err
+	if err := validateFoundSubjects(ctx, foundSubjects); err != nil {
+		return nil, err
 	}
 
-	return foundSubjects[0], nil
+	return foundSubjects, nil
 }
 
 func attemptSetBuildNameAndNumber(ctx *components.Context) bool {
@@ -151,7 +156,15 @@ func setBuildValue(ctx *components.Context, flag, envVar string) bool {
 	return false
 }
 
-func validateFoundSubjects(foundSubjects []string) error {
+func validateFoundSubjects(ctx *components.Context, foundSubjects []string) error {
+	if slices.Contains(foundSubjects, typeFlag) && slices.Contains(foundSubjects, buildName) {
+		return nil
+	}
+
+	if slices.Contains(foundSubjects, typeFlag) && attemptSetBuildNameAndNumber(ctx) {
+		return nil
+	}
+
 	if len(foundSubjects) > 1 {
 		return errorutils.CheckErrorf("multiple subjects found: [%s]", strings.Join(foundSubjects, ", "))
 	}
