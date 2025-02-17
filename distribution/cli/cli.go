@@ -2,6 +2,8 @@ package cli
 
 import (
 	"errors"
+	"github.com/jfrog/jfrog-cli-artifactory/cliutils/cmddefs"
+	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	distributionCommands "github.com/jfrog/jfrog-cli-artifactory/distribution/commands"
 	"github.com/jfrog/jfrog-cli-artifactory/distribution/docs/releasebundlecreate"
 	"github.com/jfrog/jfrog-cli-artifactory/distribution/docs/releasebundledelete"
@@ -29,7 +31,7 @@ func GetCommands() []components.Command {
 	return []components.Command{
 		{
 			Name:        "release-bundle-create",
-			Flags:       GetCommandFlags(ReleaseBundleV1Create),
+			Flags:       flagkit.GetCommandFlags(cmddefs.ReleaseBundleV1Create),
 			Aliases:     []string{"rbc"},
 			Description: releasebundlecreate.GetDescription(),
 			Arguments:   releasebundlecreate.GetArguments(),
@@ -38,7 +40,7 @@ func GetCommands() []components.Command {
 		},
 		{
 			Name:        "release-bundle-update",
-			Flags:       GetCommandFlags(ReleaseBundleV1Update),
+			Flags:       flagkit.GetCommandFlags(cmddefs.ReleaseBundleV1Update),
 			Aliases:     []string{"rbu"},
 			Description: releasebundleupdate.GetDescription(),
 			Arguments:   releasebundleupdate.GetArguments(),
@@ -47,7 +49,7 @@ func GetCommands() []components.Command {
 		},
 		{
 			Name:        "release-bundle-sign",
-			Flags:       GetCommandFlags(ReleaseBundleV1Sign),
+			Flags:       flagkit.GetCommandFlags(cmddefs.ReleaseBundleV1Sign),
 			Aliases:     []string{"rbs"},
 			Description: releasebundlesign.GetDescription(),
 			Arguments:   releasebundlesign.GetArguments(),
@@ -56,7 +58,7 @@ func GetCommands() []components.Command {
 		},
 		{
 			Name:        "release-bundle-distribute",
-			Flags:       GetCommandFlags(ReleaseBundleV1Distribute),
+			Flags:       flagkit.GetCommandFlags(cmddefs.ReleaseBundleV1Distribute),
 			Aliases:     []string{"rbd"},
 			Description: releasebundledistribute.GetDescription(),
 			Arguments:   releasebundledistribute.GetArguments(),
@@ -65,7 +67,7 @@ func GetCommands() []components.Command {
 		},
 		{
 			Name:        "release-bundle-delete",
-			Flags:       GetCommandFlags(ReleaseBundleV1Delete),
+			Flags:       flagkit.GetCommandFlags(cmddefs.ReleaseBundleV1Delete),
 			Aliases:     []string{"rbdel"},
 			Description: releasebundledelete.GetDescription(),
 			Arguments:   releasebundledelete.GetArguments(),
