@@ -167,17 +167,14 @@ func create(c *components.Context) (err error) {
 	if err = validateCreateReleaseBundleContext(c); err != nil {
 		return err
 	}
-
 	creationSpec, err := getReleaseBundleCreationSpec(c)
 	if err != nil {
 		return
 	}
-
 	lcDetails, err := createLifecycleDetailsByFlags(c)
 	if err != nil {
 		return
 	}
-
 	createCmd := lifecycle.NewReleaseBundleCreateCommand().SetServerDetails(lcDetails).SetReleaseBundleName(c.Arguments[0]).
 		SetReleaseBundleVersion(c.Arguments[1]).SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey)).SetSync(c.GetBoolFlagValue(flagkit.Sync)).
 		SetReleaseBundleProject(pluginsCommon.GetProject(c)).SetSpec(creationSpec).

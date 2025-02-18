@@ -141,6 +141,9 @@ func CreateContext(t *testing.T, testStringFlags, testArgs []string, testBoolFla
 			t.Error("Invalid string flag format. Expected format: flag=value")
 		}
 		ctx.AddStringFlag(stringFlagPair[0], stringFlagPair[1])
+		ctx.PrintCommandHelp = func(commandName string) error {
+			return nil
+		}
 	}
 	for k, v := range testBoolFlags {
 		ctx.AddBoolFlag(k, v)
