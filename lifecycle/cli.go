@@ -179,7 +179,7 @@ func create(c *components.Context) (err error) {
 	}
 
 	createCmd := lifecycle.NewReleaseBundleCreateCommand().SetServerDetails(lcDetails).SetReleaseBundleName(c.Arguments[0]).
-		SetReleaseBundleVersion(c.Arguments[0]).SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey)).SetSync(c.GetBoolFlagValue(flagkit.Sync)).
+		SetReleaseBundleVersion(c.Arguments[1]).SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey)).SetSync(c.GetBoolFlagValue(flagkit.Sync)).
 		SetReleaseBundleProject(pluginsCommon.GetProject(c)).SetSpec(creationSpec).
 		SetBuildsSpecPath(c.GetStringFlagValue(flagkit.Builds)).SetReleaseBundlesSpecPath(c.GetStringFlagValue(flagkit.ReleaseBundles))
 	return commands.Exec(createCmd)
