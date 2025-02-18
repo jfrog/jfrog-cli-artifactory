@@ -25,7 +25,6 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	artClientUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/lifecycle/services"
-	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"os"
 	"strings"
@@ -400,14 +399,8 @@ func createLifecycleDetailsByFlags(c *components.Context) (*coreConfig.ServerDet
 	if lcDetails.Url == "" {
 		return nil, errors.New("platform URL is mandatory for lifecycle commands")
 	}
-	PlatformToLifecycleUrls(lcDetails)
+	cliutils.PlatformToLifecycleUrls(lcDetails)
 	return lcDetails, nil
-}
-
-func PlatformToLifecycleUrls(lcDetails *coreConfig.ServerDetails) {
-	lcDetails.ArtifactoryUrl = utils.AddTrailingSlashIfNeeded(lcDetails.Url) + "artifactory/"
-	lcDetails.LifecycleUrl = utils.AddTrailingSlashIfNeeded(lcDetails.Url) + "lifecycle/"
-	lcDetails.Url = ""
 }
 
 func splitRepos(c *components.Context, reposOptionKey string) []string {

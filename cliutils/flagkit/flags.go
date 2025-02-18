@@ -4,10 +4,13 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/cmddefs"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
+	"strconv"
 )
 
 const (
-	distUrl = "dist-url"
+	distUrl            = "dist-url"
+	DownloadMinSplitKb = 5120
+	DownloadSplitCount = 3
 
 	// Unique release-bundle-* v1 flags
 	releaseBundleV1Prefix = "rbv1-"
@@ -31,10 +34,13 @@ const (
 	maxWaitMinutes = "max-wait-minutes"
 	CreateRepo     = "create-repo"
 
+	// Base flags
+	platformUrl = "platform-url"
 	user        = "user"
 	password    = "password"
 	accessToken = "access-token"
 	serverId    = "server-id"
+	url         = "url"
 
 	// Client certification flags
 	InsecureTls = "insecure-tls"
@@ -55,7 +61,6 @@ const (
 	target          = "target"
 	name            = "name"
 	passphrase      = "passphrase"
-	url             = "url"
 	Project         = "project"
 	IncludeRepos    = "include-repos"
 	ExcludeRepos    = "exclude-repos"
@@ -83,6 +88,15 @@ const (
 	// Build Info flags
 	BuildName   = "build-name"
 	BuildNumber = "build-number"
+
+	// Unique Download Flags
+	downloadPrefix     = "download-"
+	downloadMinSplit   = downloadPrefix + MinSplit
+	downloadSplitCount = downloadPrefix + SplitCount
+
+	// Generic Command Flags
+	MinSplit   = "min-split"
+	SplitCount = "split-count"
 )
 
 var commandFlags = map[string][]string{
@@ -105,6 +119,31 @@ var commandFlags = map[string][]string{
 	cmddefs.ReleaseBundleV1Delete: {
 		distUrl, user, password, accessToken, serverId, rbDryRun, DistRules,
 		site, city, countryCodes, sync, maxWaitMinutes, InsecureTls, deleteFromDist, deleteQuiet,
+	},
+	cmddefs.ReleaseBundleCreate: {
+		platformUrl, user, password, accessToken, serverId, lcSigningKey, lcSync, lcProject, lcBuilds, lcReleaseBundles,
+		specFlag, specVars, BuildName, BuildNumber,
+	},
+	cmddefs.ReleaseBundlePromote: {
+		platformUrl, user, password, accessToken, serverId, lcSigningKey, lcSync, lcProject, lcIncludeRepos, lcExcludeRepos,
+	},
+	cmddefs.ReleaseBundleDistribute: {
+		platformUrl, user, password, accessToken, serverId, lcProject, DistRules, site, city, countryCodes,
+		lcDryRun, CreateRepo, lcPathMappingPattern, lcPathMappingTarget, lcSync, maxWaitMinutes,
+	},
+	cmddefs.ReleaseBundleDeleteLocal: {
+		platformUrl, user, password, accessToken, serverId, deleteQuiet, lcSync, lcProject,
+	},
+	cmddefs.ReleaseBundleDeleteRemote: {
+		platformUrl, user, password, accessToken, serverId, deleteQuiet, lcDryRun, DistRules, site, city, countryCodes,
+		lcSync, maxWaitMinutes, lcProject,
+	},
+	cmddefs.ReleaseBundleExport: {
+		platformUrl, user, password, accessToken, serverId, lcPathMappingTarget, lcPathMappingPattern, Project,
+		downloadMinSplit, downloadSplitCount,
+	},
+	cmddefs.ReleaseBundleImport: {
+		user, password, accessToken, serverId, platformUrl,
 	},
 }
 
@@ -148,7 +187,13 @@ var flagsMap = map[string]components.Flag{
 	lcDryRun: components.NewBoolFlag(dryRun, "Set to true to only simulate the distribution of the release bundle.", components.WithBoolDefaultValueFalse()),
 	lcIncludeRepos: components.NewStringFlag(IncludeRepos, "List of semicolon-separated(;) repositories to include in the promotion. If this property is left undefined, all repositories (except those specifically excluded) are included in the promotion. "+
 		"If one or more repositories are specifically included, all other repositories are excluded.` `", components.SetMandatoryFalse()),
-	lcExcludeRepos: components.NewStringFlag(ExcludeRepos, "List of semicolon-separated(;) repositories to exclude from the promotion.` `", components.SetMandatoryFalse()),
+	lcExcludeRepos:     components.NewStringFlag(ExcludeRepos, "List of semicolon-separated(;) repositories to exclude from the promotion.` `", components.SetMandatoryFalse()),
+	platformUrl:        components.NewStringFlag(url, "JFrog platform URL. (example: https://acme.jfrog.io)` `", components.SetMandatoryFalse()),
+	downloadMinSplit:   components.NewStringFlag(MinSplit, "[Default: "+strconv.Itoa(DownloadMinSplitKb)+"] Minimum file size in KB to split into ranges when downloading. Set to -1 for no splits.` `"),
+	downloadSplitCount: components.NewStringFlag(SplitCount, "[Default: "+strconv.Itoa(DownloadSplitCount)+"] Number of parts to split a file when downloading. Set to 0 for no splits.` `"),
+	Project:            components.NewStringFlag(Project, "JFrog Artifactory project key.` `", components.SetMandatoryFalse()),
+	BuildName:          components.NewStringFlag(BuildName, "Providing this option will collect and record build info for this build name. Build number option is mandatory when this option is provided.` `", components.SetMandatoryFalse()),
+	BuildNumber:        components.NewStringFlag(BuildNumber, "Providing this option will collect and record build info for this build number. Build name option is mandatory when this option is provided.` `", components.SetMandatoryFalse()),
 }
 
 func GetCommandFlags(cmdKey string) []components.Flag {
