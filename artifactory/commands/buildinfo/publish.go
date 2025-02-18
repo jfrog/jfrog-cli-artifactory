@@ -136,7 +136,7 @@ func (bpc *BuildPublishCommand) Run() error {
 			return err
 		}
 		if found {
-			buildNumbersFrequency := calculateBuildNumberFrequency(buildRuns)
+			buildNumbersFrequency := CalculateBuildNumberFrequency(buildRuns)
 			err = servicesManager.DeleteBuildInfo(buildInfo, project, buildNumbersFrequency[buildNumber])
 			if err != nil {
 				return err
@@ -180,9 +180,9 @@ func (bpc *BuildPublishCommand) Run() error {
 	return logJsonOutput(buildLink)
 }
 
-// calculateBuildNumberFrequency since the build number is not unique, we need to calculate the frequency of each build number
+// CalculateBuildNumberFrequency since the build number is not unique, we need to calculate the frequency of each build number
 // in order to delete the correct number of builds and then publish the new build.
-func calculateBuildNumberFrequency(runs *buildinfo.BuildRuns) map[string]int {
+func CalculateBuildNumberFrequency(runs *buildinfo.BuildRuns) map[string]int {
 	frequency := make(map[string]int)
 	for _, run := range runs.BuildsNumbers {
 		buildNumber := strings.TrimPrefix(run.Uri, "/")
