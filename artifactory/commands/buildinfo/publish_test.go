@@ -98,7 +98,7 @@ func TestCalculateBuildNumberFrequency(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := calculateBuildNumberFrequency(tt.runs)
+			result := CalculateBuildNumberFrequency(tt.runs)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
