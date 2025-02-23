@@ -14,7 +14,11 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
+	"github.com/jfrog/jfrog-client-go/http/httpclient"
+	rtutils "github.com/jfrog/jfrog-client-go/utils"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -26,19 +30,24 @@ const (
 	FlagTypeCommitterReviewer FlagType = "gh-commiter"
 	FlagTypeOther             FlagType = "other"
 )
+const releaseBundleInternalApi = "api/v2/release_bundle/internal/graph/"
+const releaseBundleApi = "api/v2/release_bundle/records/"
 
-const ghDefaultPredicateType = "https://jfrog.com/evidence/gh-commiter/v1"
+const ghDefaultPredicateType = "https://jfrog.com/evidence/git-committer-reviewer/v1"
 
 const gitFormat = `format:'{"commit":"%H","abbreviated_commit":"%h","tree":"%T","abbreviated_tree":"%t","parent":"%P","abbreviated_parent":"%p","subject":"%s","sanitized_subject_line":"%f","author":{"name":"%aN","email":"%aE","date":"%aD"},"commiter":{"name":"%cN","email":"%cE","date":"%cD"}}'`
 
 type createGitHubEvidence struct {
 	createEvidenceBase
-	project     string
-	buildName   string
-	buildNumber string
+	project              string
+	buildName            string
+	buildNumber          string
+	releaseBundle        string
+	releaseBundleVersion string
 }
 
-func NewCreateGithub(serverDetails *coreConfig.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, project, buildName, buildNumber, typeFlag string) Command {
+func NewCreateGithub(serverDetails *coreConfig.ServerDetails,
+	predicateFilePath, predicateType, markdownFilePath, key, keyId, project, buildName, buildNumber, typeFlag, rbName, rbVersion string) Command {
 	flagType := getFlagType(typeFlag)
 	return &createGitHubEvidence{
 		createEvidenceBase: createEvidenceBase{
@@ -50,20 +59,23 @@ func NewCreateGithub(serverDetails *coreConfig.ServerDetails, predicateFilePath,
 			keyId:             keyId,
 			flagType:          flagType,
 		},
-		project:     project,
-		buildName:   buildName,
-		buildNumber: buildNumber,
+		project:              project,
+		buildName:            buildName,
+		buildNumber:          buildNumber,
+		releaseBundle:        rbName,
+		releaseBundleVersion: rbVersion,
 	}
 }
 
 func getFlagType(typeFlag string) FlagType {
-	var flagType FlagType
-	if typeFlag == "gh-commiter" {
-		flagType = FlagTypeCommitterReviewer
-	} else {
-		flagType = FlagTypeOther
+	flagTypes := map[string]FlagType{
+		"gh-commiter": FlagTypeCommitterReviewer,
 	}
-	return flagType
+
+	if flag, exists := flagTypes[typeFlag]; exists {
+		return flag
+	}
+	return FlagTypeOther
 }
 
 func (c *createGitHubEvidence) CommandName() string {
@@ -78,6 +90,17 @@ func (c *createGitHubEvidence) Run() error {
 	if !isRunningUnderGitHubAction() {
 		return errors.New("this command is intended to be run under GitHub Actions")
 	}
+	if c.buildName == "" && c.releaseBundle == "" {
+		return errors.New("build name or release bundle name is required")
+	}
+
+	if c.releaseBundle != "" {
+		err := c.getBuildFromReleaseBundle()
+		if err != nil {
+			return err
+		}
+	}
+
 	evidencePredicate, err := c.committerReviewerEvidence()
 	if err != nil {
 		return err
@@ -88,9 +111,18 @@ func (c *createGitHubEvidence) Run() error {
 		log.Error("failed to create Artifactory client", err)
 		return err
 	}
-	subject, sha256, err := c.buildBuildInfoSubjectPath(artifactoryClient)
-	if err != nil {
-		return err
+
+	var subject, sha256 string
+	if c.releaseBundle != "" && c.releaseBundleVersion != "" {
+		subject, sha256, err = c.buildReleaseBundleSubjectPath(artifactoryClient)
+		if err != nil {
+			return err
+		}
+	} else {
+		subject, sha256, err = c.buildBuildInfoSubjectPath(artifactoryClient)
+		if err != nil {
+			return err
+		}
 	}
 	envelope, err := c.createEnvelopeWithPredicateAndPredicateType(subject,
 		sha256, ghDefaultPredicateType, evidencePredicate)
@@ -123,6 +155,18 @@ func (c *createGitHubEvidence) buildBuildInfoSubjectPath(artifactoryClient artif
 		return "", "", err
 	}
 	return buildInfoPath, buildInfoChecksum, nil
+}
+
+func (c *createGitHubEvidence) buildReleaseBundleSubjectPath(artifactoryClient artifactory.ArtifactoryServicesManager) (string, string, error) {
+	repoKey := buildRepoKey(c.project)
+	manifestPath := buildManifestPath(repoKey, c.releaseBundle, c.releaseBundleVersion)
+
+	manifestChecksum, err := c.getFileChecksum(manifestPath, artifactoryClient)
+	if err != nil {
+		return "", "", err
+	}
+
+	return manifestPath, manifestChecksum, nil
 }
 
 func isRunningUnderGitHubAction() bool {
@@ -177,7 +221,7 @@ func marshalEvidenceToGitLogEntryView(evidence []byte) (*model.GitLogEntryView, 
 
 func (c *createGitHubEvidence) committerReviewerEvidence() ([]byte, error) {
 	if c.createEvidenceBase.flagType != FlagTypeCommitterReviewer {
-		return nil, errors.New("flag type must be gh-commiter")
+		return nil, errors.New("flag type is not supported")
 	}
 
 	createBuildConfiguration := c.createBuildConfiguration()
@@ -195,8 +239,108 @@ func (c *createGitHubEvidence) createBuildConfiguration() *build.BuildConfigurat
 	return buildConfiguration
 }
 
+func (c *createGitHubEvidence) getBuildFromReleaseBundle() error {
+	releaseBundleResponse, err := c.getPreviousReleaseBundle()
+	if err != nil {
+		return err
+	}
+	if len(releaseBundleResponse.ReleaseBundles) == 0 {
+		return errors.New("no release bundles found")
+	}
+	if len(releaseBundleResponse.ReleaseBundles) > 1 {
+		// Get the previous release bundle
+		c.releaseBundleVersion = releaseBundleResponse.ReleaseBundles[1].ReleaseBundleVersion
+	} else {
+		c.releaseBundleVersion = releaseBundleResponse.ReleaseBundles[0].ReleaseBundleVersion
+	}
+
+	rbv2Graph, err := c.getReleaseBundleGraph()
+	if err != nil {
+		return err
+	}
+	for _, node := range rbv2Graph.Root.Nodes {
+		if node.Type == "buildinfo" {
+			c.buildName = node.Name
+			c.buildNumber = node.Version
+			break
+		}
+	}
+	// Get the current release bundle to put the evidence on
+	c.releaseBundleVersion = releaseBundleResponse.ReleaseBundles[0].ReleaseBundleVersion
+	return nil
+}
+
+func (c *createGitHubEvidence) getReleaseBundleGraph() (*model.GraphResponse, error) {
+	authConfig, err := c.serverDetails.CreateArtAuthConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	artifactoryApiUrl, err := rtutils.BuildUrl(c.serverDetails.GetLifecycleUrl(), releaseBundleInternalApi+c.releaseBundle+"/"+c.releaseBundleVersion, make(map[string]string))
+	if err != nil {
+		return nil, err
+	}
+
+	artHttpDetails := authConfig.CreateHttpClientDetails()
+	client, err := httpclient.ClientBuilder().Build()
+	if err != nil {
+		return nil, err
+	}
+	resp, body, _, err := client.SendGet(artifactoryApiUrl, true, artHttpDetails, "")
+	if err != nil {
+		return nil, err
+	}
+	if err = errorutils.CheckResponseStatusWithBody(resp, body, http.StatusOK); err != nil {
+		return nil, err
+	}
+	graphResponse := &model.GraphResponse{}
+	if err = json.Unmarshal(body, &graphResponse); err != nil {
+		return nil, errorutils.CheckError(err)
+	}
+	return graphResponse, nil
+}
+
+func (c *createGitHubEvidence) getPreviousReleaseBundle() (*model.ReleaseBundlesResponse, error) {
+	authConfig, err := c.serverDetails.CreateArtAuthConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	queryParams := map[string]string{
+		"project": c.project,
+	}
+	artifactoryApiUrl, err := rtutils.BuildUrl(c.serverDetails.GetLifecycleUrl(), releaseBundleApi+c.releaseBundle, queryParams)
+	if err != nil {
+		return nil, err
+	}
+
+	artHttpDetails := authConfig.CreateHttpClientDetails()
+	client, err := httpclient.ClientBuilder().Build()
+	if err != nil {
+		return nil, err
+	}
+	resp, body, _, err := client.SendGet(artifactoryApiUrl, true, artHttpDetails, "")
+	if err != nil {
+		return nil, err
+	}
+	if err = errorutils.CheckResponseStatusWithBody(resp, body, http.StatusOK); err != nil {
+		return nil, err
+	}
+
+	response := &model.ReleaseBundlesResponse{}
+	if err := json.Unmarshal(body, response); err != nil {
+		return nil, errorutils.CheckError(err)
+	}
+	return response, nil
+}
+
+type PackageVersionResponseContent struct {
+	Version string `json:"Version,omitempty"`
+}
+
 func getGitCommitInfo(serverDetails *coreConfig.ServerDetails, createBuildConfiguration *build.BuildConfiguration, gitDetails artifactoryUtils.GitLogDetails) ([]byte, error) {
 	owner, repository, err := gitHubRepositoryDetails()
+	log.Info(fmt.Sprintf("owner: %s repository: %s", owner, repository))
 	if err != nil {
 		return nil, err
 	}

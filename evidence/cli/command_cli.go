@@ -161,6 +161,10 @@ func validateFoundSubjects(ctx *components.Context, foundSubjects []string) erro
 		return nil
 	}
 
+	if slices.Contains(foundSubjects, typeFlag) && slices.Contains(foundSubjects, releaseBundle) {
+		return nil
+	}
+
 	if slices.Contains(foundSubjects, typeFlag) && attemptSetBuildNameAndNumber(ctx) {
 		return nil
 	}
@@ -192,6 +196,7 @@ func platformToEvidenceUrls(rtDetails *coreConfig.ServerDetails) {
 	rtDetails.ArtifactoryUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "artifactory/"
 	rtDetails.EvidenceUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "evidence/"
 	rtDetails.MetadataUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "metadata/"
+	rtDetails.LifecycleUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "lifecycle/"
 }
 
 func assertValueProvided(c *components.Context, fieldName string) error {

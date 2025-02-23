@@ -2,6 +2,7 @@ package utils
 
 import (
 	"errors"
+	"fmt"
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	gofrogcmd "github.com/jfrog/gofrog/io"
 	utils2 "github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
@@ -163,6 +164,7 @@ func getMatchingRevisionFromBuild(buildInfo *buildinfo.BuildInfo, vcsUrl string)
 			break
 		}
 	}
+	log.Info(fmt.Sprintf("base commit: %s for build name: %s and build number: %s", lastVcsRevision, buildInfo.Name, buildInfo.Number))
 	return lastVcsRevision
 }
 

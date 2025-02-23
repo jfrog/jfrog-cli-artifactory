@@ -2,13 +2,11 @@ module github.com/jfrog/jfrog-cli-artifactory
 
 go 1.23.4
 
-toolchain go1.23.5
-
 require (
 	github.com/c-bata/go-prompt v0.2.5
 	github.com/forPelevin/gomoji v1.2.0
 	github.com/jfrog/build-info-go v1.10.9
-	github.com/jfrog/froggit-go v1.16.2
+	github.com/jfrog/froggit-go v0.0.0-00010101000000-000000000000
 	github.com/jfrog/gofrog v1.7.6
 	github.com/jfrog/jfrog-cli-core/v2 v2.58.0
 	github.com/jfrog/jfrog-client-go v1.50.0
@@ -119,7 +117,6 @@ require (
 	golang.org/x/term v0.29.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
 	golang.org/x/time v0.7.0 // indirect
-	golang.org/x/tools v0.29.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
@@ -135,11 +132,14 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
-//replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.31.1-0.20250130104846-27e495de291e
-replace github.com/jfrog/jfrog-cli-core/v2 => github.com/EyalDelarea/jfrog-cli-core/v2 v2.0.0-20250206084646-819832cab1e1
-
 //replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.31.1-0.20250212021126-e5223ab616af
+replace github.com/jfrog/jfrog-cli-core/v2 => github.com/EyalDelarea/jfrog-cli-core/v2 v2.0.0-20250212163056-052cba06bfea
+
+// replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20250126110945-81abbdde452f
+
+//replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.31.1-0.20240811150357-12a9330a2d67
+//replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20240811142930-ab9715567376
 
 replace github.com/jfrog/froggit-go => github.com/EyalDelarea/froggit-go v1.6.1-0.20250204105801-761f8d527d7f
 
-replace github.com/jfrog/build-info-go => github.com/jfrog/build-info-go v1.8.9-0.20250203111011-4ff16d3d42be
+replace github.com/jfrog/jfrog-client-go => github.com/lesnerd/jfrog-client-go v0.0.0-20250216170623-d841f33debec

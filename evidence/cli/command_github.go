@@ -35,13 +35,23 @@ func (ebc *evidenceGitHubCommand) CreateEvidence(ctx *components.Context, server
 		ebc.ctx.GetStringFlagValue(project),
 		ebc.ctx.GetStringFlagValue(buildName),
 		ebc.ctx.GetStringFlagValue(buildNumber),
-		ebc.ctx.GetStringFlagValue(typeFlag))
+		ebc.ctx.GetStringFlagValue(typeFlag),
+		ebc.ctx.GetStringFlagValue(releaseBundle),
+		ebc.ctx.GetStringFlagValue(releaseBundleVersion))
 	return ebc.execute(createCmd)
 }
 
 func (ebc *evidenceGitHubCommand) validateEvidenceBuildContext(ctx *components.Context) error {
-	if !ctx.IsFlagSet(buildNumber) || assertValueProvided(ctx, buildNumber) != nil {
-		return errorutils.CheckErrorf("--%s is a mandatory field for creating a Release Bundle evidence", buildNumber)
+	if !ctx.IsFlagSet(typeFlag) {
+		return errorutils.CheckErrorf("--%s is a mandatory field for creating a GitHub evidence", typeFlag)
 	}
-	return nil
+	if ctx.IsFlagSet(buildName) && assertValueProvided(ctx, buildName) == nil {
+		return nil
+	}
+	if ctx.IsFlagSet(releaseBundle) && assertValueProvided(ctx, releaseBundle) == nil &&
+		ctx.IsFlagSet(releaseBundleVersion) && assertValueProvided(ctx, releaseBundleVersion) == nil {
+		return nil
+	}
+	return errorutils.CheckErrorf("Either --build-name or --release-bundle and --release-bundle-version " +
+		"are mandatory fields for creating a GitHub evidence")
 }
