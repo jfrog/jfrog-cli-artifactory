@@ -15,7 +15,6 @@ import (
 	evidenceService "github.com/jfrog/jfrog-client-go/evidence/services"
 	clientlog "github.com/jfrog/jfrog-client-go/utils/log"
 	"os"
-	"strings"
 )
 
 type createEvidenceBase struct {
@@ -77,7 +76,7 @@ func (c *createEvidenceBase) uploadEvidence(envelope []byte, repoPath string) er
 	}
 
 	evidenceDetails := evidenceService.EvidenceDetails{
-		SubjectUri:  strings.Split(repoPath, "@")[0],
+		SubjectUri:  repoPath,
 		DSSEFileRaw: envelope,
 	}
 	body, err := evidenceManager.UploadEvidence(evidenceDetails)
