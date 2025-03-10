@@ -29,6 +29,7 @@ func (ebc *evidenceBuildCommand) CreateEvidence(ctx *components.Context, serverD
 		serverDetails,
 		ebc.ctx.GetStringFlagValue(predicate),
 		ebc.ctx.GetStringFlagValue(predicateType),
+		ebc.ctx.GetStringFlagValue(markdown),
 		ebc.ctx.GetStringFlagValue(key),
 		ebc.ctx.GetStringFlagValue(keyAlias),
 		ebc.ctx.GetStringFlagValue(project),

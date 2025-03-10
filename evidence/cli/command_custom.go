@@ -22,6 +22,7 @@ func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDe
 		serverDetails,
 		ecc.ctx.GetStringFlagValue(predicate),
 		ecc.ctx.GetStringFlagValue(predicateType),
+		ecc.ctx.GetStringFlagValue(markdown),
 		ecc.ctx.GetStringFlagValue(key),
 		ecc.ctx.GetStringFlagValue(keyAlias),
 		ecc.ctx.GetStringFlagValue(subjectRepoPath),

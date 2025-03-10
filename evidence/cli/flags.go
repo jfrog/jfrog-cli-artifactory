@@ -30,6 +30,7 @@ const (
 	// Unique evidence flags
 	predicate       = "predicate"
 	predicateType   = "predicate-type"
+	markdown        = "markdown"
 	subjectRepoPath = "subject-repo-path"
 	subjectSha256   = "subject-sha256"
 	key             = "key"
@@ -55,9 +56,10 @@ var flagsMap = map[string]components.Flag{
 
 	predicate:       components.NewStringFlag(predicate, "Path to the predicate, arbitrary JSON.", func(f *components.StringFlag) { f.Mandatory = true }),
 	predicateType:   components.NewStringFlag(predicateType, "Type of the predicate.", func(f *components.StringFlag) { f.Mandatory = true }),
+	markdown:        components.NewStringFlag(markdown, "Markdown of the predicate.", func(f *components.StringFlag) { f.Mandatory = false }),
 	subjectRepoPath: components.NewStringFlag(subjectRepoPath, "Full path to some subject' location.", func(f *components.StringFlag) { f.Mandatory = false }),
 	subjectSha256:   components.NewStringFlag(subjectSha256, "Subject checksum sha256.", func(f *components.StringFlag) { f.Mandatory = false }),
-	key:             components.NewStringFlag(key, "Path to a private key that will sign the DSSE. Supported keys: 'ecdsa','rsa' and 'ed25519'.", func(f *components.StringFlag) { f.Mandatory = true }),
+	key:             components.NewStringFlag(key, "Path to a private key that will sign the DSSE. Supported keys: 'ecdsa','rsa' and 'ed25519'.", func(f *components.StringFlag) { f.Mandatory = false }),
 	keyAlias:        components.NewStringFlag(keyAlias, "Key alias", func(f *components.StringFlag) { f.Mandatory = false }),
 }
 
@@ -77,6 +79,7 @@ var commandFlags = map[string][]string{
 		packageRepoName,
 		predicate,
 		predicateType,
+		markdown,
 		subjectRepoPath,
 		subjectSha256,
 		key,

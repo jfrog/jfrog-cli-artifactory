@@ -1,6 +1,10 @@
 package cli
 
-import "github.com/jfrog/jfrog-cli-core/v2/common/commands"
+import (
+	"fmt"
+	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
+	"os"
+)
 
 type execCommandFunc func(command commands.Command) error
 
@@ -13,4 +17,11 @@ var subjectTypes = []string{
 	releaseBundle,
 	buildName,
 	packageName,
+}
+
+func getEnvVariable(envVarName string) (string, error) {
+	if key, exists := os.LookupEnv(envVarName); exists {
+		return key, nil
+	}
+	return "", fmt.Errorf("'%s'  field wasn't provided.", envVarName)
 }

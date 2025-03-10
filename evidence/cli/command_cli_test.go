@@ -4,15 +4,22 @@ import (
 	"flag"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
+	coreUtils "github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/urfave/cli"
 	"go.uber.org/mock/gomock"
+	"os"
 	"testing"
 )
 
 func TestCreateEvidence_Context(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
+
+	assert.NoError(t, os.Setenv(coreUtils.SigningKey, "PGP"), "Failed to set env: "+coreUtils.SigningKey)
+	assert.NoError(t, os.Setenv(coreUtils.BuildName, buildName), "Failed to set env: JFROG_CLI_BUILD_NAME")
+	defer os.Unsetenv(coreUtils.SigningKey)
+	defer os.Unsetenv(coreUtils.BuildName)
 
 	app := cli.NewApp()
 	app.Commands = []cli.Command{
@@ -94,11 +101,45 @@ func TestCreateEvidence_Context(t *testing.T) {
 			expectErr: false,
 		},
 		{
+			name: "ValidContext - Build With BuildNumber As Env Var",
+			flags: []components.Flag{
+				setDefaultValue(predicate, predicate),
+				setDefaultValue(predicateType, "InToto"),
+				setDefaultValue(key, "PGP"),
+				setDefaultValue(buildNumber, buildNumber),
+				setDefaultValue("url", "url"),
+			},
+			expectErr: false,
+		},
+		{
+			name: "InvalidContext - Build",
+			flags: []components.Flag{
+				setDefaultValue(predicate, predicate),
+				setDefaultValue(predicateType, "InToto"),
+				setDefaultValue(key, "PGP"),
+				setDefaultValue(buildName, buildName),
+				setDefaultValue("url", "url"),
+			},
+			expectErr: true,
+		},
+		{
 			name: "ValidContext - Package",
 			flags: []components.Flag{
 				setDefaultValue(predicate, predicate),
 				setDefaultValue(predicateType, "InToto"),
 				setDefaultValue(key, "PGP"),
+				setDefaultValue(packageName, packageName),
+				setDefaultValue(packageVersion, packageVersion),
+				setDefaultValue(packageRepoName, packageRepoName),
+				setDefaultValue("url", "url"),
+			},
+			expectErr: false,
+		},
+		{
+			name: "ValidContext With Key As Env Var- Package",
+			flags: []components.Flag{
+				setDefaultValue(predicate, predicate),
+				setDefaultValue(predicateType, "InToto"),
 				setDefaultValue(packageName, packageName),
 				setDefaultValue(packageVersion, packageVersion),
 				setDefaultValue(packageRepoName, packageRepoName),

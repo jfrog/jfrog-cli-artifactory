@@ -19,12 +19,13 @@ type createEvidenceBuild struct {
 }
 
 func NewCreateEvidenceBuild(serverDetails *coreConfig.ServerDetails,
-	predicateFilePath, predicateType, key, keyId, project, buildName, buildNumber string) Command {
+	predicateFilePath, predicateType, markdownFilePath, key, keyId, project, buildName, buildNumber string) Command {
 	return &createEvidenceBuild{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
 			predicateFilePath: predicateFilePath,
 			predicateType:     predicateType,
+			markdownFilePath:  markdownFilePath,
 			key:               key,
 			keyId:             keyId,
 		},

@@ -8,8 +8,10 @@ import (
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	coreUtils "github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"os"
 	"strings"
 )
 
@@ -70,13 +72,40 @@ func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 	if !ctx.IsFlagSet(predicate) || assertValueProvided(ctx, predicate) != nil {
 		return errorutils.CheckErrorf("'predicate' is a mandatory field for creating evidence: --%s", predicate)
 	}
+
 	if !ctx.IsFlagSet(predicateType) || assertValueProvided(ctx, predicateType) != nil {
 		return errorutils.CheckErrorf("'predicate-type' is a mandatory field for creating evidence: --%s", predicateType)
 	}
-	if !ctx.IsFlagSet(key) || assertValueProvided(ctx, key) != nil {
-		return errorutils.CheckErrorf("'key' is a mandatory field for creating evidence: --%s", key)
+
+	if err := ensureKeyExists(ctx, key); err != nil {
+		return err
 	}
+
+	if !ctx.IsFlagSet(keyAlias) {
+		setKeyAliasIfProvided(ctx, keyAlias)
+	}
+
 	return nil
+}
+
+func ensureKeyExists(ctx *components.Context, key string) error {
+	if ctx.IsFlagSet(key) && assertValueProvided(ctx, key) == nil {
+		return nil
+	}
+
+	signingKeyValue, _ := getEnvVariable(coreUtils.SigningKey)
+	if signingKeyValue == "" {
+		return errorutils.CheckErrorf("JFROG_CLI_SIGNING_KEY env variable or --%s flag must be provided when creating evidence", key)
+	}
+	ctx.AddStringFlag(key, signingKeyValue)
+	return nil
+}
+
+func setKeyAliasIfProvided(ctx *components.Context, keyAlias string) {
+	evdKeyAliasValue, _ := getEnvVariable(coreUtils.KeyAlias)
+	if evdKeyAliasValue != "" {
+		ctx.AddStringFlag(keyAlias, evdKeyAliasValue)
+	}
 }
 
 func getAndValidateSubject(ctx *components.Context) (string, error) {
@@ -88,12 +117,45 @@ func getAndValidateSubject(ctx *components.Context) (string, error) {
 	}
 
 	if len(foundSubjects) == 0 {
-		return "", errorutils.CheckErrorf("subject must be one of the fields: [%s]", strings.Join(subjectTypes, ", "))
+		// If we have no subject - we will try to create EVD on build
+		if !attemptSetBuildNameAndNumber(ctx) {
+			return "", errorutils.CheckErrorf("subject must be one of the fields: [%s]", strings.Join(subjectTypes, ", "))
+		}
+		foundSubjects = append(foundSubjects, buildName)
 	}
-	if len(foundSubjects) > 1 {
-		return "", errorutils.CheckErrorf("multiple subjects found: [%s]", strings.Join(foundSubjects, ", "))
+
+	if err := validateFoundSubjects(foundSubjects); err != nil {
+		return "", err
 	}
+
 	return foundSubjects[0], nil
+}
+
+func attemptSetBuildNameAndNumber(ctx *components.Context) bool {
+	buildNameAdded := setBuildValue(ctx, buildName, coreUtils.BuildName)
+	buildNumberAdded := setBuildValue(ctx, buildNumber, coreUtils.BuildNumber)
+
+	return buildNameAdded && buildNumberAdded
+}
+
+func setBuildValue(ctx *components.Context, flag, envVar string) bool {
+	// Check if the flag is provided. If so, we use it.
+	if ctx.IsFlagSet(flag) {
+		return true
+	}
+	// If the flag is not set, then check the environment variable
+	if currentValue := os.Getenv(envVar); currentValue != "" {
+		ctx.AddStringFlag(flag, currentValue)
+		return true
+	}
+	return false
+}
+
+func validateFoundSubjects(foundSubjects []string) error {
+	if len(foundSubjects) > 1 {
+		return errorutils.CheckErrorf("multiple subjects found: [%s]", strings.Join(foundSubjects, ", "))
+	}
+	return nil
 }
 
 func evidenceDetailsByFlags(ctx *components.Context) (*coreConfig.ServerDetails, error) {

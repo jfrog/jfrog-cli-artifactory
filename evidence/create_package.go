@@ -12,6 +12,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/metadata"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
+	"strings"
 )
 
 const leadArtifactQueryTemplate = `{
@@ -25,13 +26,14 @@ type createEvidencePackage struct {
 	packageRepoName string
 }
 
-func NewCreateEvidencePackage(serverDetails *coreConfig.ServerDetails, predicateFilePath, predicateType, key, keyId, packageName,
+func NewCreateEvidencePackage(serverDetails *coreConfig.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, packageName,
 	packageVersion, packageRepoName string) Command {
 	return &createEvidencePackage{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
 			predicateFilePath: predicateFilePath,
 			predicateType:     predicateType,
+			markdownFilePath:  markdownFilePath,
 			key:               key,
 			keyId:             keyId,
 		},
@@ -65,11 +67,11 @@ func (c *createEvidencePackage) Run() error {
 		return err
 	}
 
-	leadArtifact, err := c.getPackageVersionLeadArtifact(packageType, metadataClient)
+	leadArtifactPath, err := c.getPackageVersionLeadArtifact(packageType, metadataClient, artifactoryClient)
 	if err != nil {
 		return err
 	}
-	leadArtifactPath := c.buildLeadArtifactPath(leadArtifact)
+
 	leadArtifactChecksum, err := c.getFileChecksum(leadArtifactPath, artifactoryClient)
 	if err != nil {
 		return err
@@ -95,7 +97,28 @@ func (c *createEvidencePackage) getPackageType(artifactoryClient artifactory.Art
 	return request.PackageType, nil
 }
 
-func (c *createEvidencePackage) getPackageVersionLeadArtifact(packageType string, metadataClient metadata.Manager) (string, error) {
+func (c *createEvidencePackage) getPackageVersionLeadArtifact(packageType string, metadataClient metadata.Manager, artifactoryClient artifactory.ArtifactoryServicesManager) (string, error) {
+	leadFileRequest := services.LeadFileParams{
+		PackageType:     strings.ToUpper(packageType),
+		PackageRepoName: c.packageRepoName,
+		PackageName:     c.packageName,
+		PackageVersion:  c.packageVersion,
+	}
+
+	leadArtifact, err := artifactoryClient.GetPackageLeadFile(leadFileRequest)
+	if err != nil {
+		leadArtifactPath, err := c.getPackageVersionLeadArtifactFromMetaData(packageType, metadataClient)
+		if err != nil {
+			return "", err
+		}
+		return c.buildLeadArtifactPath(leadArtifactPath), nil
+	}
+	leadArtifactPath := strings.ReplaceAll(string(leadArtifact), ":", "/")
+
+	return leadArtifactPath, nil
+}
+
+func (c *createEvidencePackage) getPackageVersionLeadArtifactFromMetaData(packageType string, metadataClient metadata.Manager) (string, error) {
 	body, err := metadataClient.GraphqlQuery(c.createQuery(packageType))
 	if err != nil {
 		return "", err

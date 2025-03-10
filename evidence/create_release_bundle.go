@@ -15,13 +15,14 @@ type createEvidenceReleaseBundle struct {
 	releaseBundleVersion string
 }
 
-func NewCreateEvidenceReleaseBundle(serverDetails *coreConfig.ServerDetails, predicateFilePath, predicateType, key, keyId, project, releaseBundle,
+func NewCreateEvidenceReleaseBundle(serverDetails *coreConfig.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, project, releaseBundle,
 	releaseBundleVersion string) Command {
 	return &createEvidenceReleaseBundle{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
 			predicateFilePath: predicateFilePath,
 			predicateType:     predicateType,
+			markdownFilePath:  markdownFilePath,
 			key:               key,
 			keyId:             keyId,
 		},
