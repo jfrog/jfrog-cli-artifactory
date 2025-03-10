@@ -98,7 +98,7 @@ func (c *createEvidenceBase) uploadEvidence(envelope []byte, repoPath string) er
 	}
 
 	evidenceDetails := evidenceService.EvidenceDetails{
-		SubjectUri:  strings.Split(repoPath, "@")[0],
+		SubjectUri:  repoPath,
 		DSSEFileRaw: envelope,
 	}
 	body, err := evidenceManager.UploadEvidence(evidenceDetails)
