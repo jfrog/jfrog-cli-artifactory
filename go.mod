@@ -8,7 +8,7 @@ require (
 	github.com/jfrog/build-info-go v1.10.10
 	github.com/jfrog/gofrog v1.7.6
 	github.com/jfrog/jfrog-cli-core/v2 v2.58.0
-	github.com/jfrog/jfrog-client-go v1.50.0
+	github.com/jfrog/jfrog-client-go v1.51.0
 	github.com/pkg/errors v0.9.1
 	github.com/secure-systems-lab/go-securesystemslib v0.8.0
 	github.com/spf13/viper v1.19.0
@@ -119,7 +119,7 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
-replace github.com/jfrog/jfrog-cli-core/v2 => github.com/bhanurp/jfrog-cli-core/v2 v2.31.1-0.20250314074257-48103fd3c253
+replace github.com/jfrog/jfrog-cli-core/v2 => github.com/bhanurp/jfrog-cli-core/v2 v2.31.1-0.20250314081921-d16eb73490a6
 
 replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20250309113753-9cb691a755b5
 
