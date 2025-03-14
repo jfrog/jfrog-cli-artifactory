@@ -5,7 +5,7 @@ go 1.23.4
 require (
 	github.com/c-bata/go-prompt v0.2.5
 	github.com/forPelevin/gomoji v1.2.0
-	github.com/jfrog/build-info-go v1.10.9
+	github.com/jfrog/build-info-go v1.10.10
 	github.com/jfrog/gofrog v1.7.6
 	github.com/jfrog/jfrog-cli-core/v2 v2.58.0
 	github.com/jfrog/jfrog-client-go v1.50.0
