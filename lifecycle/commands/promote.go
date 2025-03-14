@@ -84,7 +84,8 @@ func (rbp *ReleaseBundlePromoteCommand) Run() error {
 		return err
 	}
 
-	servicesManager, rbDetails, queryParams, err := rbp.getPrerequisites()
+	servicesManager, rbDetails, queryParams, err := rbp.getPromotionPrerequisites()
+
 	if err != nil {
 		return err
 	}
