@@ -98,7 +98,7 @@ func (c *createEvidenceBase) uploadEvidence(envelope []byte, repoPath string) er
 	}
 
 	evidenceDetails := evidenceService.EvidenceDetails{
-		SubjectUri:  strings.Split(repoPath, "@")[0],
+		SubjectUri:  repoPath,
 		DSSEFileRaw: envelope,
 	}
 	body, err := evidenceManager.UploadEvidence(evidenceDetails)
@@ -145,6 +145,10 @@ func createAndSignEnvelope(payloadJson []byte, key string, keyId string) (*dsse.
 	privateKey, err := cryptox.ReadKey(keyFile)
 	if err != nil {
 		return nil, err
+	}
+
+	if privateKey == nil {
+		return nil, errors.New("failed to load private key. please verify provided key")
 	}
 
 	privateKey.KeyID = keyId

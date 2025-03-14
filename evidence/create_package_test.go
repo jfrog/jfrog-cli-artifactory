@@ -6,6 +6,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/metadata"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -149,4 +150,40 @@ func TestGetLeadArtifactFailsBothServices(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Empty(t, leadArtifactPath)
+}
+
+func TestReplaceFirstColon(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []byte
+		expected string
+	}{
+		{
+			name:     "Replace first colon",
+			input:    []byte("sha256:fsndlknlkqnlfnqksd"),
+			expected: "sha256/fsndlknlkqnlfnqksd",
+		},
+		{
+			name:     "No colon to replace",
+			input:    []byte("sha256-fsndlknlkqnlfnqksd"),
+			expected: "sha256-fsndlknlkqnlfnqksd",
+		},
+		{
+			name:     "Multiple colons",
+			input:    []byte("repo:sha256:fsndlknlkqnlfnqksd"),
+			expected: "repo/sha256:fsndlknlkqnlfnqksd",
+		},
+		{
+			name:     "Colon at the beginning",
+			input:    []byte(":sha256:fsndlknlkqnlfnqksd"),
+			expected: "/sha256:fsndlknlkqnlfnqksd",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := strings.Replace(string(tt.input), ":", "/", 1)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
