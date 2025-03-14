@@ -83,6 +83,7 @@ const (
 	lcDryRun             = lifecyclePrefix + dryRun
 	lcIncludeRepos       = lifecyclePrefix + IncludeRepos
 	lcExcludeRepos       = lifecyclePrefix + ExcludeRepos
+	PromotionType        = "promotion-type"
 	setupRepo            = repo
 
 	// Build Info flags
@@ -125,7 +126,8 @@ var commandFlags = map[string][]string{
 		specFlag, specVars, BuildName, BuildNumber,
 	},
 	cmddefs.ReleaseBundlePromote: {
-		platformUrl, user, password, accessToken, serverId, lcSigningKey, lcSync, lcProject, lcIncludeRepos, lcExcludeRepos,
+		platformUrl, user, password, accessToken, serverId, lcSigningKey, lcSync, lcProject, lcIncludeRepos,
+		lcExcludeRepos, PromotionType,
 	},
 	cmddefs.ReleaseBundleDistribute: {
 		platformUrl, user, password, accessToken, serverId, lcProject, DistRules, site, city, countryCodes,
@@ -178,8 +180,8 @@ var flagsMap = map[string]components.Flag{
 	CreateRepo:           components.NewBoolFlag(CreateRepo, "Set to true to create the repository on the edge if it does not exist.", components.WithBoolDefaultValueFalse()),
 	lcSync:               components.NewBoolFlag(Sync, "Set to false to run asynchronously.", components.WithBoolDefaultValueTrue()),
 	lcProject:            components.NewStringFlag(Project, "Project key associated with the Release Bundle version.", components.SetMandatoryFalse()),
-	lcBuilds:             components.NewStringFlag(Builds, "Path to a JSON file containing information of the source builds from which to create a release bundle.", components.WithHiddenTrue(), components.SetMandatoryFalse()),
-	lcReleaseBundles:     components.NewStringFlag(ReleaseBundles, "Path to a JSON file containing information of the source release bundles from which to create a release bundle.", components.WithHiddenTrue(), components.SetMandatoryFalse()),
+	lcBuilds:             components.NewStringFlag(Builds, "Path to a JSON file containing information of the source builds from which to create a release bundle.", components.SetHiddenStrFlag(), components.SetMandatoryFalse()),
+	lcReleaseBundles:     components.NewStringFlag(ReleaseBundles, "Path to a JSON file containing information of the source release bundles from which to create a release bundle.", components.SetHiddenStrFlag(), components.SetMandatoryFalse()),
 	lcSigningKey:         components.NewStringFlag(SigningKey, "The GPG/RSA key-pair name given in Artifactory. If the key isn't provided, the command creates or uses the default key.", components.SetMandatoryFalse()),
 	lcPathMappingPattern: components.NewStringFlag(PathMappingPattern, "Specify along with "+PathMappingTarget+" to distribute artifacts to a different path on the edge node. You can use wildcards to specify multiple artifacts.", components.SetMandatoryFalse()),
 	lcPathMappingTarget: components.NewStringFlag(PathMappingTarget, "The target path for distributed artifacts on the edge node. If not specified, the artifacts will have the same path and name on the edge node, as on the source Artifactory server. "+
@@ -194,6 +196,7 @@ var flagsMap = map[string]components.Flag{
 	Project:            components.NewStringFlag(Project, "JFrog Artifactory project key.` `", components.SetMandatoryFalse()),
 	BuildName:          components.NewStringFlag(BuildName, "Providing this option will collect and record build info for this build name. Build number option is mandatory when this option is provided.` `", components.SetMandatoryFalse()),
 	BuildNumber:        components.NewStringFlag(BuildNumber, "Providing this option will collect and record build info for this build number. Build name option is mandatory when this option is provided.` `", components.SetMandatoryFalse()),
+	PromotionType:      components.NewStringFlag(PromotionType, "The promotion type. Can be one of 'copy' or 'move'.", components.WithStrDefaultValue("copy")),
 }
 
 func GetCommandFlags(cmdKey string) []components.Flag {

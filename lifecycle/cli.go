@@ -6,6 +6,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/cmddefs"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/distribution"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
+	lifecycle "github.com/jfrog/jfrog-cli-artifactory/lifecycle/commands"
 	rbCreate "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/create"
 	rbDeleteLocal "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/deletelocal"
 	rbDeleteRemote "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/deleteremote"
@@ -13,12 +14,12 @@ import (
 	rbExport "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/export"
 	rbImport "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/importbundle"
 	rbPromote "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/promote"
+	artifactoryUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	speccore "github.com/jfrog/jfrog-cli-core/v2/common/spec"
-	"github.com/jfrog/jfrog-cli-core/v2/lifecycle"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -27,10 +28,17 @@ import (
 	"github.com/jfrog/jfrog-client-go/lifecycle/services"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"os"
+	"strconv"
 	"strings"
 )
 
-const lcCategory = "Lifecycle"
+const (
+	minSplit              = "min-split"
+	DownloadMinSplitKb    = 5120
+	DownloadSplitCount    = 3
+	DownloadMaxSplitCount = 15
+	lcCategory            = "Lifecycle"
+)
 
 func GetCommands() []components.Command {
 	return []components.Command{
@@ -338,7 +346,7 @@ func export(c *components.Context) error {
 		return err
 	}
 	exportCmd, modifications := initReleaseBundleExportCmd(c)
-	downloadConfig, err := pluginsCommon.CreateDownloadConfiguration(c)
+	downloadConfig, err := CreateDownloadConfiguration(c)
 	if err != nil {
 		return err
 	}
@@ -423,4 +431,58 @@ func initReleaseBundleExportCmd(c *components.Context) (command *lifecycle.Relea
 		},
 	}
 	return
+}
+
+func CreateDownloadConfiguration(c *components.Context) (downloadConfiguration *artifactoryUtils.DownloadConfiguration, err error) {
+	downloadConfiguration = new(artifactoryUtils.DownloadConfiguration)
+	downloadConfiguration.MinSplitSize, err = getMinSplit(c, DownloadMinSplitKb)
+	if err != nil {
+		return nil, err
+	}
+	downloadConfiguration.SplitCount, err = getSplitCount(c, DownloadSplitCount, DownloadMaxSplitCount)
+	if err != nil {
+		return nil, err
+	}
+	downloadConfiguration.Threads, err = pluginsCommon.GetThreadsCount(c)
+	if err != nil {
+		return nil, err
+	}
+	downloadConfiguration.SkipChecksum = c.GetBoolFlagValue("skip-checksum")
+	downloadConfiguration.Symlink = true
+	return
+}
+
+func getMinSplit(c *components.Context, defaultMinSplit int64) (minSplitSize int64, err error) {
+	minSplitSize = defaultMinSplit
+	if c.GetStringFlagValue(minSplit) != "" {
+		minSplitSize, err = strconv.ParseInt(c.GetStringFlagValue(minSplit), 10, 64)
+		if err != nil {
+			err = errors.New("The '--min-split' option should have a numeric value. " + GetDocumentationMessage())
+			return 0, err
+		}
+	}
+
+	return minSplitSize, nil
+}
+
+func getSplitCount(c *components.Context, defaultSplitCount, maxSplitCount int) (splitCount int, err error) {
+	splitCount = defaultSplitCount
+	err = nil
+	if c.GetStringFlagValue("split-count") != "" {
+		splitCount, err = strconv.Atoi(c.GetStringFlagValue("split-count"))
+		if err != nil {
+			err = errors.New("The '--split-count' option should have a numeric value. " + GetDocumentationMessage())
+		}
+		if splitCount > maxSplitCount {
+			err = errors.New("The '--split-count' option value is limited to a maximum of " + strconv.Itoa(maxSplitCount) + ".")
+		}
+		if splitCount < 0 {
+			err = errors.New("the '--split-count' option cannot have a negative value")
+		}
+	}
+	return
+}
+
+func GetDocumentationMessage() string {
+	return "You can read the documentation at " + coreutils.JFrogHelpUrl + "jfrog-cli"
 }
