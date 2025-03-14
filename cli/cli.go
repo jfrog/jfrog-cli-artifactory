@@ -3,6 +3,7 @@ package cli
 import (
 	distributionCLI "github.com/jfrog/jfrog-cli-artifactory/distribution/cli"
 	evidenceCLI "github.com/jfrog/jfrog-cli-artifactory/evidence/cli"
+	"github.com/jfrog/jfrog-cli-artifactory/lifecycle"
 	"github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 )
@@ -24,5 +25,6 @@ func GetJfrogCliArtifactoryApp() components.App {
 		Commands:    evidenceCLI.GetCommands(),
 		Category:    "Command Namespaces",
 	})
+	app.Commands = append(app.Commands, lifecycle.GetCommands()...)
 	return app
 }
