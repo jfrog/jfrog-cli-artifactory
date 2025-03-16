@@ -418,7 +418,7 @@ func splitRepos(c *components.Context, reposOptionKey string) []string {
 func initReleaseBundleExportCmd(c *components.Context) (command *lifecycle.ReleaseBundleExportCommand, modifications services.Modifications) {
 	command = lifecycle.NewReleaseBundleExportCommand().
 		SetReleaseBundleName(c.Arguments[0]).
-		SetReleaseBundleVersion(c.Arguments[0]).
+		SetReleaseBundleVersion(c.Arguments[1]).
 		SetTargetPath(c.Arguments[2]).
 		SetProject(c.GetStringFlagValue(flagkit.Project))
 
