@@ -26,6 +26,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	artClientUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/lifecycle/services"
+	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"os"
 	"strconv"
@@ -404,7 +405,7 @@ func createLifecycleDetailsByFlags(c *components.Context) (*coreConfig.ServerDet
 	if lcDetails.Url == "" {
 		return nil, errors.New("platform URL is mandatory for lifecycle commands")
 	}
-	cliutils.PlatformToLifecycleUrls(lcDetails)
+	PlatformToLifecycleUrls(lcDetails)
 	return lcDetails, nil
 }
 
@@ -457,7 +458,7 @@ func getMinSplit(c *components.Context, defaultMinSplit int64) (minSplitSize int
 	if c.GetStringFlagValue(minSplit) != "" {
 		minSplitSize, err = strconv.ParseInt(c.GetStringFlagValue(minSplit), 10, 64)
 		if err != nil {
-			err = errors.New("The '--min-split' option should have a numeric value. " + GetDocumentationMessage())
+			err = errors.New("The '--min-split' option should have a numeric value. " + getDocumentationMessage())
 			return 0, err
 		}
 	}
@@ -471,7 +472,7 @@ func getSplitCount(c *components.Context, defaultSplitCount, maxSplitCount int) 
 	if c.GetStringFlagValue("split-count") != "" {
 		splitCount, err = strconv.Atoi(c.GetStringFlagValue("split-count"))
 		if err != nil {
-			err = errors.New("The '--split-count' option should have a numeric value. " + GetDocumentationMessage())
+			err = errors.New("The '--split-count' option should have a numeric value. " + getDocumentationMessage())
 		}
 		if splitCount > maxSplitCount {
 			err = errors.New("The '--split-count' option value is limited to a maximum of " + strconv.Itoa(maxSplitCount) + ".")
@@ -483,6 +484,12 @@ func getSplitCount(c *components.Context, defaultSplitCount, maxSplitCount int) 
 	return
 }
 
-func GetDocumentationMessage() string {
+func getDocumentationMessage() string {
 	return "You can read the documentation at " + coreutils.JFrogHelpUrl + "jfrog-cli"
+}
+
+func PlatformToLifecycleUrls(lcDetails *coreConfig.ServerDetails) {
+	lcDetails.ArtifactoryUrl = utils.AddTrailingSlashIfNeeded(lcDetails.Url) + "artifactory/"
+	lcDetails.LifecycleUrl = utils.AddTrailingSlashIfNeeded(lcDetails.Url) + "lifecycle/"
+	lcDetails.Url = ""
 }
