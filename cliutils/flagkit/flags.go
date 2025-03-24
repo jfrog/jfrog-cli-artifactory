@@ -9,17 +9,20 @@ import (
 )
 
 const (
-	DownloadMinSplitKb = 5120
-	DownloadSplitCount = 3
+	DownloadMinSplitKb    = 5120
+	DownloadSplitCount    = 3
+	DownloadMaxSplitCount = 15
 
 	// Upload
-	UploadMinSplitMb  = 200
-	UploadSplitCount  = 5
-	UploadChunkSizeMb = 20
+	UploadMinSplitMb    = 200
+	UploadSplitCount    = 5
+	UploadChunkSizeMb   = 20
+	UploadMaxSplitCount = 100
 
 	// Common
 	Retries                = 3
 	ArtifactoryTokenExpiry = 3600
+	ChunkSize              = "chunk-size"
 
 	// Artifactory's Commands Keys
 	Upload                 = "upload"

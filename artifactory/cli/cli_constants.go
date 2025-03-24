@@ -13,4 +13,5 @@ const (
 	// Common
 	Retries                = 3
 	ArtifactoryTokenExpiry = 3600
+	RetryWaitMilliSecs     = 0
 )

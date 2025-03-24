@@ -1,8 +1,8 @@
 package move
 
 import (
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	"github.com/jfrog/jfrog-cli/docs/common"
 )
 
 var Usage = []string{"rt mv [command options] <source pattern> <target pattern>",

@@ -1,6 +1,6 @@
 package mvn
 
-import "github.com/jfrog/jfrog-cli/docs/common"
+import "github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/common"
 import "github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 
 var Usage = []string{"rt mvn <goals and options> [command options]"}
