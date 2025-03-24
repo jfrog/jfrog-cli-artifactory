@@ -113,7 +113,8 @@ func (c *createEvidencePackage) getPackageVersionLeadArtifact(packageType string
 		}
 		return c.buildLeadArtifactPath(leadArtifactPath), nil
 	}
-	leadArtifactPath := strings.ReplaceAll(string(leadArtifact), ":", "/")
+
+	leadArtifactPath := strings.Replace(string(leadArtifact), ":", "/", 1)
 
 	return leadArtifactPath, nil
 }

@@ -1,11 +1,10 @@
 package yarn
 
 import (
-	"os"
-	"testing"
-
 	"github.com/jfrog/jfrog-client-go/utils/tests"
 	"github.com/stretchr/testify/assert"
+	"os"
+	"testing"
 )
 
 func TestValidateSupportedCommand(t *testing.T) {
@@ -22,6 +21,9 @@ func TestValidateSupportedCommand(t *testing.T) {
 		{[]string{"npm", "tag", "list"}, false},
 		{[]string{"npm", "info", "package-name"}, true},
 		{[]string{"npm", "whoami"}, true},
+		{[]string{"--version"}, true},
+		{[]string{"set", "version", "4.0.1"}, false},
+		{[]string{"set", "version", "3.2.1"}, true},
 	}
 
 	for _, testCase := range testCases {
@@ -71,5 +73,22 @@ func TestExtractAuthValuesFromNpmAuth(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, testCase.expectedExtractedAuthIndent, actualExtractedAuthIndent)
 		assert.Equal(t, testCase.expectedExtractedAuthToken, actualExtractedAuthToken)
+	}
+}
+
+func TestSkipVersionCheck(t *testing.T) {
+	testCases := []struct {
+		args     []string
+		expected bool
+	}{
+		{[]string{"set", "version", "1.22.10"}, true},
+		{[]string{"--version"}, true},
+		{[]string{"install"}, false},
+		{[]string{"add", "lodash"}, false},
+	}
+
+	for _, testCase := range testCases {
+		result := skipVersionCheck(testCase.args)
+		assert.Equal(t, testCase.expected, result, "Test args:", testCase.args)
 	}
 }
