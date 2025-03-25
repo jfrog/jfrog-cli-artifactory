@@ -27,7 +27,7 @@ func GetJfrogCliArtifactoryApp() components.App {
 		Category:    "Command Namespaces",
 	})
 	app.Subcommands = append(app.Subcommands, components.Namespace{
-		Name:        "rt",
+		Name:        string(cliutils.Rt),
 		Description: "Artifactory commands.",
 		Commands:    artifactoryCLI.GetCommands(),
 		Category:    "Command Namespaces",

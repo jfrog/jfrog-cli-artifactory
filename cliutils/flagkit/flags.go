@@ -898,7 +898,7 @@ var flagsMap = map[string]components.Flag{
 
 	// Build Add Dependencies specific commands flags
 	badRecursive: components.NewBoolFlag(recursive, "[Default: true] Set to false if you do not wish to collect artifacts in sub-folders to be added to the build info.", components.WithBoolDefaultValueFalse()),
-	badRegexp:    components.NewBoolFlag(regexpFlag, "[Default: false] Set to true to use a regular expression instead of wildcards expression to collect files to be added to the build info.", components.WithBoolDefaultValueFalse()),
+	badRegexp:    components.NewBoolFlag(regexpFlag, "[Default: false] Set to true to use a regular expression instead of wildcards expression to collect files to be added to the build info."),
 	badDryRun:    components.NewBoolFlag(dryRun, "[Default: false] Set to true to only get a summary of the dependencies that will be added to the build info.", components.WithBoolDefaultValueFalse()),
 	badFromRt:    components.NewBoolFlag(fromRt, "[Default: false] Set true to search the files in Artifactory, rather than on the local file system. The --regexp option is not supported when --from-rt is set to true.", components.WithBoolDefaultValueFalse()),
 	badModule:    components.NewStringFlag(module, "[Optional] Optional module name in the build-info for adding the dependency.", components.SetMandatoryFalse()),
@@ -1029,7 +1029,7 @@ var flagsMap = map[string]components.Flag{
 	city:                 components.NewStringFlag(city, "Wildcard filter for site city name.", components.SetMandatoryFalse()),
 	countryCodes:         components.NewStringFlag(countryCodes, "List of semicolon-separated(;) wildcard filters for site country codes.", components.SetMandatoryFalse()),
 	sync:                 components.NewBoolFlag(sync, "Set to true to enable sync distribution (the command execution will end when the distribution process ends).", components.WithBoolDefaultValueFalse()),
-	maxWaitMinutes:       components.NewStringFlag(maxWaitMinutes, "Max minutes to wait for sync distribution.", components.WithStrDefaultValue("60")),
+	maxWaitMinutes:       components.NewStringFlag(maxWaitMinutes, "Max minutes to wait for sync distribution."),
 	deleteFromDist:       components.NewBoolFlag(deleteFromDist, "Set to true to delete release bundle version in JFrog Distribution itself after deletion is complete.", components.WithBoolDefaultValueFalse()),
 	CreateRepo:           components.NewBoolFlag(CreateRepo, "Set to true to create the repository on the edge if it does not exist.", components.WithBoolDefaultValueFalse()),
 	lcSync:               components.NewBoolFlag(Sync, "Set to false to run asynchronously.", components.WithBoolDefaultValueTrue()),

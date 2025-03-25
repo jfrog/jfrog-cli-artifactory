@@ -29,29 +29,12 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/dockerpromote"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/dockerpull"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/dockerpush"
-	dotnetdocs "github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/dotnet"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/dotnetconfig"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/download"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/gitlfsclean"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/gocommand"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/goconfig"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/gopublish"
-	gradledoc "github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/gradle"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/gradleconfig"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/move"
-	mvndoc "github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/mvn"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/mvnconfig"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/npmci"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/npmconfig"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/npminstall"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/npmpublish"
-	nugetdocs "github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/nuget"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/nugetconfig"
 	nugettree "github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/nugetdepstree"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/ocstartbuild"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/ping"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/pipconfig"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/pipinstall"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/podmanpull"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/podmanpush"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/replicationcreate"
@@ -64,8 +47,6 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/search"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/setprops"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/upload"
-	yarndocs "github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/yarn"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/yarnconfig"
 	artifactoryUtils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/commandWrappers"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
@@ -269,68 +250,6 @@ func GetCommands() []components.Command {
 			Category:    otherCategory,
 		},
 		{
-			Name:        "mvn-config",
-			Hidden:      true,
-			Aliases:     []string{"mvnc"},
-			Flags:       flagkit.GetCommandFlags(flagkit.MvnConfig),
-			Description: mvnconfig.GetDescription(),
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("mvn-config", "rt")
-			},
-		},
-		{
-			Name:            "mvn",
-			Hidden:          true,
-			Flags:           flagkit.GetCommandFlags(flagkit.Mvn),
-			Description:     mvndoc.GetDescription(),
-			Arguments:       mvndoc.GetArguments(),
-			SkipFlagParsing: true,
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("mvn", "rt")
-			},
-		},
-		{
-			Name:        "gradle-config",
-			Hidden:      true,
-			Aliases:     []string{"gradlec"},
-			Flags:       flagkit.GetCommandFlags(flagkit.GradleConfig),
-			Description: gradleconfig.GetDescription(),
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("gradle-config", "rt")
-			},
-		},
-		{
-			Name:            "gradle",
-			Hidden:          true,
-			Flags:           flagkit.GetCommandFlags(flagkit.Gradle),
-			Description:     gradledoc.GetDescription(),
-			Arguments:       gradledoc.GetArguments(),
-			SkipFlagParsing: true,
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("gradle", "rt")
-			},
-		},
-		{
-			Name:        "cocoapods-config",
-			Hidden:      true,
-			Aliases:     []string{"cocoapodsc"},
-			Flags:       flagkit.GetCommandFlags(flagkit.CocoapodsConfig),
-			Description: gradleconfig.GetDescription(),
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("cocoapods-config", "rt")
-			},
-		},
-		{
-			Name:        "swift-config",
-			Hidden:      true,
-			Aliases:     []string{"swiftc"},
-			Flags:       flagkit.GetCommandFlags(flagkit.SwiftConfig),
-			Description: gradleconfig.GetDescription(),
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("swift-config", "rt")
-			},
-		},
-		{
 			Name:        "docker-promote",
 			Flags:       flagkit.GetCommandFlags(flagkit.DockerPromote),
 			Aliases:     []string{"dpr"},
@@ -402,149 +321,11 @@ func GetCommands() []components.Command {
 			Category:        otherCategory,
 		},
 		{
-			Name:        "npm-config",
-			Hidden:      true,
-			Flags:       flagkit.GetCommandFlags(flagkit.NpmConfig),
-			Aliases:     []string{"npmc"},
-			Description: npmconfig.GetDescription(),
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("npm-config", "rt")
-			},
-		},
-		{
-			Name:            "npm-install",
-			Hidden:          true,
-			Flags:           flagkit.GetCommandFlags(flagkit.NpmInstallCi),
-			Aliases:         []string{"npmi"},
-			Description:     npminstall.GetDescription(),
-			Arguments:       npminstall.GetArguments(),
-			SkipFlagParsing: true,
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("npm-install", "rt")
-			},
-		},
-		{
-			Name:            "npm-ci",
-			Hidden:          true,
-			Flags:           flagkit.GetCommandFlags(flagkit.NpmInstallCi),
-			Aliases:         []string{"npmci"},
-			Description:     npmci.GetDescription(),
-			Arguments:       npmci.GetArguments(),
-			SkipFlagParsing: true,
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("npm-ci", "rt")
-			},
-		},
-		{
-			Name:            "npm-publish",
-			Hidden:          true,
-			Flags:           flagkit.GetCommandFlags(flagkit.NpmPublish),
-			Aliases:         []string{"npmp"},
-			Description:     npmpublish.GetDescription(),
-			SkipFlagParsing: true,
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("npm-publish", "rt")
-			},
-		},
-		{
-			Name:        "yarn-config",
-			Hidden:      true,
-			Aliases:     []string{"yarnc"},
-			Flags:       flagkit.GetCommandFlags(flagkit.YarnConfig),
-			Description: yarnconfig.GetDescription(),
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("yarn-config", "rt")
-			},
-		},
-		{
-			Name:            "yarn",
-			Hidden:          true,
-			Flags:           flagkit.GetCommandFlags(flagkit.Yarn),
-			Description:     yarndocs.GetDescription(),
-			SkipFlagParsing: true,
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("yarn", "rt")
-			},
-		},
-		{
-			Name:        "nuget-config",
-			Hidden:      true,
-			Flags:       flagkit.GetCommandFlags(flagkit.NugetConfig),
-			Aliases:     []string{"nugetc"},
-			Description: nugetconfig.GetDescription(),
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("nuget-config", "rt")
-			},
-		},
-		{
-			Name:            "nuget",
-			Hidden:          true,
-			Flags:           flagkit.GetCommandFlags(flagkit.Nuget),
-			Description:     nugetdocs.GetDescription(),
-			Arguments:       nugetdocs.GetArguments(),
-			SkipFlagParsing: true,
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("nuget", "rt")
-			},
-		},
-		{
 			Name:        "nuget-deps-tree",
 			Aliases:     []string{"ndt"},
 			Description: nugettree.GetDescription(),
 			Action:      nugetDepsTreeCmd,
 			Category:    otherCategory,
-		},
-		{
-			Name:        "dotnet-config",
-			Hidden:      true,
-			Flags:       flagkit.GetCommandFlags(flagkit.DotnetConfig),
-			Aliases:     []string{"dotnetc"},
-			Description: dotnetconfig.GetDescription(),
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("dotnet-config", "rt")
-			},
-		},
-		{
-			Name:            "dotnet",
-			Hidden:          true,
-			Flags:           flagkit.GetCommandFlags(flagkit.Dotnet),
-			Description:     dotnetdocs.GetDescription(),
-			Arguments:       dotnetdocs.GetArguments(),
-			SkipFlagParsing: true,
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("dotnet", "rt")
-			},
-		},
-		{
-			Name:        "go-config",
-			Hidden:      true,
-			Flags:       flagkit.GetCommandFlags(flagkit.GoConfig),
-			Description: goconfig.GetDescription(),
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("go-config", "rt")
-			},
-		},
-		{
-			Name:        "go-publish",
-			Hidden:      true,
-			Flags:       flagkit.GetCommandFlags(flagkit.GoPublish),
-			Aliases:     []string{"gp"},
-			Description: gopublish.GetDescription(),
-			Arguments:   gopublish.GetArguments(),
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("go-publish", "rt")
-			},
-		},
-		{
-			Name:            "go",
-			Hidden:          true,
-			Flags:           flagkit.GetCommandFlags(flagkit.Go),
-			Description:     gocommand.GetDescription(),
-			Arguments:       gocommand.GetArguments(),
-			SkipFlagParsing: true,
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("go", "rt")
-			},
 		},
 		{
 			Name:        "ping",
@@ -561,28 +342,6 @@ func GetCommands() []components.Command {
 			Arguments:       curldocs.GetArguments(),
 			SkipFlagParsing: true,
 			Action:          curlCmd,
-		},
-		{
-			Name:        "pip-config",
-			Hidden:      true,
-			Flags:       flagkit.GetCommandFlags(flagkit.PipConfig),
-			Aliases:     []string{"pipc"},
-			Description: pipconfig.GetDescription(),
-			Action: func(c *components.Context) error {
-				return artifactoryUtils.LogCommandRemovalNotice("pip-config", "rt")
-			},
-		},
-		{
-			Name:            "pip-install",
-			Hidden:          true,
-			Flags:           flagkit.GetCommandFlags(flagkit.PipInstall),
-			Aliases:         []string{"pipi"},
-			Description:     pipinstall.GetDescription(),
-			Arguments:       pipinstall.GetArguments(),
-			SkipFlagParsing: true,
-			Action: func(c *components.Context) error {
-				return commandWrappers.DeprecationNativeCmdWarningWrapper("pip install", project.Pip, c, pipDeprecatedInstallCmd)
-			},
 		},
 		{
 			Name:        "repo-template",
@@ -705,7 +464,7 @@ func dockerPromoteCmd(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-	params := services.NewDockerPromoteParams(c.Arguments[0], c.Arguments[1], c.Arguments[2])
+	params := services.NewDockerPromoteParams(c.GetArgumentAt(0), c.GetArgumentAt(1), c.GetArgumentAt(2))
 	params.TargetDockerImage = c.GetStringFlagValue("target-docker-image")
 	params.SourceTag = c.GetStringFlagValue("source-tag")
 	params.TargetTag = c.GetStringFlagValue("target-tag")
@@ -724,8 +483,8 @@ func containerPushCmd(c *components.Context, containerManagerType containerutils
 	if err != nil {
 		return
 	}
-	imageTag := c.Arguments[0]
-	targetRepo := c.Arguments[1]
+	imageTag := c.GetArgumentAt(0)
+	targetRepo := c.GetArgumentAt(1)
 	skipLogin := c.GetBoolFlagValue("skip-login")
 
 	buildConfiguration, err := common.CreateBuildConfigurationWithModule(c)
@@ -760,8 +519,8 @@ func containerPullCmd(c *components.Context, containerManagerType containerutils
 	if err != nil {
 		return err
 	}
-	imageTag := c.Arguments[0]
-	sourceRepo := c.Arguments[1]
+	imageTag := c.GetArgumentAt(0)
+	sourceRepo := c.GetArgumentAt(1)
 	skipLogin := c.GetBoolFlagValue("skip-login")
 	buildConfiguration, err := common.CreateBuildConfigurationWithModule(c)
 	if err != nil {
@@ -784,7 +543,7 @@ func BuildDockerCreateCmd(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-	sourceRepo := c.Arguments[0]
+	sourceRepo := c.GetArgumentAt(0)
 	imageNameWithDigestFile := c.GetStringFlagValue("image-file")
 	if imageNameWithDigestFile == "" {
 		return common.PrintHelpAndReturnError("The '--image-file' command option was not provided.", c)
@@ -1277,15 +1036,15 @@ func preparePropsCmd(c *components.Context) (*generic.PropsCommand, error) {
 	var err error
 	var props string
 	if c.IsFlagSet("spec") {
-		props = c.Arguments[0]
+		props = c.GetArgumentAt(0)
 		propsSpec, err = commonCliUtils.GetSpec(c, false, true)
 	} else {
 		propsSpec, err = createDefaultPropertiesSpec(c)
 		if c.GetNumberOfArgs() == 1 {
-			props = c.Arguments[0]
+			props = c.GetArgumentAt(0)
 			propsSpec.Get(0).Pattern = "*"
 		} else {
-			props = c.Arguments[1]
+			props = c.GetArgumentAt(1)
 		}
 	}
 	if err != nil {
@@ -1383,7 +1142,7 @@ func buildAppendCmd(c *components.Context) error {
 	if err := buildConfiguration.ValidateBuildParams(); err != nil {
 		return err
 	}
-	buildNameToAppend, buildNumberToAppend := c.Arguments[2], c.Arguments[3]
+	buildNameToAppend, buildNumberToAppend := c.GetArgumentAt(2), c.GetArgumentAt(3)
 	rtDetails, err := common.CreateArtifactoryDetailsByFlags(c)
 	if err != nil {
 		return err
@@ -1458,9 +1217,9 @@ func buildAddGitCmd(c *components.Context) error {
 
 	buildAddGitConfigurationCmd := buildinfo.NewBuildAddGitCommand().SetBuildConfiguration(buildConfiguration).SetConfigFilePath(c.GetStringFlagValue("config")).SetServerId(c.GetStringFlagValue("server-id"))
 	if c.GetNumberOfArgs() == 3 {
-		buildAddGitConfigurationCmd.SetDotGitPath(c.Arguments[2])
+		buildAddGitConfigurationCmd.SetDotGitPath(c.GetArgumentAt(2))
 	} else if c.GetNumberOfArgs() == 1 {
-		buildAddGitConfigurationCmd.SetDotGitPath(c.Arguments[0])
+		buildAddGitConfigurationCmd.SetDotGitPath(c.GetArgumentAt(0))
 	}
 	return commands.Exec(buildAddGitConfigurationCmd)
 }
@@ -1640,7 +1399,7 @@ func repoTemplateCmd(c *components.Context) error {
 
 	// Run command.
 	repoTemplateCmd := repository.NewRepoTemplateCommand()
-	repoTemplateCmd.SetTemplatePath(c.Arguments[0])
+	repoTemplateCmd.SetTemplatePath(c.GetArgumentAt(0))
 	return commands.Exec(repoTemplateCmd)
 }
 
@@ -1656,7 +1415,7 @@ func repoCreateCmd(c *components.Context) error {
 
 	// Run command.
 	repoCreateCmd := repository.NewRepoCreateCommand()
-	repoCreateCmd.SetTemplatePath(c.Arguments[0]).SetServerDetails(rtDetails).SetVars(c.GetStringFlagValue("vars"))
+	repoCreateCmd.SetTemplatePath(c.GetArgumentAt(0)).SetServerDetails(rtDetails).SetVars(c.GetStringFlagValue("vars"))
 	return commands.Exec(repoCreateCmd)
 }
 
@@ -1672,7 +1431,7 @@ func repoUpdateCmd(c *components.Context) error {
 
 	// Run command.
 	repoUpdateCmd := repository.NewRepoUpdateCommand()
-	repoUpdateCmd.SetTemplatePath(c.Arguments[0]).SetServerDetails(rtDetails).SetVars(c.GetStringFlagValue("vars"))
+	repoUpdateCmd.SetTemplatePath(c.GetArgumentAt(0)).SetServerDetails(rtDetails).SetVars(c.GetStringFlagValue("vars"))
 	return commands.Exec(repoUpdateCmd)
 }
 
@@ -1687,7 +1446,7 @@ func repoDeleteCmd(c *components.Context) error {
 	}
 
 	repoDeleteCmd := repository.NewRepoDeleteCommand()
-	repoDeleteCmd.SetRepoPattern(c.Arguments[0]).SetServerDetails(rtDetails).SetQuiet(common.GetQuietValue(c))
+	repoDeleteCmd.SetRepoPattern(c.GetArgumentAt(0)).SetServerDetails(rtDetails).SetQuiet(common.GetQuietValue(c))
 	return commands.Exec(repoDeleteCmd)
 }
 
@@ -1696,7 +1455,7 @@ func replicationTemplateCmd(c *components.Context) error {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
 	replicationTemplateCmd := replication.NewReplicationTemplateCommand()
-	replicationTemplateCmd.SetTemplatePath(c.Arguments[0])
+	replicationTemplateCmd.SetTemplatePath(c.GetArgumentAt(0))
 	return commands.Exec(replicationTemplateCmd)
 }
 
@@ -1709,7 +1468,7 @@ func replicationCreateCmd(c *components.Context) error {
 		return err
 	}
 	replicationCreateCmd := replication.NewReplicationCreateCommand()
-	replicationCreateCmd.SetTemplatePath(c.Arguments[0]).SetServerDetails(rtDetails).SetVars(c.GetStringFlagValue("vars"))
+	replicationCreateCmd.SetTemplatePath(c.GetArgumentAt(0)).SetServerDetails(rtDetails).SetVars(c.GetStringFlagValue("vars"))
 	return commands.Exec(replicationCreateCmd)
 }
 
@@ -1722,7 +1481,7 @@ func replicationDeleteCmd(c *components.Context) error {
 		return err
 	}
 	replicationDeleteCmd := replication.NewReplicationDeleteCommand()
-	replicationDeleteCmd.SetRepoKey(c.Arguments[0]).SetServerDetails(rtDetails).SetQuiet(common.GetQuietValue(c))
+	replicationDeleteCmd.SetRepoKey(c.GetArgumentAt(0)).SetServerDetails(rtDetails).SetQuiet(common.GetQuietValue(c))
 	return commands.Exec(replicationDeleteCmd)
 }
 
@@ -1732,7 +1491,7 @@ func createDefaultCopyMoveSpec(c *components.Context) (*spec.SpecFiles, error) {
 		return nil, err
 	}
 	return spec.NewBuilder().
-		Pattern(c.Arguments[0]).
+		Pattern(c.GetArgumentAt(0)).
 		Props(c.GetStringFlagValue("props")).
 		ExcludeProps(c.GetStringFlagValue("exclude-props")).
 		Build(c.GetStringFlagValue("build")).
@@ -1748,7 +1507,7 @@ func createDefaultCopyMoveSpec(c *components.Context) (*spec.SpecFiles, error) {
 		Exclusions(c.GetStringsArrFlagValue("exclusions")).
 		Flat(c.GetBoolFlagValue("flat")).
 		IncludeDirs(true).
-		Target(c.Arguments[1]).
+		Target(c.GetArgumentAt(1)).
 		ArchiveEntries(c.GetStringFlagValue("archive-entries")).
 		BuildSpec(), nil
 }
@@ -1759,7 +1518,7 @@ func createDefaultDeleteSpec(c *components.Context) (*spec.SpecFiles, error) {
 		return nil, err
 	}
 	return spec.NewBuilder().
-		Pattern(c.Arguments[0]).
+		Pattern(c.GetArgumentAt(0)).
 		Props(c.GetStringFlagValue("props")).
 		ExcludeProps(c.GetStringFlagValue("exclude-props")).
 		Build(c.GetStringFlagValue("build")).
@@ -1783,7 +1542,7 @@ func createDefaultSearchSpec(c *components.Context) (*spec.SpecFiles, error) {
 		return nil, err
 	}
 	return spec.NewBuilder().
-		Pattern(c.Arguments[0]).
+		Pattern(c.GetArgumentAt(0)).
 		Props(c.GetStringFlagValue("props")).
 		ExcludeProps(c.GetStringFlagValue("exclude-props")).
 		Build(c.GetStringFlagValue("build")).
@@ -1810,7 +1569,7 @@ func createDefaultPropertiesSpec(c *components.Context) (*spec.SpecFiles, error)
 		return nil, err
 	}
 	return spec.NewBuilder().
-		Pattern(c.Arguments[0]).
+		Pattern(c.GetArgumentAt(0)).
 		Props(c.GetStringFlagValue("props")).
 		ExcludeProps(c.GetStringFlagValue("exclude-props")).
 		Build(c.GetStringFlagValue("build")).
@@ -1859,11 +1618,11 @@ func createBuildPromoteConfiguration(c *components.Context) services.PromotionPa
 
 	// If the command received 3 args, read the build name, build number
 	// and target repo as ags.
-	buildName, buildNumber, targetRepo := c.Arguments[0], c.Arguments[1], c.Arguments[2]
+	buildName, buildNumber, targetRepo := c.GetArgumentAt(0), c.GetArgumentAt(1), c.GetArgumentAt(2)
 	// But if the command received only one arg, the build name and build number
 	// are expected as env vars, and only the target repo is received as an arg.
 	if len(c.Arguments) == 1 {
-		buildName, buildNumber, targetRepo = "", "", c.Arguments[0]
+		buildName, buildNumber, targetRepo = "", "", c.GetArgumentAt(0)
 	}
 
 	promotionParamsImpl.BuildName, promotionParamsImpl.BuildNumber = buildName, buildNumber
@@ -1878,7 +1637,7 @@ func createBuildDiscardConfiguration(c *components.Context) services.DiscardBuil
 	discardParamsImpl.MaxDays = c.GetStringFlagValue("max-days")
 	discardParamsImpl.ExcludeBuilds = c.GetStringFlagValue("exclude-builds")
 	discardParamsImpl.Async = c.GetBoolFlagValue("async")
-	discardParamsImpl.BuildName = common.GetBuildName(c.Arguments[0])
+	discardParamsImpl.BuildName = common.GetBuildName(c.GetArgumentAt(0))
 	discardParamsImpl.ProjectKey = common.GetProject(c)
 	return discardParamsImpl
 }
@@ -1895,7 +1654,7 @@ func createGitLfsCleanConfiguration(c *components.Context) (gitLfsCleanConfigura
 	gitLfsCleanConfiguration.Quiet = common.GetQuietValue(c)
 	dotGitPath := ""
 	if c.GetNumberOfArgs() == 1 {
-		dotGitPath = c.Arguments[0]
+		dotGitPath = c.GetArgumentAt(0)
 	}
 	gitLfsCleanConfiguration.GitPath = dotGitPath
 	return
@@ -1924,10 +1683,10 @@ func createDefaultDownloadSpec(c *components.Context) (*spec.SpecFiles, error) {
 		Recursive(c.GetBoolTFlagValue("recursive")).
 		Exclusions(c.GetStringsArrFlagValue("exclusions")).
 		Flat(c.GetBoolFlagValue("flat")).
-		Explode(c.GetStringFlagValue("explode")).
+		Explode(strconv.FormatBool(c.GetBoolFlagValue("explode"))).
 		BypassArchiveInspection(c.GetBoolFlagValue("bypass-archive-inspection")).
 		IncludeDirs(c.GetBoolFlagValue("include-dirs")).
-		Target(c.Arguments[1]).
+		Target(c.GetArgumentAt(1)).
 		ArchiveEntries(c.GetStringFlagValue("archive-entries")).
 		ValidateSymlinks(c.GetBoolFlagValue("validate-symlinks")).
 		BuildSpec(), nil
@@ -1954,7 +1713,7 @@ func getSourcePattern(c *components.Context) string {
 			return ""
 		}
 	} else {
-		source = strings.TrimPrefix(c.Arguments[0], "/")
+		source = strings.TrimPrefix(c.GetArgumentAt(0), "/")
 	}
 
 	return source
@@ -1995,7 +1754,7 @@ func createDefaultUploadSpec(c *components.Context) (*spec.SpecFiles, error) {
 		return nil, err
 	}
 	return spec.NewBuilder().
-		Pattern(c.Arguments[0]).
+		Pattern(c.GetArgumentAt(0)).
 		Props(c.GetStringFlagValue("props")).
 		TargetProps(c.GetStringFlagValue("target-props")).
 		Offset(offset).
@@ -2005,21 +1764,21 @@ func createDefaultUploadSpec(c *components.Context) (*spec.SpecFiles, error) {
 		Recursive(c.GetBoolTFlagValue("recursive")).
 		Exclusions(c.GetStringsArrFlagValue("exclusions")).
 		Flat(c.GetBoolFlagValue("flat")).
-		Explode(c.GetStringFlagValue("explode")).
+		Explode(strconv.FormatBool(c.GetBoolFlagValue("explode"))).
 		Regexp(c.GetBoolFlagValue("regexp")).
 		Ant(c.GetBoolFlagValue("ant")).
 		IncludeDirs(c.GetBoolFlagValue("include-dirs")).
-		Target(strings.TrimPrefix(c.Arguments[1], "/")).
+		Target(strings.TrimPrefix(c.GetArgumentAt(1), "/")).
 		Symlinks(c.GetBoolFlagValue("symlinks")).
 		Archive(c.GetStringFlagValue("archive")).
 		BuildSpec(), nil
 }
 
 func createDefaultBuildAddDependenciesSpec(c *components.Context) *spec.SpecFiles {
-	pattern := c.Arguments[2]
+	pattern := c.GetArgumentAt(2)
 	if pattern == "" {
 		// Build name and build number from env
-		pattern = c.Arguments[0]
+		pattern = c.GetArgumentAt(0)
 	}
 	return spec.NewBuilder().
 		Pattern(pattern).
