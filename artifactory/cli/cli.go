@@ -768,7 +768,7 @@ func uploadCmd(c *components.Context) (err error) {
 
 	var uploadSpec *spec.SpecFiles
 	if c.IsFlagSet("spec") {
-		uploadSpec, err = artifactoryUtils.GetFileSystemSpec(c)
+		uploadSpec, err = commonCliUtils.GetSpec(c, false, true)
 	} else {
 		uploadSpec, err = createDefaultUploadSpec(c)
 	}
@@ -1172,7 +1172,7 @@ func buildAddDependenciesCmd(c *components.Context) error {
 	var rtDetails *coreConfig.ServerDetails
 	var err error
 	if c.IsFlagSet("spec") {
-		dependenciesSpec, err = artifactoryUtils.GetFileSystemSpec(c)
+		dependenciesSpec, err = commonCliUtils.GetSpec(c, true, true)
 		if err != nil {
 			return err
 		}
