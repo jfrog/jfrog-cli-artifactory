@@ -1666,14 +1666,34 @@ func createDefaultDownloadSpec(c *components.Context) (*spec.SpecFiles, error) {
 		return nil, err
 	}
 
+	excludeArtifactsString := c.GetStringFlagValue("exclude-artifacts")
+	if excludeArtifactsString == "" {
+		excludeArtifactsString = "false"
+	}
+	excludeArtifacts, err := strconv.ParseBool(excludeArtifactsString)
+	if err != nil {
+		log.Warn("Could not parse exclude-artifacts flag. Setting exclude-artifacts as false, error: ", err.Error())
+		excludeArtifacts = false
+	}
+
+	includeArtifactsString := c.GetStringFlagValue("include-deps")
+	if includeArtifactsString == "" {
+		includeArtifactsString = "false"
+	}
+	includeDeps, err := strconv.ParseBool(includeArtifactsString)
+	if err != nil {
+		log.Warn("Could not parse include-deps flag. Setting include-deps as false, error: ", err.Error())
+		excludeArtifacts = false
+	}
+
 	return spec.NewBuilder().
 		Pattern(getSourcePattern(c)).
 		Props(c.GetStringFlagValue("props")).
 		ExcludeProps(c.GetStringFlagValue("exclude-props")).
 		Build(c.GetStringFlagValue("build")).
 		Project(common.GetProject(c)).
-		ExcludeArtifacts(c.GetBoolFlagValue("exclude-artifacts")).
-		IncludeDeps(c.GetBoolFlagValue("include-deps")).
+		ExcludeArtifacts(excludeArtifacts).
+		IncludeDeps(includeDeps).
 		Bundle(c.GetStringFlagValue("bundle")).
 		PublicGpgKey(c.GetStringFlagValue("gpg-key")).
 		Offset(offset).
