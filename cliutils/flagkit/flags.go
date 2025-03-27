@@ -1002,7 +1002,7 @@ var flagsMap = map[string]components.Flag{
 	rtAtcRefreshable: components.NewBoolFlag(Refreshable, "[Default: false] Set to true if you'd like the token to be refreshable. A refresh token will also be returned in order to be used to generate a new token once it expires.", components.WithBoolDefaultValueFalse()),
 	rtAtcAudience:    components.NewStringFlag(Audience, "[Optional] A space-separated list of the other Artifactory instances or services that should accept this token identified by their Artifactory Service IDs, as obtained by the 'jfrog rt curl api/system/service_id' command.", components.SetMandatoryFalse()),
 
-	//UserCreate
+	// UserCreate
 	Admin:          components.NewBoolFlag(Admin, "[Default: false] Set to true if you'd like to create an admin user.", components.WithBoolDefaultValueFalse()),
 	usersCreateCsv: components.NewStringFlag(csv, "[Mandatory] Path to a CSV file with the users' details. The first row of the file is reserved for the cells' headers. It must include \"username\",\"password\",\"email\"", components.SetMandatoryTrue()),
 	UsersGroups:    components.NewStringFlag(UsersGroups, "[Optional] A list of comma-separated(,) groups for the new users to be associated with.` `", components.SetMandatoryFalse()),
@@ -1010,7 +1010,7 @@ var flagsMap = map[string]components.Flag{
 	// UsersDelete
 	usersDeleteCsv: components.NewStringFlag(csv, "[Optional] Path to a CSV file with the users' details. The first row of the file is reserved for the cells' headers. It must include \"username\"", components.SetMandatoryFalse()),
 
-	//GroupCreate
+	// GroupCreate
 	Replace: components.NewBoolFlag(Replace, "[Default: false] Set to true if you'd like existing groups to be replaced.", components.WithBoolDefaultValueFalse()),
 
 	distUrl:              components.NewStringFlag(url, "JFrog Distribution URL. (example: https://acme.jfrog.io/distribution)", components.SetMandatoryFalse()),

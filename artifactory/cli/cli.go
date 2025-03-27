@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	ioutils "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/buildinfo"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/container"
@@ -9,7 +8,6 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/oc"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/python"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/replication"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/repository"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/buildadddependencies"
@@ -58,7 +56,6 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/common/cliutils/summary"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	"github.com/jfrog/jfrog-cli-core/v2/common/progressbar"
-	"github.com/jfrog/jfrog-cli-core/v2/common/project"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
@@ -1366,32 +1363,6 @@ func newRtCurlCommand(c *components.Context) (*curl.RtCurlCommand, error) {
 	return rtCurlCommand, err
 }
 
-func pipDeprecatedInstallCmd(c *components.Context) error {
-	if show, err := common.ShowCmdHelpIfNeeded(c, c.Arguments); show || err != nil {
-		return err
-	}
-	if c.GetNumberOfArgs() < 1 {
-		return common.WrongNumberOfArgumentsHandler(c)
-	}
-
-	// Get python configuration.
-	pythonConfig, err := project.GetResolutionOnlyConfiguration(project.Pip)
-	if err != nil {
-		return fmt.Errorf("error occurred while attempting to read %[1]s-configuration file: %[2]s\n"+
-			"Please run 'jf %[1]s-config' command prior to running 'jf %[1]s'", project.Pip.String(), err.Error())
-	}
-
-	// Set arg values.
-	rtDetails, err := pythonConfig.ServerDetails()
-	if err != nil {
-		return err
-	}
-
-	pythonCommand := python.NewPipCommand()
-	pythonCommand.SetServerDetails(rtDetails).SetRepo(pythonConfig.TargetRepo()).SetCommandName("install").SetArgs(common.ExtractCommand(c))
-	return commands.Exec(pythonCommand)
-}
-
 func repoTemplateCmd(c *components.Context) error {
 	if c.GetNumberOfArgs() != 1 {
 		return common.WrongNumberOfArgumentsHandler(c)
@@ -1727,11 +1698,7 @@ func getSourcePattern(c *components.Context) string {
 
 	if isRbv2 {
 		// RB2 will be downloaded like a regular artifact, path: projectKey-release-bundles-v2/rbName/rbVersion
-		source, err = buildSourceForRbv2(c)
-		if err != nil {
-			log.Error("Error occurred while building source path for rbv2:", err.Error())
-			return ""
-		}
+		source = buildSourceForRbv2(c)
 	} else {
 		source = strings.TrimPrefix(c.GetArgumentAt(0), "/")
 	}
@@ -1739,7 +1706,7 @@ func getSourcePattern(c *components.Context) string {
 	return source
 }
 
-func buildSourceForRbv2(c *components.Context) (string, error) {
+func buildSourceForRbv2(c *components.Context) string {
 	bundleNameAndVersion := c.GetStringFlagValue("bundle")
 	projectKey := c.GetStringFlagValue("project")
 	source := projectKey
@@ -1753,7 +1720,7 @@ func buildSourceForRbv2(c *components.Context) (string, error) {
 	}
 	// Build RB path: projectKey-release-bundles-v2/rbName/rbVersion/
 	source += releaseBundlesV2 + "/" + bundleNameAndVersion + "/"
-	return source, nil
+	return source
 }
 
 func setTransitiveInDownloadSpec(downloadSpec *spec.SpecFiles) {
