@@ -166,8 +166,11 @@ func (sc *SetupCommand) Run() (err error) {
 	if err != nil {
 		return fmt.Errorf("failed to configure %s: %w", sc.packageManager.String(), err)
 	}
-
-	log.Output(fmt.Sprintf("Successfully configured %s to use JFrog Artifactory repository '%s'.", coreutils.PrintBoldTitle(sc.packageManager.String()), coreutils.PrintBoldTitle(sc.repoName)))
+	repoPrefix := ""
+	if sc.packageManager != project.Docker && sc.packageManager != project.Podman {
+		repoPrefix = coreutils.PrintBoldTitle(fmt.Sprintf(" repository '%s'", sc.repoName))
+	}
+	log.Output(fmt.Sprintf("Successfully configured %s to use JFrog Artifactory%s.", coreutils.PrintBoldTitle(sc.packageManager.String()), repoPrefix))
 	return nil
 }
 
