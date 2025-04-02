@@ -1,13 +1,13 @@
 package evidence
 
 import (
-	"github.com/stretchr/testify/assert"
+	"fmt"
+	"strings"
 	"testing"
-)
 
-import (
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+	"github.com/stretchr/testify/assert"
 )
 
 type mockReleaseBundleArtifactoryServicesManager struct {
@@ -15,6 +15,26 @@ type mockReleaseBundleArtifactoryServicesManager struct {
 }
 
 func (m *mockReleaseBundleArtifactoryServicesManager) FileInfo(relativePath string) (*utils.FileInfo, error) {
+	fi := &utils.FileInfo{
+		Checksums: struct {
+			Sha1   string `json:"sha1,omitempty"`
+			Sha256 string `json:"sha256,omitempty"`
+			Md5    string `json:"md5,omitempty"`
+		}{
+			Sha256: "dummy_sha256",
+		},
+	}
+	return fi, nil
+}
+
+type mockReleaseBundleArtifactoryServicesManagerLegacy struct {
+	artifactory.EmptyArtifactoryServicesManager
+}
+
+func (m *mockReleaseBundleArtifactoryServicesManagerLegacy) FileInfo(relativePath string) (*utils.FileInfo, error) {
+	if strings.HasSuffix(relativePath, ".json") {
+		return nil, fmt.Errorf("Couldn't get manifest checksum")
+	}
 	fi := &utils.FileInfo{
 		Checksums: struct {
 			Sha1   string `json:"sha1,omitempty"`
@@ -36,33 +56,67 @@ func TestReleaseBundle(t *testing.T) {
 		expectedPath         string
 		expectedCheckSum     string
 		expectError          bool
+		mock                 artifactory.ArtifactoryServicesManager
 	}{
 		{
 			name:                 "Valid release bundle with project",
 			project:              "myProject",
 			releaseBundle:        "bundleName",
 			releaseBundleVersion: "1.0.0",
-			expectedPath:         "myProject-release-bundles-v2/bundleName/1.0.0/release-bundle.json.evd",
+			expectedPath:         "myProject-release-bundles-v2/bundleName/1.0.0/release-bundle.json",
 			expectedCheckSum:     "dummy_sha256",
 			expectError:          false,
+			mock:                 &mockReleaseBundleArtifactoryServicesManager{},
 		},
 		{
 			name:                 "Valid release bundle default project",
 			project:              "default",
 			releaseBundle:        "bundleName",
 			releaseBundleVersion: "1.0.0",
-			expectedPath:         "release-bundles-v2/bundleName/1.0.0/release-bundle.json.evd",
+			expectedPath:         "release-bundles-v2/bundleName/1.0.0/release-bundle.json",
 			expectedCheckSum:     "dummy_sha256",
 			expectError:          false,
+			mock:                 &mockReleaseBundleArtifactoryServicesManager{},
 		},
 		{
 			name:                 "Valid release bundle empty project",
+			project:              "",
+			releaseBundle:        "bundleName",
+			releaseBundleVersion: "1.0.0",
+			expectedPath:         "release-bundles-v2/bundleName/1.0.0/release-bundle.json",
+			expectedCheckSum:     "dummy_sha256",
+			expectError:          false,
+			mock:                 &mockReleaseBundleArtifactoryServicesManager{},
+		},
+		{
+			name:                 "Legacy evd name: Valid release bundle with project",
+			project:              "myProject",
+			releaseBundle:        "bundleName",
+			releaseBundleVersion: "1.0.0",
+			expectedPath:         "myProject-release-bundles-v2/bundleName/1.0.0/release-bundle.json.evd",
+			expectedCheckSum:     "dummy_sha256",
+			expectError:          false,
+			mock:                 &mockReleaseBundleArtifactoryServicesManagerLegacy{},
+		},
+		{
+			name:                 "Legacy evd name: Valid release bundle default project",
 			project:              "default",
 			releaseBundle:        "bundleName",
 			releaseBundleVersion: "1.0.0",
 			expectedPath:         "release-bundles-v2/bundleName/1.0.0/release-bundle.json.evd",
 			expectedCheckSum:     "dummy_sha256",
 			expectError:          false,
+			mock:                 &mockReleaseBundleArtifactoryServicesManagerLegacy{},
+		},
+		{
+			name:                 "Legacy evd name: Valid release bundle empty project",
+			project:              "",
+			releaseBundle:        "bundleName",
+			releaseBundleVersion: "1.0.0",
+			expectedPath:         "release-bundles-v2/bundleName/1.0.0/release-bundle.json.evd",
+			expectedCheckSum:     "dummy_sha256",
+			expectError:          false,
+			mock:                 &mockReleaseBundleArtifactoryServicesManagerLegacy{},
 		},
 	}
 
@@ -73,7 +127,7 @@ func TestReleaseBundle(t *testing.T) {
 				releaseBundle:        tt.releaseBundle,
 				releaseBundleVersion: tt.releaseBundleVersion,
 			}
-			aa := &mockReleaseBundleArtifactoryServicesManager{}
+			aa := tt.mock
 			path, sha256, err := c.buildReleaseBundleSubjectPath(aa)
 			if tt.expectError {
 				assert.Error(t, err)
