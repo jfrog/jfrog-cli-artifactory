@@ -21,6 +21,7 @@ const (
 
 	// Common
 	Retries                = 3
+	RetryWaitMilliSecs     = 0
 	ArtifactoryTokenExpiry = 3600
 	ChunkSize              = "chunk-size"
 

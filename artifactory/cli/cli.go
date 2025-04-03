@@ -406,7 +406,7 @@ func GetCommands() []components.Command {
 }
 
 func getRetries(c *components.Context) (retries int, err error) {
-	retries = Retries
+	retries = flagkit.Retries
 	if c.GetStringFlagValue("retries") != "" {
 		retries, err = strconv.Atoi(c.GetStringFlagValue("retries"))
 		if err != nil {
@@ -421,7 +421,7 @@ func getRetries(c *components.Context) (retries int, err error) {
 // getRetryWaitTime extract the given '--retry-wait-time' value and validate that it has a numeric value and a 's'/'ms' suffix.
 // The returned wait time's value is in milliseconds.
 func getRetryWaitTime(c *components.Context) (waitMilliSecs int, err error) {
-	waitMilliSecs = RetryWaitMilliSecs
+	waitMilliSecs = flagkit.RetryWaitMilliSecs
 	waitTimeStringValue := c.GetStringFlagValue("retry-wait-time")
 	useSeconds := false
 	if waitTimeStringValue != "" {
