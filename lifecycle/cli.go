@@ -34,11 +34,7 @@ import (
 )
 
 const (
-	minSplit              = "min-split"
-	DownloadMinSplitKb    = 5120
-	DownloadSplitCount    = 3
-	DownloadMaxSplitCount = 15
-	lcCategory            = "Lifecycle"
+	lcCategory = "Lifecycle"
 )
 
 func GetCommands() []components.Command {
@@ -436,11 +432,11 @@ func initReleaseBundleExportCmd(c *components.Context) (command *lifecycle.Relea
 
 func CreateDownloadConfiguration(c *components.Context) (downloadConfiguration *artifactoryUtils.DownloadConfiguration, err error) {
 	downloadConfiguration = new(artifactoryUtils.DownloadConfiguration)
-	downloadConfiguration.MinSplitSize, err = getMinSplit(c, DownloadMinSplitKb)
+	downloadConfiguration.MinSplitSize, err = getMinSplit(c, flagkit.DownloadMinSplitKb)
 	if err != nil {
 		return nil, err
 	}
-	downloadConfiguration.SplitCount, err = getSplitCount(c, DownloadSplitCount, DownloadMaxSplitCount)
+	downloadConfiguration.SplitCount, err = getSplitCount(c, flagkit.DownloadSplitCount, flagkit.DownloadMaxSplitCount)
 	if err != nil {
 		return nil, err
 	}
@@ -455,8 +451,8 @@ func CreateDownloadConfiguration(c *components.Context) (downloadConfiguration *
 
 func getMinSplit(c *components.Context, defaultMinSplit int64) (minSplitSize int64, err error) {
 	minSplitSize = defaultMinSplit
-	if c.GetStringFlagValue(minSplit) != "" {
-		minSplitSize, err = strconv.ParseInt(c.GetStringFlagValue(minSplit), 10, 64)
+	if c.GetStringFlagValue(flagkit.MinSplit) != "" {
+		minSplitSize, err = strconv.ParseInt(c.GetStringFlagValue(flagkit.MinSplit), 10, 64)
 		if err != nil {
 			err = errors.New("The '--min-split' option should have a numeric value. " + getDocumentationMessage())
 			return 0, err
