@@ -137,9 +137,11 @@ func (bpc *BuildPublishCommand) Run() error {
 		}
 		if found {
 			buildNumbersFrequency := CalculateBuildNumberFrequency(buildRuns)
-			err = servicesManager.DeleteBuildInfo(buildInfo, project, buildNumbersFrequency[buildNumber])
-			if err != nil {
-				return err
+			if frequency, ok := buildNumbersFrequency[buildNumber]; ok {
+				err = servicesManager.DeleteBuildInfo(buildInfo, project, frequency)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
