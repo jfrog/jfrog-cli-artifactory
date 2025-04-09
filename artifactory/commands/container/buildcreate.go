@@ -1,7 +1,6 @@
 package container
 
 import (
-	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"strings"
 
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -58,18 +57,18 @@ func (bdc *BuildDockerCreateCommand) Run() error {
 	}
 
 	// Handle multiple tags from comma-separated image name
-	images := SplitMultiTagDockerImageStringWithComma(bdc.image)
-	for _, image := range images {
-		builder, err := container.NewRemoteAgentBuildInfoBuilder(image, repo, buildName, buildNumber, project, serviceManager, bdc.manifestSha256)
+	images := splitImageIfMultipleTags(bdc.image)
+	for _, img := range images {
+		builder, err := container.NewRemoteAgentBuildInfoBuilder(img, repo, buildName, buildNumber, project, serviceManager, bdc.manifestSha256)
 		if err != nil {
-			return errorutils.CheckErrorf("build info creation failed: %s", err.Error())
+			return err
 		}
 		buildInfo, err := builder.Build(bdc.BuildConfiguration().GetModule())
 		if err != nil {
-			return errorutils.CheckErrorf("build info creation failed: %s", err.Error())
+			return err
 		}
 		if err := build.SaveBuildInfo(buildName, buildNumber, project, buildInfo); err != nil {
-			return errorutils.CheckErrorf("failed to save build info for '%s/%s': %s", buildName, buildNumber, err.Error())
+			return err
 		}
 	}
 	return nil
@@ -83,18 +82,23 @@ func (bdc *BuildDockerCreateCommand) ServerDetails() (*config.ServerDetails, err
 	return bdc.serverDetails, nil
 }
 
-func SplitMultiTagDockerImageStringWithComma(image *container.Image) []*container.Image {
-	multiDockerImage := image.Name()
+// Helper: Split a container.Image into multiple if comma-separated tags exist
+func splitImageIfMultipleTags(img *container.Image) []*container.Image {
+	name := img.Name()
+	if !strings.Contains(name, ",") {
+		return []*container.Image{img}
+	}
 
-	tags := strings.Split(multiDockerImage, ",")
-	images := make([]*container.Image, 0, len(tags))
+	tags := strings.Split(name, ",")
+	var result []*container.Image
 	for _, tag := range tags {
 		trimmed := strings.TrimSpace(tag)
 		if trimmed == "" {
 			continue
 		}
-		nextImage := container.NewImage(trimmed)
-		images = append(images, nextImage)
+		cloned := *img
+		cloned.SetName(trimmed)
+		result = append(result, &cloned)
 	}
-	return images
+	return result
 }
