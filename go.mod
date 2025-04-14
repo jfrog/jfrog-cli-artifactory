@@ -9,8 +9,8 @@ require (
 	github.com/forPelevin/gomoji v1.3.0
 	github.com/jfrog/build-info-go v1.10.10
 	github.com/jfrog/gofrog v1.7.6
-	github.com/jfrog/jfrog-cli-core/v2 v2.58.2
-	github.com/jfrog/jfrog-client-go v1.51.1
+	github.com/jfrog/jfrog-cli-core/v2 v2.58.3
+	github.com/jfrog/jfrog-client-go v1.52.0
 	github.com/pkg/errors v0.9.1
 	github.com/secure-systems-lab/go-securesystemslib v0.8.0
 	github.com/spf13/viper v1.19.0
@@ -121,9 +121,9 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
-replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.31.1-0.20250410085750-f34f5feea93e
+//replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.31.1-0.20250410085750-f34f5feea93e
 
-replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20250406105605-ee90d11546f9
+//replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20250406105605-ee90d11546f9
 
 //replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.31.1-0.20240811150357-12a9330a2d67
 //replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20240811142930-ab9715567376
