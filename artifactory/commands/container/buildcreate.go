@@ -58,9 +58,9 @@ func (bdc *BuildDockerCreateCommand) Run() error {
 	}
 
 	// Handle multiple tags from comma-separated image name
-	images := splitMultiTagDockerImageStringWithComma(bdc.image)
-	for _, img := range images {
-		builder, err := container.NewRemoteAgentBuildInfoBuilder(img, repo, buildName, buildNumber, project, serviceManager, bdc.manifestSha256)
+	images := SplitMultiTagDockerImageStringWithComma(bdc.image)
+	for _, image := range images {
+		builder, err := container.NewRemoteAgentBuildInfoBuilder(image, repo, buildName, buildNumber, project, serviceManager, bdc.manifestSha256)
 		if err != nil {
 			return errorutils.CheckErrorf("build info creation failed: %s", err.Error())
 		}
@@ -83,18 +83,18 @@ func (bdc *BuildDockerCreateCommand) ServerDetails() (*config.ServerDetails, err
 	return bdc.serverDetails, nil
 }
 
-func splitMultiTagDockerImageStringWithComma(img *container.Image) []*container.Image {
-	multiDockerImage := img.Name()
+func SplitMultiTagDockerImageStringWithComma(image *container.Image) []*container.Image {
+	multiDockerImage := image.Name()
 
 	tags := strings.Split(multiDockerImage, ",")
-	result := make([]*container.Image, 0, len(tags))
+	images := make([]*container.Image, 0, len(tags))
 	for _, tag := range tags {
 		trimmed := strings.TrimSpace(tag)
 		if trimmed == "" {
 			continue
 		}
-		cloned := container.NewImage(trimmed)
-		result = append(result, cloned)
+		nextImage := container.NewImage(trimmed)
+		images = append(images, nextImage)
 	}
-	return result
+	return images
 }
