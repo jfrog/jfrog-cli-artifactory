@@ -26,7 +26,9 @@ func (npu *npmPublish) upload() (err error) {
 
 		// If requested, perform a Xray binary scan before deployment. If a FailBuildError is returned, skip the deployment.
 		if npu.xrayScan {
-			err = errors.Join(err, performXrayScan(packedFilePath, npu.repo, npu.serverDetails, npu.scanOutputFormat))
+			if err = performXrayScan(packedFilePath, npu.repo, npu.serverDetails, npu.scanOutputFormat); err != nil {
+				return
+			}
 		}
 		err = errors.Join(err, npu.publishPackage(npu.executablePath, packedFilePath, npu.serverDetails, target))
 	}

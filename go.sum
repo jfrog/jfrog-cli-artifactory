@@ -54,8 +54,8 @@ github.com/elazarl/goproxy v1.7.2 h1:Y2o6urb7Eule09PjlhQRGNsqRfPmYI3KKQLFpCAV3+o
 github.com/elazarl/goproxy v1.7.2/go.mod h1:82vkLNir0ALaW14Rc399OTTjyNREgmdL2cVoIbS6XaE=
 github.com/emirpasic/gods v1.18.1 h1:FXtiHYKDGKCW2KzwZKx0iC0PQmdlorYgdFG9jPXJ1Bc=
 github.com/emirpasic/gods v1.18.1/go.mod h1:8tpGGwCnJ5H4r6BWwaV6OrWmMoPhUl5jm/FMNAnJvWQ=
-github.com/fluxxBot/jfrog-cli-core/v2 v2.31.1-0.20250413215109-294edb8594bb h1:StUinFdDlk+8eY6jJ1qX5o9eAHSL7ub7gJGwQZFaIyo=
-github.com/fluxxBot/jfrog-cli-core/v2 v2.31.1-0.20250413215109-294edb8594bb/go.mod h1:eV3CTP/F4nEYE7p4WojZc4ruU1/3sXj0o/ctnjmO5fw=
+github.com/fluxxBot/jfrog-cli-core/v2 v2.31.1-0.20250413220436-b46ff5daaf5e h1:q0BinSmz7ZhYbkuow5I+R3DhOIHFIcKk/ZxkE/GSW1w=
+github.com/fluxxBot/jfrog-cli-core/v2 v2.31.1-0.20250413220436-b46ff5daaf5e/go.mod h1:eV3CTP/F4nEYE7p4WojZc4ruU1/3sXj0o/ctnjmO5fw=
 github.com/fluxxBot/jfrog-client-go v1.28.1-0.20250413214704-1b6cdf0520c6 h1:krAN+7hGggGDXfAlcC8eni2QxWfW7I5JVNPvhI3vS4U=
 github.com/fluxxBot/jfrog-client-go v1.28.1-0.20250413214704-1b6cdf0520c6/go.mod h1:uRmT8Q1SJymIzId01v0W1o8mGqrRfrwUF53CgEMsH0U=
 github.com/forPelevin/gomoji v1.3.0 h1:WPIOLWB1bvRYlKZnSSEevLt3IfKlLs+tK+YA9fFYlkE=

@@ -28,7 +28,9 @@ func (nru *npmRtUpload) upload() (err error) {
 
 		// If requested, perform a Xray binary scan before deployment. If a FailBuildError is returned, skip the deployment.
 		if nru.xrayScan {
-			err = errors.Join(err, performXrayScan(packedFilePath, nru.repo, nru.serverDetails, nru.scanOutputFormat))
+			if err = performXrayScan(packedFilePath, nru.repo, nru.serverDetails, nru.scanOutputFormat); err != nil {
+				return
+			}
 		}
 		err = errors.Join(err, nru.doDeploy(target, nru.serverDetails, packedFilePath))
 	}
