@@ -10,29 +10,35 @@ import (
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	specutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
+	"strings"
 )
 
 type npmPublish struct {
 	*NpmPublishCommand
 }
 
-func (npu *npmPublish) upload() (err error) {
+func (npu *npmPublish) upload() error {
 	for _, packedFilePath := range npu.packedFilePaths {
 
-		if err = npu.readPackageInfoFromTarball(packedFilePath); err != nil {
+		if err := npu.readPackageInfoFromTarball(packedFilePath); err != nil {
 			return err
 		}
-		target := fmt.Sprintf("%s/%s", npu.repo, npu.packageInfo.GetDeployPath())
+
+		targetRepo, err := npu.getTargetRepo()
+		if err != nil {
+			return err
+		}
+		target := fmt.Sprintf("%s/%s", targetRepo, npu.packageInfo.GetDeployPath())
 
 		// If requested, perform a Xray binary scan before deployment. If a FailBuildError is returned, skip the deployment.
 		if npu.xrayScan {
 			if err = performXrayScan(packedFilePath, npu.repo, npu.serverDetails, npu.scanOutputFormat); err != nil {
-				return
+				return err
 			}
 		}
 		err = errors.Join(err, npu.publishPackage(npu.executablePath, packedFilePath, npu.serverDetails, target))
 	}
-	return err
+	return nil
 }
 
 func (npu *npmPublish) getBuildArtifacts() ([]buildinfo.Artifact, error) {
@@ -81,4 +87,34 @@ func (npu *npmPublish) publishPackage(executablePath, filePath string, serverDet
 		npu.artifactsDetailsReader = searchReader
 	}
 	return nil
+}
+
+func (npu *NpmPublishCommand) getTargetRepo() (string, error) {
+	var registryString string
+	scope := npu.packageInfo.Scope
+	if scope == "" {
+		registryString = "registry"
+	} else {
+		registryString = scope + ":registry"
+	}
+	configCommand := gofrogcmd.Command{
+		Executable: npu.executablePath,
+		CmdName:    "config",
+		CmdArgs:    []string{"get", registryString},
+	}
+	data, err := configCommand.RunWithOutput()
+	repoConfig := string(data)
+	if err != nil {
+		log.Error("Error occurred while running npm config get: ", err)
+		npu.result.SetFailCount(npu.result.FailCount() + 1)
+		return "", err
+	}
+	return extractRepoName(repoConfig), nil
+}
+
+func extractRepoName(configUrl string) string {
+	url := strings.TrimSpace(configUrl)
+	urlParts := strings.Split(url, "/")
+	repoName := urlParts[len(urlParts)-1]
+	return repoName
 }
