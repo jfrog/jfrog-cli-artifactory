@@ -3,8 +3,11 @@ package buildinfo
 import (
 	"errors"
 	"fmt"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/external/sonarqube"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
+	evidence2 "github.com/jfrog/jfrog-client-go/evidence"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -137,11 +140,9 @@ func (bpc *BuildPublishCommand) Run() error {
 		}
 		if found {
 			buildNumbersFrequency := CalculateBuildNumberFrequency(buildRuns)
-			if frequency, ok := buildNumbersFrequency[buildNumber]; ok {
-				err = servicesManager.DeleteBuildInfo(buildInfo, project, frequency)
-				if err != nil {
-					return err
-				}
+			err = servicesManager.DeleteBuildInfo(buildInfo, project, buildNumbersFrequency[buildNumber])
+			if err != nil {
+				return err
 			}
 		}
 	}
@@ -177,9 +178,43 @@ func (bpc *BuildPublishCommand) Run() error {
 		log.Info(logMsg + " Browse it in Artifactory under " + buildLink)
 		return nil
 	}
+	createEvidenceIfRequired(bpc)
 
 	log.Info(logMsg)
 	return logJsonOutput(buildLink)
+}
+
+func createEvidenceIfRequired(bpc *BuildPublishCommand) {
+	log.Debug("Creating sonar evidence...")
+	evidenceType := "sonarqube"
+	evd := &evidence2.EvidenceServicesManager{}
+	evidenceData, err := evd.CreateSonarQubeEvidence()
+	if err != nil {
+		log.Error("failed to create evidence: " + err.Error())
+		return
+	}
+	tmpFile, err := os.CreateTemp("", "evidence_*.json")
+	if err != nil {
+		log.Error("failed to create temporary file: " + err.Error())
+		return
+	}
+	defer tmpFile.Close()
+
+	_, err = tmpFile.Write(evidenceData)
+	if err != nil {
+		log.Error("failed to write evidence to temporary file: " + err.Error())
+		return
+	}
+
+	log.Debug("Evidence written to temporary file: " + tmpFile.Name())
+
+	switch evidenceType {
+	case "sonarqube":
+		err := sonarqube.CreateSonarQubeEvidence(bpc.serverDetails)
+		if err != nil {
+			log.Error("failed to create evidence: " + err.Error())
+		}
+	}
 }
 
 // CalculateBuildNumberFrequency since the build number is not unique, we need to calculate the frequency of each build number
