@@ -94,15 +94,15 @@ func testSetupCommandNpmPnpm(t *testing.T, packageManager project.ProjectType) {
 			npmrcContent := string(npmrcContentBytes)
 
 			// Validate that the registry URL was set correctly in .npmrc.
-			assert.Contains(t, npmrcContent, fmt.Sprintf("%s=%s", cmdutils.NpmConfigRegistryKey, "https://acme.jfrog.io/artifactory/api/npm/test-repo"))
+			assert.Contains(t, npmrcContent, fmt.Sprintf("%s=%s", cmdutils.NpmConfigRegistryKey, "https://acme.jfrog.io/artifactory/api/npm/test-repo/"))
 
 			// Validate token-based authentication.
 			if testCase.accessToken != "" {
-				assert.Contains(t, npmrcContent, fmt.Sprintf("//acme.jfrog.io/artifactory/api/npm/test-repo:%s=%s", cmdutils.NpmConfigAuthTokenKey, dummyToken))
+				assert.Contains(t, npmrcContent, fmt.Sprintf("//acme.jfrog.io/artifactory/api/npm/test-repo/:%s=%s", cmdutils.NpmConfigAuthTokenKey, dummyToken))
 			} else if testCase.user != "" && testCase.password != "" {
 				// Validate basic authentication with encoded credentials.
 				// Base64 encoding of "myUser:myPassword"
-				expectedBasicAuth := fmt.Sprintf("//acme.jfrog.io/artifactory/api/npm/test-repo:%s=\"bXlVc2VyOm15UGFzc3dvcmQ=\"", cmdutils.NpmConfigAuthKey)
+				expectedBasicAuth := fmt.Sprintf("//acme.jfrog.io/artifactory/api/npm/test-repo/:%s=\"bXlVc2VyOm15UGFzc3dvcmQ=\"", cmdutils.NpmConfigAuthKey)
 				assert.Contains(t, npmrcContent, expectedBasicAuth)
 			}
 

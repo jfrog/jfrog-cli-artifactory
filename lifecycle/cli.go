@@ -34,11 +34,7 @@ import (
 )
 
 const (
-	minSplit              = "min-split"
-	DownloadMinSplitKb    = 5120
-	DownloadSplitCount    = 3
-	DownloadMaxSplitCount = 15
-	lcCategory            = "Lifecycle"
+	lcCategory = "Lifecycle"
 )
 
 func GetCommands() []components.Command {
@@ -184,8 +180,8 @@ func create(c *components.Context) (err error) {
 	if err != nil {
 		return
 	}
-	createCmd := lifecycle.NewReleaseBundleCreateCommand().SetServerDetails(lcDetails).SetReleaseBundleName(c.Arguments[0]).
-		SetReleaseBundleVersion(c.Arguments[1]).SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey)).SetSync(c.GetBoolFlagValue(flagkit.Sync)).
+	createCmd := lifecycle.NewReleaseBundleCreateCommand().SetServerDetails(lcDetails).SetReleaseBundleName(c.GetArgumentAt(0)).
+		SetReleaseBundleVersion(c.GetArgumentAt(1)).SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey)).SetSync(c.GetBoolFlagValue(flagkit.Sync)).
 		SetReleaseBundleProject(pluginsCommon.GetProject(c)).SetSpec(creationSpec).
 		SetBuildsSpecPath(c.GetStringFlagValue(flagkit.Builds)).SetReleaseBundlesSpecPath(c.GetStringFlagValue(flagkit.ReleaseBundles))
 	return commands.Exec(createCmd)
@@ -236,8 +232,8 @@ func promote(c *components.Context) error {
 		return err
 	}
 
-	promoteCmd := lifecycle.NewReleaseBundlePromoteCommand().SetServerDetails(lcDetails).SetReleaseBundleName(c.Arguments[0]).
-		SetReleaseBundleVersion(c.Arguments[1]).SetEnvironment(c.Arguments[2]).SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey)).
+	promoteCmd := lifecycle.NewReleaseBundlePromoteCommand().SetServerDetails(lcDetails).SetReleaseBundleName(c.GetArgumentAt(0)).
+		SetReleaseBundleVersion(c.GetArgumentAt(1)).SetEnvironment(c.GetArgumentAt(2)).SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey)).
 		SetSync(c.GetBoolFlagValue(flagkit.Sync)).SetReleaseBundleProject(pluginsCommon.GetProject(c)).
 		SetIncludeReposPatterns(splitRepos(c, flagkit.IncludeRepos)).SetExcludeReposPatterns(splitRepos(c, flagkit.ExcludeRepos))
 	return commands.Exec(promoteCmd)
@@ -259,8 +255,8 @@ func distribute(c *components.Context) error {
 
 	distributeCmd := lifecycle.NewReleaseBundleDistributeCommand()
 	distributeCmd.SetServerDetails(lcDetails).
-		SetReleaseBundleName(c.Arguments[0]).
-		SetReleaseBundleVersion(c.Arguments[1]).
+		SetReleaseBundleName(c.GetArgumentAt(0)).
+		SetReleaseBundleVersion(c.GetArgumentAt(1)).
 		SetReleaseBundleProject(pluginsCommon.GetProject(c)).
 		SetDistributionRules(distributionRules).
 		SetDryRun(c.GetBoolFlagValue("dry-run")).
@@ -288,13 +284,13 @@ func deleteLocal(c *components.Context) error {
 
 	environment := ""
 	if len(c.Arguments) == 3 {
-		environment = c.Arguments[2]
+		environment = c.GetArgumentAt(2)
 	}
 
 	deleteCmd := lifecycle.NewReleaseBundleDeleteCommand().
 		SetServerDetails(lcDetails).
-		SetReleaseBundleName(c.Arguments[0]).
-		SetReleaseBundleVersion(c.Arguments[0]).
+		SetReleaseBundleName(c.GetArgumentAt(0)).
+		SetReleaseBundleVersion(c.GetArgumentAt(0)).
 		SetEnvironment(environment).
 		SetQuiet(pluginsCommon.GetQuietValue(c)).
 		SetReleaseBundleProject(pluginsCommon.GetProject(c)).
@@ -323,8 +319,8 @@ func deleteRemote(c *components.Context) error {
 
 	deleteCmd := lifecycle.NewReleaseBundleRemoteDeleteCommand().
 		SetServerDetails(lcDetails).
-		SetReleaseBundleName(c.Arguments[0]).
-		SetReleaseBundleVersion(c.Arguments[0]).
+		SetReleaseBundleName(c.GetArgumentAt(0)).
+		SetReleaseBundleVersion(c.GetArgumentAt(0)).
 		SetDistributionRules(distributionRules).
 		SetDryRun(c.GetBoolFlagValue("dry-run")).
 		SetMaxWaitMinutes(maxWaitMinutes).
@@ -378,7 +374,7 @@ func releaseBundleImport(c *components.Context) error {
 	}
 	importCmd.
 		SetServerDetails(rtDetails).
-		SetFilepath(c.Arguments[0])
+		SetFilepath(c.GetArgumentAt(0))
 
 	return commands.Exec(importCmd)
 }
@@ -418,9 +414,9 @@ func splitRepos(c *components.Context, reposOptionKey string) []string {
 
 func initReleaseBundleExportCmd(c *components.Context) (command *lifecycle.ReleaseBundleExportCommand, modifications services.Modifications) {
 	command = lifecycle.NewReleaseBundleExportCommand().
-		SetReleaseBundleName(c.Arguments[0]).
-		SetReleaseBundleVersion(c.Arguments[1]).
-		SetTargetPath(c.Arguments[2]).
+		SetReleaseBundleName(c.GetArgumentAt(0)).
+		SetReleaseBundleVersion(c.GetArgumentAt(1)).
+		SetTargetPath(c.GetArgumentAt(2)).
 		SetProject(c.GetStringFlagValue(flagkit.Project))
 
 	modifications = services.Modifications{
@@ -436,11 +432,11 @@ func initReleaseBundleExportCmd(c *components.Context) (command *lifecycle.Relea
 
 func CreateDownloadConfiguration(c *components.Context) (downloadConfiguration *artifactoryUtils.DownloadConfiguration, err error) {
 	downloadConfiguration = new(artifactoryUtils.DownloadConfiguration)
-	downloadConfiguration.MinSplitSize, err = getMinSplit(c, DownloadMinSplitKb)
+	downloadConfiguration.MinSplitSize, err = getMinSplit(c, flagkit.DownloadMinSplitKb)
 	if err != nil {
 		return nil, err
 	}
-	downloadConfiguration.SplitCount, err = getSplitCount(c, DownloadSplitCount, DownloadMaxSplitCount)
+	downloadConfiguration.SplitCount, err = getSplitCount(c, flagkit.DownloadSplitCount, flagkit.DownloadMaxSplitCount)
 	if err != nil {
 		return nil, err
 	}
@@ -455,8 +451,8 @@ func CreateDownloadConfiguration(c *components.Context) (downloadConfiguration *
 
 func getMinSplit(c *components.Context, defaultMinSplit int64) (minSplitSize int64, err error) {
 	minSplitSize = defaultMinSplit
-	if c.GetStringFlagValue(minSplit) != "" {
-		minSplitSize, err = strconv.ParseInt(c.GetStringFlagValue(minSplit), 10, 64)
+	if c.GetStringFlagValue(flagkit.MinSplit) != "" {
+		minSplitSize, err = strconv.ParseInt(c.GetStringFlagValue(flagkit.MinSplit), 10, 64)
 		if err != nil {
 			err = errors.New("The '--min-split' option should have a numeric value. " + getDocumentationMessage())
 			return 0, err

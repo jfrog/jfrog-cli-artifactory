@@ -52,7 +52,7 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	project.Go: repository.Go,
 
 	project.Gradle: repository.Gradle,
-	project.Maven: repository.Maven,
+	project.Maven:  repository.Maven,
 }
 
 // SetupCommand configures registries and authentication for various package manager (npm, Yarn, Pip, Pipenv, Poetry, Go)
@@ -166,8 +166,11 @@ func (sc *SetupCommand) Run() (err error) {
 	if err != nil {
 		return fmt.Errorf("failed to configure %s: %w", sc.packageManager.String(), err)
 	}
-
-	log.Output(fmt.Sprintf("Successfully configured %s to use JFrog Artifactory repository '%s'.", coreutils.PrintBoldTitle(sc.packageManager.String()), coreutils.PrintBoldTitle(sc.repoName)))
+	repoPrefix := ""
+	if sc.packageManager != project.Docker && sc.packageManager != project.Podman {
+		repoPrefix = coreutils.PrintBoldTitle(fmt.Sprintf(" repository '%s'", sc.repoName))
+	}
+	log.Output(fmt.Sprintf("Successfully configured %s to use JFrog Artifactory%s.", coreutils.PrintBoldTitle(sc.packageManager.String()), repoPrefix))
 	return nil
 }
 
@@ -225,7 +228,7 @@ func (sc *SetupCommand) configurePoetry() error {
 // configureNpmPnpm configures npm to use the Artifactory repository URL and sets authentication. Pnpm supports the same commands.
 // Runs the following commands:
 //
-//	npm/pnpm config set registry https://<your-artifactory-url>/artifactory/api/npm/<repo-name>
+//	npm/pnpm config set registry https://<your-artifactory-url>/artifactory/api/npm/<repo-name>/
 //
 // For token-based auth:
 //
@@ -237,7 +240,7 @@ func (sc *SetupCommand) configurePoetry() error {
 //
 // Note: Custom configuration file can be set by setting the NPM_CONFIG_USERCONFIG environment variable.
 func (sc *SetupCommand) configureNpmPnpm() error {
-	repoUrl := commandsutils.GetNpmRepositoryUrl(sc.repoName, sc.serverDetails.ArtifactoryUrl)
+	repoUrl := commandsutils.GetNpmRepositoryUrl(sc.repoName, sc.serverDetails.ArtifactoryUrl) + "/"
 	if err := npm.ConfigSet(commandsutils.NpmConfigRegistryKey, repoUrl, sc.packageManager.String()); err != nil {
 		return err
 	}
