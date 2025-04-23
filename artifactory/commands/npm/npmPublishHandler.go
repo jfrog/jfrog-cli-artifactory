@@ -24,7 +24,12 @@ func (npu *npmPublish) upload() error {
 			return err
 		}
 
-		targetRepo, err := npu.getTargetRepo()
+		repoConfig, err := npu.getRepoConfig()
+		if err != nil {
+			return err
+		}
+		targetRepo := extractRepoName(repoConfig)
+		targetServer, err := extractConfigServer(repoConfig)
 		if err != nil {
 			return err
 		}
@@ -32,11 +37,11 @@ func (npu *npmPublish) upload() error {
 
 		// If requested, perform a Xray binary scan before deployment. If a FailBuildError is returned, skip the deployment.
 		if npu.xrayScan {
-			if err = performXrayScan(packedFilePath, npu.repo, npu.serverDetails, npu.scanOutputFormat); err != nil {
+			if err = performXrayScan(packedFilePath, npu.repo, targetServer, npu.scanOutputFormat); err != nil {
 				return err
 			}
 		}
-		err = errors.Join(err, npu.publishPackage(npu.executablePath, packedFilePath, npu.serverDetails, target))
+		err = errors.Join(err, npu.publishPackage(npu.executablePath, packedFilePath, targetServer, target))
 	}
 	return nil
 }
@@ -89,7 +94,7 @@ func (npu *npmPublish) publishPackage(executablePath, filePath string, serverDet
 	return nil
 }
 
-func (npu *NpmPublishCommand) getTargetRepo() (string, error) {
+func (npu *NpmPublishCommand) getRepoConfig() (string, error) {
 	var registryString string
 	scope := npu.packageInfo.Scope
 	if scope == "" {
@@ -109,7 +114,7 @@ func (npu *NpmPublishCommand) getTargetRepo() (string, error) {
 		npu.result.SetFailCount(npu.result.FailCount() + 1)
 		return "", err
 	}
-	return extractRepoName(repoConfig), nil
+	return repoConfig, nil
 }
 
 func extractRepoName(configUrl string) string {
@@ -117,4 +122,25 @@ func extractRepoName(configUrl string) string {
 	urlParts := strings.Split(url, "/")
 	repoName := urlParts[len(urlParts)-1]
 	return repoName
+}
+
+func extractConfigServer(configUrl string) (*config.ServerDetails, error) {
+	var requiredServerDetails = &config.ServerDetails{}
+	url := strings.TrimSpace(configUrl)
+	allAvailableConfigs, err := config.GetAllServersConfigs()
+	if err != nil {
+		return requiredServerDetails, err
+	}
+
+	for _, availableConfig := range allAvailableConfigs {
+		if strings.HasPrefix(url, availableConfig.ArtifactoryUrl) {
+			requiredServerDetails = availableConfig
+		}
+	}
+
+	if requiredServerDetails == nil {
+		return requiredServerDetails, fmt.Errorf("no server details found for the URL: %s to create build info", url)
+	}
+
+	return requiredServerDetails, nil
 }
