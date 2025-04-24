@@ -67,3 +67,14 @@ func TestGetPromotionPrerequisites_Success(t *testing.T) {
 	assert.Equal(t, expectedRbDetails, rbDetails, "ReleaseBundleDetails do not match expected values") // Replace _ with appropriate variable.
 	assert.Equal(t, expectedQueryParams, queryParams, "QueryParams do not match expected values")
 }
+
+func TestBuildRepoKey(t *testing.T) {
+	repoKey := buildRepoKey("example-project")
+	assert.Equal(t, "example-project-release-bundles-v2", repoKey)
+
+	repoKey = buildRepoKey("")
+	assert.Equal(t, releaseBundlesV2, repoKey)
+
+	repoKey = buildRepoKey("default")
+	assert.Equal(t, releaseBundlesV2, repoKey)
+}
