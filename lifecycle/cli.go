@@ -235,7 +235,8 @@ func promote(c *components.Context) error {
 	promoteCmd := lifecycle.NewReleaseBundlePromoteCommand().SetServerDetails(lcDetails).SetReleaseBundleName(c.GetArgumentAt(0)).
 		SetReleaseBundleVersion(c.GetArgumentAt(1)).SetEnvironment(c.GetArgumentAt(2)).SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey)).
 		SetSync(c.GetBoolFlagValue(flagkit.Sync)).SetReleaseBundleProject(pluginsCommon.GetProject(c)).
-		SetIncludeReposPatterns(splitRepos(c, flagkit.IncludeRepos)).SetExcludeReposPatterns(splitRepos(c, flagkit.ExcludeRepos))
+		SetIncludeReposPatterns(splitRepos(c, flagkit.IncludeRepos)).SetExcludeReposPatterns(splitRepos(c, flagkit.ExcludeRepos)).
+		SetPromotionType(c.GetStringFlagValue(flagkit.PromotionType))
 	return commands.Exec(promoteCmd)
 }
 
@@ -290,7 +291,7 @@ func deleteLocal(c *components.Context) error {
 	deleteCmd := lifecycle.NewReleaseBundleDeleteCommand().
 		SetServerDetails(lcDetails).
 		SetReleaseBundleName(c.GetArgumentAt(0)).
-		SetReleaseBundleVersion(c.GetArgumentAt(0)).
+		SetReleaseBundleVersion(c.GetArgumentAt(1)).
 		SetEnvironment(environment).
 		SetQuiet(pluginsCommon.GetQuietValue(c)).
 		SetReleaseBundleProject(pluginsCommon.GetProject(c)).
@@ -320,7 +321,7 @@ func deleteRemote(c *components.Context) error {
 	deleteCmd := lifecycle.NewReleaseBundleRemoteDeleteCommand().
 		SetServerDetails(lcDetails).
 		SetReleaseBundleName(c.GetArgumentAt(0)).
-		SetReleaseBundleVersion(c.GetArgumentAt(0)).
+		SetReleaseBundleVersion(c.GetArgumentAt(1)).
 		SetDistributionRules(distributionRules).
 		SetDryRun(c.GetBoolFlagValue("dry-run")).
 		SetMaxWaitMinutes(maxWaitMinutes).
