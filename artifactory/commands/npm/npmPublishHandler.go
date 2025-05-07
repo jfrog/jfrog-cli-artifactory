@@ -17,13 +17,12 @@ type npmPublish struct {
 	*NpmPublishCommand
 }
 
-func (npu *npmPublish) upload() error {
+func (npu *npmPublish) upload() (err error) {
 	for _, packedFilePath := range npu.packedFilePaths {
-
+		log.Debug("Deploying npm package using npm upload.")
 		if err := npu.readPackageInfoFromTarball(packedFilePath); err != nil {
 			return err
 		}
-
 		repoConfig, err := npu.getRepoConfig()
 		if err != nil {
 			return err
@@ -47,7 +46,7 @@ func (npu *npmPublish) upload() error {
 }
 
 func (npu *npmPublish) getBuildArtifacts() ([]buildinfo.Artifact, error) {
-	return specutils.ConvertArtifactsSearchDetailsToBuildInfoArtifacts(npu.artifactsDetailsReader)
+	return utils.ConvertArtifactsSearchDetailsToBuildInfoArtifacts(npu.artifactsDetailsReader)
 }
 
 func (npu *npmPublish) publishPackage(executablePath, filePath string, serverDetails *config.ServerDetails, target string) error {

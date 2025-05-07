@@ -8,13 +8,13 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
 
-type Publish interface {
+type Publisher interface {
 	upload() error
 	getBuildArtifacts() ([]buildinfo.Artifact, error)
 }
 
 // Get npm implementation
-func NpmPublishStrategy(shouldUseNpmRc bool, npmPublishCommand *NpmPublishCommand) Publish {
+func NpmPublishStrategy(shouldUseNpmRc bool, npmPublishCommand *NpmPublishCommand) Publisher {
 
 	if shouldUseNpmRc {
 		return &npmPublish{npmPublishCommand}

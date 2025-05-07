@@ -59,8 +59,8 @@ github.com/emirpasic/gods v1.18.1 h1:FXtiHYKDGKCW2KzwZKx0iC0PQmdlorYgdFG9jPXJ1Bc
 github.com/emirpasic/gods v1.18.1/go.mod h1:8tpGGwCnJ5H4r6BWwaV6OrWmMoPhUl5jm/FMNAnJvWQ=
 github.com/fatih/color v1.16.0 h1:zmkK9Ngbjj+K0yRhTVONQh1p/HknKYSlNT+vZCzyokM=
 github.com/fatih/color v1.16.0/go.mod h1:fL2Sau1YI5c0pdGEVCbKQbLXB6edEj1ZgiY4NijnWvE=
-github.com/fluxxBot/jfrog-cli-core/v2 v2.31.1-0.20250420214742-c12c4050641f h1:SdMa2iO2PqNegvh57uHkWy/00RySEO/CeiZCSa9rT8w=
-github.com/fluxxBot/jfrog-cli-core/v2 v2.31.1-0.20250420214742-c12c4050641f/go.mod h1:nrKlwWRT7BT9TqE51WSIpUlO8uQR6qWHlp3UiKqC4nc=
+github.com/fluxxBot/jfrog-cli-core/v2 v2.31.1-0.20250507210212-9f32a8d2df64 h1:p6GPNpDiQzu/+TcP5OXqkQzKVHRzDIKba8J4C6TGXT4=
+github.com/fluxxBot/jfrog-cli-core/v2 v2.31.1-0.20250507210212-9f32a8d2df64/go.mod h1:/w05+rVbv0hbfsJesn45KjsQ7ZhUqR56O1yWL23p9S4=
 github.com/fluxxBot/jfrog-client-go v1.28.1-0.20250413214704-1b6cdf0520c6 h1:krAN+7hGggGDXfAlcC8eni2QxWfW7I5JVNPvhI3vS4U=
 github.com/fluxxBot/jfrog-client-go v1.28.1-0.20250413214704-1b6cdf0520c6/go.mod h1:uRmT8Q1SJymIzId01v0W1o8mGqrRfrwUF53CgEMsH0U=
 github.com/forPelevin/gomoji v1.3.0 h1:WPIOLWB1bvRYlKZnSSEevLt3IfKlLs+tK+YA9fFYlkE=

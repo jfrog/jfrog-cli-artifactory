@@ -20,7 +20,7 @@ type npmRtUpload struct {
 
 func (nru *npmRtUpload) upload() (err error) {
 	for _, packedFilePath := range nru.packedFilePaths {
-		log.Debug("Deploying npm package.")
+		log.Debug("Deploying npm package using rt upload.")
 		if err = nru.readPackageInfoFromTarball(packedFilePath); err != nil {
 			return
 		}

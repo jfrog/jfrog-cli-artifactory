@@ -45,7 +45,6 @@ type NpmPublishCommandArgs struct {
 	xrayScan               bool
 	scanOutputFormat       format.OutputFormat
 	distTag                string
-	useNpmRc               bool
 }
 
 type NpmPublishCommand struct {
@@ -107,15 +106,6 @@ func (npc *NpmPublishCommand) Result() *commandsutils.Result {
 	return npc.result
 }
 
-func (nru *NpmPublishCommand) ShouldUseNpmRc() bool {
-	return nru.useNpmRc
-}
-
-func (npc *NpmPublishCommand) setUseNpmRc(useNpmRc bool) *NpmPublishCommand {
-	npc.useNpmRc = useNpmRc
-	return npc
-}
-
 func (npc *NpmPublishCommand) IsDetailedSummary() bool {
 	return npc.detailedSummary
 }
@@ -130,7 +120,7 @@ func (npc *NpmPublishCommand) Init() error {
 	if err != nil {
 		return err
 	}
-	filteredNpmArgs, useNpmRc, err := commandsutils.ExtractNpmConfigType(filteredNpmArgs)
+	filteredNpmArgs, useNative, err := coreutils.ExtractUseNativeFromArgs(filteredNpmArgs)
 	if err != nil {
 		return err
 	}
@@ -155,7 +145,7 @@ func (npc *NpmPublishCommand) Init() error {
 		}
 		npc.SetBuildConfiguration(buildConfiguration).SetRepo(deployerParams.TargetRepo()).SetNpmArgs(filteredNpmArgs).SetServerDetails(rtDetails)
 	}
-	npc.SetDetailedSummary(detailedSummary).SetXrayScan(xrayScan).SetScanOutputFormat(scanOutputFormat).SetDistTag(tag).setUseNpmRc(useNpmRc)
+	npc.SetDetailedSummary(detailedSummary).SetXrayScan(xrayScan).SetScanOutputFormat(scanOutputFormat).SetDistTag(tag).setUseNative(useNative)
 	return nil
 }
 
@@ -191,7 +181,7 @@ func (npc *NpmPublishCommand) Run() (err error) {
 		}
 	}
 
-	publishStrategy := NpmPublishStrategy(npc.ShouldUseNpmRc(), npc)
+	publishStrategy := NpmPublishStrategy(npc.UseNative(), npc)
 
 	err = publishStrategy.upload()
 	if err != nil {

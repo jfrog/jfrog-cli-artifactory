@@ -132,7 +132,7 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
-replace github.com/jfrog/jfrog-cli-core/v2 => github.com/fluxxBot/jfrog-cli-core/v2 v2.31.1-0.20250420214742-c12c4050641f
+replace github.com/jfrog/jfrog-cli-core/v2 => github.com/fluxxBot/jfrog-cli-core/v2 v2.31.1-0.20250507210212-9f32a8d2df64
 
 replace github.com/jfrog/jfrog-client-go => github.com/fluxxBot/jfrog-client-go v1.28.1-0.20250413214704-1b6cdf0520c6
 
