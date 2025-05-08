@@ -42,7 +42,7 @@ func (npu *npmPublish) upload() (err error) {
 		}
 		err = errors.Join(err, npu.publishPackage(npu.executablePath, packedFilePath, targetServer, target))
 	}
-	return nil
+	return
 }
 
 func (npu *npmPublish) getBuildArtifacts() ([]buildinfo.Artifact, error) {

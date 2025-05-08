@@ -37,7 +37,7 @@ func (ca *CommonArgs) UseNative() bool {
 	return ca.useNative
 }
 
-func (ca *CommonArgs) setUseNative(useNpmRc bool) *CommonArgs {
+func (ca *CommonArgs) SetUseNative(useNpmRc bool) *CommonArgs {
 	ca.useNative = useNpmRc
 	return ca
 }

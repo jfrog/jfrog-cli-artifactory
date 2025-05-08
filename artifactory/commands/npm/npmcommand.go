@@ -120,12 +120,7 @@ func (nc *NpmCommand) Init() error {
 	if err != nil {
 		return err
 	}
-	_, useNative, err := coreutils.ExtractUseNativeFromArgs(nc.npmArgs)
-	if err != nil {
-		return err
-	}
-	nc.SetRepoConfig(repoConfig).SetArgs(filteredNpmArgs).SetBuildConfiguration(buildConfiguration).setUseNative(useNative)
-	nc.installHandler = NpmInstallStrategy(nc.UseNative(), nc)
+	nc.SetRepoConfig(repoConfig).SetArgs(filteredNpmArgs).SetBuildConfiguration(buildConfiguration)
 	return nil
 }
 
@@ -174,6 +169,14 @@ func (nc *NpmCommand) PreparePrerequisites(repo string) error {
 		return err
 	}
 	log.Debug("Working directory set to:", nc.workingDirectory)
+
+	_, useNative, err := coreutils.ExtractUseNativeFromArgs(nc.npmArgs)
+	if err != nil {
+		return err
+	}
+	nc.SetUseNative(useNative)
+	nc.installHandler = NpmInstallStrategy(nc.UseNative(), nc)
+
 	return nc.installHandler.PrepareInstallPrerequisites(repo)
 }
 
