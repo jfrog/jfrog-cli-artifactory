@@ -20,15 +20,17 @@ type npmPublish struct {
 func (npu *npmPublish) upload() (err error) {
 	for _, packedFilePath := range npu.packedFilePaths {
 		log.Debug("Deploying npm package using npm upload.")
-		if err := npu.readPackageInfoFromTarball(packedFilePath); err != nil {
+		if err = npu.readPackageInfoFromTarball(packedFilePath); err != nil {
 			return err
 		}
-		repoConfig, err := npu.getRepoConfig()
+		var repoConfig string
+		var targetServer *config.ServerDetails
+		repoConfig, err = npu.getRepoConfig()
 		if err != nil {
 			return err
 		}
 		targetRepo := extractRepoName(repoConfig)
-		targetServer, err := extractConfigServer(repoConfig)
+		targetServer, err = extractConfigServer(repoConfig)
 		if err != nil {
 			return err
 		}
@@ -37,7 +39,7 @@ func (npu *npmPublish) upload() (err error) {
 		// If requested, perform a Xray binary scan before deployment. If a FailBuildError is returned, skip the deployment.
 		if npu.xrayScan {
 			if err = performXrayScan(packedFilePath, npu.repo, targetServer, npu.scanOutputFormat); err != nil {
-				return err
+				return
 			}
 		}
 		err = errors.Join(err, npu.publishPackage(npu.executablePath, packedFilePath, targetServer, target))
