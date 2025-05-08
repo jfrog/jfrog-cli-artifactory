@@ -23,13 +23,16 @@ func (npu *npmPublish) upload() (err error) {
 		if err = npu.readPackageInfoFromTarball(packedFilePath); err != nil {
 			return err
 		}
-		var repoConfig string
+		var repoConfig, targetRepo string
 		var targetServer *config.ServerDetails
 		repoConfig, err = npu.getRepoConfig()
 		if err != nil {
 			return err
 		}
-		targetRepo := extractRepoName(repoConfig)
+		targetRepo, err = extractRepoName(repoConfig)
+		if err != nil {
+			return err
+		}
 		targetServer, err = extractConfigServer(repoConfig)
 		if err != nil {
 			return err
@@ -118,11 +121,19 @@ func (npu *NpmPublishCommand) getRepoConfig() (string, error) {
 	return repoConfig, nil
 }
 
-func extractRepoName(configUrl string) string {
+func extractRepoName(configUrl string) (string, error) {
 	url := strings.TrimSpace(configUrl)
+	url = strings.TrimPrefix(url, "https://")
+	url = strings.TrimPrefix(url, "http://")
+	url = strings.TrimSuffix(url, "/")
+	if url == "" {
+		return "", errors.New("npm config URL is empty")
+	}
 	urlParts := strings.Split(url, "/")
-	repoName := urlParts[len(urlParts)-1]
-	return repoName
+	if len(urlParts) < 2 {
+		return "", errors.New("npm config URL is not valid")
+	}
+	return urlParts[len(urlParts)-1], nil
 }
 
 func extractConfigServer(configUrl string) (*config.ServerDetails, error) {
