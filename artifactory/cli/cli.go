@@ -1,6 +1,10 @@
 package cli
 
 import (
+	"os"
+	"strconv"
+	"strings"
+
 	ioutils "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/buildinfo"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/container"
@@ -67,9 +71,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/pkg/errors"
-	"os"
-	"strconv"
-	"strings"
 )
 
 const (
@@ -483,6 +484,7 @@ func containerPushCmd(c *components.Context, containerManagerType containerutils
 	imageTag := c.GetArgumentAt(0)
 	targetRepo := c.GetArgumentAt(1)
 	skipLogin := c.GetBoolFlagValue("skip-login")
+	validateSha := c.GetBoolFlagValue("validate-sha")
 
 	buildConfiguration, err := common.CreateBuildConfigurationWithModule(c)
 	if err != nil {
@@ -494,7 +496,7 @@ func containerPushCmd(c *components.Context, containerManagerType containerutils
 		return
 	}
 	printDeploymentView, detailedSummary := log.IsStdErrTerminal(), c.GetBoolFlagValue("detailed-summary")
-	dockerPushCommand.SetThreads(threads).SetDetailedSummary(detailedSummary || printDeploymentView).SetCmdParams([]string{"push", imageTag}).SetSkipLogin(skipLogin).SetBuildConfiguration(buildConfiguration).SetRepo(targetRepo).SetServerDetails(artDetails).SetImageTag(imageTag)
+	dockerPushCommand.SetThreads(threads).SetDetailedSummary(detailedSummary || printDeploymentView).SetCmdParams([]string{"push", imageTag}).SetSkipLogin(skipLogin).SetBuildConfiguration(buildConfiguration).SetRepo(targetRepo).SetServerDetails(artDetails).SetImageTag(imageTag).SetValidateSha(validateSha)
 	err = commandWrappers.ShowDockerDeprecationMessageIfNeeded(containerManagerType, dockerPushCommand.IsGetRepoSupported)
 	if err != nil {
 		return
