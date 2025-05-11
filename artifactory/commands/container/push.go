@@ -5,23 +5,25 @@ import (
 
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
-	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/container"
+	containerutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/container"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	servicesutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 type PushCommand struct {
 	ContainerCommand
 	threads         int
 	detailedSummary bool
+	validateSha     bool
 	result          *commandsutils.Result
 }
 
-func NewPushCommand(containerManagerType container.ContainerManagerType) *PushCommand {
+func NewPushCommand(containerManagerType containerutils.ContainerManagerType) *PushCommand {
 	return &PushCommand{
 		ContainerCommand: ContainerCommand{
 			containerManagerType: containerManagerType,
@@ -47,6 +49,15 @@ func (pc *PushCommand) IsDetailedSummary() bool {
 	return pc.detailedSummary
 }
 
+func (pc *PushCommand) SetValidateSha(validateSha bool) *PushCommand {
+	pc.ContainerCommandBase.SetValidateSha(validateSha)
+	return pc
+}
+
+func (pc *PushCommand) IsValidateSha() bool {
+	return pc.ContainerCommandBase.IsValidateSha()
+}
+
 func (pc *PushCommand) Result() *commandsutils.Result {
 	return pc.result
 }
@@ -60,8 +71,8 @@ func (pc *PushCommand) Run() error {
 	if err := pc.init(); err != nil {
 		return err
 	}
-	if pc.containerManagerType == container.DockerClient {
-		err := container.ValidateClientApiVersion()
+	if pc.containerManagerType == containerutils.DockerClient {
+		err := containerutils.ValidateClientApiVersion()
 		if err != nil {
 			return err
 		}
@@ -75,11 +86,12 @@ func (pc *PushCommand) Run() error {
 		return err
 	}
 	// Perform push.
-	cm := container.NewManager(pc.containerManagerType)
+	cm := containerutils.NewManager(pc.containerManagerType)
 	err = cm.RunNativeCmd(pc.cmdParams)
 	if err != nil {
 		return err
 	}
+
 	toCollect, err := pc.buildConfiguration.IsCollectBuildInfo()
 	if err != nil {
 		return err
@@ -103,10 +115,55 @@ func (pc *PushCommand) Run() error {
 	if err != nil {
 		return err
 	}
-	builder, err := container.NewLocalAgentBuildInfoBuilder(pc.image, repo, buildName, buildNumber, pc.BuildConfiguration().GetProject(), serviceManager, container.Push, cm)
+
+	// If SHA validation is enabled, log it
+	if pc.IsValidateSha() {
+		log.Info("Performing SHA-based validation for Docker push...")
+		// Get image SHA from the container manager
+		imageSha2, err := cm.Id(pc.image)
+		if err != nil {
+			return err
+		}
+		log.Debug("Using image SHA256 for validation: " + imageSha2)
+
+		// Use RemoteAgentBuildInfoBuilder for SHA-based validation
+		remoteBuilder, err := containerutils.NewRemoteAgentBuildInfoBuilder(pc.image, repo, buildName, buildNumber, pc.BuildConfiguration().GetProject(), serviceManager, imageSha2)
+		if err != nil {
+			return err
+		}
+
+		if toCollect {
+			if err := build.SaveBuildGeneralDetails(buildName, buildNumber, pc.buildConfiguration.GetProject()); err != nil {
+				return err
+			}
+			buildInfoModule, err := remoteBuilder.Build(pc.BuildConfiguration().GetModule())
+			if err != nil || buildInfoModule == nil {
+				return err
+			}
+			if err = build.SaveBuildInfo(buildName, buildNumber, pc.BuildConfiguration().GetProject(), buildInfoModule); err != nil {
+				return err
+			}
+		}
+
+		if pc.IsDetailedSummary() {
+			if !toCollect {
+				// No build info collection triggered yet, build it now for the summary
+				_, err = remoteBuilder.Build("")
+				if err != nil {
+					return err
+				}
+			}
+			return pc.layersMapToFileTransferDetails(serverDetails.ArtifactoryUrl, remoteBuilder.GetLayers())
+		}
+		return nil
+	}
+
+	// Standard path: use LocalAgentBuildInfoBuilder for tag-based validation
+	builder, err := containerutils.NewLocalAgentBuildInfoBuilder(pc.image, repo, buildName, buildNumber, pc.BuildConfiguration().GetProject(), serviceManager, containerutils.Push, cm)
 	if err != nil {
 		return err
 	}
+
 	if toCollect {
 		if err := build.SaveBuildGeneralDetails(buildName, buildNumber, pc.buildConfiguration.GetProject()); err != nil {
 			return err
@@ -119,10 +176,11 @@ func (pc *PushCommand) Run() error {
 			return err
 		}
 	}
+
 	if pc.IsDetailedSummary() {
 		if !toCollect {
 			// The build-info collection hasn't been triggered at this point, and we do need it for handling the detailed summary.
-			// We are therefore skipping setting mage build name/number props before running build-info collection.
+			// We are therefore skipping setting image build name/number props before running build-info collection.
 			builder.SetSkipTaggingLayers(true)
 			_, err = builder.Build("")
 			if err != nil {
@@ -131,6 +189,7 @@ func (pc *PushCommand) Run() error {
 		}
 		return pc.layersMapToFileTransferDetails(serverDetails.ArtifactoryUrl, builder.GetLayers())
 	}
+
 	return nil
 }
 
@@ -163,3 +222,5 @@ func (pc *PushCommand) CommandName() string {
 func (pc *PushCommand) ServerDetails() (*config.ServerDetails, error) {
 	return pc.serverDetails, nil
 }
+
+// Backward compatibility: If --validate-sha is not set, the legacy tag-based validation path is used, ensuring no change for existing users.
