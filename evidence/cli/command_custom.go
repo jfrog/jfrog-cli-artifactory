@@ -29,3 +29,7 @@ func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDe
 		ecc.ctx.GetStringFlagValue(subjectSha256))
 	return ecc.execute(createCmd)
 }
+
+func (ecc *evidenceCustomCommand) GetEvidence(_ *components.Context, serverDetails *coreConfig.ServerDetails) error {
+	return nil
+}
