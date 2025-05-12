@@ -19,7 +19,6 @@ type PushCommand struct {
 	ContainerCommand
 	threads         int
 	detailedSummary bool
-	validateSha     bool
 	result          *commandsutils.Result
 }
 
