@@ -11,6 +11,7 @@ type ContainerCommand struct {
 	skipLogin            bool
 	cmdParams            []string
 	containerManagerType container.ContainerManagerType
+	validateSha          bool
 }
 
 func NewContainerManagerCommand(containerManagerType container.ContainerManagerType) *ContainerCommand {
@@ -27,6 +28,15 @@ func (cm *ContainerCommand) SetSkipLogin(skipLogin bool) *ContainerCommand {
 func (cm *ContainerCommand) SetCmdParams(cmdParams []string) *ContainerCommand {
 	cm.cmdParams = cmdParams
 	return cm
+}
+
+func (cm *ContainerCommand) SetValidateSha(validateSha bool) *ContainerCommand {
+	cm.validateSha = validateSha
+	return cm
+}
+
+func (cm *ContainerCommand) IsValidateSha() bool {
+	return cm.validateSha
 }
 
 func (cm *ContainerCommand) PerformLogin(serverDetails *config.ServerDetails, containerManagerType container.ContainerManagerType) error {
