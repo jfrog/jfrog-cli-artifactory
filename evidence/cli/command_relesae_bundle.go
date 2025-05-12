@@ -2,9 +2,10 @@ package cli
 
 import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/create"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/get"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
@@ -20,7 +21,7 @@ func NewEvidenceReleaseBundleCommand(ctx *components.Context, execute execComman
 	}
 }
 
-func (erc *evidenceReleaseBundleCommand) CreateEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
+func (erc *evidenceReleaseBundleCommand) CreateEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
 	err := erc.validateEvidenceReleaseBundleContext(ctx)
 	if err != nil {
 		return err
@@ -39,7 +40,26 @@ func (erc *evidenceReleaseBundleCommand) CreateEvidence(ctx *components.Context,
 	return erc.execute(createCmd)
 }
 
-func (erc *evidenceReleaseBundleCommand) VerifyEvidences(ctx *components.Context, serverDetails *config.ServerDetails) error {
+func (erc *evidenceReleaseBundleCommand) GetEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
+	err := erc.validateEvidenceReleaseBundleContext(ctx)
+	if err != nil {
+		return err
+	}
+
+	getCmd := get.NewGetEvidenceReleaseBundle(
+		serverDetails,
+		erc.ctx.GetStringFlagValue(releaseBundle),
+		erc.ctx.GetStringFlagValue(releaseBundleVersion),
+		erc.ctx.GetStringFlagValue(project),
+		erc.ctx.GetStringFlagValue(format),
+		erc.ctx.GetStringFlagValue(output),
+		erc.ctx.GetStringFlagValue(artifactsLimit),
+		erc.ctx.GetBoolFlagValue(includePredicate),
+	)
+	return erc.execute(getCmd)
+}
+
+func (erc *evidenceReleaseBundleCommand) VerifyEvidences(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
 	err := erc.validateEvidenceReleaseBundleContext(ctx)
 	if err != nil {
 		return err
@@ -55,6 +75,7 @@ func (erc *evidenceReleaseBundleCommand) VerifyEvidences(ctx *components.Context
 		erc.ctx.GetBoolFlagValue(useArtifactoryKeys),
 	)
 	return erc.execute(verifyCmd)
+}
 }
 
 func (erc *evidenceReleaseBundleCommand) validateEvidenceReleaseBundleContext(ctx *components.Context) error {

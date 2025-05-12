@@ -8,6 +8,7 @@ import (
 )
 
 type EvidenceCommands interface {
-	CreateEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error
-	VerifyEvidences(ctx *components.Context, serverDetails *config.ServerDetails) error
+	CreateEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error
+	GetEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error
+	VerifyEvidences(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error
 }

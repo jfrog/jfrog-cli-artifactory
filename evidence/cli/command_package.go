@@ -4,7 +4,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/create"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
@@ -20,7 +20,7 @@ func NewEvidencePackageCommand(ctx *components.Context, execute execCommandFunc)
 	}
 }
 
-func (epc *evidencePackageCommand) CreateEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
+func (epc *evidencePackageCommand) CreateEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
 	err := epc.validateEvidencePackageContext(ctx)
 	if err != nil {
 		return err
@@ -39,7 +39,11 @@ func (epc *evidencePackageCommand) CreateEvidence(ctx *components.Context, serve
 	return epc.execute(createCmd)
 }
 
-func (epc *evidencePackageCommand) VerifyEvidences(ctx *components.Context, serverDetails *config.ServerDetails) error {
+func (epc *evidencePackageCommand) GetEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
+	return errorutils.CheckErrorf("Get evidence is not supported with packages")
+}
+
+func (epc *evidencePackageCommand) VerifyEvidences(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
 	err := epc.validateEvidencePackageContext(ctx)
 	if err != nil {
 		return err
@@ -55,6 +59,7 @@ func (epc *evidencePackageCommand) VerifyEvidences(ctx *components.Context, serv
 		epc.ctx.GetBoolFlagValue(useArtifactoryKeys),
 	)
 	return epc.execute(verifyCmd)
+}
 }
 
 func (epc *evidencePackageCommand) validateEvidencePackageContext(ctx *components.Context) error {
