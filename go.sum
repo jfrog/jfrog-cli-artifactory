@@ -137,8 +137,8 @@ github.com/jfrog/froggit-go v1.17.0 h1:20Ie787WO27SwB2MOHDvsR6yN7fA5WfRnuAbmUqz1
 github.com/jfrog/froggit-go v1.17.0/go.mod h1:HvDkfFfJwIdsXFdqaB+utvD2cLDRmaC3kF8otYb6Chw=
 github.com/jfrog/gofrog v1.7.6 h1:QmfAiRzVyaI7JYGsB7cxfAJePAZTzFz0gRWZSE27c6s=
 github.com/jfrog/gofrog v1.7.6/go.mod h1:ntr1txqNOZtHplmaNd7rS4f8jpA5Apx8em70oYEe7+4=
-github.com/jfrog/jfrog-cli-core/v2 v2.58.7 h1:njRlkJjNZ1cvG25S/6T4h+ouI+ZRABN6xZN87UIzB/M=
-github.com/jfrog/jfrog-cli-core/v2 v2.58.7/go.mod h1:ZXcipUeTTEQ/phqHdbCh4wJ5Oo4QVDxzQBREQ0J9mDc=
+github.com/jfrog/jfrog-cli-core/v2 v2.31.1-0.20250527091824-60a3b4b741aa h1:ybm7alLNcgeVRaM4a4Ma1kjzFN5jxe5yIMvdmDATEWM=
+github.com/jfrog/jfrog-cli-core/v2 v2.31.1-0.20250527091824-60a3b4b741aa/go.mod h1:ZXcipUeTTEQ/phqHdbCh4wJ5Oo4QVDxzQBREQ0J9mDc=
 github.com/jfrog/jfrog-client-go v1.53.1 h1:GDRLUDs6hhfGNjqbI+bjc3ApgBHnpVwURM+f26PVfyw=
 github.com/jfrog/jfrog-client-go v1.53.1/go.mod h1:XxYs2QtlTm92yqJ5O4j4vzWI8d4sDtKQUT1miNHMgnw=
 github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=
