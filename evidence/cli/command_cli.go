@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/create"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/get"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/verify"
 	jfrogArtClient "github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
@@ -17,7 +19,6 @@ import (
 	coreUtils "github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
-	"golang.org/x/exp/slices"
 )
 
 func GetCommands() []components.Command {
@@ -29,6 +30,14 @@ func GetCommands() []components.Command {
 			Description: create.GetDescription(),
 			Arguments:   create.GetArguments(),
 			Action:      createEvidence,
+		},
+		{
+			Name:        "get-evidence",
+			Aliases:     []string{"get"},
+			Flags:       GetCommandFlags(GetEvidence),
+			Description: get.GetDescription(),
+			Arguments:   get.GetArguments(),
+			Action:      getEvidence,
 		},
 		{
 			Name:        "verify-evidences",
@@ -56,12 +65,10 @@ func createEvidence(ctx *components.Context) error {
 		return err
 	}
 
-	// Check for GitHub evidence type explicitly
 	if slices.Contains(evidenceType, typeFlag) || (slices.Contains(evidenceType, buildName) && slices.Contains(evidenceType, typeFlag)) {
 		return NewEvidenceGitHubCommand(ctx, execFunc).CreateEvidence(ctx, serverDetails)
 	}
 
-	// Map evidence types to their corresponding command functions
 	evidenceCommands := map[string]func(*components.Context, execCommandFunc) EvidenceCommands{
 		subjectRepoPath: NewEvidenceCustomCommand,
 		releaseBundle:   NewEvidenceReleaseBundleCommand,
@@ -69,12 +76,50 @@ func createEvidence(ctx *components.Context) error {
 		packageName:     NewEvidencePackageCommand,
 	}
 
-	// Fetch command from map; return an error if not found
 	if commandFunc, exists := evidenceCommands[evidenceType[0]]; exists {
 		return commandFunc(ctx, execFunc).CreateEvidence(ctx, serverDetails)
 	}
 
 	return errors.New("unsupported subject")
+}
+
+func getEvidence(ctx *components.Context) error {
+	if err := validateGetEvidenceCommonContext(ctx); err != nil {
+		return err
+	}
+
+	evidenceType, err := getAndValidateSubject(ctx)
+	if err != nil {
+		return err
+	}
+
+	serverDetails, err := evidenceDetailsByFlags(ctx)
+	if err != nil {
+		return err
+	}
+
+	evidenceCommands := map[string]func(*components.Context, execCommandFunc) EvidenceCommands{
+		subjectRepoPath: NewEvidenceCustomCommand,
+		releaseBundle:   NewEvidenceReleaseBundleCommand,
+	}
+
+	if commandFunc, exists := evidenceCommands[evidenceType[0]]; exists {
+		return commandFunc(ctx, execFunc).GetEvidence(ctx, serverDetails)
+	}
+
+	return errors.New("unsupported subject")
+}
+
+func validateGetEvidenceCommonContext(ctx *components.Context) error {
+	if show, err := pluginsCommon.ShowCmdHelpIfNeeded(ctx, ctx.Arguments); show || err != nil {
+		return err
+	}
+
+	if len(ctx.Arguments) > 1 {
+		return pluginsCommon.WrongNumberOfArgumentsHandler(ctx)
+	}
+
+	return nil
 }
 
 func verifyEvidences(ctx *components.Context) error {

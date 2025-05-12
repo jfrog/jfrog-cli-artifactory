@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/create"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/get"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -19,6 +20,7 @@ func NewEvidenceCustomCommand(ctx *components.Context, execute execCommandFunc) 
 		execute: execute,
 	}
 }
+
 func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDetails *config.ServerDetails) error {
 	if ecc.ctx.GetStringFlagValue(sigstoreBundle) != "" && ecc.ctx.GetStringFlagValue(subjectSha256) != "" {
 		return errorutils.CheckErrorf("The parameter --%s cannot be used with --%s. The subject hash is extracted from the bundle itself.", subjectSha256, sigstoreBundle)
@@ -37,6 +39,18 @@ func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDe
 		ecc.ctx.GetStringFlagValue(sigstoreBundle),
 		ecc.ctx.GetStringFlagValue(providerId))
 	return ecc.execute(createCmd)
+}
+
+func (ecc *evidenceCustomCommand) GetEvidence(_ *components.Context, serverDetails *config.ServerDetails) error {
+	getCmd := get.NewGetEvidenceCustom(
+		serverDetails,
+		ecc.ctx.GetStringFlagValue(subjectRepoPath),
+		ecc.ctx.GetStringFlagValue(format),
+		ecc.ctx.GetStringFlagValue(output),
+		ecc.ctx.GetBoolFlagValue(includePredicate),
+	)
+
+	return ecc.execute(getCmd)
 }
 
 func (ecc *evidenceCustomCommand) VerifyEvidences(_ *components.Context, serverDetails *config.ServerDetails) error {
