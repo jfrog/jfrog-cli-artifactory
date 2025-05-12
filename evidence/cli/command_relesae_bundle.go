@@ -38,6 +38,10 @@ func (erc *evidenceReleaseBundleCommand) CreateEvidence(ctx *components.Context,
 	return erc.execute(createCmd)
 }
 
+func (erc *evidenceReleaseBundleCommand) GetEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
+	return nil
+}
+
 func (erc *evidenceReleaseBundleCommand) validateEvidenceReleaseBundleContext(ctx *components.Context) error {
 	if !ctx.IsFlagSet(releaseBundleVersion) || assertValueProvided(ctx, releaseBundleVersion) != nil {
 		return errorutils.CheckErrorf("--%s is a mandatory field for creating a Release Bundle evidence", releaseBundleVersion)
