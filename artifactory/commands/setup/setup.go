@@ -3,8 +3,10 @@ package setup
 import (
 	_ "embed"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
+	"os/exec"
 	"slices"
 	"strings"
 
@@ -51,6 +53,9 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	// Docker package managers
 	project.Docker: repository.Docker,
 	project.Podman: repository.Docker,
+
+	// Helm package manager
+	project.Helm: repository.Helm,
 
 	project.Go: repository.Go,
 
@@ -161,6 +166,8 @@ func (sc *SetupCommand) Run() (err error) {
 		err = sc.configureDotnetNuget()
 	case project.Docker, project.Podman:
 		err = sc.configureContainer()
+	case project.Helm:
+		err = sc.configureHelm()
 	case project.Gradle:
 		err = sc.configureGradle()
 	case project.Maven:
@@ -175,7 +182,7 @@ func (sc *SetupCommand) Run() (err error) {
 	if sc.packageManager != project.Docker && sc.packageManager != project.Podman {
 		repoPrefix = coreutils.PrintBoldTitle(fmt.Sprintf(" repository '%s'", sc.repoName))
 	}
-	log.Output(fmt.Sprintf("Successfully configured %s to use JFrog Artifactory%s.", coreutils.PrintBoldTitle(sc.packageManager.String()), repoPrefix))
+	log.Output(fmt.Sprintf("Successfully configured %s to use JFrog%s.", coreutils.PrintBoldTitle(sc.packageManager.String()), repoPrefix))
 	return nil
 }
 
@@ -191,7 +198,7 @@ func (sc *SetupCommand) promptUserToSelectRepository() (err error) {
 	sc.repoName, err = utils.SelectRepositoryInteractively(
 		sc.serverDetails,
 		repoFilterParams,
-		fmt.Sprintf("To configure %s, we need you to select a %s repository in Artifactory:", repoFilterParams.PackageType, repoFilterParams.RepoType))
+		fmt.Sprintf("To configure %s, we need you to select a %s repository:", repoFilterParams.PackageType, repoFilterParams.RepoType))
 
 	return err
 }
@@ -382,7 +389,7 @@ func (sc *SetupCommand) configureContainer() error {
 	}
 	urlWithoutScheme := parsedPlatformURL.Host + parsedPlatformURL.Path
 	return container.ContainerManagerLogin(
-		urlWithoutScheme,
+		strings.TrimPrefix(urlWithoutScheme, "/"),
 		&container.ContainerManagerLoginConfig{ServerDetails: sc.serverDetails},
 		containerManagerType,
 	)
@@ -431,4 +438,31 @@ func (sc *SetupCommand) configureGradle() error {
 	}
 
 	return gradle.WriteInitScript(initScript)
+}
+
+// configureHelm configures a Helm chart repository in the local Helm CLI using Artifactory credentials.
+// It executes:
+//
+//	<password> | helm repo add <repoName> <url> --username <user> --password-stdin
+func (sc *SetupCommand) configureHelm() error {
+	// Build repo path /api/helm/<repoName>
+	repoURL := strings.TrimSuffix(sc.serverDetails.GetArtifactoryUrl(), "/") + "/api/helm/" + sc.repoName
+
+	// Prepare credentials flags
+	user := sc.serverDetails.GetUser()
+	pass := sc.serverDetails.GetPassword()
+	if token := sc.serverDetails.GetAccessToken(); token != "" {
+		if user == "" {
+			user = auth.ExtractUsernameFromAccessToken(sc.serverDetails.AccessToken)
+		}
+		pass = token
+	}
+	// Add Helm repository with explicit credentials flags
+	cmdAdd := exec.Command("helm", "repo", "add", sc.repoName, repoURL, "--username", user, "--password-stdin")
+	// Pipe password to stdin
+	cmdAdd.Stdin = strings.NewReader(pass)
+	// Suppress success output, retain errors only
+	cmdAdd.Stdout = io.Discard
+	cmdAdd.Stderr = os.Stderr
+	return cmdAdd.Run()
 }
