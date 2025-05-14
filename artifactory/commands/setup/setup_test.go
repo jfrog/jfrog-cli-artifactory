@@ -21,6 +21,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
+	"net/http"
+	"net/http/httptest"
 )
 
 // #nosec G101 -- Dummy token for tests
@@ -559,4 +561,64 @@ func TestSetupCommand_Twine(t *testing.T) {
 			assert.NoError(t, os.Remove(pypircFilePath))
 		})
 	}
+}
+
+func TestSetupCommand_Helm(t *testing.T) {
+	// Create a mock Helm server that serves a valid index.yaml
+	mockServer := setupMockHelmServer()
+	defer mockServer.Close()
+
+	// Create the Helm setup command with our test repo name
+	helmCmd := createTestSetupCommand(project.Helm)
+	
+	// Override the server URLs to point to our mock server instead of acme.jfrog.io
+	helmCmd.serverDetails.Url = mockServer.URL
+	helmCmd.serverDetails.ArtifactoryUrl = mockServer.URL + "/artifactory"
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Set up server details for the current test case's authentication type
+			helmCmd.serverDetails.SetUser(testCase.user)
+			helmCmd.serverDetails.SetPassword(testCase.password)
+			helmCmd.serverDetails.SetAccessToken(testCase.accessToken)
+
+			// Run the helm setup and verify no errors
+			err := helmCmd.Run()
+			require.NoError(t, err, "Helm repo add should succeed with mock server")
+
+			// Verify the repo was added by using 'helm repo list'
+			listCmd := exec.Command("helm", "repo", "list", "-o", "json")
+			output, err := listCmd.Output()
+			require.NoError(t, err, "Failed to list helm repositories")
+			
+			// Look for our repo in the list
+			repoList := string(output)
+			assert.Contains(t, repoList, helmCmd.repoName, "Repository name not found in helm repo list")
+			assert.Contains(t, repoList, mockServer.URL+"/artifactory/api/helm/test-repo",
+				"Repository URL not found in helm repo list")
+
+			// Clean up: Remove the added repository to restore the original state
+			cleanupCmd := exec.Command("helm", "repo", "remove", helmCmd.repoName)
+			assert.NoError(t, cleanupCmd.Run(), "Failed to clean up helm repository after test")
+		})
+	}
+}
+
+// setupMockHelmServer creates a mock HTTP server that responds to Helm repository index.yaml requests
+func setupMockHelmServer() *httptest.Server {
+    // Minimal index.yaml content - only what Helm requires to validate a repository
+    indexYaml := `apiVersion: v1
+entries: {}
+generated: "2023-05-14T12:00:00Z"`
+
+    // Create a test server
+    return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if strings.HasSuffix(r.URL.Path, "/index.yaml") {
+            w.Header().Set("Content-Type", "text/yaml")
+            w.WriteHeader(http.StatusOK)
+            w.Write([]byte(indexYaml))
+            return
+        }
+        w.WriteHeader(http.StatusNotFound)
+    }))
 }
