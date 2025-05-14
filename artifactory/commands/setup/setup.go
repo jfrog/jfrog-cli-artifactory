@@ -3,12 +3,12 @@ package setup
 import (
 	_ "embed"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
 	"slices"
 	"strings"
-	"io"
 
 	bidotnet "github.com/jfrog/build-info-go/build/utils/dotnet"
 	biutils "github.com/jfrog/build-info-go/utils"
@@ -442,7 +442,8 @@ func (sc *SetupCommand) configureGradle() error {
 
 // configureHelm configures a Helm chart repository in the local Helm CLI using Artifactory credentials.
 // It executes:
-//   helm repo add <repoName> <url> --username <user> --password-stdin --force-update
+//
+//	<password> | helm repo add <repoName> <url> --username <user> --password-stdin
 func (sc *SetupCommand) configureHelm() error {
 	// Build repo path /api/helm/<repoName>
 	repoURL := strings.TrimSuffix(sc.serverDetails.GetArtifactoryUrl(), "/") + "/api/helm/" + sc.repoName
@@ -457,7 +458,7 @@ func (sc *SetupCommand) configureHelm() error {
 		pass = token
 	}
 	// Add Helm repository with explicit credentials flags
-	cmdAdd := exec.Command("helm", "repo", "add", sc.repoName, repoURL, "--username", user, "--password-stdin", "--force-update")
+	cmdAdd := exec.Command("helm", "repo", "add", sc.repoName, repoURL, "--username", user, "--password-stdin")
 	// Pipe password to stdin
 	cmdAdd.Stdin = strings.NewReader(pass)
 	// Suppress success output, retain errors only

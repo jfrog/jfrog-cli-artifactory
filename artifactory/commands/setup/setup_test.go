@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"net/http"
+	"net/http/httptest"
+
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
 	cmdutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
@@ -21,8 +24,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
-	"net/http"
-	"net/http/httptest"
 )
 
 // #nosec G101 -- Dummy token for tests
@@ -570,7 +571,7 @@ func TestSetupCommand_Helm(t *testing.T) {
 
 	// Create the Helm setup command with our test repo name
 	helmCmd := createTestSetupCommand(project.Helm)
-	
+
 	// Override the server URLs to point to our mock server instead of acme.jfrog.io
 	helmCmd.serverDetails.Url = mockServer.URL
 	helmCmd.serverDetails.ArtifactoryUrl = mockServer.URL + "/artifactory"
@@ -590,7 +591,7 @@ func TestSetupCommand_Helm(t *testing.T) {
 			listCmd := exec.Command("helm", "repo", "list", "-o", "json")
 			output, err := listCmd.Output()
 			require.NoError(t, err, "Failed to list helm repositories")
-			
+
 			// Look for our repo in the list
 			repoList := string(output)
 			assert.Contains(t, repoList, helmCmd.repoName, "Repository name not found in helm repo list")
@@ -606,19 +607,19 @@ func TestSetupCommand_Helm(t *testing.T) {
 
 // setupMockHelmServer creates a mock HTTP server that responds to Helm repository index.yaml requests
 func setupMockHelmServer() *httptest.Server {
-    // Minimal index.yaml content - only what Helm requires to validate a repository
-    indexYaml := `apiVersion: v1
+	// Minimal index.yaml content - only what Helm requires to validate a repository
+	indexYaml := `apiVersion: v1
 entries: {}
 generated: "2023-05-14T12:00:00Z"`
 
-    // Create a test server
-    return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        if strings.HasSuffix(r.URL.Path, "/index.yaml") {
-            w.Header().Set("Content-Type", "text/yaml")
-            w.WriteHeader(http.StatusOK)
-            w.Write([]byte(indexYaml))
-            return
-        }
-        w.WriteHeader(http.StatusNotFound)
-    }))
+	// Create a test server
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/index.yaml") {
+			w.Header().Set("Content-Type", "text/yaml")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(indexYaml))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
 }
