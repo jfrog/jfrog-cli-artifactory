@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"fmt"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -10,7 +11,11 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/distribution"
 )
 
-const minimalLifecycleArtifactoryVersion = "7.63.2"
+const (
+	rbV2manifestName                   = "release-bundle.json.evd"
+	releaseBundlesV2                   = "release-bundles-v2"
+	minimalLifecycleArtifactoryVersion = "7.63.2"
+)
 
 type releaseBundleCmd struct {
 	serverDetails        *config.ServerDetails
@@ -50,7 +55,7 @@ func (rbc *releaseBundleCmd) initPrerequisites() (servicesManager *lifecycle.Lif
 	return
 }
 
-func validateArtifactoryVersionSupported(serverDetails *config.ServerDetails) error {
+func validateArtifactoryVersion(serverDetails *config.ServerDetails, minVersion string) error {
 	rtServiceManager, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
 	if err != nil {
 		return err
@@ -61,7 +66,15 @@ func validateArtifactoryVersionSupported(serverDetails *config.ServerDetails) er
 		return err
 	}
 
-	return clientUtils.ValidateMinimumVersion(clientUtils.Artifactory, versionStr, minimalLifecycleArtifactoryVersion)
+	return clientUtils.ValidateMinimumVersion(clientUtils.Artifactory, versionStr, minVersion)
+}
+
+func validateArtifactoryVersionSupported(serverDetails *config.ServerDetails) error {
+	return validateArtifactoryVersion(serverDetails, minimalLifecycleArtifactoryVersion)
+}
+
+func validateFeatureSupportedVersion(serverDetails *config.ServerDetails, minCommandVersion string) error {
+	return validateArtifactoryVersion(serverDetails, minCommandVersion)
 }
 
 // If distribution rules are empty, distribute to all edges.
@@ -80,4 +93,15 @@ func isDistributionRulesEmpty(distributionRules *spec.DistributionRules) bool {
 	return distributionRules == nil ||
 		len(distributionRules.DistributionRules) == 0 ||
 		len(distributionRules.DistributionRules) == 1 && distributionRules.DistributionRules[0].IsEmpty()
+}
+
+func buildRepoKey(project string) string {
+	if project == "" || project == "default" {
+		return releaseBundlesV2
+	}
+	return fmt.Sprintf("%s-%s", project, releaseBundlesV2)
+}
+
+func buildManifestPath(projectKey, name, version string) string {
+	return fmt.Sprintf("%s/%s/%s/%s", buildRepoKey(projectKey), name, version, rbV2manifestName)
 }

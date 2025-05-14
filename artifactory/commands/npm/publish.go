@@ -4,10 +4,9 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"errors"
-	"fmt"
 	"github.com/jfrog/build-info-go/build"
 	biutils "github.com/jfrog/build-info-go/build/utils"
-	ioutils "github.com/jfrog/gofrog/io"
+	gofrogcmd "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/gofrog/version"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -15,12 +14,8 @@ import (
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/common/format"
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
-	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
-	"github.com/jfrog/jfrog-client-go/artifactory"
-	"github.com/jfrog/jfrog-client-go/artifactory/services"
-	specutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
@@ -125,6 +120,10 @@ func (npc *NpmPublishCommand) Init() error {
 	if err != nil {
 		return err
 	}
+	filteredNpmArgs, useNative, err := coreutils.ExtractUseNativeFromArgs(filteredNpmArgs)
+	if err != nil {
+		return err
+	}
 	filteredNpmArgs, tag, err := coreutils.ExtractTagFromArgs(filteredNpmArgs)
 	if err != nil {
 		return err
@@ -146,7 +145,7 @@ func (npc *NpmPublishCommand) Init() error {
 		}
 		npc.SetBuildConfiguration(buildConfiguration).SetRepo(deployerParams.TargetRepo()).SetNpmArgs(filteredNpmArgs).SetServerDetails(rtDetails)
 	}
-	npc.SetDetailedSummary(detailedSummary).SetXrayScan(xrayScan).SetScanOutputFormat(scanOutputFormat).SetDistTag(tag)
+	npc.SetDetailedSummary(detailedSummary).SetXrayScan(xrayScan).SetScanOutputFormat(scanOutputFormat).SetDistTag(tag).SetUseNative(useNative)
 	return nil
 }
 
@@ -182,7 +181,10 @@ func (npc *NpmPublishCommand) Run() (err error) {
 		}
 	}
 
-	if err = npc.publish(); err != nil {
+	publishStrategy := NewNpmPublishStrategy(npc.UseNative(), npc)
+
+	err = publishStrategy.Publish()
+	if err != nil {
 		if npc.tarballProvided {
 			return err
 		}
@@ -208,11 +210,12 @@ func (npc *NpmPublishCommand) Run() (err error) {
 	if npc.buildConfiguration.GetModule() != "" {
 		npmModule.SetName(npc.buildConfiguration.GetModule())
 	}
-	buildArtifacts, err := specutils.ConvertArtifactsDetailsToBuildInfoArtifacts(npc.artifactsDetailsReader)
+
+	buildArtifacts, err := publishStrategy.GetBuildArtifacts()
 	if err != nil {
 		return err
 	}
-	defer ioutils.Close(npc.artifactsDetailsReader, &err)
+	defer gofrogcmd.Close(npc.artifactsDetailsReader, &err)
 	err = npmModule.AddArtifacts(buildArtifacts...)
 	if err != nil {
 		return errorutils.CheckError(err)
@@ -292,131 +295,6 @@ func (npc *NpmPublishCommand) getTarballDir() (string, error) {
 	return dest, nil
 }
 
-func (npc *NpmPublishCommand) publish() (err error) {
-	for _, packedFilePath := range npc.packedFilePaths {
-		log.Debug("Deploying npm package.")
-		if err = npc.readPackageInfoFromTarball(packedFilePath); err != nil {
-			return
-		}
-		target := fmt.Sprintf("%s/%s", npc.repo, npc.packageInfo.GetDeployPath())
-
-		// If requested, perform a Xray binary scan before deployment. If a FailBuildError is returned, skip the deployment.
-		if npc.xrayScan {
-			fileSpec := spec.NewBuilder().
-				Pattern(packedFilePath).
-				Target(npc.repo + "/").
-				BuildSpec()
-			if err = commandsutils.ConditionalUploadScanFunc(npc.serverDetails, fileSpec, 1, npc.scanOutputFormat); err != nil {
-				return
-			}
-		}
-		err = errors.Join(err, npc.doDeploy(target, npc.serverDetails, packedFilePath))
-	}
-	return
-}
-
-func (npc *NpmPublishCommand) doDeploy(target string, artDetails *config.ServerDetails, packedFilePath string) error {
-	servicesManager, err := utils.CreateServiceManager(artDetails, -1, 0, false)
-	if err != nil {
-		return err
-	}
-	up := services.NewUploadParams()
-	up.CommonParams = &specutils.CommonParams{Pattern: packedFilePath, Target: target}
-	if err = npc.addDistTagIfSet(up.CommonParams); err != nil {
-		return err
-	}
-	var totalFailed int
-	if npc.collectBuildInfo || npc.detailedSummary {
-		if npc.collectBuildInfo {
-			buildName, err := npc.buildConfiguration.GetBuildName()
-			if err != nil {
-				return err
-			}
-			buildNumber, err := npc.buildConfiguration.GetBuildNumber()
-			if err != nil {
-				return err
-			}
-			err = buildUtils.SaveBuildGeneralDetails(buildName, buildNumber, npc.buildConfiguration.GetProject())
-			if err != nil {
-				return err
-			}
-			up.BuildProps, err = buildUtils.CreateBuildProperties(buildName, buildNumber, npc.buildConfiguration.GetProject())
-			if err != nil {
-				return err
-			}
-		}
-		summary, err := servicesManager.UploadFilesWithSummary(artifactory.UploadServiceOptions{}, up)
-		if err != nil {
-			return err
-		}
-		totalFailed = summary.TotalFailed
-		if npc.collectBuildInfo {
-			npc.artifactsDetailsReader = summary.ArtifactsDetailsReader
-		} else {
-			err = summary.ArtifactsDetailsReader.Close()
-			if err != nil {
-				return err
-			}
-		}
-		if npc.detailedSummary {
-			if err = npc.setDetailedSummary(summary); err != nil {
-				return err
-			}
-		} else {
-			if err = summary.TransferDetailsReader.Close(); err != nil {
-				return err
-			}
-		}
-	} else {
-		_, totalFailed, err = servicesManager.UploadFiles(artifactory.UploadServiceOptions{}, up)
-		if err != nil {
-			return err
-		}
-	}
-
-	// We are deploying only one Artifact which have to be deployed, in case of failure we should fail
-	if totalFailed > 0 {
-		return errorutils.CheckErrorf("Failed to upload the npm package to Artifactory. See Artifactory logs for more details.")
-	}
-	return nil
-}
-
-// Set the dist tag property to the package if required by the --tag option.
-func (npc *NpmPublishCommand) addDistTagIfSet(params *specutils.CommonParams) error {
-	if npc.distTag == "" {
-		return nil
-	}
-	props, err := specutils.ParseProperties(DistTagPropKey + "=" + npc.distTag)
-	if err != nil {
-		return err
-	}
-	params.TargetProps = props
-	return nil
-}
-
-func (npc *NpmPublishCommand) setDetailedSummary(summary *specutils.OperationSummary) (err error) {
-	npc.result.SetFailCount(npc.result.FailCount() + summary.TotalFailed)
-	npc.result.SetSuccessCount(npc.result.SuccessCount() + summary.TotalSucceeded)
-	if npc.result.Reader() == nil {
-		npc.result.SetReader(summary.TransferDetailsReader)
-	} else {
-		if err = npc.appendReader(summary); err != nil {
-			return
-		}
-	}
-	return
-}
-
-func (npc *NpmPublishCommand) appendReader(summary *specutils.OperationSummary) error {
-	readersSlice := []*content.ContentReader{npc.result.Reader(), summary.TransferDetailsReader}
-	reader, err := content.MergeReaders(readersSlice, content.DefaultKey)
-	if err != nil {
-		return err
-	}
-	npc.result.SetReader(reader)
-	return nil
-}
-
 func (npc *NpmPublishCommand) setPublishPath() error {
 	log.Debug("Reading Package Json.")
 
@@ -494,4 +372,20 @@ func deleteCreatedTarball(packedFilesPath []string) error {
 		log.Debug("Successfully deleted the created npm package:", packedFilePath)
 	}
 	return nil
+}
+
+func (npc *NpmPublishCommand) getBuildPropsForArtifact() (string, error) {
+	buildName, err := npc.buildConfiguration.GetBuildName()
+	if err != nil {
+		return "", err
+	}
+	buildNumber, err := npc.buildConfiguration.GetBuildNumber()
+	if err != nil {
+		return "", err
+	}
+	err = buildUtils.SaveBuildGeneralDetails(buildName, buildNumber, npc.buildConfiguration.GetProject())
+	if err != nil {
+		return "", err
+	}
+	return buildUtils.CreateBuildProperties(buildName, buildNumber, npc.buildConfiguration.GetProject())
 }

@@ -12,5 +12,6 @@ func GetArguments() []components.Argument {
 	return []components.Argument{
 		{Name: "release bundle name", Description: "Name of the Release Bundle to promote."},
 		{Name: "release bundle version", Description: "Version of the Release Bundle to promote."},
+		{Name: "environment", Description: "Name of the target environment for the promotion."},
 	}
 }

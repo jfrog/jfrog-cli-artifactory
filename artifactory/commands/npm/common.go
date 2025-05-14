@@ -10,6 +10,7 @@ type CommonArgs struct {
 	buildConfiguration *build.BuildConfiguration
 	npmArgs            []string
 	serverDetails      *config.ServerDetails
+	useNative          bool
 }
 
 func (ca *CommonArgs) SetServerDetails(serverDetails *config.ServerDetails) *CommonArgs {
@@ -29,5 +30,14 @@ func (ca *CommonArgs) SetBuildConfiguration(buildConfiguration *build.BuildConfi
 
 func (ca *CommonArgs) SetRepo(repo string) *CommonArgs {
 	ca.repo = repo
+	return ca
+}
+
+func (ca *CommonArgs) UseNative() bool {
+	return ca.useNative
+}
+
+func (ca *CommonArgs) SetUseNative(useNpmRc bool) *CommonArgs {
+	ca.useNative = useNpmRc
 	return ca
 }
