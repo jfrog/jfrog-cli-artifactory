@@ -617,7 +617,11 @@ generated: "2023-05-14T12:00:00Z"`
 		if strings.HasSuffix(r.URL.Path, "/index.yaml") {
 			w.Header().Set("Content-Type", "text/yaml")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(indexYaml))
+			_, err := w.Write([]byte(indexYaml))
+			if err != nil {
+				http.Error(w, "Failed to write response", http.StatusInternalServerError)
+				return
+			}
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
