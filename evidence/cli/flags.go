@@ -54,7 +54,7 @@ var flagsMap = map[string]components.Flag{
 	packageVersion:       components.NewStringFlag(packageVersion, "Package version.", func(f *components.StringFlag) { f.Mandatory = false }),
 	packageRepoName:      components.NewStringFlag(packageRepoName, "Package repository Name.", func(f *components.StringFlag) { f.Mandatory = false }),
 
-	predicate:       components.NewStringFlag(predicate, "Path to the predicate, arbitrary JSON.", func(f *components.StringFlag) { f.Mandatory = true }),
+	predicate:       components.NewStringFlag(predicate, "Path to the predicate, arbitrary JSON.", func(f *components.StringFlag) { f.Mandatory = false }),
 	predicateType:   components.NewStringFlag(predicateType, "Type of the predicate.", func(f *components.StringFlag) { f.Mandatory = true }),
 	markdown:        components.NewStringFlag(markdown, "Markdown of the predicate.", func(f *components.StringFlag) { f.Mandatory = false }),
 	subjectRepoPath: components.NewStringFlag(subjectRepoPath, "Full path to some subject' location.", func(f *components.StringFlag) { f.Mandatory = false }),

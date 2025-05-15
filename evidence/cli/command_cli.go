@@ -69,9 +69,9 @@ func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 		return pluginsCommon.WrongNumberOfArgumentsHandler(ctx)
 	}
 
-	if !ctx.IsFlagSet(predicate) || assertValueProvided(ctx, predicate) != nil {
-		return errorutils.CheckErrorf("'predicate' is a mandatory field for creating evidence: --%s", predicate)
-	}
+	//if !ctx.IsFlagSet(predicate) || assertValueProvided(ctx, predicate) != nil {
+	//	return errorutils.CheckErrorf("'predicate' is a mandatory field for creating evidence: --%s", predicate)
+	//}
 
 	if !ctx.IsFlagSet(predicateType) || assertValueProvided(ctx, predicateType) != nil {
 		return errorutils.CheckErrorf("'predicate-type' is a mandatory field for creating evidence: --%s", predicateType)

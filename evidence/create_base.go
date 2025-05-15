@@ -7,6 +7,8 @@ import (
 	"github.com/jfrog/gofrog/log"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cryptox"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/externalproviders"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/externalproviders/sonarqube"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/intoto"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -49,12 +51,27 @@ func (c *createEvidenceBase) createEnvelope(subject, subjectSha256 string) ([]by
 }
 
 func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 string) ([]byte, error) {
-	predicate, err := os.ReadFile(c.predicateFilePath)
-	if err != nil {
-		log.Warn(fmt.Sprintf("failed to read predicate file '%s'", predicate))
-		return nil, err
+	var predicate []byte
+	// Auto Populate the predicate if the predicate type is sonarqube and the predicate file path is not provided
+	if c.predicateFilePath == "" && c.predicateType == "https://jfrog.com/evidence/sonarqube/v1" {
+		loadConfig, err := externalproviders.LoadConfig(".jfrog/evidence/evidence.yaml")
+		if err != nil {
+			return nil, err
+		}
+		se := &sonarqube.SonarEvidence{YamlNode: loadConfig["sonar"]}
+		log.Debug("Using sonarqube server configuration from evidence.yaml ", se)
+		predicate, err = se.GetEvidence()
+		if err != nil {
+			log.Warn(fmt.Sprintf("failed to read predicate file '%s'", predicate))
+			return nil, err
+		}
+	} else {
+		predicate, err := os.ReadFile(c.predicateFilePath)
+		if err != nil {
+			log.Warn(fmt.Sprintf("failed to read predicate file '%s'", predicate))
+			return nil, err
+		}
 	}
-
 	artifactoryClient, err := c.createArtifactoryClient()
 	if err != nil {
 		return nil, err
