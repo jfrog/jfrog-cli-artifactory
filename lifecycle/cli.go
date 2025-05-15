@@ -35,7 +35,8 @@ import (
 )
 
 const (
-	lcCategory = "Lifecycle"
+	lcCategory                        = "Lifecycle"
+	minMultiSourcesArtifactoryVersion = "7.114.0"
 )
 
 func GetCommands() []components.Command {
@@ -129,20 +130,55 @@ func validateCreateReleaseBundleContext(c *components.Context) error {
 
 func assertValidCreationMethod(c *components.Context) error {
 	// Determine the methods provided
-	methods := []bool{
+	regularMethods := []bool{
 		c.IsFlagSet("spec"),
 		c.IsFlagSet(flagkit.Builds),
 		c.IsFlagSet(flagkit.ReleaseBundles),
 	}
-	methodCount := coreutils.SumTrueValues(methods)
+	methodCount := coreutils.SumTrueValues(regularMethods)
 
-	// Validate that only one creation method is provided
+	multiSourcesMethods := []bool{
+		c.IsFlagSet(flagkit.SourcesReleaseBundles),
+		c.IsFlagSet(flagkit.SourcesBuilds),
+	}
+
+	multiSrcMethodCount := coreutils.SumTrueValues(multiSourcesMethods)
+
+	if err := validateCreationMethods(c, methodCount, multiSrcMethodCount); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateRegularMethods(c *components.Context, methodCount int) error {
 	if err := validateSingleCreationMethod(methodCount); err != nil {
 		return err
 	}
 
 	if err := validateCreationValuesPresence(c, methodCount); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateCreationMethods(c *components.Context, regularMethodsCount int, multiSrcMethodsCount int) error {
+	if multiSrcMethodsCount == 0 {
+		if err := validateRegularMethods(c, regularMethodsCount); err != nil {
+			return err
+		}
+	} else {
+		if _, err := multipleSourcesSupported(c); err != nil {
+			return err
+		}
+
+		if regularMethodsCount > 0 {
+			return errorutils.CheckErrorf(
+				"only multiple sources must be supplied: --%s, --%s,\n"+
+					"or one of: --%s, --%s or --%s",
+				flagkit.SourcesReleaseBundles, flagkit.SourcesBuilds,
+				"spec", flagkit.Builds, flagkit.ReleaseBundles,
+			)
+		}
 	}
 	return nil
 }
@@ -191,15 +227,46 @@ func create(c *components.Context) (err error) {
 		return
 	}
 	createCmd := lifecycle.NewReleaseBundleCreateCommand().SetServerDetails(lcDetails).SetReleaseBundleName(c.GetArgumentAt(0)).
-		SetReleaseBundleVersion(c.GetArgumentAt(1)).SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey)).SetSync(c.GetBoolFlagValue(flagkit.Sync)).
+		SetReleaseBundleVersion(c.GetArgumentAt(1)).SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey)).
+		SetSync(c.GetBoolFlagValue(flagkit.Sync)).
 		SetReleaseBundleProject(pluginsCommon.GetProject(c)).SetSpec(creationSpec).
 		SetBuildsSpecPath(c.GetStringFlagValue(flagkit.Builds)).SetReleaseBundlesSpecPath(c.GetStringFlagValue(flagkit.ReleaseBundles))
+
+	/*if c.GetStringFlagValue(flagkit.SigningKey) != "" {
+		createCmd.SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey))
+	} else {
+		signingKeyValue, _ := jfrogArtClient.GetEnvVariable("JFROG_CLI_SIGNING_KEY")
+		if signingKeyValue == "" {
+			return errorutils.CheckErrorf("JFROG_CLI_SIGNING_KEY env variable or --%s flag must be provided when creating evidence", flagkit.SigningKey)
+		}
+		createCmd.SetSigningKeyName(signingKeyValue)
+	}*/
+
+	if isSupported, _ := multipleSourcesSupported(c); isSupported == true {
+		createCmd.SetSourcesReleaseBundles(c.GetStringFlagValue(flagkit.SourcesReleaseBundles)).
+			SetSourcesBuilds(c.GetStringFlagValue(flagkit.SourcesBuilds))
+	}
+
 	return commands.Exec(createCmd)
+}
+
+func multipleSourcesSupported(c *components.Context) (bool, error) {
+	lcDetails, _ := createLifecycleDetailsByFlags(c)
+
+	err := lifecycle.ValidateFeatureSupportedVersion(lcDetails, minMultiSourcesArtifactoryVersion)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func getReleaseBundleCreationSpec(c *components.Context) (*spec.SpecFiles, error) {
 	// Checking if the "builds" or "release-bundles" flags are set - if so, the spec flag should be ignored
 	if c.IsFlagSet(flagkit.Builds) || c.IsFlagSet(flagkit.ReleaseBundles) {
+		return nil, nil
+	}
+
+	if c.IsFlagSet(flagkit.SourcesReleaseBundles) || c.IsFlagSet(flagkit.SourcesBuilds) {
 		return nil, nil
 	}
 

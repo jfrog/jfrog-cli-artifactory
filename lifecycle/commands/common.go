@@ -73,7 +73,7 @@ func validateArtifactoryVersionSupported(serverDetails *config.ServerDetails) er
 	return validateArtifactoryVersion(serverDetails, minimalLifecycleArtifactoryVersion)
 }
 
-func validateFeatureSupportedVersion(serverDetails *config.ServerDetails, minCommandVersion string) error {
+func ValidateFeatureSupportedVersion(serverDetails *config.ServerDetails, minCommandVersion string) error {
 	return validateArtifactoryVersion(serverDetails, minCommandVersion)
 }
 
