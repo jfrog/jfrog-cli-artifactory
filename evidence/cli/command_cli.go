@@ -2,7 +2,9 @@ package cli
 
 import (
 	"errors"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/config"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/create"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/externalproviders"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
@@ -11,7 +13,10 @@ import (
 	coreUtils "github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
+	"gopkg.in/yaml.v3"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -24,6 +29,14 @@ func GetCommands() []components.Command {
 			Description: create.GetDescription(),
 			Arguments:   create.GetArguments(),
 			Action:      createEvidence,
+		},
+		{
+			Name:        "generate-config",
+			Aliases:     []string{"gc"},
+			Flags:       GetCommandFlags(GenerateConfig),
+			Description: config.GetDescription(),
+			Arguments:   create.GetArguments(),
+			Action:      generateEvidenceProviderConfig,
 		},
 	}
 }
@@ -60,6 +73,37 @@ func createEvidence(ctx *components.Context) error {
 	return command.CreateEvidence(ctx, serverDetails)
 }
 
+func generateEvidenceProviderConfig(ctx *components.Context) error {
+	if show, err := pluginsCommon.ShowCmdHelpIfNeeded(ctx, ctx.Arguments); show || err != nil {
+		return err
+	}
+	if len(ctx.Arguments) != 1 {
+		return pluginsCommon.WrongNumberOfArgumentsHandler(ctx)
+	}
+	globalFlag := ctx.GetBoolFlagValue("global")
+	evidenceDir, err := externalproviders.GetEvidenceDir(globalFlag)
+	if err != nil {
+		return err
+	}
+	var evidenceConfigMap map[string]*yaml.Node
+	evidenceFile := filepath.Join(evidenceDir, "evidence.yaml")
+	if ok, _ := fileutils.IsFileExists(evidenceFile, false); ok {
+		evidenceConfigMap, err = externalproviders.LoadConfig(evidenceFile)
+		if err != nil {
+			return err
+		}
+	}
+	evidenceConfig := &externalproviders.EvidenceConfig{}
+	evidenceProvider := ctx.GetArgumentAt(0)
+	if strings.EqualFold(evidenceProvider, "sonar") {
+		err = CreateSonarConfig(evidenceConfigMap["sonar"], evidenceConfig)
+		if err != nil {
+			return err
+		}
+	}
+	return WriteConfigFile(globalFlag, evidenceConfig)
+}
+
 func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 	if show, err := pluginsCommon.ShowCmdHelpIfNeeded(ctx, ctx.Arguments); show || err != nil {
 		return err
@@ -68,10 +112,6 @@ func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 	if len(ctx.Arguments) > 1 {
 		return pluginsCommon.WrongNumberOfArgumentsHandler(ctx)
 	}
-
-	//if !ctx.IsFlagSet(predicate) || assertValueProvided(ctx, predicate) != nil {
-	//	return errorutils.CheckErrorf("'predicate' is a mandatory field for creating evidence: --%s", predicate)
-	//}
 
 	if !ctx.IsFlagSet(predicateType) || assertValueProvided(ctx, predicateType) != nil {
 		return errorutils.CheckErrorf("'predicate-type' is a mandatory field for creating evidence: --%s", predicateType)

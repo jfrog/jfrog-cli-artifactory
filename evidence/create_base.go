@@ -15,8 +15,10 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	evidenceService "github.com/jfrog/jfrog-client-go/evidence/services"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	clientlog "github.com/jfrog/jfrog-client-go/utils/log"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -52,18 +54,18 @@ func (c *createEvidenceBase) createEnvelope(subject, subjectSha256 string) ([]by
 
 func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 string) ([]byte, error) {
 	var predicate []byte
+	var err error
 	// Auto Populate the predicate if the predicate type is sonarqube and the predicate file path is not provided
-	if c.predicateFilePath == "" && c.predicateType == "https://jfrog.com/evidence/sonarqube/v1" {
-		loadConfig, err := externalproviders.LoadConfig(".jfrog/evidence/evidence.yaml")
-		if err != nil {
-			return nil, err
-		}
-		se := &sonarqube.SonarEvidence{YamlNode: loadConfig["sonar"]}
-		log.Debug("Using sonarqube server configuration from evidence.yaml ", se)
-		predicate, err = se.GetEvidence()
-		if err != nil {
-			log.Warn(fmt.Sprintf("failed to read predicate file '%s'", predicate))
-			return nil, err
+	if c.predicateFilePath == "" {
+		log.Info("Using auto populate predicate")
+		switch c.predicateType {
+		case "https://jfrog.com/evidence/sonarqube/v1":
+			predicate, err = c.createSonarEvidence()
+			if err != nil {
+				return nil, err
+			}
+		default:
+			return nil, errorutils.CheckError(fmt.Errorf("predicate type '%s' is not supported", c.predicateType))
 		}
 	} else {
 		predicate, err := os.ReadFile(c.predicateFilePath)
@@ -100,6 +102,31 @@ func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 str
 	return statementJson, nil
 }
 
+func (c *createEvidenceBase) createSonarEvidence() ([]byte, error) {
+	var predicate []byte
+	evidenceDir, err := externalproviders.GetEvidenceDir(false)
+	if err != nil {
+		return nil, err
+	}
+	evidenceConfigFilePath := filepath.Join(evidenceDir, "evidence.yaml")
+	evidenceConfig, err := externalproviders.LoadConfig(evidenceConfigFilePath)
+	if err != nil {
+		return nil, err
+	}
+	sc, err := sonarqube.ReadSonarConfiguration(evidenceConfig["sonar"])
+	if err != nil {
+		return nil, err
+	}
+	se := &sonarqube.SonarEvidence{SonarConfig: sc}
+	log.Debug("Using sonarqube server configuration from evidence.yaml ", se)
+	predicate, err = se.GetEvidence()
+	if err != nil {
+		log.Warn(fmt.Sprintf("failed to read predicate from sonar '%s'", predicate))
+		return nil, err
+	}
+	return predicate, nil
+}
+
 func (c *createEvidenceBase) setMarkdown(statement *intoto.Statement) error {
 	if c.markdownFilePath != "" {
 		if !strings.HasSuffix(c.markdownFilePath, ".md") {
@@ -120,7 +147,6 @@ func (c *createEvidenceBase) uploadEvidence(envelope []byte, repoPath string) er
 	if err != nil {
 		return err
 	}
-
 	evidenceDetails := evidenceService.EvidenceDetails{
 		SubjectUri:  repoPath,
 		DSSEFileRaw: envelope,

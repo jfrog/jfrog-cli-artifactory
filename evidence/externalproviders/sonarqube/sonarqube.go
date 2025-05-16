@@ -7,36 +7,90 @@ import (
 	"errors"
 	"fmt"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	evidence2 "github.com/jfrog/jfrog-client-go/evidence"
+	"github.com/jfrog/jfrog-client-go/evidence"
 	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"gopkg.in/yaml.v3"
 	"os"
+	"strconv"
 	"strings"
+)
+
+const (
+	DefaultSonarHost      = "https://sonarcloud.io"
+	DefaultReportTaskFile = "target/sonar/report-task.txt"
+	DefaultRetries        = 3
+	DefaultInterval       = 10
 )
 
 type SonarConfig struct {
 	URL            string `yaml:"url"`
 	ReportTaskFile string `yaml:"reportTaskFile"`
-	FailOnError    bool   `yaml:"failOnError"`
-	MaxRetries     int    `yaml:"maxRetries"`
-	retryInterval  int    `yaml:"retryInterval"`
+	MaxRetries     *int   `yaml:"maxRetries"`
+	RetryInterval  *int   `yaml:"RetryInterval"`
 	Proxy          string `yaml:"proxy"`
 }
 
 type SonarEvidence struct {
 	ServerDetails *config.ServerDetails
-	YamlNode      *yaml.Node
+	SonarConfig   *SonarConfig
 }
 
-func (s *SonarEvidence) GetEvidence() ([]byte, error) {
-	log.Info("Retrieving evidence from sonarqube server")
-	var sonarConfig SonarConfig
-	if err := s.YamlNode.Decode(&sonarConfig); err != nil {
-		return []byte{}, err
+func NewSonarConfig(url, reportTaskFile, maxRetries, retryInterval, proxy string) *SonarConfig {
+	log.Debug("Creating sonarqube config URL: " + url + " reportTaskFile: " + reportTaskFile + " maxRetries: " + maxRetries + " retryInterval: " + retryInterval)
+	var retriesAllowed, retryCoolingPeriodSecs *int
+	retries, err := strconv.Atoi(maxRetries)
+	if err != nil {
+		log.Warn("Invalid maxRetries value, using default")
+		retries = 0
 	}
-	return CreateSonarQubeEvidence(sonarConfig.URL, sonarConfig.ReportTaskFile, sonarConfig.Proxy, sonarConfig.MaxRetries, sonarConfig.retryInterval)
+	retriesAllowed = &retries
+	retryIntervalSecs, err := strconv.Atoi(retryInterval)
+	if err != nil {
+		log.Warn("Invalid retryInterval value, using default")
+		retryIntervalSecs = 0
+	}
+	retryCoolingPeriodSecs = &retryIntervalSecs
+	return &SonarConfig{
+		URL:            url,
+		ReportTaskFile: reportTaskFile,
+		MaxRetries:     retriesAllowed,
+		RetryInterval:  retryCoolingPeriodSecs,
+		Proxy:          proxy,
+	}
+}
+
+func NewDefaultSonarConfig() *SonarConfig {
+	retries := func() *int { v := DefaultRetries; return &v }()
+	interval := func() *int { v := DefaultInterval; return &v }()
+	return &SonarConfig{
+		URL:            DefaultSonarHost,
+		ReportTaskFile: DefaultReportTaskFile,
+		MaxRetries:     retries,
+		RetryInterval:  interval,
+		Proxy:          "",
+	}
+}
+
+func (se *SonarEvidence) GetEvidence() ([]byte, error) {
+	log.Info("Retrieving evidence from sonarqube server")
+	return CreateSonarQubeEvidence(
+		se.SonarConfig.URL,
+		se.SonarConfig.ReportTaskFile,
+		se.SonarConfig.Proxy,
+		*se.SonarConfig.MaxRetries,
+		*se.SonarConfig.RetryInterval,
+	)
+}
+
+func ReadSonarConfiguration(yamlNode *yaml.Node) (*SonarConfig, error) {
+	var sonarConfig SonarConfig
+	if err := yamlNode.Decode(&sonarConfig); err != nil {
+		return nil, err
+	}
+	log.Debug("Reading sonarqube config", sonarConfig)
+	return &sonarConfig, nil
 }
 
 type TaskReport struct {
@@ -96,16 +150,12 @@ func getCeTaskUrlFromFile(filePath string) (string, error) {
 }
 
 func CreateSonarQubeEvidence(sonarQubeURL, reportTaskFile, proxy string, maxRetries, retryInterval int) (data []byte, err error) {
-	if reportTaskFile == "" {
-		reportTaskFile = "target/sonar/report-task.txt"
-	}
 	taskID, err := getCeTaskUrlFromFile(reportTaskFile)
 	if err != nil {
 		return data, err
 	}
-	log.Debug(fmt.Sprintf("Creating sonarqube evidence for component %s with taskID %s", reportTaskFile, taskID))
-	evd := &evidence2.EvidenceServicesManager{}
-
+	log.Debug(fmt.Sprintf("Creating sonarqube evidence using taskID %s", taskID))
+	evd := &evidence.EvidenceServicesManager{}
 	var taskReport *TaskReport
 	retryExecutor := utils.RetryExecutor{
 		Context:                  context.Background(),
@@ -114,7 +164,7 @@ func CreateSonarQubeEvidence(sonarQubeURL, reportTaskFile, proxy string, maxRetr
 		ExecutionHandler: func() (shouldRetry bool, err error) {
 			taskReport = new(TaskReport)
 			evidenceData, err := evd.CreateSonarQubeEvidence(taskID, sonarQubeURL, proxy)
-			if err != nil {
+			if err != nil || evidenceData == nil {
 				return true, err
 			}
 			err = json.Unmarshal(evidenceData, &taskReport)
@@ -133,6 +183,5 @@ func CreateSonarQubeEvidence(sonarQubeURL, reportTaskFile, proxy string, maxRetr
 	if err != nil {
 		return nil, err
 	}
-	log.Debug("Received sonar analysis ID: " + taskReport.Task.AnalysisID)
 	return evd.GetSonarQubeProjectStatus(taskReport.Task.AnalysisID, sonarQubeURL, proxy)
 }

@@ -1,32 +1,33 @@
 package externalproviders
 
 import (
-	"gopkg.in/yaml.v3"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/externalproviders/sonarqube"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"os"
+	"path/filepath"
 )
+
+type EvidenceConfig struct {
+	Sonar *sonarqube.SonarConfig `yaml:"sonar,omitempty"`
+}
 
 type EvidenceProvider interface {
 	// GetEvidence returns the evidence for the given type of external providers evidence
 	GetEvidence() ([]byte, error)
 }
 
-func LoadConfig(path string) (map[string]*yaml.Node, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
+func GetEvidenceDir(global bool) (jfrogDir string, err error) {
+	if !global {
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+		jfrogDir = filepath.Join(wd, ".jfrog")
+	} else {
+		jfrogDir, err = coreutils.GetJfrogHomeDir()
+		if err != nil {
+			return "", nil
+		}
 	}
-	var root yaml.Node
-	if err := yaml.Unmarshal(data, &root); err != nil {
-		return nil, err
-	}
-	m := make(map[string]*yaml.Node)
-	if root.Kind == yaml.DocumentNode && len(root.Content) > 0 {
-		root = *root.Content[0]
-	}
-	for i := 0; i < len(root.Content); i += 2 {
-		key := root.Content[i].Value
-		val := root.Content[i+1]
-		m[key] = val
-	}
-	return m, nil
+	return filepath.Join(jfrogDir, "evidence"), nil
 }
