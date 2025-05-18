@@ -592,7 +592,9 @@ func TestSetupCommand_Helm(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Remove any existing config file from previous test iterations
-			_ = os.Remove(helmRegistryConfig)
+			if err := os.Remove(helmRegistryConfig); err != nil && !os.IsNotExist(err) {
+				t.Fatalf("Failed to remove existing helm registry config: %v", err)
+			}
 
 			// Set up server details for the current test case's authentication type
 			helmCmd.serverDetails.SetUser(testCase.user)
