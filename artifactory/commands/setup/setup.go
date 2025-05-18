@@ -465,11 +465,9 @@ func (sc *SetupCommand) configureHelm() error {
 		pass = token
 	}
 
-	// If no credentials are provided, anonymous access is assumed
-	// For anonymous access, we don't need to perform registry login
+	// If no credentials are provided, throw an error
 	if user == "" && pass == "" {
-		log.Debug("No credentials provided for Helm registry. Using anonymous access.")
-		return nil
+		return errorutils.CheckErrorf("credentials are required for Helm registry login")
 	}
 
 	// Login to the Helm OCI registry

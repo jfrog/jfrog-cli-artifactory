@@ -598,22 +598,26 @@ func TestSetupCommand_Helm(t *testing.T) {
 			helmCmd.serverDetails.SetUser(testCase.user)
 			helmCmd.serverDetails.SetPassword(testCase.password)
 			helmCmd.serverDetails.SetAccessToken(testCase.accessToken)
-
-			// Run the command and verify success
 			err := helmCmd.Run()
-			require.NoError(t, err, "Helm registry login should succeed")
-
-			// For anonymous access, just verify the command succeeded (no config file is created)
+			// For anonymous access, we expect an error since credentials are now required
 			if testCase.name == "Anonymous Access" {
+				err := helmCmd.Run()
+				require.Error(t, err, "Helm registry login should fail for anonymous access")
+				assert.Contains(t, err.Error(), "credentials are required",
+					"Error should indicate that credentials are required")
 				return
-			}
+			} else {
 
-			// For authenticated access, check if registry config exists and contains the right URL
-			configData, err := os.ReadFile(helmRegistryConfig)
-			assert.NoError(t, err, "Failed to read Helm registry config file")
-			// If the file exists, verify it contains the registry URL
-			assert.Contains(t, string(configData), parsedURL.Host,
-				"Registry URL should be in Helm registry config")
+				// For authenticated access, expect success
+				require.NoError(t, err, "Helm registry login should succeed with credentials")
+
+				// For authenticated access, check if registry config exists and contains the right URL
+				configData, err := os.ReadFile(helmRegistryConfig)
+				assert.NoError(t, err, "Failed to read Helm registry config file")
+				// If the file exists, verify it contains the registry URL
+				assert.Contains(t, string(configData), parsedURL.Host,
+					"Registry URL should be in Helm registry config")
+			}
 		})
 	}
 }
