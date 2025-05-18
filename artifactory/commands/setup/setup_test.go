@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -564,17 +565,25 @@ func TestSetupCommand_Twine(t *testing.T) {
 }
 
 func TestSetupCommand_Helm(t *testing.T) {
-	// Skip if helm is not installed
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("Helm binary not found in PATH, skipping test")
-	}
-
 	// Create a mock server
 	mockServer := setupMockHelmServer()
 	defer mockServer.Close()
 
+	// Create a temporary directory for Helm registry config
+	tempDir := t.TempDir()
+	helmConfigDir := filepath.Join(tempDir, ".config", "helm")
+
+	// Set HELM_REGISTRY_CONFIG to point to the registry.json file in our temp directory
+	// (helm will create this file and directory structure if it doesn't exist)
+	helmRegistryConfig := filepath.Join(helmConfigDir, "registry.json")
+	t.Setenv("HELM_REGISTRY_CONFIG", helmRegistryConfig)
+
 	// Create the Helm setup command
 	helmCmd := createTestSetupCommand(project.Helm)
+
+	// Set up a parsed URL to use for validation
+	parsedURL, err := url.Parse(mockServer.URL)
+	require.NoError(t, err)
 
 	// Override the server URLs to point to our mock server
 	helmCmd.serverDetails.Url = mockServer.URL
@@ -582,13 +591,29 @@ func TestSetupCommand_Helm(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			// Remove any existing config file from previous test iterations
+			_ = os.Remove(helmRegistryConfig)
+
 			// Set up server details for the current test case's authentication type
 			helmCmd.serverDetails.SetUser(testCase.user)
 			helmCmd.serverDetails.SetPassword(testCase.password)
 			helmCmd.serverDetails.SetAccessToken(testCase.accessToken)
 
+			// Run the command and verify success
 			err := helmCmd.Run()
 			require.NoError(t, err, "Helm registry login should succeed")
+
+			// For anonymous access, just verify the command succeeded (no config file is created)
+			if testCase.name == "Anonymous Access" {
+				return
+			}
+
+			// For authenticated access, check if registry config exists and contains the right URL
+			configData, err := os.ReadFile(helmRegistryConfig)
+			assert.NoError(t, err, "Failed to read Helm registry config file")
+			// If the file exists, verify it contains the registry URL
+			assert.Contains(t, string(configData), parsedURL.Host,
+				"Registry URL should be in Helm registry config")
 		})
 	}
 }
