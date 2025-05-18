@@ -19,6 +19,10 @@ func NewEvidenceGitHubCommand(ctx *components.Context, execute execCommandFunc) 
 	}
 }
 
+func (ebc *evidenceGitHubCommand) GetEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
+	return nil
+}
+
 func (ebc *evidenceGitHubCommand) CreateEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
 	err := ebc.validateEvidenceBuildContext(ctx)
 	if err != nil {

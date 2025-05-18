@@ -39,7 +39,21 @@ func (erc *evidenceReleaseBundleCommand) CreateEvidence(ctx *components.Context,
 }
 
 func (erc *evidenceReleaseBundleCommand) GetEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
-	return nil
+	err := erc.validateEvidenceReleaseBundleContext(ctx)
+	if err != nil {
+		return err
+	}
+
+	getCmd := evidence.NewGetEvidenceReleaseBundle(
+		serverDetails,
+		erc.ctx.GetStringFlagValue(releaseBundle),
+		erc.ctx.GetStringFlagValue(releaseBundleVersion),
+		erc.ctx.GetStringFlagValue(project),
+		erc.ctx.GetStringFlagValue(format),
+		erc.ctx.GetStringFlagValue(output),
+		erc.ctx.GetBoolFlagValue(includePredicate),
+	)
+	return erc.execute(getCmd)
 }
 
 func (erc *evidenceReleaseBundleCommand) validateEvidenceReleaseBundleContext(ctx *components.Context) error {

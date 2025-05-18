@@ -6,9 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"os"
-	"strings"
-
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/create"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/get"
 	jfrogArtClient "github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
@@ -71,6 +68,33 @@ func createEvidence(ctx *components.Context) error {
 
 	if commandFunc, exists := evidenceCommands[evidenceType[0]]; exists {
 		return commandFunc(ctx, execFunc).CreateEvidence(ctx, serverDetails)
+	}
+
+	return errors.New("unsupported subject")
+}
+
+func getEvidence(ctx *components.Context) error {
+	if err := validateGetEvidenceCommonContext(ctx); err != nil {
+		return err
+	}
+
+	evidenceType, err := getAndValidateSubject(ctx)
+	if err != nil {
+		return err
+	}
+
+	serverDetails, err := evidenceDetailsByFlags(ctx)
+	if err != nil {
+		return err
+	}
+
+	evidenceCommands := map[string]func(*components.Context, execCommandFunc) EvidenceCommands{
+		subjectRepoPath: NewEvidenceCustomCommand,
+		releaseBundle:   NewEvidenceReleaseBundleCommand,
+	}
+
+	if commandFunc, exists := evidenceCommands[evidenceType[0]]; exists {
+		return commandFunc(ctx, execFunc).GetEvidence(ctx, serverDetails)
 	}
 
 	return errors.New("unsupported subject")
