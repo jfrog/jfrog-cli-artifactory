@@ -2,10 +2,11 @@ package create
 
 import (
 	"encoding/json"
-	clientLog "github.com/jfrog/jfrog-client-go/utils/log"
-	"github.com/sigstore/sigstore-go/pkg/bundle"
 	"regexp"
 	"strings"
+
+	clientLog "github.com/jfrog/jfrog-client-go/utils/log"
+	"github.com/sigstore/sigstore-go/pkg/bundle"
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/sigstore"

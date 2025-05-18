@@ -20,6 +20,7 @@ const (
 	accessToken = "access-token"
 	project     = "project"
 	format      = "format"
+	output      = "output"
 
 	// RLM flags keys
 	releaseBundle        = "release-bundle"
@@ -44,7 +45,6 @@ const (
 	publicKeys         = "public-keys"
 	useArtifactoryKeys = "use-artifactory-keys"
 	sigstoreBundle     = "sigstore-bundle"
-	output             = "output"
 	artifactsLimit     = "artifacts-limit"
 )
 
@@ -57,6 +57,7 @@ var flagsMap = map[string]components.Flag{
 	accessToken: components.NewStringFlag(accessToken, "JFrog access token.", func(f *components.StringFlag) { f.Mandatory = false }),
 	project:     components.NewStringFlag(project, "Project key associated with the created evidence.", func(f *components.StringFlag) { f.Mandatory = false }),
 	format:      components.NewStringFlag(format, "Output format. Supported formats: 'json'", func(f *components.StringFlag) { f.Mandatory = false }),
+	output:      components.NewStringFlag(output, "Output file path.", func(f *components.StringFlag) { f.Mandatory = false }),
 
 	releaseBundle:        components.NewStringFlag(releaseBundle, "Release Bundle name.", func(f *components.StringFlag) { f.Mandatory = false }),
 	releaseBundleVersion: components.NewStringFlag(releaseBundleVersion, "Release Bundle version.", func(f *components.StringFlag) { f.Mandatory = false }),
@@ -67,19 +68,19 @@ var flagsMap = map[string]components.Flag{
 	packageRepoName:      components.NewStringFlag(packageRepoName, "Package repository Name.", func(f *components.StringFlag) { f.Mandatory = false }),
 	typeFlag:             components.NewStringFlag(typeFlag, "Type can contain 'gh-commiter' value.", func(f *components.StringFlag) { f.Mandatory = false }),
 
-	predicate:          components.NewStringFlag(predicate, "Path to the predicate, arbitrary JSON. Mandatory unless --"+sigstoreBundle+" is used", func(f *components.StringFlag) { f.Mandatory = false }),
-	predicateType:      components.NewStringFlag(predicateType, "Type of the predicate. Mandatory unless --"+sigstoreBundle+" is used", func(f *components.StringFlag) { f.Mandatory = false }),
-	includePredicate:   components.NewBoolFlag(includePredicate, "Include the predicate data in the get evidence output.", components.WithBoolDefaultValueFalse()),
-	markdown:           components.NewStringFlag(markdown, "Markdown of the predicate.", func(f *components.StringFlag) { f.Mandatory = false }),
-	subjectRepoPath:    components.NewStringFlag(subjectRepoPath, "Full path to some subject' location.", func(f *components.StringFlag) { f.Mandatory = false }),
-	subjectSha256:      components.NewStringFlag(subjectSha256, "Subject checksum sha256.", func(f *components.StringFlag) { f.Mandatory = false }),
-	key:                components.NewStringFlag(key, "Path to a private key that will sign the DSSE. Supported keys: 'ecdsa','rsa' and 'ed25519'.", func(f *components.StringFlag) { f.Mandatory = false }),
-	keyAlias:           components.NewStringFlag(keyAlias, "Key alias", func(f *components.StringFlag) { f.Mandatory = false }),
+	predicate:        components.NewStringFlag(predicate, "Path to the predicate, arbitrary JSON. Mandatory unless --"+sigstoreBundle+" is used", func(f *components.StringFlag) { f.Mandatory = false }),
+	predicateType:    components.NewStringFlag(predicateType, "Type of the predicate. Mandatory unless --"+sigstoreBundle+" is used", func(f *components.StringFlag) { f.Mandatory = false }),
+	includePredicate: components.NewBoolFlag(includePredicate, "Include the predicate data in the get evidence output.", components.WithBoolDefaultValueFalse()),
+	markdown:         components.NewStringFlag(markdown, "Markdown of the predicate.", func(f *components.StringFlag) { f.Mandatory = false }),
+	subjectRepoPath:  components.NewStringFlag(subjectRepoPath, "Full path to some subject' location.", func(f *components.StringFlag) { f.Mandatory = false }),
+	subjectSha256:    components.NewStringFlag(subjectSha256, "Subject checksum sha256.", func(f *components.StringFlag) { f.Mandatory = false }),
+	key:              components.NewStringFlag(key, "Path to a private key that will sign the DSSE. Supported keys: 'ecdsa','rsa' and 'ed25519'.", func(f *components.StringFlag) { f.Mandatory = false }),
+	keyAlias:         components.NewStringFlag(keyAlias, "Key alias", func(f *components.StringFlag) { f.Mandatory = false }),
+
 	providerId:         components.NewStringFlag(providerId, "Provider ID for the evidence.", func(f *components.StringFlag) { f.Mandatory = false }),
 	publicKeys:         components.NewStringFlag(publicKeys, "Array of paths to public keys for signatures verification with \";\" separator. Supported keys: 'ecdsa','rsa' and 'ed25519'.", func(f *components.StringFlag) { f.Mandatory = false }),
 	sigstoreBundle:     components.NewStringFlag(sigstoreBundle, "Path to a Sigstore bundle file with a pre-signed DSSE envelope. Incompatible with --"+key+", --"+keyAlias+", --"+predicate+", --"+predicateType+" and --"+subjectSha256+".", func(f *components.StringFlag) { f.Mandatory = false }),
 	useArtifactoryKeys: components.NewBoolFlag(useArtifactoryKeys, "Use Artifactory keys for verification. When enabled, the verify command retrieves keys from Artifactory.", components.WithBoolDefaultValueFalse()),
-	output:             components.NewStringFlag(output, "Output file path.", func(f *components.StringFlag) { f.Mandatory = false }),
 	artifactsLimit:     components.NewStringFlag(artifactsLimit, "The number of artifacts in a release bundle to be included in the evidences file.", func(f *components.StringFlag) { f.Mandatory = false }),
 }
 
