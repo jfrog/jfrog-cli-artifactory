@@ -55,4 +55,4 @@ func (ecc *evidenceCustomCommand) VerifyEvidences(_ *components.Context, serverD
 	)
 	return ecc.execute(verifyCmd)
 }
-}
+

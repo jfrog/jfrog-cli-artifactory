@@ -76,7 +76,6 @@ func (erc *evidenceReleaseBundleCommand) VerifyEvidences(ctx *components.Context
 	)
 	return erc.execute(verifyCmd)
 }
-}
 
 func (erc *evidenceReleaseBundleCommand) validateEvidenceReleaseBundleContext(ctx *components.Context) error {
 	if !ctx.IsFlagSet(releaseBundleVersion) || assertValueProvided(ctx, releaseBundleVersion) != nil {
