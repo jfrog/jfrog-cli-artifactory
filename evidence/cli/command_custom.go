@@ -31,5 +31,13 @@ func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDe
 }
 
 func (ecc *evidenceCustomCommand) GetEvidence(_ *components.Context, serverDetails *coreConfig.ServerDetails) error {
-	return nil
+	getCmd := evidence.NewGetEvidenceCustom(
+		serverDetails,
+		ecc.ctx.GetStringFlagValue(subjectRepoPath),
+		ecc.ctx.GetStringFlagValue(format),
+		ecc.ctx.GetStringFlagValue(output),
+		ecc.ctx.GetBoolFlagValue(includePredicate),
+	)
+
+	return ecc.execute(getCmd)
 }

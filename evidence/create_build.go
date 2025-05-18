@@ -2,8 +2,8 @@ package evidence
 
 import (
 	"fmt"
+
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
@@ -39,7 +39,7 @@ func (c *createEvidenceBuild) CommandName() string {
 	return "create-buildName-evidence"
 }
 
-func (c *createEvidenceBuild) ServerDetails() (*config.ServerDetails, error) {
+func (c *createEvidenceBuild) ServerDetails() (*coreConfig.ServerDetails, error) {
 	return c.serverDetails, nil
 }
 

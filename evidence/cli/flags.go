@@ -19,6 +19,7 @@ const (
 	accessToken = "access-token"
 	project     = "project"
 	format      = "format"
+	output      = "output"
 
 	// RLM flags keys
 	releaseBundle        = "release-bundle"
@@ -50,6 +51,7 @@ var flagsMap = map[string]components.Flag{
 	accessToken: components.NewStringFlag(accessToken, "JFrog access token.", func(f *components.StringFlag) { f.Mandatory = false }),
 	project:     components.NewStringFlag(project, "Project key associated with the created evidence.", func(f *components.StringFlag) { f.Mandatory = false }),
 	format:      components.NewStringFlag(format, "Evidence format. Supported formats: 'json'.", func(f *components.StringFlag) { f.Mandatory = false }),
+	output:      components.NewStringFlag(output, "Output file path.", func(f *components.StringFlag) { f.Mandatory = false }),
 
 	releaseBundle:        components.NewStringFlag(releaseBundle, "Release Bundle name.", func(f *components.StringFlag) { f.Mandatory = false }),
 	releaseBundleVersion: components.NewStringFlag(releaseBundleVersion, "Release Bundle version.", func(f *components.StringFlag) { f.Mandatory = false }),
@@ -62,7 +64,7 @@ var flagsMap = map[string]components.Flag{
 
 	predicate:        components.NewStringFlag(predicate, "Path to the predicate, arbitrary JSON.", func(f *components.StringFlag) { f.Mandatory = false }),
 	predicateType:    components.NewStringFlag(predicateType, "Type of the predicate.", func(f *components.StringFlag) { f.Mandatory = false }),
-	includePredicate: components.NewBoolFlag(includePredicate, "Include the predicate data in the get evidence output.", nil),
+	includePredicate: components.NewBoolFlag(includePredicate, "Include the predicate data in the get evidence output.", components.WithBoolDefaultValueFalse()),
 	markdown:         components.NewStringFlag(markdown, "Markdown of the predicate.", func(f *components.StringFlag) { f.Mandatory = false }),
 	subjectRepoPath:  components.NewStringFlag(subjectRepoPath, "Full path to some subject' location.", func(f *components.StringFlag) { f.Mandatory = false }),
 	subjectSha256:    components.NewStringFlag(subjectSha256, "Subject checksum sha256.", func(f *components.StringFlag) { f.Mandatory = false }),
@@ -99,6 +101,7 @@ var commandFlags = map[string][]string{
 		accessToken,
 		ServerId,
 		format,
+		output,
 		project,
 		releaseBundle,
 		releaseBundleVersion,
