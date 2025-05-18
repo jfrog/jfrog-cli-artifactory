@@ -2,14 +2,13 @@ package setup
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"net/http"
-	"net/http/httptest"
 
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
@@ -565,14 +564,19 @@ func TestSetupCommand_Twine(t *testing.T) {
 }
 
 func TestSetupCommand_Helm(t *testing.T) {
-	// Create a mock Helm server that serves a valid index.yaml
+	// Skip if helm is not installed
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("Helm binary not found in PATH, skipping test")
+	}
+
+	// Create a mock server
 	mockServer := setupMockHelmServer()
 	defer mockServer.Close()
 
-	// Create the Helm setup command with our test repo name
+	// Create the Helm setup command
 	helmCmd := createTestSetupCommand(project.Helm)
 
-	// Override the server URLs to point to our mock server instead of acme.jfrog.io
+	// Override the server URLs to point to our mock server
 	helmCmd.serverDetails.Url = mockServer.URL
 	helmCmd.serverDetails.ArtifactoryUrl = mockServer.URL + "/artifactory"
 
@@ -583,47 +587,23 @@ func TestSetupCommand_Helm(t *testing.T) {
 			helmCmd.serverDetails.SetPassword(testCase.password)
 			helmCmd.serverDetails.SetAccessToken(testCase.accessToken)
 
-			// Run the helm setup and verify no errors
 			err := helmCmd.Run()
-			require.NoError(t, err, "Helm repo add should succeed with mock server")
-
-			// Verify the repo was added by using 'helm repo list'
-			listCmd := exec.Command("helm", "repo", "list", "-o", "json")
-			output, err := listCmd.Output()
-			require.NoError(t, err, "Failed to list helm repositories")
-
-			// Look for our repo in the list
-			repoList := string(output)
-			assert.Contains(t, repoList, helmCmd.repoName, "Repository name not found in helm repo list")
-			assert.Contains(t, repoList, mockServer.URL+"/artifactory/api/helm/test-repo",
-				"Repository URL not found in helm repo list")
-
-			// Clean up: Remove the added repository to restore the original state
-			cleanupCmd := exec.Command("helm", "repo", "remove", helmCmd.repoName)
-			assert.NoError(t, cleanupCmd.Run(), "Failed to clean up helm repository after test")
+			require.NoError(t, err, "Helm registry login should succeed")
 		})
 	}
 }
 
-// setupMockHelmServer creates a mock HTTP server that responds to Helm repository index.yaml requests
+// setupMockHelmServer creates a mock HTTP server that responds to Helm registry login requests
 func setupMockHelmServer() *httptest.Server {
-	// Minimal index.yaml content - only what Helm requires to validate a repository
-	indexYaml := `apiVersion: v1
-entries: {}
-generated: "2023-05-14T12:00:00Z"`
-
-	// Create a test server
+	// Create a test server that properly responds to OCI registry auth requests
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/index.yaml") {
-			w.Header().Set("Content-Type", "text/yaml")
-			w.WriteHeader(http.StatusOK)
-			_, err := w.Write([]byte(indexYaml))
-			if err != nil {
-				http.Error(w, "Failed to write response", http.StatusInternalServerError)
-				return
-			}
+		// For any registry-related request, simply return a 200 OK
+		// This simulates a successful registry login without triggering external auth requests
+		w.WriteHeader(http.StatusOK)
+		_, err := w.Write([]byte(`{"token": "fake-token"}`))
+		if err != nil {
+			http.Error(w, "Failed to write response", http.StatusInternalServerError)
 			return
 		}
-		w.WriteHeader(http.StatusNotFound)
 	}))
 }

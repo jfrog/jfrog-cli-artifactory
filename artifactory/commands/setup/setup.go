@@ -440,29 +440,47 @@ func (sc *SetupCommand) configureGradle() error {
 	return gradle.WriteInitScript(initScript)
 }
 
-// configureHelm configures a Helm chart repository in the local Helm CLI using Artifactory credentials.
+// configureHelm configures Helm to use Artifactory as an OCI registry.
 // It executes:
 //
-//	<password> | helm repo add <repoName> <url> --username <user> --password-stdin
+//	helm registry login <registry-url> --username <user> --password-stdin
+//
+// If anonymous access is enabled for the repository, no login is performed.
 func (sc *SetupCommand) configureHelm() error {
-	// Build repo path /api/helm/<repoName>
-	repoURL := strings.TrimSuffix(sc.serverDetails.GetArtifactoryUrl(), "/") + "/api/helm/" + sc.repoName
+	// Parse the URL to get the registry domain without scheme or path
+	parsedURL, err := url.Parse(sc.serverDetails.GetUrl())
+	if err != nil {
+		return err
+	}
+	// Use just the hostname part for OCI registry
+	registryURL := parsedURL.Host
 
-	// Prepare credentials flags
+	// Prepare credentials
 	user := sc.serverDetails.GetUser()
 	pass := sc.serverDetails.GetPassword()
 	if token := sc.serverDetails.GetAccessToken(); token != "" {
 		if user == "" {
-			user = auth.ExtractUsernameFromAccessToken(sc.serverDetails.AccessToken)
+			user = auth.ExtractUsernameFromAccessToken(token)
 		}
 		pass = token
 	}
-	// Add Helm repository with explicit credentials flags
-	cmdAdd := exec.Command("helm", "repo", "add", sc.repoName, repoURL, "--username", user, "--password-stdin")
+
+	// If no credentials are provided, anonymous access is assumed
+	// For anonymous access, we don't need to perform registry login
+	if user == "" && pass == "" {
+		log.Debug("No credentials provided for Helm registry. Using anonymous access.")
+		return nil
+	}
+
+	// Login to the Helm OCI registry
+	cmdLogin := exec.Command("helm", "registry", "login", registryURL, "--username", user, "--password-stdin")
+
 	// Pipe password to stdin
-	cmdAdd.Stdin = strings.NewReader(pass)
+	cmdLogin.Stdin = strings.NewReader(pass)
+
 	// Suppress success output, retain errors only
-	cmdAdd.Stdout = io.Discard
-	cmdAdd.Stderr = os.Stderr
-	return cmdAdd.Run()
+	cmdLogin.Stdout = io.Discard
+	cmdLogin.Stderr = os.Stderr
+
+	return cmdLogin.Run()
 }
