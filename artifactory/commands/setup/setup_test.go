@@ -2,6 +2,9 @@ package setup
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -559,4 +562,79 @@ func TestSetupCommand_Twine(t *testing.T) {
 			assert.NoError(t, os.Remove(pypircFilePath))
 		})
 	}
+}
+
+func TestSetupCommand_Helm(t *testing.T) {
+	// Create a mock server
+	mockServer := setupMockHelmServer()
+	defer mockServer.Close()
+
+	// Create a temporary directory for Helm registry config
+	tempDir := t.TempDir()
+	helmConfigDir := filepath.Join(tempDir, ".config", "helm")
+
+	// Set HELM_REGISTRY_CONFIG to point to the registry.json file in our temp directory
+	// (helm will create this file and directory structure if it doesn't exist)
+	helmRegistryConfig := filepath.Join(helmConfigDir, "registry.json")
+	t.Setenv("HELM_REGISTRY_CONFIG", helmRegistryConfig)
+
+	// Create the Helm setup command
+	helmCmd := createTestSetupCommand(project.Helm)
+
+	// Set up a parsed URL to use for validation
+	parsedURL, err := url.Parse(mockServer.URL)
+	require.NoError(t, err)
+
+	// Override the server URLs to point to our mock server
+	helmCmd.serverDetails.Url = mockServer.URL
+	helmCmd.serverDetails.ArtifactoryUrl = mockServer.URL + "/artifactory"
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Remove any existing config file from previous test iterations
+			if err := os.Remove(helmRegistryConfig); err != nil && !os.IsNotExist(err) {
+				t.Fatalf("Failed to remove existing helm registry config: %v", err)
+			}
+
+			// Set up server details for the current test case's authentication type
+			helmCmd.serverDetails.SetUser(testCase.user)
+			helmCmd.serverDetails.SetPassword(testCase.password)
+			helmCmd.serverDetails.SetAccessToken(testCase.accessToken)
+			err := helmCmd.Run()
+			// For anonymous access, we expect an error since credentials are now required
+			if testCase.name == "Anonymous Access" {
+				err := helmCmd.Run()
+				require.Error(t, err, "Helm registry login should fail for anonymous access")
+				assert.Contains(t, err.Error(), "credentials are required",
+					"Error should indicate that credentials are required")
+				return
+			} else {
+
+				// For authenticated access, expect success
+				require.NoError(t, err, "Helm registry login should succeed with credentials")
+
+				// For authenticated access, check if registry config exists and contains the right URL
+				configData, err := os.ReadFile(helmRegistryConfig)
+				assert.NoError(t, err, "Failed to read Helm registry config file")
+				// If the file exists, verify it contains the registry URL
+				assert.Contains(t, string(configData), parsedURL.Host,
+					"Registry URL should be in Helm registry config")
+			}
+		})
+	}
+}
+
+// setupMockHelmServer creates a mock HTTP server that responds to Helm registry login requests
+func setupMockHelmServer() *httptest.Server {
+	// Create a test server that properly responds to OCI registry auth requests
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// For any registry-related request, simply return a 200 OK
+		// This simulates a successful registry login without triggering external auth requests
+		w.WriteHeader(http.StatusOK)
+		_, err := w.Write([]byte(`{"token": "fake-token"}`))
+		if err != nil {
+			http.Error(w, "Failed to write response", http.StatusInternalServerError)
+			return
+		}
+	}))
 }
