@@ -128,7 +128,7 @@ func releaseBundleUpdateCmd(c *components.Context) error {
 	}
 	var releaseBundleUpdateSpec *spec.SpecFiles
 	var err error
-	if c.GetBoolFlagValue("spec") {
+	if c.IsFlagSet("spec") {
 		releaseBundleUpdateSpec, err = cliutils.GetSpec(c, true, true)
 	} else {
 		releaseBundleUpdateSpec = createDefaultReleaseBundleSpec(c)
