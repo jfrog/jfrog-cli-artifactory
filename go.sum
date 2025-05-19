@@ -15,8 +15,8 @@ github.com/VividCortex/ewma v1.2.0 h1:f58SaIzcDXrSy3kWaHNvuJgJ3Nmz59Zji6XoJR/q1o
 github.com/VividCortex/ewma v1.2.0/go.mod h1:nz4BbCtbLyFDeC9SUHbtcT5644juEuWfUAUnGx7j5l4=
 github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d h1:licZJFw2RwpHMqeKTCYkitsPqHNxTmd4SNR5r94FGM8=
 github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d/go.mod h1:asat636LX7Bqt5lYEZ27JNDcqxfjdBQuJ/MM4CN/Lzo=
-github.com/agrasth/jfrog-cli-core/v2 v2.0.0-20250516225526-333c9f5b3686 h1:DvoR9GHaFv5uo3Orqio2zC28DngaM5CjSMTQjJYlrQA=
-github.com/agrasth/jfrog-cli-core/v2 v2.0.0-20250516225526-333c9f5b3686/go.mod h1:8ODu50AZkrP5xXvUGLizFTL1+qJknSShHNGhGl7OtFQ=
+github.com/agrasth/jfrog-cli-core/v2 v2.0.0-20250519060520-17a5ce9fd33d h1:W2v4r+XVOdhvJOQzzJLzU1qknoewTa/gwlQfewN1UI4=
+github.com/agrasth/jfrog-cli-core/v2 v2.0.0-20250519060520-17a5ce9fd33d/go.mod h1:VjXJpjapnKA0eBoCH9+5+nWQOxQJ+uzADMY2DQPkCzE=
 github.com/andybalholm/brotli v1.1.1 h1:PR2pgnyFznKEugtsUo0xLdDop5SKXd5Qf5ysW+7XdTA=
 github.com/andybalholm/brotli v1.1.1/go.mod h1:05ib4cKhjx3OQYUY22hTVd34Bc8upXjOLL2rKwwZBoA=
 github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be h1:9AeTilPcZAjCFIImctFaOjnTIavg87rW78vTPkQqLI8=

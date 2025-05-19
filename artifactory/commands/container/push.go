@@ -1,6 +1,7 @@
 package container
 
 import (
+	"fmt"
 	"path"
 
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
@@ -119,14 +120,14 @@ func (pc *PushCommand) Run() error {
 	if pc.IsValidateSha() {
 		log.Info("Performing SHA-based validation for Docker push...")
 		// Get image SHA from the container manager
-		imageSha2, err := cm.Id(pc.image)
+		imageSha256, err := cm.Id(pc.image)
 		if err != nil {
 			return err
 		}
-		log.Debug("Using image SHA256 for validation: " + imageSha2)
+		log.Debug("Using image SHA256 for validation: " + imageSha256)
 
 		// Use RemoteAgentBuildInfoBuilder for SHA-based validation
-		remoteBuilder, err := containerutils.NewRemoteAgentBuildInfoBuilder(pc.image, repo, buildName, buildNumber, pc.BuildConfiguration().GetProject(), serviceManager, imageSha2)
+		remoteBuilder, err := containerutils.NewRemoteAgentBuildInfoBuilder(pc.image, repo, buildName, buildNumber, pc.BuildConfiguration().GetProject(), serviceManager, imageSha256)
 		if err != nil {
 			return err
 		}
@@ -136,20 +137,22 @@ func (pc *PushCommand) Run() error {
 				return err
 			}
 			buildInfoModule, err := remoteBuilder.Build(pc.BuildConfiguration().GetModule())
-			if err != nil || buildInfoModule == nil {
+			if err != nil {
 				return err
 			}
+			if buildInfoModule == nil {
+				return errorutils.CheckError(fmt.Errorf("failed to create build info module: module is nil"))
+			}
 			if err = build.SaveBuildInfo(buildName, buildNumber, pc.BuildConfiguration().GetProject(), buildInfoModule); err != nil {
-				return err
+				return errorutils.CheckError(fmt.Errorf("failed to save build info: %w", err))
 			}
 		}
 
 		if pc.IsDetailedSummary() {
 			if !toCollect {
 				// No build info collection triggered yet, build it now for the summary
-				_, err = remoteBuilder.Build("")
-				if err != nil {
-					return err
+				if _, err = remoteBuilder.Build(""); err != nil {
+					return errorutils.CheckError(fmt.Errorf("failed to build summary info: %w", err))
 				}
 			}
 			return pc.layersMapToFileTransferDetails(serverDetails.ArtifactoryUrl, remoteBuilder.GetLayers())
