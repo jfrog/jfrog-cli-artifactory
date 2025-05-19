@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"github.com/jfrog/jfrog-cli-artifactory/evidence/externalproviders"
-	"github.com/jfrog/jfrog-cli-artifactory/evidence/externalproviders/sonarqube"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/evidenceproviders"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/evidenceproviders/sonarqube"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
@@ -15,11 +15,11 @@ import (
 	"strings"
 )
 
-func CreateSonarConfig(sonarConfigNode *yaml.Node, evidenceConfig *externalproviders.EvidenceConfig) (err error) {
-	var sonarConfig *sonarqube.SonarConfig
+func CreateSonarConfig(sonarConfigNode *yaml.Node, evidenceConfig *evidenceproviders.EvidenceConfig) (err error) {
+	var sonarConfig *evidenceproviders.SonarConfig
 	if sonarConfigNode != nil {
 		log.Debug("Using existing evidence.yaml file")
-		if sonarConfig, err = sonarqube.ReadSonarConfiguration(sonarConfigNode); sonarConfig != nil {
+		if sonarConfig, err = sonarqube.CreateSonarConfiguration(sonarConfigNode); sonarConfig != nil {
 			sonarConfig = sonarqube.NewSonarConfig(
 				defaultIfEmpty(sonarConfig.URL, sonarqube.DefaultSonarHost),
 				defaultIfEmpty(sonarConfig.ReportTaskFile, sonarqube.DefaultReportTaskFile),
@@ -53,7 +53,7 @@ func defaultIntIfEmpty(value *int, defaultValue int) string {
 	return strconv.Itoa(*value)
 }
 
-func interactiveSonarEvidenceConfiguration(sonarConfig *sonarqube.SonarConfig, evidenceConfig *externalproviders.EvidenceConfig) error {
+func interactiveSonarEvidenceConfiguration(sonarConfig *evidenceproviders.SonarConfig, evidenceConfig *evidenceproviders.EvidenceConfig) error {
 	var sonarURL string
 	for isURLValid := false; !isURLValid; {
 		sonarURL = ioutils.AskStringWithDefault("Sonar Qube URL", "", sonarConfig.URL)
@@ -92,8 +92,8 @@ func validateHostOnlyURL(rawURL string) bool {
 	return true
 }
 
-func WriteConfigFile(global bool, ec *externalproviders.EvidenceConfig) error {
-	evidenceDir, err := externalproviders.GetEvidenceDir(global)
+func WriteConfigFile(global bool, ec *evidenceproviders.EvidenceConfig) error {
+	evidenceDir, err := evidenceproviders.GetEvidenceDir(global)
 	if err != nil {
 		return err
 	}

@@ -7,8 +7,8 @@ import (
 	"github.com/jfrog/gofrog/log"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cryptox"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
-	"github.com/jfrog/jfrog-cli-artifactory/evidence/externalproviders"
-	"github.com/jfrog/jfrog-cli-artifactory/evidence/externalproviders/sonarqube"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/evidenceproviders"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/evidenceproviders/sonarqube"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/intoto"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -18,7 +18,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	clientlog "github.com/jfrog/jfrog-client-go/utils/log"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -52,20 +51,12 @@ func (c *createEvidenceBase) createEnvelope(subject, subjectSha256 string) ([]by
 	return envelopeBytes, nil
 }
 
-func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 string) ([]byte, error) {
-	var predicate []byte
-	var err error
-	// Auto Populate the predicate if the predicate type is sonarqube and the predicate file path is not provided
+func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 string) (predicate []byte, err error) {
+	// Auto collect the predicate if the predicate is empty
 	if c.predicateFilePath == "" {
-		log.Info("Using auto populate predicate")
-		switch c.predicateType {
-		case "https://jfrog.com/evidence/sonarqube/v1":
-			predicate, err = c.createSonarEvidence()
-			if err != nil {
-				return nil, err
-			}
-		default:
-			return nil, errorutils.CheckError(fmt.Errorf("predicate type '%s' is not supported", c.predicateType))
+		predicate, err = c.AutoCollectEvidence(predicate, err)
+		if err != nil {
+			return nil, err
 		}
 	} else {
 		predicate, err := os.ReadFile(c.predicateFilePath)
@@ -102,29 +93,23 @@ func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 str
 	return statementJson, nil
 }
 
-func (c *createEvidenceBase) createSonarEvidence() ([]byte, error) {
-	var predicate []byte
-	evidenceDir, err := externalproviders.GetEvidenceDir(false)
-	if err != nil {
-		return nil, err
+// AutoCollectEvidence tries to autopopulate the predicate if the predicate is empty.
+// If predicate type is sonar then it will try to create the evidence using the sonar configuration.
+// If the predicate type is not supported, it will return an error.
+// Evidence Configuration is expected to be in the .jfrog/evidence/evidence.yaml file.
+func (c *createEvidenceBase) AutoCollectEvidence(predicate []byte, err error) ([]byte, error) {
+	log.Info("Trying to auto populate the predicate")
+	var evidenceProvider evidenceproviders.EvidenceProvider
+	switch c.predicateType {
+	case "https://jfrog.com/evidence/sonarqube/v1":
+		evidenceProvider, err = sonarqube.CreateSonarEvidence()
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, errorutils.CheckError(fmt.Errorf("predicate type '%s' is not supported", c.predicateType))
 	}
-	evidenceConfigFilePath := filepath.Join(evidenceDir, "evidence.yaml")
-	evidenceConfig, err := externalproviders.LoadConfig(evidenceConfigFilePath)
-	if err != nil {
-		return nil, err
-	}
-	sc, err := sonarqube.ReadSonarConfiguration(evidenceConfig["sonar"])
-	if err != nil {
-		return nil, err
-	}
-	se := &sonarqube.SonarEvidence{SonarConfig: sc}
-	log.Debug("Using sonarqube server configuration from evidence.yaml ", se)
-	predicate, err = se.GetEvidence()
-	if err != nil {
-		log.Warn(fmt.Sprintf("failed to read predicate from sonar '%s'", predicate))
-		return nil, err
-	}
-	return predicate, nil
+	return evidenceProvider.GetEvidence()
 }
 
 func (c *createEvidenceBase) setMarkdown(statement *intoto.Statement) error {

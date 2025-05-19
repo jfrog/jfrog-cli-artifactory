@@ -4,7 +4,7 @@ import (
 	"errors"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/config"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/create"
-	"github.com/jfrog/jfrog-cli-artifactory/evidence/externalproviders"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/evidenceproviders"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
@@ -81,19 +81,19 @@ func generateEvidenceProviderConfig(ctx *components.Context) error {
 		return pluginsCommon.WrongNumberOfArgumentsHandler(ctx)
 	}
 	globalFlag := ctx.GetBoolFlagValue("global")
-	evidenceDir, err := externalproviders.GetEvidenceDir(globalFlag)
+	evidenceDir, err := evidenceproviders.GetEvidenceDir(globalFlag)
 	if err != nil {
 		return err
 	}
 	var evidenceConfigMap map[string]*yaml.Node
 	evidenceFile := filepath.Join(evidenceDir, "evidence.yaml")
 	if ok, _ := fileutils.IsFileExists(evidenceFile, false); ok {
-		evidenceConfigMap, err = externalproviders.LoadConfig(evidenceFile)
+		evidenceConfigMap, err = evidenceproviders.LoadConfig(evidenceFile)
 		if err != nil {
 			return err
 		}
 	}
-	evidenceConfig := &externalproviders.EvidenceConfig{}
+	evidenceConfig := &evidenceproviders.EvidenceConfig{}
 	evidenceProvider := ctx.GetArgumentAt(0)
 	if strings.EqualFold(evidenceProvider, "sonar") {
 		err = CreateSonarConfig(evidenceConfigMap["sonar"], evidenceConfig)
