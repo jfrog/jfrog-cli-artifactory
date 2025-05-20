@@ -1,7 +1,6 @@
 package evidence
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -11,8 +10,63 @@ import (
 	"github.com/jfrog/jfrog-client-go/onemodel"
 )
 
-const getCustomEvidenceWithoutPredicateGraphqlQuery = `query SearchEvidence {\n evidence {\n searchEvidence( where: {hasSubjectWith: { repositoryKey: \"%s\", path: \"%s\" }} ) {\n totalCount\n pageInfo {\n hasNextPage\n hasPreviousPage\n startCursor\n endCursor\n }\n edges {\n cursor\n node {\n path\n name\n predicateSlug\n}\n }\n }\n }\n }`
-const getCustomEvidenceWithPredicateGraphqlQuery = `query SearchEvidence {\n evidence {\n searchEvidence( where: {hasSubjectWith: { repositoryKey: \"%s\", path: \"%s\" }} ) {\n totalCount\n pageInfo {\n hasNextPage\n hasPreviousPage\n startCursor\n endCursor\n }\n edges {\n cursor\n node {\n path\n name\n predicateSlug\n predicate\n }\n }\n }\n }\n }`
+const getCustomEvidenceWithoutPredicateGraphqlQuery = `query SearchEvidence {
+    evidence {
+        searchEvidence(
+            where: { 
+                hasSubjectWith: { 
+                    repositoryKey: \"%s\", 
+                    path: \"%s\" 
+                } 
+            } 
+        ) {
+            totalCount
+            pageInfo {
+                hasNextPage
+                hasPreviousPage
+                startCursor
+                endCursor
+            }
+            edges {
+                cursor
+                node {
+                    path
+                    name
+                    predicateSlug
+                }
+            }
+        }
+    }
+}`
+const getCustomEvidenceWithPredicateGraphqlQuery = `query SearchEvidence {
+    evidence {
+        searchEvidence(
+            where: { 
+                hasSubjectWith: { 
+                    repositoryKey: \"%s\", 
+                    path: \"%s\" 
+                } 
+            }
+        ) {
+            totalCount
+            pageInfo {
+                hasNextPage
+                hasPreviousPage
+                startCursor
+                endCursor
+            }
+            edges {
+                cursor
+                node {
+                    path
+                    name
+                    predicateSlug
+                    predicate
+                }
+            }
+        }
+    }
+}`
 
 type getEvidenceCustom struct {
 	getEvidenceBase
@@ -43,24 +97,24 @@ func (g *getEvidenceCustom) Run() error {
 	onemodelClient, err := utils.CreateOnemodelServiceManager(g.serverDetails, false)
 	if err != nil {
 		log.Error("failed to create onemodel client", err)
-		return err
+		return fmt.Errorf("onemodel client init failed: %w", err)
+
 	}
 
 	evidences, err := g.getEvidence(onemodelClient)
 	if err != nil {
-		return err
+		log.Error("Failed to get evidence:", err)
+		return fmt.Errorf("evidence retrieval failed: %w", err)
 	}
 
-	err = g.exportEvidenceToFile(evidences, g.outputFileName, g.format)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return g.exportEvidenceToFile(evidences, g.outputFileName, g.format)
 }
 
 func (g *getEvidenceCustom) getEvidence(onemodelClient onemodel.Manager) ([]byte, error) {
-	query, err := g.createGetEvidenceQuery(g.subjectRepoPath)
+	query, err := g.buildGraphqlQuery(g.subjectRepoPath)
+	if err != nil {
+		return nil, err
+	}
 	evidence, err := onemodelClient.GraphqlQuery(query)
 	if err != nil {
 		return nil, err
@@ -68,7 +122,7 @@ func (g *getEvidenceCustom) getEvidence(onemodelClient onemodel.Manager) ([]byte
 	return evidence, nil
 }
 
-func (g *getEvidenceCustom) createGetEvidenceQuery(subjectRepoPath string) ([]byte, error) {
+func (g *getEvidenceCustom) buildGraphqlQuery(subjectRepoPath string) ([]byte, error) {
 	repoKey, path, err := g.getRepoKeyAndPath(subjectRepoPath)
 	if err != nil {
 		return nil, err
@@ -86,16 +140,10 @@ func (g *getEvidenceCustom) getGraphqlQuery(includePredicate bool) string {
 }
 
 func (g *getEvidenceCustom) getRepoKeyAndPath(subjectRepoPath string) (string, string, error) {
-	// Split the input to 2 parts using the "/" delimiter
-	parts := strings.SplitN(subjectRepoPath, "/", 2)
-
-	// Check if we have at least 2 parts
-	if len(parts) < 2 {
-		return "", "", errors.New("invalid input format: must be in 'repo/path' format")
+	idx := strings.Index(subjectRepoPath, "/")
+	if idx <= 0 || idx == len(subjectRepoPath)-1 {
+		return "", "", fmt.Errorf("invalid input: expected format 'repo/path', got '%s'", subjectRepoPath)
 	}
 
-	repo := parts[0]
-	path := parts[1]
-
-	return repo, path, nil
+	return subjectRepoPath[:idx], subjectRepoPath[idx+1:], nil
 }
