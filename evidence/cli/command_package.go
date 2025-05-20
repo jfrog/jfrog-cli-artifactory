@@ -38,8 +38,8 @@ func (epc *evidencePackageCommand) CreateEvidence(ctx *components.Context, serve
 	return epc.execute(createCmd)
 }
 
-func (epc *evidencePackageCommand) GetEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
-	return nil
+func (epc *evidencePackageCommand) GetEvidence(_ *components.Context, _ *coreConfig.ServerDetails) error {
+	return errorutils.CheckErrorf("Get evidence is not supported with packages")
 }
 
 func (epc *evidencePackageCommand) validateEvidencePackageContext(ctx *components.Context) error {

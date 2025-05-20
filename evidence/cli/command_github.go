@@ -19,8 +19,8 @@ func NewEvidenceGitHubCommand(ctx *components.Context, execute execCommandFunc) 
 	}
 }
 
-func (ebc *evidenceGitHubCommand) GetEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
-	return nil
+func (ebc *evidenceGitHubCommand) GetEvidence(_ *components.Context, _ *coreConfig.ServerDetails) error {
+	return errorutils.CheckErrorf("Get evidence is not supported in github")
 }
 
 func (ebc *evidenceGitHubCommand) CreateEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
