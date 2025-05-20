@@ -23,10 +23,6 @@ func (ebc *evidenceGitHubCommand) GetEvidence(ctx *components.Context, serverDet
 	return nil
 }
 
-func (ebc *evidenceGitHubCommand) GetEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
-	return nil
-}
-
 func (ebc *evidenceGitHubCommand) CreateEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
 	if ebc.ctx.GetStringFlagValue(sigstoreBundle) != "" {
 		return errorutils.CheckErrorf("--%s is not supported for GitHub evidence.", sigstoreBundle)

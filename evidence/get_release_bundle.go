@@ -9,18 +9,165 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-const getReleaseBundleEvidenceWithoutPredicateGraphqlQuery = `{ "query": "{\n  releaseBundleVersion {\n    getVersion(repositoryKey: \"%s\", name: \"%s\", version: \"%s\") {\n      createdBy\n      createdAt\n      evidenceConnection {\n        edges {\n          cursor\n          node {\n            path\n            name\n            predicateSlug\n          }\n        }\n      }\n      artifactsConnection(first: 1000, after:\"YXJ0aWZhY3Q6MA==\", where:{\n  hasEvidence: true\n}) {\n        totalCount\n        pageInfo {\n          hasNextPage\n          hasPreviousPage\n          startCursor\n          endCursor\n        }\n        edges {\n          cursor\n          node {\n            path\n            name\n            packageType\n            sourceRepositoryPath\n            evidenceConnection(first: 0) {\n              totalCount\n              pageInfo {\n                hasNextPage\n                hasPreviousPage\n                startCursor\n                endCursor\n              }\n              edges {\n                cursor\n                node {\n                  path\n                  name\n                  predicateSlug\n                }\n              }\n            }\n          }\n        }\n      }\n      fromBuilds {\n        name\n        number\n        startedAt\n        evidenceConnection {\n          edges {\n            node {\n              path\n              name\n              predicateSlug\n            }\n          }\n        }\n      }\n    }\n  }\n}" }`
-const getReleaseBundleEvidenceWithPredicateGraphqlQuery = `{ "query": "{\n  releaseBundleVersion {\n    getVersion(repositoryKey: \"%s\", name: \"%s\", version: \"%s\") {\n      createdBy\n      createdAt\n      evidenceConnection {\n        edges {\n          cursor\n          node {\n            path\n            name\n            predicateSlug\n            predicate\n          }\n        }\n      }\n      artifactsConnection(first: 1000, after:\"YXJ0aWZhY3Q6MA==\", where:{\n  hasEvidence: true\n}) {\n        totalCount\n        pageInfo {\n          hasNextPage\n          hasPreviousPage\n          startCursor\n          endCursor\n        }\n        edges {\n          cursor\n          node {\n            path\n            name\n            packageType\n            sourceRepositoryPath\n            evidenceConnection(first: 0) {\n              totalCount\n              pageInfo {\n                hasNextPage\n                hasPreviousPage\n                startCursor\n                endCursor\n              }\n              edges {\n                cursor\n                node {\n                  path\n                  name\n                  predicateSlug\n                predicate\n		}\n              }\n            }\n          }\n        }\n      }\n      fromBuilds {\n        name\n        number\n        startedAt\n        evidenceConnection {\n          edges {\n            node {\n              path\n              name\n              predicateSlug\n            predicate\n		}\n          }\n        }\n      }\n    }\n  }\n}" }`
+const getReleaseBundleEvidenceWithoutPredicateGraphqlQuery = `{
+    "query": "{
+        releaseBundleVersion {
+            getVersion(repositoryKey: \"%s\", name: \"%s\", version: \"%s\") {
+                createdBy
+                createdAt
+                evidenceConnection {
+                    edges {
+                        cursor
+                        node {
+                            path
+                            name
+                            predicateSlug
+                        }
+                    }
+                }
+                artifactsConnection(first: %s, after: \"YXJ0aWZhY3Q6MA==\", where: {
+                    hasEvidence: true
+                }) {
+                    totalCount
+                    pageInfo {
+                        hasNextPage
+                        hasPreviousPage
+                        startCursor
+                        endCursor
+                    }
+                    edges {
+                        cursor
+                        node {
+                            path
+                            name
+                            packageType
+                            sourceRepositoryPath
+                            evidenceConnection(first: 0) {
+                                totalCount
+                                pageInfo {
+                                    hasNextPage
+                                    hasPreviousPage
+                                    startCursor
+                                    endCursor
+                                }
+                                edges {
+                                    cursor
+                                    node {
+                                        path
+                                        name
+                                        predicateSlug
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                fromBuilds {
+                    name
+                    number
+                    startedAt
+                    evidenceConnection {
+                        edges {
+                            node {
+                                path
+                                name
+                                predicateSlug
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }"
+}`
+
+const getReleaseBundleEvidenceWithPredicateGraphqlQuery = `{
+    "query": "{
+        releaseBundleVersion {
+            getVersion(repositoryKey: \"%s\", name: \"%s\", version: \"%s\") {
+                createdBy
+                createdAt
+                evidenceConnection {
+                    edges {
+                        cursor
+                        node {
+                            path
+                            name
+                            predicateSlug
+                            predicate
+                        }
+                    }
+                }
+                artifactsConnection(first: %s, after: \"YXJ0aWZhY3Q6MA==\", where: {
+                    hasEvidence: true
+                }) {
+                    totalCount
+                    pageInfo {
+                        hasNextPage
+                        hasPreviousPage
+                        startCursor
+                        endCursor
+                    }
+                    edges {
+                        cursor
+                        node {
+                            path
+                            name
+                            packageType
+                            sourceRepositoryPath
+                            evidenceConnection(first: 0) {
+                                totalCount
+                                pageInfo {
+                                    hasNextPage
+                                    hasPreviousPage
+                                    startCursor
+                                    endCursor
+                                }
+                                edges {
+                                    cursor
+                                    node {
+                                        path
+                                        name
+                                        predicateSlug
+                                        predicate
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                fromBuilds {
+                    name
+                    number
+                    startedAt
+                    evidenceConnection {
+                        edges {
+                            node {
+                                path
+                                name
+                                predicateSlug
+                                predicate
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }"
+}`
+
+const defaultArtifactsLimit = "1000"
 
 type getEvidenceReleaseBundle struct {
 	getEvidenceBase
 	project              string
 	releaseBundle        string
 	releaseBundleVersion string
+	artifactsLimit       string
 }
 
 func NewGetEvidenceReleaseBundle(serverDetails *coreConfig.ServerDetails,
-	releaseBundle, releaseBundleVersion, project, format, outputFileName string, includePredicate bool) Command {
+	releaseBundle, releaseBundleVersion, project, format, outputFileName, artifactsLimit string, includePredicate bool) Command {
 	return &getEvidenceReleaseBundle{
 		getEvidenceBase: getEvidenceBase{
 			serverDetails:    serverDetails,
@@ -31,6 +178,7 @@ func NewGetEvidenceReleaseBundle(serverDetails *coreConfig.ServerDetails,
 		project:              project,
 		releaseBundle:        releaseBundle,
 		releaseBundleVersion: releaseBundleVersion,
+		artifactsLimit:       artifactsLimit,
 	}
 }
 
@@ -63,14 +211,14 @@ func (g *getEvidenceReleaseBundle) Run() error {
 }
 
 func (g *getEvidenceReleaseBundle) getEvidence(onemodelClient onemodel.Manager) ([]byte, error) {
-	query := g.createGetEvidenceQuery(g.releaseBundle, g.releaseBundleVersion)
+	query := g.buildGraphqlQuery(g.releaseBundle, g.releaseBundleVersion)
 	evidence, err := onemodelClient.GraphqlQuery(query)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(evidence) == 0 {
-		return nil, fmt.Errorf("no evidence found for release bundle %s", g.releaseBundle)
+		return nil, fmt.Errorf("no evidence found for release bundle %s:%s", g.releaseBundle, g.releaseBundleVersion)
 	}
 
 	return evidence, nil
@@ -91,8 +239,16 @@ func (g *getEvidenceReleaseBundle) getGraphqlQuery(includePredicate bool) string
 	return getReleaseBundleEvidenceWithoutPredicateGraphqlQuery
 }
 
-func (g *getEvidenceReleaseBundle) createGetEvidenceQuery(releaseBundle, releaseBundleVersion string) []byte {
-	graphqlQuery := fmt.Sprintf(g.getGraphqlQuery(g.includePredicate), g.getRepoKey(g.project), releaseBundle, releaseBundleVersion)
+func (g *getEvidenceReleaseBundle) buildGraphqlQuery(releaseBundle, releaseBundleVersion string) []byte {
+	numberOfArtifactsToShow := g.getArtifactLimit(g.artifactsLimit)
+	graphqlQuery := fmt.Sprintf(g.getGraphqlQuery(g.includePredicate), g.getRepoKey(g.project), releaseBundle, releaseBundleVersion, numberOfArtifactsToShow)
 	log.Debug("GraphQL query: ", graphqlQuery)
 	return []byte(graphqlQuery)
+}
+
+func (g *getEvidenceReleaseBundle) getArtifactLimit(artifactsLimit string) string {
+	if artifactsLimit == "" {
+		return defaultArtifactsLimit
+	}
+	return artifactsLimit
 }
