@@ -98,7 +98,7 @@ func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 str
 // If the predicate type is not supported, it will return an error.
 // Evidence Configuration is expected to be in the .jfrog/evidence/evidence.yaml file.
 func (c *createEvidenceBase) AutoCollectEvidence(predicate []byte, err error) ([]byte, error) {
-	log.Info("Trying to auto populate the predicate")
+	clientlog.Info("Auto populating the predicate from provided predicate type")
 	var evidenceProvider evidenceproviders.EvidenceProvider
 	switch c.predicateType {
 	case "https://jfrog.com/evidence/sonarqube/v1":

@@ -91,10 +91,9 @@ func (se *SonarEvidence) GetEvidence() ([]byte, error) {
 		*se.SonarConfig.RetryInterval,
 	)
 	if err != nil {
-		log.Error("Failed to retrieve sonarqube evidence", err)
 		return nil, err
 	}
-	log.Info("Successfully retrieved sonarqube evidence")
+	log.Info("Fetched sonar evidence successfully")
 	return sonarEvidence, nil
 }
 
@@ -170,7 +169,7 @@ func FetchSonarEvidenceWithRetry(sonarQubeURL, reportTaskFile, proxy string, max
 	if err != nil {
 		return data, err
 	}
-	log.Debug(fmt.Sprintf("Creating sonarqube evidence using taskID %s", taskID))
+	log.Debug(fmt.Sprintf("Fetching sonarqube task status using taskID %s", taskID))
 	evd := &evidence.EvidenceServicesManager{}
 	var taskReport *TaskReport
 	retryExecutor := utils.RetryExecutor{
@@ -199,5 +198,5 @@ func FetchSonarEvidenceWithRetry(sonarQubeURL, reportTaskFile, proxy string, max
 	if err != nil {
 		return nil, err
 	}
-	return evd.FetchSonarComponentAnalysis(taskReport.Task.AnalysisID, sonarQubeURL, proxy)
+	return evd.GetSonarAnalysisReport(taskReport.Task.AnalysisID, sonarQubeURL, proxy)
 }
