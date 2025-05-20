@@ -28,7 +28,7 @@ func (m *mockOnemodelManagerError) GraphqlQuery(_ []byte) ([]byte, error) {
 
 func TestNewGetEvidenceReleaseBundle(t *testing.T) {
 	serverDetails := &config.ServerDetails{}
-	cmd := NewGetEvidenceReleaseBundle(serverDetails, "myBundle", "1.0", "myProject", "json", "output.json", true)
+	cmd := NewGetEvidenceReleaseBundle(serverDetails, "myBundle", "1.0", "myProject", "json", "output.json", "1000", true)
 
 	bundle, ok := cmd.(*getEvidenceReleaseBundle)
 
@@ -106,7 +106,7 @@ func TestCreateReleaseBundleGetEvidenceQuery(t *testing.T) {
 		},
 	}
 
-	query := g.createGetEvidenceQuery("myBundle", "1.0")
+	query := g.buildGraphqlQuery("myBundle", "1.0")
 	expectedQuery := fmt.Sprintf(`{"query": "{\n  releaseBundleVersion {\n    getVersion(repositoryKey: \"%s\", name: \"%s\", version: \"%s\") {\n      createdBy\n      createdAt\n      evidenceConnection {\n        edges {\n          cursor\n          node {\n            path\n            name\n            predicateSlug\n          }\n        }\n      }\n      artifactsConnection(first: 1000, after:\"YXJ0aWZhY3Q6MA==\", where:{\n  hasEvidence: true\n}) {\n        totalCount\n        pageInfo {\n          hasNextPage\n          hasPreviousPage\n          startCursor\n          endCursor\n        }\n        edges {\n          cursor\n          node {\n            path\n            name\n            packageType\n            sourceRepositoryPath\n            evidenceConnection(first: 0) {\n              totalCount\n              pageInfo {\n                hasNextPage\n                hasPreviousPage\n                startCursor\n                endCursor\n              }\n              edges {\n                cursor\n                node {\n                  path\n                  name\n                  predicateSlug\n                }\n              }\n            }\n          }\n        }\n      }\n      fromBuilds {\n        name\n        number\n        startedAt\n        evidenceConnection {\n          edges {\n            node {\n              path\n              name\n              predicateSlug\n            }\n          }\n        }\n      }\n    }\n  }\n}"}`, "myProject-release-bundles-v2", "myBundle", "1.0")
 
 	assert.Equal(t, string(query), expectedQuery)
