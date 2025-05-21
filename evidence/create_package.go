@@ -3,16 +3,16 @@ package evidence
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
+
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/metadata"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"strings"
 )
 
 const leadArtifactQueryTemplate = `{
@@ -47,7 +47,7 @@ func (c *createEvidencePackage) CommandName() string {
 	return "create-package-evidence"
 }
 
-func (c *createEvidencePackage) ServerDetails() (*config.ServerDetails, error) {
+func (c *createEvidencePackage) ServerDetails() (*coreConfig.ServerDetails, error) {
 	return c.serverDetails, nil
 }
 

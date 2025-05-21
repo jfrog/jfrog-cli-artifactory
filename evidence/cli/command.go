@@ -9,4 +9,5 @@ import (
 
 type EvidenceCommands interface {
 	CreateEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error
+	GetEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error
 }
