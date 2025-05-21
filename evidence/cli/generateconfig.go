@@ -24,7 +24,7 @@ func CreateSonarConfig(sonarConfigNode *yaml.Node, evidenceConfig *evidenceprovi
 				defaultIfEmpty(sonarConfig.URL, sonarqube.DefaultSonarHost),
 				defaultIfEmpty(sonarConfig.ReportTaskFile, sonarqube.DefaultReportTaskFile),
 				defaultIntIfEmpty(sonarConfig.MaxRetries, sonarqube.DefaultRetries),
-				defaultIntIfEmpty(sonarConfig.RetryInterval, sonarqube.DefaultInterval),
+				defaultIntIfEmpty(sonarConfig.RetryInterval, sonarqube.DefaultIntervalInSeconds),
 				sonarConfig.Proxy,
 			)
 		} else if err != nil {

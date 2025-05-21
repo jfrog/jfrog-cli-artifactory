@@ -13,16 +13,18 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"gopkg.in/yaml.v3"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 )
 
 const (
-	DefaultSonarHost      = "https://sonarcloud.io"
-	DefaultReportTaskFile = "target/sonar/report-task.txt"
-	DefaultRetries        = 3
-	DefaultInterval       = 10
+	DefaultSonarHost         = "https://sonarcloud.io"
+	DefaultReportTaskFile    = ".scannerwork/report-task.txt" // target/sonar/report-task.txt
+	DefaultRetries           = 3
+	DefaultIntervalInSeconds = 10
+	SonarTaskStatusSuccess   = "SUCCESS"
 )
 
 type SonarEvidence struct {
@@ -31,17 +33,17 @@ type SonarEvidence struct {
 }
 
 func NewSonarConfig(url, reportTaskFile, maxRetries, retryInterval, proxy string) *evidenceproviders.SonarConfig {
-	log.Debug("Creating sonarqube config URL: " + url + " reportTaskFile: " + reportTaskFile + " maxRetries: " + maxRetries + " retryInterval: " + retryInterval)
+	log.Debug("Creating sonarqube config: URL: " + url + " reportTaskFile: " + reportTaskFile + " maxRetries: " + maxRetries + " retryInterval: " + retryInterval)
 	var retriesAllowed, retryCoolingPeriodSecs *int
 	retries, err := strconv.Atoi(maxRetries)
 	if err != nil {
-		log.Warn("Invalid maxRetries value, using default")
+		log.Warn("Invalid maxRetries config, using default of 0")
 		retries = 0
 	}
 	retriesAllowed = &retries
 	retryIntervalSecs, err := strconv.Atoi(retryInterval)
 	if err != nil {
-		log.Warn("Invalid retryInterval value, using default")
+		log.Warn("Invalid retryInterval config, using default of 0")
 		retryIntervalSecs = 0
 	}
 	retryCoolingPeriodSecs = &retryIntervalSecs
@@ -71,7 +73,7 @@ func CreateSonarEvidence() (*SonarEvidence, error) {
 
 func NewDefaultSonarConfig() *evidenceproviders.SonarConfig {
 	retries := func() *int { v := DefaultRetries; return &v }()
-	interval := func() *int { v := DefaultInterval; return &v }()
+	interval := func() *int { v := DefaultIntervalInSeconds; return &v }()
 	return &evidenceproviders.SonarConfig{
 		URL:            DefaultSonarHost,
 		ReportTaskFile: DefaultReportTaskFile,
@@ -82,7 +84,11 @@ func NewDefaultSonarConfig() *evidenceproviders.SonarConfig {
 }
 
 func (se *SonarEvidence) GetEvidence() ([]byte, error) {
-	log.Info("Retrieving evidence from sonarqube server")
+	log.Debug("Retrieving evidence from sonarqube server")
+	err := validateSonarConfig(se)
+	if err != nil {
+		return nil, err
+	}
 	sonarEvidence, err := FetchSonarEvidenceWithRetry(
 		se.SonarConfig.URL,
 		se.SonarConfig.ReportTaskFile,
@@ -97,7 +103,28 @@ func (se *SonarEvidence) GetEvidence() ([]byte, error) {
 	return sonarEvidence, nil
 }
 
+func validateSonarConfig(se *SonarEvidence) error {
+	if se.SonarConfig == nil {
+		se.SonarConfig = new(evidenceproviders.SonarConfig)
+		//return errorutils.CheckError(errors.New("sonar config can not be empty"))
+	}
+	if se.SonarConfig.ReportTaskFile == "" {
+		se.SonarConfig.ReportTaskFile = DefaultReportTaskFile
+		return errorutils.CheckError(errors.New("reportTaskFile cannot be empty"))
+	}
+	if se.SonarConfig.MaxRetries == nil {
+		se.SonarConfig.MaxRetries = func() *int { v := DefaultRetries; return &v }()
+	}
+	if se.SonarConfig.RetryInterval == nil {
+		se.SonarConfig.RetryInterval = func() *int { v := DefaultIntervalInSeconds; return &v }()
+	}
+	return nil
+}
+
 func CreateSonarConfiguration(yamlNode *yaml.Node) (sonarConfig *evidenceproviders.SonarConfig, err error) {
+	if yamlNode == nil {
+		return nil, errorutils.CheckError(errors.New("sonar config is empty"))
+	}
 	if err := yamlNode.Decode(&sonarConfig); err != nil {
 		return nil, err
 	}
@@ -129,10 +156,10 @@ type Task struct {
 	InfoMessages       []string `json:"infoMessages"`
 }
 
-func getCeTaskUrlFromFile(filePath string) (string, error) {
+func getCeTaskIDAndURLFromReportTaskFile(filePath string) (string, string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		panic("Failed to open file: " + err.Error())
+		return "", "", errorutils.CheckError(errors.New("failed to open file: " + err.Error()))
 	}
 	defer func(file *os.File) {
 		err := file.Close()
@@ -147,25 +174,27 @@ func getCeTaskUrlFromFile(filePath string) (string, error) {
 			taskIDs := strings.Split(line, "?id=")
 			if len(taskIDs) < 2 {
 				log.Error("Invalid ceTaskUrl format in file")
-				return "", errorutils.CheckError(errors.New("invalid ceTaskUrl format in file"))
+				return "", "", errorutils.CheckError(errors.New("invalid ceTaskUrl format in file"))
 			}
-			return strings.Split(line, "?id=")[1], nil
+			taskIDs[0] = strings.TrimPrefix(taskIDs[0], "ceTaskUrl=")
+			return taskIDs[0], taskIDs[1], nil
 		}
 	}
-
-	if err := scanner.Err(); err != nil {
-		panic("Error reading file: " + err.Error())
-	}
-
-	log.Error("ceTaskUrl not found in file")
-	return "", errorutils.CheckError(errors.New("ceTaskUrl not found in file"))
+	return "", "", errorutils.CheckError(errors.New("ceTaskUrl not found in file"))
 }
 
 // FetchSonarEvidenceWithRetry fetches the sonar evidence using the sonar configuration.
 // It retries the request if it fails or if the task is still in progress or pending depending on the sonar config.
 // It returns the evidence data if the task is successful or an error if it fails.
 func FetchSonarEvidenceWithRetry(sonarQubeURL, reportTaskFile, proxy string, maxRetries, retryInterval int) (data []byte, err error) {
-	taskID, err := getCeTaskUrlFromFile(reportTaskFile)
+	taskURL, taskID, err := getCeTaskIDAndURLFromReportTaskFile(reportTaskFile)
+	if sonarQubeURL == "" {
+		parsedURL, err := url.Parse(taskURL)
+		if err != nil {
+			return nil, errorutils.CheckError(errors.New("Failed to parse sonar URL from report task " + err.Error()))
+		}
+		sonarQubeURL = parsedURL.Scheme + "://" + parsedURL.Host
+	}
 	if err != nil {
 		return data, err
 	}
@@ -188,7 +217,7 @@ func FetchSonarEvidenceWithRetry(sonarQubeURL, reportTaskFile, proxy string, max
 			}
 			if taskReport.Task.Status == "PENDING" || taskReport.Task.Status == "IN-PROGRESS" {
 				return true, nil
-			} else if taskReport.Task.Status == "SUCCESS" {
+			} else if taskReport.Task.Status == SonarTaskStatusSuccess {
 				return false, nil
 			}
 			return true, nil
@@ -197,6 +226,9 @@ func FetchSonarEvidenceWithRetry(sonarQubeURL, reportTaskFile, proxy string, max
 	err = retryExecutor.Execute()
 	if err != nil {
 		return nil, err
+	}
+	if taskReport.Task.Status != SonarTaskStatusSuccess {
+		return nil, errorutils.CheckError(errors.New("Sonar task with unexpected status: " + taskReport.Task.Status))
 	}
 	return evd.GetSonarAnalysisReport(taskReport.Task.AnalysisID, sonarQubeURL, proxy)
 }

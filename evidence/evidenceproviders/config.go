@@ -1,6 +1,7 @@
 package evidenceproviders
 
 import (
+	"errors"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
@@ -18,7 +19,7 @@ type SonarConfig struct {
 	URL            string `yaml:"url"`
 	ReportTaskFile string `yaml:"reportTaskFile"`
 	MaxRetries     *int   `yaml:"maxRetries"`
-	RetryInterval  *int   `yaml:"RetryInterval"`
+	RetryInterval  *int   `yaml:"retryIntervalInSecs"`
 	Proxy          string `yaml:"proxy"`
 }
 
@@ -50,10 +51,21 @@ func LoadConfig(path string) (map[string]*yaml.Node, error) {
 
 func GetConfig() (map[string]*yaml.Node, error) {
 	evidenceDir, err := GetEvidenceDir(false)
+	exists, err := fileutils.IsDirExists(evidenceDir, false)
 	if err != nil {
 		return nil, err
 	}
+	if !exists {
+		return nil, errorutils.CheckError(errors.New("evidence directory does not exist"))
+	}
 	evidenceConfigFilePath := filepath.Join(evidenceDir, "evidence.yaml")
+	fileExists, err := fileutils.IsFileExists(evidenceConfigFilePath, false)
+	if err != nil {
+		return nil, err
+	}
+	if !fileExists {
+		return nil, errorutils.CheckError(errors.New("evidence.yaml file does not exist"))
+	}
 	evidenceConfig, err := LoadConfig(evidenceConfigFilePath)
 	return evidenceConfig, nil
 }

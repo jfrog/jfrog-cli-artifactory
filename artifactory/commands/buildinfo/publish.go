@@ -175,8 +175,7 @@ func (bpc *BuildPublishCommand) Run() error {
 		log.Info(logMsg + " Browse it in Artifactory under " + buildLink)
 		return nil
 	}
-	//createEvidenceIfRequired(bpc)
-
+	// TODO: Add support for attaching evidence for given build name and number
 	log.Info(logMsg)
 	return logJsonOutput(buildLink)
 }
