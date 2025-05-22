@@ -353,7 +353,7 @@ func (npc *NpmPublishCommand) readPackageInfoFromTarball(packedFilePath string) 
 
 	// Log which package.json was selected if it's not in the standard location
 	if packageJsonPath != "package/package.json" {
-		log.Info("Using non-standard package.json location: " + packageJsonPath)
+		log.Warn("Using non-standard package.json location: " + packageJsonPath)
 	}
 
 	// Parse the package.json content
@@ -361,7 +361,13 @@ func (npc *NpmPublishCommand) readPackageInfoFromTarball(packedFilePath string) 
 	return err
 }
 
-// findBestPackageJson scans the tarball and returns the best package.json file based on priority
+// findBestPackageJson scans the tarball and returns the most appropriate package.json file based on priority.
+// Some npm packages may contain multiple package.json files in different locations within the tarball.
+// This function prioritizes them as follows:
+// 1. Standard location: "package/package.json" (highest priority)
+// 2. Root-level package.json files like "node/package.json"
+// 3. Other locations based on directory nesting depth (lower priority)
+// This ensures we select the most relevant package.json file, similar to how npm itself handles non-standard structures.
 func findBestPackageJson(tarReader *tar.Reader) (string, []byte, error) {
 	type packageJsonCandidate struct {
 		path     string
@@ -374,7 +380,7 @@ func findBestPackageJson(tarReader *tar.Reader) (string, []byte, error) {
 
 	// Scan all entries in the tarball
 	for {
-		hdr, err := tarReader.Next()
+		tarHeader, err := tarReader.Next()
 		if err != nil {
 			if err == io.EOF {
 				break
@@ -383,18 +389,18 @@ func findBestPackageJson(tarReader *tar.Reader) (string, []byte, error) {
 		}
 
 		// Check if this is a package.json file
-		if strings.HasSuffix(hdr.Name, "package.json") {
+		if strings.HasSuffix(tarHeader.Name, "package.json") {
 			// Read content
 			content, err := io.ReadAll(tarReader)
 			if err != nil {
-				log.Debug("Error reading " + hdr.Name + ": " + err.Error())
+				log.Warn("Error reading " + tarHeader.Name + ": " + err.Error())
 				continue
 			}
 
 			// Calculate priority based on path
-			priority := calculatePackageJsonPriority(hdr.Name)
+			priority := calculatePackageJsonPriority(tarHeader.Name)
 			candidate := &packageJsonCandidate{
-				path:     hdr.Name,
+				path:     tarHeader.Name,
 				priority: priority,
 				content:  content,
 			}
@@ -405,7 +411,7 @@ func findBestPackageJson(tarReader *tar.Reader) (string, []byte, error) {
 			}
 
 			// Standard location is highest priority, can stop searching
-			if hdr.Name == "package/package.json" {
+			if tarHeader.Name == "package/package.json" {
 				break
 			}
 		}
@@ -429,12 +435,14 @@ func calculatePackageJsonPriority(path string) int {
 
 	parts := strings.Split(path, "/")
 
-	// Root directory package.json (like node/package.json) gets second priority
+	// Root directory package.json gets second priority
+	// (like node/package.json or main/package.json)
 	if len(parts) == 2 && parts[1] == "package.json" {
 		return 2
 	}
 
 	// Other locations get lower priority based on nesting depth
+	// This handles cases where multiple package.json files exist in subdirectories
 	return 3 + len(parts)
 }
 
