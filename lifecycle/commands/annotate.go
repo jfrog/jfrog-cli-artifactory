@@ -29,7 +29,7 @@ type ReleaseBundleAnnotateCommand struct {
 func NewReleaseBundleAnnotateCommand() *ReleaseBundleAnnotateCommand {
 	cmd := &ReleaseBundleAnnotateCommand{}
 	cmd.annotateReleaseBundleFunc = DefaultAnnotateReleaseBundle
-	cmd.validateVersionFunc = validateFeatureSupportedVersion
+	cmd.validateVersionFunc = ValidateFeatureSupportedVersion
 	cmd.getPrerequisitesFunc = func() (*lifecycle.LifecycleServicesManager, services.ReleaseBundleDetails, services.CommonOptionalQueryParams, error) {
 		return DefaultGetPrerequisites(cmd)
 	}

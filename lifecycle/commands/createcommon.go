@@ -1,18 +1,30 @@
 package commands
 
 import (
+	"fmt"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+	"github.com/jfrog/jfrog-client-go/lifecycle"
 	"github.com/jfrog/jfrog-client-go/lifecycle/services"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"strconv"
+	"strings"
 )
 
 const (
-	missingCreationSourcesErrMsg  = "unexpected err while validating spec - could not detect any creation sources"
-	multipleCreationSourcesErrMsg = "multiple creation sources were detected in separate spec files. Only a single creation source should be provided. Detected:"
-	singleAqlErrMsg               = "only a single aql query can be provided"
+	missingCreationSourcesErrMsg                 = "unexpected err while validating spec - could not detect any creation sources"
+	multipleCreationSourcesErrMsg                = "multiple creation sources were detected in separate spec files. Only a single creation source should be provided. Detected:"
+	singleAqlErrMsg                              = "only a single aql query can be provided"
+	minMultiSourcesAndPackagesArtifactoryVersion = "7.114.0"
+	unsupportedCreationSourceMethod              = "creation source 'package' is not supported in current version"
 )
+
+type ReleaseBundleCreateSources struct {
+	sourcesBuilds         string
+	sourcesReleaseBundles string
+}
 
 type ReleaseBundleCreateCommand struct {
 	releaseBundleCmd
@@ -21,6 +33,9 @@ type ReleaseBundleCreateCommand struct {
 	// Backward compatibility:
 	buildsSpecPath         string
 	releaseBundlesSpecPath string
+
+	// Multi-source support
+	ReleaseBundleCreateSources
 }
 
 func NewReleaseBundleCreateCommand() *ReleaseBundleCreateCommand {
@@ -74,12 +89,36 @@ func (rbc *ReleaseBundleCreateCommand) SetReleaseBundlesSpecPath(releaseBundlesS
 	return rbc
 }
 
+func (rbc *ReleaseBundleCreateCommand) SetSourcesBuilds(sourcesBuilds string) *ReleaseBundleCreateCommand {
+	rbc.ReleaseBundleCreateSources.sourcesBuilds = sourcesBuilds
+	return rbc
+}
+
+func (rbc *ReleaseBundleCreateCommand) SetSourcesReleaseBundles(sourcesReleaseBundles string) *ReleaseBundleCreateCommand {
+	rbc.ReleaseBundleCreateSources.sourcesReleaseBundles = sourcesReleaseBundles
+	return rbc
+}
+
 func (rbc *ReleaseBundleCreateCommand) CommandName() string {
 	return "rb_create"
 }
 
 func (rbc *ReleaseBundleCreateCommand) ServerDetails() (*config.ServerDetails, error) {
 	return rbc.serverDetails, nil
+}
+
+func isSingleType(sourceTypes []services.SourceType) bool {
+	if len(sourceTypes) <= 1 {
+		return true
+	}
+
+	first := sourceTypes[0]
+	for _, t := range sourceTypes[1:] {
+		if t != first {
+			return false
+		}
+	}
+	return true
 }
 
 func (rbc *ReleaseBundleCreateCommand) Run() error {
@@ -92,72 +131,333 @@ func (rbc *ReleaseBundleCreateCommand) Run() error {
 		return err
 	}
 
-	sourceType, err := rbc.identifySourceType()
+	var multipleSourcesSupported bool
+	if err := ValidateFeatureSupportedVersion(rbc.serverDetails, minMultiSourcesAndPackagesArtifactoryVersion); err != nil {
+		multipleSourcesSupported = false
+	} else {
+		multipleSourcesSupported = true
+	}
+
+	sourceTypes, err := rbc.identifySourceType(multipleSourcesSupported)
 	if err != nil {
 		return err
 	}
 
-	switch sourceType {
-	case services.Aql:
-		return rbc.createFromAql(servicesManager, rbDetails, queryParams)
-	case services.Artifacts:
-		return rbc.createFromArtifacts(servicesManager, rbDetails, queryParams)
-	case services.Builds:
-		return rbc.createFromBuilds(servicesManager, rbDetails, queryParams)
-	case services.ReleaseBundles:
-		return rbc.createFromReleaseBundles(servicesManager, rbDetails, queryParams)
-	default:
-		return errorutils.CheckErrorf("unknown source for release bundle creation was provided")
+	if isSingleType(sourceTypes) {
+		switch sourceTypes[0] {
+		case services.Aql:
+			return rbc.createFromAql(servicesManager, rbDetails, queryParams)
+		case services.Artifacts:
+			return rbc.createFromArtifacts(servicesManager, rbDetails, queryParams)
+		case services.Builds:
+			return rbc.createFromBuilds(servicesManager, rbDetails, queryParams)
+		case services.ReleaseBundles:
+			return rbc.createFromReleaseBundles(servicesManager, rbDetails, queryParams)
+		case services.Packages:
+			return rbc.createFromPackages(servicesManager, rbDetails, queryParams)
+		default:
+			return errorutils.CheckErrorf("unknown source for release bundle creation was provided")
+		}
 	}
+
+	if multipleSourcesSupported {
+		sources, err := rbc.getMultipleSourcesIfDefined()
+		if err != nil {
+			return err
+		}
+		if sources != nil {
+			return rbc.createFromMultipleSources(servicesManager, rbDetails, queryParams, sources)
+		}
+	}
+
+	return errorutils.CheckErrorf("unknown source for release bundle creation was provided")
 }
 
-func (rbc *ReleaseBundleCreateCommand) identifySourceType() (services.SourceType, error) {
-	switch {
-	case rbc.buildsSpecPath != "":
-		return services.Builds, nil
-	case rbc.releaseBundlesSpecPath != "":
-		return services.ReleaseBundles, nil
-	case rbc.spec != nil:
-		return validateAndIdentifyRbCreationSpec(rbc.spec.Files)
-	default:
-		return "", errorutils.CheckErrorf("a spec file input is mandatory")
+func buildRbBuildsSources(sourcesStr, projectKey string, sources []services.RbSource) []services.RbSource {
+	var buildSources []services.BuildSource
+	buildEntries := strings.Split(sourcesStr, ";")
+	for _, entry := range buildEntries {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		// Assuming the format "name=xxx, number=xxx, include-dep=true"
+		components := strings.Split(entry, ",")
+		if len(components) < 2 {
+			continue
+		}
+
+		name := strings.TrimSpace(strings.Split(components[0], "=")[1])
+		number := strings.TrimSpace(strings.Split(components[1], "=")[1])
+
+		includeDepStr := "false"
+		if len(components) >= 3 {
+			parts := strings.Split(components[2], "=")
+			if len(parts) > 1 {
+				includeDepStr = strings.TrimSpace(parts[1])
+			}
+		}
+
+		includeDep, _ := strconv.ParseBool(includeDepStr)
+
+		buildSources = append(buildSources, services.BuildSource{
+			BuildRepository:     utils.GetBuildInfoRepositoryByProject(projectKey),
+			BuildName:           name,
+			BuildNumber:         number,
+			IncludeDependencies: includeDep,
+		})
 	}
+	if len(buildSources) > 0 {
+		sources = append(sources, services.RbSource{
+			SourceType: "builds",
+			Builds:     buildSources,
+		})
+	}
+	return sources
 }
 
-func validateAndIdentifyRbCreationSpec(files []spec.File) (services.SourceType, error) {
-	if len(files) == 0 {
-		return "", errorutils.CheckErrorf("spec must include at least one file group")
+func buildRbReleaseBundlesSources(sourcesStr, projectKey string, sources []services.RbSource) []services.RbSource {
+	var releaseBundleSources []services.ReleaseBundleSource
+	bundleEntries := strings.Split(sourcesStr, ";")
+	for _, entry := range bundleEntries {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		// Assuming the format "name=xxx, version=xxx"
+		components := strings.Split(entry, ",")
+		if len(components) != 2 {
+			continue
+		}
+		name := strings.TrimSpace(strings.Split(components[0], "=")[1])
+		version := strings.TrimSpace(strings.Split(components[1], "=")[1])
+
+		releaseBundleSources = append(releaseBundleSources, services.ReleaseBundleSource{
+			ProjectKey:           projectKey,
+			ReleaseBundleName:    name,
+			ReleaseBundleVersion: version,
+		})
+	}
+	if len(releaseBundleSources) > 0 {
+		sources = append(sources, services.RbSource{
+			SourceType:     "release_bundles",
+			ReleaseBundles: releaseBundleSources,
+		})
+	}
+	return sources
+}
+
+func buildReleaseBundleSourcesParams(rbc *ReleaseBundleCreateCommand) []services.RbSource {
+	var sources []services.RbSource
+	// Process Builds
+	if rbc.sourcesBuilds != "" {
+		sources = buildRbBuildsSources(rbc.sourcesBuilds, rbc.rbProjectKey, sources)
 	}
 
+	// Process Release Bundles
+	if rbc.sourcesReleaseBundles != "" {
+		sources = buildRbReleaseBundlesSources(rbc.sourcesReleaseBundles, rbc.rbProjectKey, sources)
+	}
+
+	return sources
+
+}
+
+func buildReleaseBundleSourcesParamsFromSpec(rbc *ReleaseBundleCreateCommand, detectedSources []services.SourceType) ([]services.RbSource, error) {
+	sourceTypeMap := make(map[services.SourceType]bool)
+	for _, sourceType := range detectedSources {
+		sourceTypeMap[sourceType] = true
+	}
+
+	var sources []services.RbSource
+
+	if sourceTypeMap[services.ReleaseBundles] {
+		err, releaseBundleSources := rbc.createReleaseBundleSourceFromSpec()
+		if err != nil {
+			return nil, err
+		}
+
+		if len(releaseBundleSources.ReleaseBundles) > 0 {
+			sources = append(sources, services.RbSource{
+				SourceType:     services.ReleaseBundles,
+				ReleaseBundles: releaseBundleSources.ReleaseBundles,
+			})
+		}
+	}
+
+	if sourceTypeMap[services.Builds] {
+		err, buildsSource := rbc.createBuildSourceFromSpec()
+		if err != nil {
+			return nil, err
+		}
+
+		if len(buildsSource.Builds) > 0 {
+			sources = append(sources, services.RbSource{
+				SourceType: services.Builds,
+				Builds:     buildsSource.Builds,
+			})
+		}
+	}
+
+	if sourceTypeMap[services.Artifacts] {
+		err, artifactsSource := rbc.createArtifactSourceFromSpec()
+		if err != nil {
+			return nil, err
+		}
+
+		if len(artifactsSource.Artifacts) > 0 {
+			sources = append(sources, services.RbSource{
+				SourceType: services.Artifacts,
+				Artifacts:  artifactsSource.Artifacts,
+			})
+		}
+	}
+
+	if sourceTypeMap[services.Packages] {
+		packagesSource := rbc.createPackageSourceFromSpec()
+
+		if len(packagesSource.Packages) > 0 {
+			sources = append(sources, services.RbSource{
+				SourceType: services.Packages,
+				Packages:   packagesSource.Packages,
+			})
+		}
+	}
+
+	if sourceTypeMap[services.Aql] {
+		aqlQuery := rbc.createAqlQueryFromSpec()
+		sources = append(sources, services.RbSource{
+			SourceType: services.Aql,
+			Aql:        aqlQuery,
+		})
+	}
+
+	return sources, nil
+}
+
+func (rbc *ReleaseBundleCreateCommand) identifySourceType(multipleSourcesAndPackagesSupported bool) ([]services.SourceType, error) {
+	var sourceTypes []services.SourceType
+
+	if rbc.buildsSpecPath != "" {
+		sourceTypes = append(sourceTypes, services.Builds)
+	}
+
+	if rbc.releaseBundlesSpecPath != "" {
+		sourceTypes = append(sourceTypes, services.ReleaseBundles)
+	}
+
+	if rbc.spec != nil {
+		return validateAndIdentifyRbCreationSpec(rbc.spec.Files, multipleSourcesAndPackagesSupported)
+	}
+
+	if sourceTypes == nil {
+		return nil, errorutils.CheckErrorf("a spec file input is mandatory")
+	}
+
+	return sourceTypes, nil
+}
+
+func (rbc *ReleaseBundleCreateCommand) multiSourcesDefinedFromCommand() bool {
+	return rbc.ReleaseBundleCreateSources.sourcesReleaseBundles != "" || rbc.ReleaseBundleCreateSources.sourcesBuilds != ""
+}
+
+func (rbc *ReleaseBundleCreateCommand) multiSourcesDefinedFromSpec() (bool, []services.SourceType, error) {
+	if rbc.spec != nil && rbc.spec.Files != nil && len(rbc.spec.Files) > 1 {
+		detectedCreationSources, err := detectSourceTypesFromSpec(rbc.spec.Files, true)
+		if err != nil {
+			return false, nil, err
+		}
+		if err := validateCreationSources(detectedCreationSources, true); err != nil {
+			return false, nil, err
+		}
+		return !isSingleType(detectedCreationSources), detectedCreationSources, nil
+	}
+	return false, nil, nil
+}
+
+func (rbc *ReleaseBundleCreateCommand) createFromMultipleSources(servicesManager *lifecycle.LifecycleServicesManager,
+	rbDetails services.ReleaseBundleDetails, queryParams services.CommonOptionalQueryParams,
+	sources []services.RbSource) error {
+	return servicesManager.CreateReleaseBundlesFromMultipleSources(rbDetails, queryParams, rbc.signingKeyName, sources)
+}
+
+func (rbc *ReleaseBundleCreateCommand) createAqlQueryFromSpec() string {
+	for _, file := range rbc.spec.Files {
+		if len(file.Aql.ItemsFind) > 0 {
+			return fmt.Sprintf(`items.find(%s)`, file.Aql.ItemsFind)
+		}
+	}
+	return ""
+}
+
+func (rbc *ReleaseBundleCreateCommand) getMultipleSourcesIfDefined() ([]services.RbSource, error) {
+	if rbc.multiSourcesDefinedFromCommand() {
+		return buildReleaseBundleSourcesParams(rbc), nil
+	} else {
+		multiSrcDefinedInSpec, detectedCreationSources, err := rbc.multiSourcesDefinedFromSpec()
+		if err != nil {
+			return nil, err
+		}
+		if multiSrcDefinedInSpec {
+			return buildReleaseBundleSourcesParamsFromSpec(rbc, detectedCreationSources)
+		}
+	}
+	return nil, nil
+}
+
+func detectSourceTypesFromSpec(files []spec.File, multiSrcAndPackageSupported bool) ([]services.SourceType, error) {
 	var detectedCreationSources []services.SourceType
 	for _, file := range files {
-		sourceType, err := validateFile(file)
+		sourceType, err := validateFile(file, multiSrcAndPackageSupported)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		detectedCreationSources = append(detectedCreationSources, sourceType)
 	}
-
-	if err := validateCreationSources(detectedCreationSources); err != nil {
-		return "", err
-	}
-	return detectedCreationSources[0], nil
+	return detectedCreationSources, nil
 }
 
-func validateCreationSources(detectedCreationSources []services.SourceType) error {
+func validateAndIdentifyRbCreationSpec(files []spec.File, multipleSourcesAndPackageSupported bool) ([]services.SourceType, error) {
+	if len(files) == 0 {
+		return nil, errorutils.CheckErrorf("spec must include at least one file group")
+	}
+
+	detectedCreationSources, err := detectSourceTypesFromSpec(files, multipleSourcesAndPackageSupported)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := validateCreationSources(detectedCreationSources, multipleSourcesAndPackageSupported); err != nil {
+		return nil, err
+	}
+	return detectedCreationSources, nil
+}
+
+func validateCreationSources(detectedCreationSources []services.SourceType, multipleSourcesAndPackagesSupported bool) error {
 	if len(detectedCreationSources) == 0 {
 		return errorutils.CheckErrorf(missingCreationSourcesErrMsg)
 	}
 
-	// Assert single creation source.
-	for i := 1; i < len(detectedCreationSources); i++ {
-		if detectedCreationSources[i] != detectedCreationSources[0] {
-			return generateSingleCreationSourceErr(detectedCreationSources)
+	// Assert single creation source in case multiple sources isn't supported
+	var aqlSrcCnt int
+	for i := 0; i < len(detectedCreationSources); i++ {
+		if detectedCreationSources[i] == services.Aql {
+			aqlSrcCnt++
 		}
+
+		if !multipleSourcesAndPackagesSupported {
+			if detectedCreationSources[i] == services.Packages {
+				return errorutils.CheckErrorf(unsupportedCreationSourceMethod)
+			}
+			if detectedCreationSources[i] != detectedCreationSources[0] {
+				return generateSingleCreationSourceErr(detectedCreationSources)
+			}
+		}
+
 	}
 
 	// If aql, assert single file.
-	if detectedCreationSources[0] == services.Aql && len(detectedCreationSources) > 1 {
+	if aqlSrcCnt > 1 {
 		return errorutils.CheckErrorf(singleAqlErrMsg)
 	}
 	return nil
@@ -172,7 +472,7 @@ func generateSingleCreationSourceErr(detectedCreationSources []services.SourceTy
 		"%s '%s'", multipleCreationSourcesErrMsg, coreutils.ListToText(detectedStr))
 }
 
-func validateFile(file spec.File) (services.SourceType, error) {
+func validateFile(file spec.File, packageSupported bool) (services.SourceType, error) {
 	// Aql creation source:
 	isAql := len(file.Aql.ItemsFind) > 0
 
@@ -183,8 +483,11 @@ func validateFile(file spec.File) (services.SourceType, error) {
 	// Bundle creation source:
 	isBundle := len(file.Bundle) > 0
 
-	// Build & bundle:
+	// Build & bundle
 	isProject := len(file.Project) > 0
+
+	// Packages
+	isPackage := len(file.Package) > 0
 
 	// Artifacts creation source:
 	isPattern := len(file.Pattern) > 0
@@ -219,8 +522,14 @@ func validateFile(file spec.File) (services.SourceType, error) {
 			"release bundle creation file spec only supports the following fields: " +
 			"'aql', 'build', 'includeDeps', 'bundle', 'project', 'pattern', 'exclusions', 'props', 'excludeProps' and 'recursive'")
 	}
-	if coreutils.SumTrueValues([]bool{isAql, isBuild, isBundle, isPattern}) != 1 {
-		return "", errorutils.CheckErrorf("exactly one creation source is supported (aql, builds, release bundles or pattern (artifacts))")
+	if packageSupported {
+		if coreutils.SumTrueValues([]bool{isAql, isBuild, isBundle, isPattern, isPackage}) != 1 {
+			return "", errorutils.CheckErrorf("exactly one creation source is supported per file (aql, builds, release bundles, pattern (artifacts) or package)")
+		}
+	} else {
+		if coreutils.SumTrueValues([]bool{isAql, isBuild, isBundle, isPattern}) != 1 {
+			return "", errorutils.CheckErrorf("exactly one creation source is supported per file (aql, builds, release bundles or pattern (artifacts))")
+		}
 	}
 
 	switch {
@@ -240,9 +549,13 @@ func validateFile(file spec.File) (services.SourceType, error) {
 		return services.Artifacts,
 			validateCreationSource([]bool{isIncludeDeps, isProject},
 				"release bundles creation source only supports the 'exclusions', 'props', 'excludeProps' and 'recursive' fields")
-	default:
-		return "", errorutils.CheckErrorf("unexpected err in spec validation")
+	case isPackage:
+		return services.Packages,
+			validateCreationSource([]bool{isIncludeDeps, isExclusions, isProps, isExcludeProps, !isRecursive, isProject},
+				"release bundles creation source only supports the 'version', 'type', 'repoKey' fields")
 	}
+
+	return "", errorutils.CheckErrorf("unexpected err in spec validation")
 }
 
 func validateCreationSource(unsupportedFields []bool, errMsg string) error {

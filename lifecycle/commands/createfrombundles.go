@@ -13,13 +13,7 @@ import (
 func (rbc *ReleaseBundleCreateCommand) createFromReleaseBundles(servicesManager *lifecycle.LifecycleServicesManager,
 	rbDetails services.ReleaseBundleDetails, queryParams services.CommonOptionalQueryParams) error {
 
-	var releaseBundlesSource services.CreateFromReleaseBundlesSource
-	var err error
-	if rbc.releaseBundlesSpecPath != "" {
-		releaseBundlesSource, err = rbc.getReleaseBundlesSourceFromBundlesSpec()
-	} else {
-		releaseBundlesSource, err = rbc.convertSpecToReleaseBundlesSource(rbc.spec.Files)
-	}
+	err, releaseBundlesSource := rbc.createReleaseBundleSourceFromSpec()
 	if err != nil {
 		return err
 	}
@@ -29,6 +23,20 @@ func (rbc *ReleaseBundleCreateCommand) createFromReleaseBundles(servicesManager 
 	}
 
 	return servicesManager.CreateReleaseBundleFromBundles(rbDetails, queryParams, rbc.signingKeyName, releaseBundlesSource)
+}
+
+func (rbc *ReleaseBundleCreateCommand) createReleaseBundleSourceFromSpec() (error, services.CreateFromReleaseBundlesSource) {
+	var releaseBundlesSource services.CreateFromReleaseBundlesSource
+	var err error
+	if rbc.releaseBundlesSpecPath != "" {
+		releaseBundlesSource, err = rbc.getReleaseBundlesSourceFromBundlesSpec()
+	} else {
+		releaseBundlesSource, err = rbc.convertSpecToReleaseBundlesSource(rbc.spec.Files)
+	}
+	if err != nil {
+		return err, releaseBundlesSource
+	}
+	return nil, releaseBundlesSource
 }
 
 func (rbc *ReleaseBundleCreateCommand) convertToReleaseBundlesSource(bundles CreateFromReleaseBundlesSpec) services.CreateFromReleaseBundlesSource {
@@ -47,6 +55,11 @@ func (rbc *ReleaseBundleCreateCommand) convertToReleaseBundlesSource(bundles Cre
 func (rbc *ReleaseBundleCreateCommand) convertSpecToReleaseBundlesSource(files []spec.File) (services.CreateFromReleaseBundlesSource, error) {
 	releaseBundlesSource := services.CreateFromReleaseBundlesSource{}
 	for _, file := range files {
+		// support multiple sources
+		if file.Bundle == "" {
+			continue
+		}
+
 		name, version, err := utils.ParseNameAndVersion(file.Bundle, false)
 		if err != nil {
 			return releaseBundlesSource, err
