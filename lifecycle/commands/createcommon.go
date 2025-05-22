@@ -314,10 +314,7 @@ func buildReleaseBundleSourcesParamsFromSpec(rbc *ReleaseBundleCreateCommand, de
 	}
 
 	if sourceTypeMap[services.Packages] {
-		err, packagesSource := rbc.createPackageSourceFromSpec()
-		if err != nil {
-			return nil, err
-		}
+		packagesSource := rbc.createPackageSourceFromSpec()
 
 		if len(packagesSource.Packages) > 0 {
 			sources = append(sources, services.RbSource{
