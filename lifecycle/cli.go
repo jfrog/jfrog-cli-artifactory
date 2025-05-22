@@ -232,16 +232,6 @@ func create(c *components.Context) (err error) {
 		SetReleaseBundleProject(pluginsCommon.GetProject(c)).SetSpec(creationSpec).
 		SetBuildsSpecPath(c.GetStringFlagValue(flagkit.Builds)).SetReleaseBundlesSpecPath(c.GetStringFlagValue(flagkit.ReleaseBundles))
 
-	/*if c.GetStringFlagValue(flagkit.SigningKey) != "" {
-		createCmd.SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey))
-	} else {
-		signingKeyValue, _ := jfrogArtClient.GetEnvVariable("JFROG_CLI_SIGNING_KEY")
-		if signingKeyValue == "" {
-			return errorutils.CheckErrorf("JFROG_CLI_SIGNING_KEY env variable or --%s flag must be provided when creating evidence", flagkit.SigningKey)
-		}
-		createCmd.SetSigningKeyName(signingKeyValue)
-	}*/
-
 	if isSupported, _ := multipleSourcesSupported(c); isSupported == true {
 		createCmd.SetSourcesReleaseBundles(c.GetStringFlagValue(flagkit.SourcesReleaseBundles)).
 			SetSourcesBuilds(c.GetStringFlagValue(flagkit.SourcesBuilds))
