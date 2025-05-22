@@ -348,11 +348,12 @@ func (rbc *ReleaseBundleCreateCommand) identifySourceType(multipleSourcesAndPack
 
 	if rbc.spec != nil {
 		return validateAndIdentifyRbCreationSpec(rbc.spec.Files, multipleSourcesAndPackagesSupported)
-	} else {
-		if sourceTypes == nil {
-			return nil, errorutils.CheckErrorf("a spec file input is mandatory")
-		}
 	}
+
+	if sourceTypes == nil {
+		return nil, errorutils.CheckErrorf("a spec file input is mandatory")
+	}
+
 	return sourceTypes, nil
 }
 
