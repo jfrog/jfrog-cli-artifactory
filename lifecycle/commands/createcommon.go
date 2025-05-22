@@ -158,15 +158,15 @@ func (rbc *ReleaseBundleCreateCommand) Run() error {
 		default:
 			return errorutils.CheckErrorf("unknown source for release bundle creation was provided")
 		}
-	} else {
-		if multipleSourcesSupported {
-			sources, err := rbc.getMultipleSourcesIfDefined()
-			if err != nil {
-				return err
-			}
-			if sources != nil {
-				return rbc.createFromMultipleSources(servicesManager, rbDetails, queryParams, sources)
-			}
+	}
+
+	if multipleSourcesSupported {
+		sources, err := rbc.getMultipleSourcesIfDefined()
+		if err != nil {
+			return err
+		}
+		if sources != nil {
+			return rbc.createFromMultipleSources(servicesManager, rbDetails, queryParams, sources)
 		}
 	}
 
@@ -488,7 +488,7 @@ func validateFile(file spec.File, packageSupported bool) (services.SourceType, e
 	// Build & bundle
 	isProject := len(file.Project) > 0
 
-	//Packages
+	// Packages
 	isPackage := len(file.Package) > 0
 
 	// Artifacts creation source:

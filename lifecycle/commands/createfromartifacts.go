@@ -21,15 +21,6 @@ func (rbc *ReleaseBundleCreateCommand) createFromArtifacts(lcServicesManager *li
 
 	return lcServicesManager.CreateReleaseBundleFromArtifacts(rbDetails, queryParams, rbc.signingKeyName, artifactsSource)
 }
-func (rbc *ReleaseBundleCreateCommand) getArtifactPatternsFromSpec() []string {
-	var patterns []string
-	for _, file := range rbc.spec.Files {
-		if file.Pattern != "" {
-			patterns = append(patterns, file.Pattern)
-		}
-	}
-	return patterns
-}
 
 func (rbc *ReleaseBundleCreateCommand) getArtifactFilesFromSpec() []spec.File {
 	var artifactFiles []spec.File

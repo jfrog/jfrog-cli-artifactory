@@ -232,7 +232,7 @@ func create(c *components.Context) (err error) {
 		SetReleaseBundleProject(pluginsCommon.GetProject(c)).SetSpec(creationSpec).
 		SetBuildsSpecPath(c.GetStringFlagValue(flagkit.Builds)).SetReleaseBundlesSpecPath(c.GetStringFlagValue(flagkit.ReleaseBundles))
 
-	if isSupported, _ := multipleSourcesSupported(c); isSupported == true {
+	if isSupported, _ := multipleSourcesSupported(c); isSupported {
 		createCmd.SetSourcesReleaseBundles(c.GetStringFlagValue(flagkit.SourcesReleaseBundles)).
 			SetSourcesBuilds(c.GetStringFlagValue(flagkit.SourcesBuilds))
 	}
