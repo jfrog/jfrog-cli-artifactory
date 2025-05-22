@@ -134,6 +134,6 @@ require (
 
 replace github.com/jfrog/jfrog-cli-core/v2 => github.com/rimapol/jfrog-cli-core/v2 v2.0.0-20250522133129-f15fd0818081
 
-replace github.com/jfrog/jfrog-client-go => github.com/rimapol/jfrog-client-go v0.0.0-20250508103333-1551b7df1785
+replace github.com/jfrog/jfrog-client-go => github.com/rimapol/jfrog-client-go v0.0.0-20250514094816-8eb9b6915976
 
 // replace github.com/jfrog/jfrog-client-go => ../jfrog-client-go
