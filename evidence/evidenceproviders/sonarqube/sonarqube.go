@@ -27,9 +27,38 @@ const (
 	SonarTaskStatusSuccess   = "SUCCESS"
 )
 
+var (
+	getConfigFunc                   = evidenceproviders.GetConfig
+	fetchSonarEvidenceWithRetryFunc = FetchSonarEvidenceWithRetry
+)
+
 type SonarEvidence struct {
 	ServerDetails *config.ServerDetails
 	SonarConfig   *evidenceproviders.SonarConfig
+}
+
+type TaskReport struct {
+	Task Task `json:"task"`
+}
+
+type Task struct {
+	ID                 string   `json:"id"`
+	Type               string   `json:"type"`
+	ComponentID        string   `json:"componentId"`
+	ComponentKey       string   `json:"componentKey"`
+	ComponentName      string   `json:"componentName"`
+	ComponentQualifier string   `json:"componentQualifier"`
+	AnalysisID         string   `json:"analysisId"`
+	Status             string   `json:"status"`
+	SubmittedAt        string   `json:"submittedAt"`
+	SubmitterLogin     string   `json:"submitterLogin"`
+	StartedAt          string   `json:"startedAt"`
+	ExecutedAt         string   `json:"executedAt"`
+	ExecutionTimeMs    int      `json:"executionTimeMs"`
+	HasScannerContext  bool     `json:"hasScannerContext"`
+	WarningCount       int      `json:"warningCount"`
+	Warnings           []string `json:"warnings"`
+	InfoMessages       []string `json:"infoMessages"`
 }
 
 func NewSonarConfig(url, reportTaskFile, maxRetries, retryInterval, proxy string) *evidenceproviders.SonarConfig {
@@ -62,6 +91,10 @@ func NewSonarConfig(url, reportTaskFile, maxRetries, retryInterval, proxy string
 func CreateSonarEvidence() (*SonarEvidence, error) {
 	externalEvidenceProviderConfig, err := evidenceproviders.GetConfig()
 	if err != nil {
+		if errors.Is(err, evidenceproviders.ErrEvidenceDirNotExist) {
+			log.Debug("No external evidence provider config found, using default sonar config")
+			return &SonarEvidence{SonarConfig: NewDefaultSonarConfig()}, nil
+		}
 		return nil, err
 	}
 	sonarConfig, err := CreateSonarConfiguration(externalEvidenceProviderConfig["sonar"])
@@ -74,9 +107,11 @@ func CreateSonarEvidence() (*SonarEvidence, error) {
 func NewDefaultSonarConfig() *evidenceproviders.SonarConfig {
 	retries := func() *int { v := DefaultRetries; return &v }()
 	interval := func() *int { v := DefaultIntervalInSeconds; return &v }()
+	reportTaskFilePath := DetectBuildToolAndReportFilePath()
+	taskURL, _ := GetSonarHostURLTaskIDFromReportTaskFile(reportTaskFilePath)
 	return &evidenceproviders.SonarConfig{
-		URL:            DefaultSonarHost,
-		ReportTaskFile: DefaultReportTaskFile,
+		URL:            taskURL,
+		ReportTaskFile: reportTaskFilePath,
 		MaxRetries:     retries,
 		RetryInterval:  interval,
 		Proxy:          "",
@@ -84,12 +119,12 @@ func NewDefaultSonarConfig() *evidenceproviders.SonarConfig {
 }
 
 func (se *SonarEvidence) GetEvidence() ([]byte, error) {
-	log.Debug("Retrieving evidence from sonarqube server")
 	err := validateSonarConfig(se)
 	if err != nil {
 		return nil, err
 	}
-	sonarEvidence, err := FetchSonarEvidenceWithRetry(
+	log.Debug("Retrieving evidence from sonarqube server ", se.SonarConfig.URL, se.SonarConfig.Proxy)
+	sonarReport, err := fetchSonarEvidenceWithRetryFunc(
 		se.SonarConfig.URL,
 		se.SonarConfig.ReportTaskFile,
 		se.SonarConfig.Proxy,
@@ -100,17 +135,15 @@ func (se *SonarEvidence) GetEvidence() ([]byte, error) {
 		return nil, err
 	}
 	log.Info("Fetched sonar evidence successfully")
-	return sonarEvidence, nil
+	return sonarReport, nil
 }
 
 func validateSonarConfig(se *SonarEvidence) error {
 	if se.SonarConfig == nil {
 		se.SonarConfig = new(evidenceproviders.SonarConfig)
-		//return errorutils.CheckError(errors.New("sonar config can not be empty"))
 	}
 	if se.SonarConfig.ReportTaskFile == "" {
-		se.SonarConfig.ReportTaskFile = DefaultReportTaskFile
-		return errorutils.CheckError(errors.New("reportTaskFile cannot be empty"))
+		se.SonarConfig.ReportTaskFile = DetectBuildToolAndReportFilePath()
 	}
 	if se.SonarConfig.MaxRetries == nil {
 		se.SonarConfig.MaxRetries = func() *int { v := DefaultRetries; return &v }()
@@ -132,73 +165,16 @@ func CreateSonarConfiguration(yamlNode *yaml.Node) (sonarConfig *evidenceprovide
 	return sonarConfig, nil
 }
 
-type TaskReport struct {
-	Task Task `json:"task"`
-}
-
-type Task struct {
-	ID                 string   `json:"id"`
-	Type               string   `json:"type"`
-	ComponentID        string   `json:"componentId"`
-	ComponentKey       string   `json:"componentKey"`
-	ComponentName      string   `json:"componentName"`
-	ComponentQualifier string   `json:"componentQualifier"`
-	AnalysisID         string   `json:"analysisId"`
-	Status             string   `json:"status"`
-	SubmittedAt        string   `json:"submittedAt"`
-	SubmitterLogin     string   `json:"submitterLogin"`
-	StartedAt          string   `json:"startedAt"`
-	ExecutedAt         string   `json:"executedAt"`
-	ExecutionTimeMs    int      `json:"executionTimeMs"`
-	HasScannerContext  bool     `json:"hasScannerContext"`
-	WarningCount       int      `json:"warningCount"`
-	Warnings           []string `json:"warnings"`
-	InfoMessages       []string `json:"infoMessages"`
-}
-
-func getCeTaskIDAndURLFromReportTaskFile(filePath string) (string, string, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return "", "", errorutils.CheckError(errors.New("failed to open file: " + err.Error()))
-	}
-	defer func(file *os.File) {
-		err := file.Close()
-		if err != nil {
-			log.Error("Failed to close file: " + err.Error())
-		}
-	}(file)
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "ceTaskUrl=") {
-			taskIDs := strings.Split(line, "?id=")
-			if len(taskIDs) < 2 {
-				log.Error("Invalid ceTaskUrl format in file")
-				return "", "", errorutils.CheckError(errors.New("invalid ceTaskUrl format in file"))
-			}
-			taskIDs[0] = strings.TrimPrefix(taskIDs[0], "ceTaskUrl=")
-			return taskIDs[0], taskIDs[1], nil
-		}
-	}
-	return "", "", errorutils.CheckError(errors.New("ceTaskUrl not found in file"))
-}
-
 // FetchSonarEvidenceWithRetry fetches the sonar evidence using the sonar configuration.
+// Reads report-task.txt and fetches taskURL and taskID
 // It retries the request if it fails or if the task is still in progress or pending depending on the sonar config.
 // It returns the evidence data if the task is successful or an error if it fails.
 func FetchSonarEvidenceWithRetry(sonarQubeURL, reportTaskFile, proxy string, maxRetries, retryInterval int) (data []byte, err error) {
-	taskURL, taskID, err := getCeTaskIDAndURLFromReportTaskFile(reportTaskFile)
+	taskURL, taskID := GetSonarHostURLTaskIDFromReportTaskFile(reportTaskFile)
 	if sonarQubeURL == "" {
-		parsedURL, err := url.Parse(taskURL)
-		if err != nil {
-			return nil, errorutils.CheckError(errors.New("Failed to parse sonar URL from report task " + err.Error()))
-		}
-		sonarQubeURL = parsedURL.Scheme + "://" + parsedURL.Host
+		sonarQubeURL = taskURL
 	}
-	if err != nil {
-		return data, err
-	}
-	log.Debug(fmt.Sprintf("Fetching sonarqube task status using taskID %s", taskID))
+	log.Debug(fmt.Sprintf("Fetching sonarqube task status using taskID %s sonarqube URL %s", taskID, sonarQubeURL))
 	evd := &evidence.EvidenceServicesManager{}
 	var taskReport *TaskReport
 	retryExecutor := utils.RetryExecutor{
@@ -231,4 +207,49 @@ func FetchSonarEvidenceWithRetry(sonarQubeURL, reportTaskFile, proxy string, max
 		return nil, errorutils.CheckError(errors.New("Sonar task with unexpected status: " + taskReport.Task.Status))
 	}
 	return evd.GetSonarAnalysisReport(taskReport.Task.AnalysisID, sonarQubeURL, proxy)
+}
+
+func parseSonarHostURLFromTaskURL(taskURL string) string {
+	parsedURL, err := url.Parse(taskURL)
+	if err != nil {
+		log.Debug("Failed to parse sonar URL from report-task", taskURL, "setting to default host")
+		return DefaultSonarHost
+	}
+	return parsedURL.Scheme + "://" + parsedURL.Host
+}
+
+func getCeTaskIDAndURLFromReportTaskFile(filePath string) (string, string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", "", errorutils.CheckError(errors.New("failed to open file: " + err.Error()))
+	}
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			log.Error("Failed to close file: " + err.Error())
+		}
+	}(file)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "ceTaskUrl=") {
+			taskIDs := strings.Split(line, "?id=")
+			if len(taskIDs) < 2 {
+				log.Error("Invalid ceTaskUrl format in file")
+				return "", "", errorutils.CheckError(errors.New("invalid ceTaskUrl format in file"))
+			}
+			taskIDs[0] = strings.TrimPrefix(taskIDs[0], "ceTaskUrl=")
+			return taskIDs[0], taskIDs[1], nil
+		}
+	}
+	return "", "", errorutils.CheckError(errors.New("ceTaskUrl not found in file"))
+}
+
+func GetSonarHostURLTaskIDFromReportTaskFile(reportTaskFilePath string) (string, string) {
+	sonarURL, taskID, err := getCeTaskIDAndURLFromReportTaskFile(reportTaskFilePath)
+	if err != nil {
+		log.Warn(err.Error(), "falling back to default url")
+		return DefaultSonarHost, taskID
+	}
+	return parseSonarHostURLFromTaskURL(sonarURL), taskID
 }

@@ -18,7 +18,7 @@ sonar:
   url: "http://sonar.example.com"
   reportTaskFile: "/path/to/report"
   maxRetries: 5
-  RetryInterval: 10
+  retryIntervalInSecs: 10
   proxy: "http://proxy.example.com"
 jira:
   url: "http://jira.example.com"
@@ -99,7 +99,7 @@ func TestUnmarshalSonarConfig(t *testing.T) {
 url: "http://sonar.example.com"
 reportTaskFile: "/path/to/report"
 maxRetries: 5
-RetryInterval: 10
+retryIntervalInSecs: 10
 proxy: "http://proxy.example.com"
 `
 	var node yaml.Node

@@ -23,6 +23,8 @@ type SonarConfig struct {
 	Proxy          string `yaml:"proxy"`
 }
 
+var ErrEvidenceDirNotExist = errors.New("evidence directory does not exist")
+
 func LoadConfig(path string) (map[string]*yaml.Node, error) {
 	log.Debug("Loading external provider config", path)
 	_, err := fileutils.IsFileExists(path, false)
@@ -56,7 +58,7 @@ func GetConfig() (map[string]*yaml.Node, error) {
 		return nil, err
 	}
 	if !exists {
-		return nil, errorutils.CheckError(errors.New("evidence directory does not exist"))
+		return nil, errorutils.CheckError(ErrEvidenceDirNotExist)
 	}
 	evidenceConfigFilePath := filepath.Join(evidenceDir, "evidence.yaml")
 	fileExists, err := fileutils.IsFileExists(evidenceConfigFilePath, false)
@@ -64,7 +66,7 @@ func GetConfig() (map[string]*yaml.Node, error) {
 		return nil, err
 	}
 	if !fileExists {
-		return nil, errorutils.CheckError(errors.New("evidence.yaml file does not exist"))
+		return nil, err
 	}
 	evidenceConfig, err := LoadConfig(evidenceConfigFilePath)
 	return evidenceConfig, nil

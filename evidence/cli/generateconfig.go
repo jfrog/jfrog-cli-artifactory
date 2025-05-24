@@ -15,6 +15,8 @@ import (
 	"strings"
 )
 
+// CreateSonarConfig creates sonar configuration based on existing config first if not available
+// falls back on to default config values.
 func CreateSonarConfig(sonarConfigNode *yaml.Node, evidenceConfig *evidenceproviders.EvidenceConfig) (err error) {
 	var sonarConfig *evidenceproviders.SonarConfig
 	if sonarConfigNode != nil {
@@ -32,9 +34,6 @@ func CreateSonarConfig(sonarConfigNode *yaml.Node, evidenceConfig *evidenceprovi
 		}
 	} else {
 		sonarConfig = sonarqube.NewDefaultSonarConfig()
-	}
-	if sonarConfig == nil {
-		return errorutils.CheckErrorf("Failed to read sonar configuration from evidence.yaml file")
 	}
 	return interactiveSonarEvidenceConfiguration(sonarConfig, evidenceConfig)
 }

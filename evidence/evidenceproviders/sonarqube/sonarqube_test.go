@@ -13,11 +13,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var (
-	getConfigFunc                   = evidenceproviders.GetConfig
-	fetchSonarEvidenceWithRetryFunc = FetchSonarEvidenceWithRetry
-)
-
 func TestNewSonarConfig(t *testing.T) {
 	config := NewSonarConfig("http://sonar.example.com", "/path/to/report", "5", "10", "http://proxy.example.com")
 	assert.Equal(t, "http://sonar.example.com", config.URL)
@@ -47,7 +42,7 @@ func TestCreateSonarConfiguration(t *testing.T) {
 url: "http://sonar.example.com"
 reportTaskFile: "/path/to/report"
 maxRetries: 5
-RetryInterval: 10
+retryIntervalInSecs: 10
 proxy: "http://proxy.example.com"
 `
 	var node yaml.Node
@@ -62,9 +57,7 @@ proxy: "http://proxy.example.com"
 	assert.Equal(t, 10, *config.RetryInterval)
 	assert.Equal(t, "http://proxy.example.com", config.Proxy)
 
-	var invalidNode yaml.Node
-	invalidNode.Kind = yaml.ScalarNode
-	_, err = CreateSonarConfiguration(&invalidNode)
+	_, err = CreateSonarConfiguration(nil)
 	assert.Error(t, err)
 }
 
@@ -116,18 +109,28 @@ ceTaskUrl=malformed-url-without-id
 }
 
 func TestCreateSonarEvidence(t *testing.T) {
+	reportTaskFile, err := createReportTaskFile(t)
+	scannerworkDir := getScannerWorkingDirectory(t)
+	defer func(path string) {
+		err := deleteDirectoryIfExists(path)
+		if err != nil {
+			assert.NoError(t, err)
+		}
+	}(scannerworkDir)
+	yamlStr, _, err := createEvidenceYamlFile(t, reportTaskFile)
+	jfrogDir, _ := createJFrogDirectory(t)
+	defer func(path string) {
+		err := deleteDirectoryIfExists(path)
+		if err != nil {
+			assert.NoError(t, err)
+		}
+	}(jfrogDir)
+
+	// Save original function and restore after test
 	originalGetConfig := getConfigFunc
 	defer func() { getConfigFunc = originalGetConfig }()
-
-	yamlStr := `
-url: "http://sonar.example.com"
-reportTaskFile: "/path/to/report"
-maxRetries: 5
-RetryInterval: 10
-proxy: "http://proxy.example.com"
-`
 	var node yaml.Node
-	err := yaml.Unmarshal([]byte(yamlStr), &node)
+	err = yaml.Unmarshal([]byte(yamlStr), &node)
 	assert.NoError(t, err)
 
 	getConfigFunc = func() (map[string]*yaml.Node, error) {
@@ -138,7 +141,7 @@ proxy: "http://proxy.example.com"
 	assert.NoError(t, err)
 	assert.NotNil(t, sonarEvidence)
 	assert.Equal(t, "http://sonar.example.com", sonarEvidence.SonarConfig.URL)
-	assert.Equal(t, "/path/to/report", sonarEvidence.SonarConfig.ReportTaskFile)
+	assert.Equal(t, reportTaskFile, sonarEvidence.SonarConfig.ReportTaskFile)
 	assert.Equal(t, 5, *sonarEvidence.SonarConfig.MaxRetries)
 	assert.Equal(t, 10, *sonarEvidence.SonarConfig.RetryInterval)
 	assert.Equal(t, "http://proxy.example.com", sonarEvidence.SonarConfig.Proxy)
@@ -146,17 +149,98 @@ proxy: "http://proxy.example.com"
 	getConfigFunc = func() (map[string]*yaml.Node, error) {
 		return nil, assert.AnError
 	}
-	_, err = CreateSonarEvidence()
-	assert.Error(t, err)
+}
+
+func TestCreateSonarEvidenceIfEvidenceConfigAndReportTaskNotAvailable(t *testing.T) {
+	sonarEvidence, err := CreateSonarEvidence()
+	assert.NoError(t, err)
+	assert.NotNil(t, sonarEvidence)
+	assert.Equal(t, "https://sonarcloud.io", sonarEvidence.SonarConfig.URL)
+	assert.Equal(t, ".scannerwork/report-task.txt", sonarEvidence.SonarConfig.ReportTaskFile)
+	assert.Equal(t, 3, *sonarEvidence.SonarConfig.MaxRetries)
+	assert.Equal(t, 10, *sonarEvidence.SonarConfig.RetryInterval)
+	assert.Equal(t, "", sonarEvidence.SonarConfig.Proxy)
 
 	getConfigFunc = func() (map[string]*yaml.Node, error) {
-		return map[string]*yaml.Node{}, nil
+		return nil, assert.AnError
 	}
-	_, err = CreateSonarEvidence()
-	assert.Error(t, err)
+}
+
+func deleteDirectoryIfExists(path string) error {
+	if _, err := os.Stat(path); err == nil {
+		return os.RemoveAll(path)
+	}
+	return nil
+}
+
+func createReportTaskFile(t *testing.T) (string, error) {
+	scannerworkDir := getScannerWorkingDirectory(t)
+	reportTaskFile := filepath.Join(scannerworkDir, "report-task.yaml")
+	err := os.MkdirAll(scannerworkDir, 0755)
+	assert.NoError(t, err)
+	reportTaskContent := `ceTaskId=task-id-123
+ceTaskUrl=https://sonarcloud.io/api/ce/task?id=task-id-123
+`
+	err = os.WriteFile(reportTaskFile, []byte(reportTaskContent), 0644)
+	assert.NoError(t, err)
+	return reportTaskFile, err
+}
+
+func getScannerWorkingDirectory(t *testing.T) string {
+	cwd := getCurrentWorkingDirectory(t)
+	scannerworkDir := filepath.Join(cwd, ".scannerwork")
+	return scannerworkDir
+}
+
+func getCurrentWorkingDirectory(t *testing.T) string {
+	cwd, err := os.Getwd()
+	assert.NoError(t, err)
+	return cwd
+}
+
+func createEvidenceYamlFile(t *testing.T, reportTaskFile string) (string, string, error) {
+	yamlStr := `
+sonar:
+    url: "http://sonar.example.com"
+    reportTaskFile: "` + reportTaskFile + `"
+    maxRetries: 5
+    retryIntervalInSecs: 10
+    proxy: "http://proxy.example.com"
+`
+	evidenceDir, err := createEvidenceDirectory(t)
+	evidenceFile := filepath.Join(evidenceDir, "evidence.yaml")
+	err = os.MkdirAll(evidenceDir, 0755)
+	assert.NoError(t, err)
+	err = os.WriteFile(evidenceFile, []byte(yamlStr), 0644)
+	assert.NoError(t, err)
+	return yamlStr, evidenceFile, err
+}
+
+func createEvidenceDirectory(t *testing.T) (string, error) {
+	// Create temporary directory for test
+	cwd, err := os.Getwd()
+	assert.NoError(t, err)
+	evidenceDir := filepath.Join(cwd, ".jfrog", "evidence")
+	return evidenceDir, err
+}
+
+func createJFrogDirectory(t *testing.T) (string, error) {
+	// Create temporary directory for test
+	cwd, err := os.Getwd()
+	assert.NoError(t, err)
+	evidenceDir := filepath.Join(cwd, ".jfrog")
+	return evidenceDir, err
 }
 
 func TestFetchSonarEvidenceWithRetry(t *testing.T) {
+	err := os.Setenv("JF_SONARQUBE_ACCESS_TOKEN", "test")
+	assert.NoError(t, err)
+	defer func() {
+		err = os.Unsetenv("JF_SONARQUBE_ACCESS_TOKEN")
+		if err != nil {
+			assert.NoError(t, err)
+		}
+	}()
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/ce/task" {
 			taskID := r.URL.Query().Get("id")
@@ -168,7 +252,10 @@ func TestFetchSonarEvidenceWithRetry(t *testing.T) {
 						AnalysisID: "analysis-123",
 					},
 				}
-				json.NewEncoder(w).Encode(task)
+				err := json.NewEncoder(w).Encode(task)
+				if err != nil {
+					assert.NoError(t, err)
+				}
 			} else if taskID == "task-pending" {
 				task := TaskReport{
 					Task: Task{
@@ -205,7 +292,7 @@ func TestFetchSonarEvidenceWithRetry(t *testing.T) {
 
 	reportTaskPath := filepath.Join(tempDir, "report-task.txt")
 	reportContent := `ceTaskUrl=` + mockServer.URL + `/api/ce/task?id=task-success`
-	err := os.WriteFile(reportTaskPath, []byte(reportContent), 0644)
+	err = os.WriteFile(reportTaskPath, []byte(reportContent), 0644)
 	assert.NoError(t, err)
 
 	data, err := FetchSonarEvidenceWithRetry(mockServer.URL, reportTaskPath, "", 1, 1)
@@ -226,12 +313,29 @@ func TestFetchSonarEvidenceWithRetry(t *testing.T) {
 }
 
 func TestSonarEvidence_GetEvidence(t *testing.T) {
+	err := os.Setenv("JF_SONARQUBE_ACCESS_TOKEN", "test")
+	assert.NoError(t, err)
+	defer func() {
+		err = os.Unsetenv("JF_SONARQUBE_ACCESS_TOKEN")
+		if err != nil {
+			assert.NoError(t, err)
+		}
+	}()
+	reportTaskFile, err := createReportTaskFile(t)
+	assert.NoError(t, err)
+	scannerworkDir := getScannerWorkingDirectory(t)
+	defer deleteDirectoryIfExists(scannerworkDir)
+	_, _, err = createEvidenceYamlFile(t, reportTaskFile)
+	assert.NoError(t, err)
+	jfrogDir, err := createJFrogDirectory(t)
+	assert.NoError(t, err)
+	defer deleteDirectoryIfExists(jfrogDir)
 	maxRetries := 3
 	retryInterval := 5
 	sonarEvidence := &SonarEvidence{
 		SonarConfig: &evidenceproviders.SonarConfig{
 			URL:            "http://sonar.example.com",
-			ReportTaskFile: "report-task.txt",
+			ReportTaskFile: reportTaskFile,
 			MaxRetries:     &maxRetries,
 			RetryInterval:  &retryInterval,
 			Proxy:          "http://proxy.example.com",
