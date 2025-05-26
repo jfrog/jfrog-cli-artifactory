@@ -38,6 +38,10 @@ func (epc *evidencePackageCommand) CreateEvidence(ctx *components.Context, serve
 	return epc.execute(createCmd)
 }
 
+func (epc *evidencePackageCommand) GetEvidence(_ *components.Context, _ *coreConfig.ServerDetails) error {
+	return errorutils.CheckErrorf("Get evidence is not supported with packages")
+}
+
 func (epc *evidencePackageCommand) validateEvidencePackageContext(ctx *components.Context) error {
 	if !ctx.IsFlagSet(packageVersion) || assertValueProvided(ctx, packageVersion) != nil {
 		return errorutils.CheckErrorf("--%s is a mandatory field for creating a Package evidence", packageVersion)

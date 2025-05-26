@@ -1,7 +1,6 @@
 package evidence
 
 import (
-	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
 
@@ -31,7 +30,7 @@ func (c *createEvidenceCustom) CommandName() string {
 	return "create-custom-evidence"
 }
 
-func (c *createEvidenceCustom) ServerDetails() (*config.ServerDetails, error) {
+func (c *createEvidenceCustom) ServerDetails() (*coreConfig.ServerDetails, error) {
 	return c.serverDetails, nil
 }
 
