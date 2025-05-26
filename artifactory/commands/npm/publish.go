@@ -345,105 +345,77 @@ func (npc *NpmPublishCommand) readPackageInfoFromTarball(packedFilePath string) 
 		return errorutils.CheckError(err)
 	}
 
-	// Use our new priority-based approach to find package.json
-	packageJsonPath, packageJson, err := findBestPackageJson(tar.NewReader(gZipReader))
-	if err != nil {
-		return errorutils.CheckErrorf("Could not find 'package.json' in the compressed npm package: " + packedFilePath)
-	}
-
-	// Log which package.json was selected if it's not in the standard location
-	if packageJsonPath != "package/package.json" {
-		log.Warn("Using non-standard package.json location: " + packageJsonPath)
-	}
-
-	// Parse the package.json content
-	npc.packageInfo, err = biutils.ReadPackageInfo(packageJson, npc.npmVersion)
-	return err
-}
-
-// findBestPackageJson scans the tarball and returns the most appropriate package.json file based on priority.
-// Some npm packages may contain multiple package.json files in different locations within the tarball.
-// This function prioritizes them as follows:
-// 1. Standard location: "package/package.json" (highest priority)
-// 2. Root-level package.json files like "node/package.json"
-// 3. Other locations based on directory nesting depth (lower priority)
-// This ensures we select the most relevant package.json file, similar to how npm itself handles non-standard structures.
-func findBestPackageJson(tarReader *tar.Reader) (string, []byte, error) {
-	type packageJsonCandidate struct {
-		path     string
-		priority int
-		content  []byte
-	}
-
-	// Lower number = higher priority
-	var bestCandidate *packageJsonCandidate
-
-	// Scan all entries in the tarball
+	// First pass: Check standard locations (package/package.json and root package.json)
+	tarReader := tar.NewReader(gZipReader)
+	var rootPackageJson []byte
+	var rootPackageJsonPath string
 	for {
-		tarHeader, err := tarReader.Next()
+		hdr, err := tarReader.Next()
 		if err != nil {
 			if err == io.EOF {
 				break
 			}
-			return "", nil, errorutils.CheckError(err)
+			return errorutils.CheckError(err)
 		}
 
-		// Check if this is a package.json file
-		if strings.HasSuffix(tarHeader.Name, "package.json") {
-			// Read content
-			content, err := io.ReadAll(tarReader)
+		// Check standard location first
+		if hdr.Name == "package/package.json" {
+			packageJson, err := io.ReadAll(tarReader)
 			if err != nil {
-				log.Warn("Error reading " + tarHeader.Name + ": " + err.Error())
-				continue
+				return errorutils.CheckError(err)
 			}
-
-			// Calculate priority based on path
-			priority := calculatePackageJsonPriority(tarHeader.Name)
-			candidate := &packageJsonCandidate{
-				path:     tarHeader.Name,
-				priority: priority,
-				content:  content,
+			npc.packageInfo, err = biutils.ReadPackageInfo(packageJson, npc.npmVersion)
+			if err != nil {
+				return err
 			}
+			log.Debug("Found package.json in standard location: package/package.json")
+			return nil
+		}
 
-			// Update best candidate if this one has higher priority
-			if bestCandidate == nil || candidate.priority < bestCandidate.priority {
-				bestCandidate = candidate
+		// Store root package.json if found
+		if strings.Count(hdr.Name, "/") == 1 && strings.HasSuffix(hdr.Name, "package.json") {
+			rootPackageJson, err = io.ReadAll(tarReader)
+			if err != nil {
+				return errorutils.CheckError(err)
 			}
+			rootPackageJsonPath = hdr.Name
+		}
+	}
 
-			// Standard location is highest priority, can stop searching
-			if tarHeader.Name == "package/package.json" {
+	// If found in root-level directory, use that
+	if rootPackageJson != nil {
+		log.Debug("Using package.json found in root-level directory:", rootPackageJsonPath)
+		npc.packageInfo, err = biutils.ReadPackageInfo(rootPackageJson, npc.npmVersion)
+		return err
+	}
+
+	// Second pass: Look for package.json anywhere in the package
+	if err = gZipReader.Reset(tarball); err != nil {
+		return errorutils.CheckError(err)
+	}
+	tarReader = tar.NewReader(gZipReader)
+	for {
+		hdr, err := tarReader.Next()
+		if err != nil {
+			if err == io.EOF {
 				break
 			}
+			return errorutils.CheckError(err)
+		}
+
+		// Look for any package.json file
+		if strings.HasSuffix(hdr.Name, "package.json") {
+			packageJson, err := io.ReadAll(tarReader)
+			if err != nil {
+				return errorutils.CheckError(err)
+			}
+			log.Debug("Found package.json in non-standard location:", hdr.Name)
+			npc.packageInfo, err = biutils.ReadPackageInfo(packageJson, npc.npmVersion)
+			return err
 		}
 	}
 
-	// If no package.json was found, return error
-	if bestCandidate == nil {
-		return "", nil, errorutils.CheckErrorf("no package.json found")
-	}
-
-	return bestCandidate.path, bestCandidate.content, nil
-}
-
-// calculatePackageJsonPriority determines the priority of a package.json file based on its path
-// Lower number = higher priority
-func calculatePackageJsonPriority(path string) int {
-	// Standard location gets highest priority
-	if path == "package/package.json" {
-		return 1
-	}
-
-	parts := strings.Split(path, "/")
-
-	// Root directory package.json gets second priority
-	// (like node/package.json or main/package.json)
-	if len(parts) == 2 && parts[1] == "package.json" {
-		return 2
-	}
-
-	// Other locations get lower priority based on nesting depth
-	// This handles cases where multiple package.json files exist in subdirectories
-	return 3 + len(parts)
+	return errorutils.CheckErrorf("Could not find 'package.json' in the compressed npm package: " + packedFilePath)
 }
 
 func deleteCreatedTarball(packedFilesPath []string) error {
