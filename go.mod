@@ -5,11 +5,11 @@ go 1.23.7
 require (
 	github.com/c-bata/go-prompt v0.2.5
 	github.com/forPelevin/gomoji v1.3.0
-	github.com/jfrog/build-info-go v1.10.11
+	github.com/jfrog/build-info-go v1.10.12
 	github.com/jfrog/froggit-go v1.17.0
 	github.com/jfrog/gofrog v1.7.6
-	github.com/jfrog/jfrog-cli-core/v2 v2.58.6
-	github.com/jfrog/jfrog-client-go v1.53.0
+	github.com/jfrog/jfrog-cli-core/v2 v2.58.7
+	github.com/jfrog/jfrog-client-go v1.53.1
 	github.com/pkg/errors v0.9.1
 	github.com/secure-systems-lab/go-securesystemslib v0.8.0
 	github.com/spf13/viper v1.19.0
