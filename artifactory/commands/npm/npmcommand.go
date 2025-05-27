@@ -55,6 +55,7 @@ type NpmCommand struct {
 	configFilePath      string
 	collectBuildInfo    bool
 	buildInfoModule     *build.NpmModule
+	installHandler      *NpmInstallStrategy
 }
 
 func NewNpmCommand(cmdName string, collectBuildInfo bool) *NpmCommand {
@@ -168,15 +169,15 @@ func (nc *NpmCommand) PreparePrerequisites(repo string) error {
 		return err
 	}
 	log.Debug("Working directory set to:", nc.workingDirectory)
-	if err = nc.setArtifactoryAuth(); err != nil {
+
+	_, useNative, err := coreutils.ExtractUseNativeFromArgs(nc.npmArgs)
+	if err != nil {
 		return err
 	}
+	nc.SetUseNative(useNative)
+	nc.installHandler = NewNpmInstallStrategy(nc.UseNative(), nc)
 
-	if err = nc.setNpmAuthRegistry(repo); err != nil {
-		return err
-	}
-
-	return nc.setRestoreNpmrcFunc()
+	return nc.installHandler.PrepareInstallPrerequisites(repo)
 }
 
 func (nc *NpmCommand) setNpmAuthRegistry(repo string) (err error) {
@@ -309,17 +310,9 @@ func (nc *NpmCommand) Run() (err error) {
 		return
 	}
 	defer func() {
-		err = errors.Join(err, nc.restoreNpmrcFunc())
+		err = errors.Join(err, nc.installHandler.RestoreNpmrc())
 	}()
-	if err = nc.CreateTempNpmrc(); err != nil {
-		return
-	}
-
-	if err = nc.prepareBuildInfoModule(); err != nil {
-		return
-	}
-
-	err = nc.collectDependencies()
+	err = nc.installHandler.Install()
 	return
 }
 

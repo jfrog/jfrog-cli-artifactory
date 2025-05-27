@@ -3,6 +3,10 @@ package python
 import (
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/utils/pythonutils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -12,9 +16,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"os"
-	"os/exec"
-	"strings"
 )
 
 const (

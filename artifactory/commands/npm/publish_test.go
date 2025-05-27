@@ -23,6 +23,11 @@ func TestReadPackageInfoFromTarball(t *testing.T) {
 			filePath:       filepath.Join("..", "testdata", "npm", "npm-example-0.0.4.tgz"),
 			packageName:    "npm-example",
 			packageVersion: "0.0.4",
+		}, {
+			// Test case for non-standard structure where package.json is in a custom location
+			filePath:       filepath.Join("..", "testdata", "npm", "node-package-1.0.0.tgz"),
+			packageName:    "nonstandard-package",
+			packageVersion: "1.0.0",
 		},
 	}
 	for _, test := range testCases {

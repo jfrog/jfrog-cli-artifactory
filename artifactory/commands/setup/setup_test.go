@@ -2,6 +2,12 @@ package setup
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
 	cmdutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
@@ -15,11 +21,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
-	"testing"
 )
 
 // #nosec G101 -- Dummy token for tests
@@ -487,6 +488,75 @@ func TestSetupCommand_Maven(t *testing.T) {
 
 			// Clean up the temporary settings.xml file after the test.
 			assert.NoError(t, os.Remove(settingsXml))
+		})
+	}
+}
+
+func TestSetupCommand_Twine(t *testing.T) {
+	// Retrieve the home directory and construct the .pypirc file path.
+	homeDir, err := os.UserHomeDir()
+	assert.NoError(t, err)
+	pypircFilePath := filepath.Join(homeDir, ".pypirc")
+
+	// Back up the existing .pypirc file and ensure restoration after the test.
+	restorePypircFunc, err := ioutils.BackupFile(pypircFilePath, ".pypirc.backup")
+	require.NoError(t, err)
+	defer func() {
+		assert.NoError(t, restorePypircFunc())
+	}()
+
+	twineLoginCmd := createTestSetupCommand(project.Twine)
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Set up server details for the current test case's authentication type.
+			twineLoginCmd.serverDetails.SetUser(testCase.user)
+			twineLoginCmd.serverDetails.SetPassword(testCase.password)
+			twineLoginCmd.serverDetails.SetAccessToken(testCase.accessToken)
+
+			// Run the login command and ensure no errors occur.
+			require.NoError(t, twineLoginCmd.Run())
+
+			// Read the contents of the .pypirc file.
+			pypircContentBytes, err := os.ReadFile(pypircFilePath)
+			assert.NoError(t, err)
+			pypircContent := string(pypircContentBytes)
+
+			// Check that the repository URL is correctly set in .pypirc.
+			assert.Contains(t, pypircContent, "[distutils]")
+			assert.Contains(t, pypircContent, "index-servers")
+			assert.Contains(t, pypircContent, "pypi")
+
+			// Check that the pypi section is correctly set in .pypirc.
+			assert.Contains(t, pypircContent, "[pypi]")
+
+			// Since the exact URL can vary (especially with extra paths),
+			// just check that it contains the essential parts
+			assert.Contains(t, pypircContent, "repository")
+			assert.Contains(t, pypircContent, "https://acme.jfrog.io/artifactory/api")
+			assert.Contains(t, pypircContent, "test-repo")
+
+			// Validate credentials in the pypi section.
+			if testCase.accessToken != "" {
+				// Access token is set as password with token username
+				username := auth.ExtractUsernameFromAccessToken(testCase.accessToken)
+				assert.Contains(t, pypircContent, "username")
+				assert.Contains(t, pypircContent, username)
+				assert.Contains(t, pypircContent, "password")
+				// The token might be formatted differently in the output, so just check
+				// for a portion that should be unique
+				tokenSubstring := testCase.accessToken[:20] // First part of the token should be sufficient
+				assert.Contains(t, pypircContent, tokenSubstring)
+			} else if testCase.user != "" && testCase.password != "" {
+				// Basic authentication with username and password
+				assert.Contains(t, pypircContent, "username")
+				assert.Contains(t, pypircContent, testCase.user)
+				assert.Contains(t, pypircContent, "password")
+				assert.Contains(t, pypircContent, testCase.password)
+			}
+
+			// Clean up the temporary .pypirc file after the test.
+			assert.NoError(t, os.Remove(pypircFilePath))
 		})
 	}
 }

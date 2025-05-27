@@ -3,6 +3,8 @@ package container
 import (
 	"strings"
 
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/container"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -57,18 +59,18 @@ func (bdc *BuildDockerCreateCommand) Run() error {
 	}
 
 	// Handle multiple tags from comma-separated image name
-	images := splitImageIfMultipleTags(bdc.image)
-	for _, img := range images {
-		builder, err := container.NewRemoteAgentBuildInfoBuilder(img, repo, buildName, buildNumber, project, serviceManager, bdc.manifestSha256)
+	images := SplitMultiTagDockerImageStringWithComma(bdc.image)
+	for _, image := range images {
+		builder, err := container.NewRemoteAgentBuildInfoBuilder(image, repo, buildName, buildNumber, project, serviceManager, bdc.manifestSha256)
 		if err != nil {
-			return err
+			return errorutils.CheckErrorf("build info creation failed: %s", err.Error())
 		}
 		buildInfo, err := builder.Build(bdc.BuildConfiguration().GetModule())
 		if err != nil {
-			return err
+			return errorutils.CheckErrorf("build info creation failed: %s", err.Error())
 		}
 		if err := build.SaveBuildInfo(buildName, buildNumber, project, buildInfo); err != nil {
-			return err
+			return errorutils.CheckErrorf("failed to save build info for '%s/%s': %s", buildName, buildNumber, err.Error())
 		}
 	}
 	return nil
@@ -82,23 +84,18 @@ func (bdc *BuildDockerCreateCommand) ServerDetails() (*config.ServerDetails, err
 	return bdc.serverDetails, nil
 }
 
-// Helper: Split a container.Image into multiple if comma-separated tags exist
-func splitImageIfMultipleTags(img *container.Image) []*container.Image {
-	name := img.Name()
-	if !strings.Contains(name, ",") {
-		return []*container.Image{img}
-	}
+func SplitMultiTagDockerImageStringWithComma(image *container.Image) []*container.Image {
+	multiDockerImage := image.Name()
 
-	tags := strings.Split(name, ",")
-	var result []*container.Image
+	tags := strings.Split(multiDockerImage, ",")
+	images := make([]*container.Image, 0, len(tags))
 	for _, tag := range tags {
 		trimmed := strings.TrimSpace(tag)
 		if trimmed == "" {
 			continue
 		}
-		cloned := *img
-		cloned.SetName(trimmed)
-		result = append(result, &cloned)
+		nextImage := container.NewImage(trimmed)
+		images = append(images, nextImage)
 	}
-	return result
+	return images
 }
