@@ -54,7 +54,6 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	project.Docker: repository.Docker,
 	project.Podman: repository.Docker,
 
-	// Helm package manager
 	project.Helm: repository.Helm,
 
 	project.Go: repository.Go,
