@@ -36,6 +36,7 @@ const (
 	subjectSha256   = "subject-sha256"
 	key             = "key"
 	keyAlias        = "key-alias"
+	providerId      = "provider-id"
 )
 
 // Flag keys mapped to their corresponding components.Flag definition.
@@ -63,6 +64,7 @@ var flagsMap = map[string]components.Flag{
 	subjectSha256:   components.NewStringFlag(subjectSha256, "Subject checksum sha256.", func(f *components.StringFlag) { f.Mandatory = false }),
 	key:             components.NewStringFlag(key, "Path to a private key that will sign the DSSE. Supported keys: 'ecdsa','rsa' and 'ed25519'.", func(f *components.StringFlag) { f.Mandatory = false }),
 	keyAlias:        components.NewStringFlag(keyAlias, "Key alias", func(f *components.StringFlag) { f.Mandatory = false }),
+	providerId:      components.NewStringFlag(providerId, "Provider ID for the evidence.", func(f *components.StringFlag) { f.Mandatory = false }),
 }
 
 var commandFlags = map[string][]string{
@@ -87,6 +89,7 @@ var commandFlags = map[string][]string{
 		subjectSha256,
 		key,
 		keyAlias,
+		providerId,
 	},
 }
 

@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
+
 	"github.com/jfrog/gofrog/log"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cryptox"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
@@ -14,8 +17,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	evidenceService "github.com/jfrog/jfrog-client-go/evidence/services"
 	clientlog "github.com/jfrog/jfrog-client-go/utils/log"
-	"os"
-	"strings"
 )
 
 type createEvidenceBase struct {
@@ -25,6 +26,7 @@ type createEvidenceBase struct {
 	markdownFilePath  string
 	key               string
 	keyId             string
+	providerId        string
 	flagType          FlagType
 }
 
@@ -152,6 +154,7 @@ func (c *createEvidenceBase) uploadEvidence(envelope []byte, repoPath string) er
 	evidenceDetails := evidenceService.EvidenceDetails{
 		SubjectUri:  repoPath,
 		DSSEFileRaw: envelope,
+		ProviderId:  c.providerId,
 	}
 	body, err := evidenceManager.UploadEvidence(evidenceDetails)
 	if err != nil {
