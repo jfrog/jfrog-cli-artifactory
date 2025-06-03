@@ -323,6 +323,19 @@ func (sc *SetupCommand) configureYarn() (err error) {
 //
 //	go env -w GOPROXY=https://<user>:<token>@<your-artifactory-url>/artifactory/go/<repo-name>,direct
 func (sc *SetupCommand) configureGo() error {
+	if goProxyVal := os.Getenv("GOPROXY"); goProxyVal != "" {
+		// Remove the variable so it won't override the newly configured proxy (temporarily).
+		if err := os.Unsetenv("GOPROXY"); err != nil {
+			return errorutils.CheckErrorf("failed to unset GOPROXY environment variable: %w", err)
+		}
+		// Mask credentials in the GOPROXY value
+		if i := strings.Index(goProxyVal, "@"); i != -1 {
+			goProxyVal = "****" + goProxyVal[i:]
+		}
+		// Log a warning about the existing GOPROXY environment variable so the user can unset it permanently
+		log.Warn(fmt.Sprintf("A local GOPROXY='%s' is set and will override the global setting.\n"+
+			"Unset it in your shell config (e.g., .zshrc, .bashrc).", goProxyVal))
+	}
 	repoWithCredsUrl, err := golang.GetArtifactoryRemoteRepoUrl(sc.serverDetails, sc.repoName, golang.GoProxyUrlParams{Direct: true})
 	if err != nil {
 		return err

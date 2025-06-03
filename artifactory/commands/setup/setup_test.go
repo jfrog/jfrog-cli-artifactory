@@ -327,6 +327,21 @@ func TestSetupCommand_Go(t *testing.T) {
 	}
 }
 
+// Test that configureGo unsets any existing GOPROXY env var before configuring.
+func TestConfigureGo_UnsetEnv(t *testing.T) {
+	testCmd := createTestSetupCommand(project.Go)
+	// Simulate existing GOPROXY in environment
+	t.Setenv("GOPROXY", "user:pass@dummy")
+	// Ensure server details have credentials so configureGo proceeds
+	testCmd.serverDetails.SetAccessToken(dummyToken)
+
+	// Invoke configureGo directly
+	require.NoError(t, testCmd.configureGo())
+	// After calling, the GOPROXY env var should be cleared
+	assert.Empty(t, os.Getenv("GOPROXY"), "GOPROXY should be unset by configureGo to avoid env override")
+}
+
+
 func TestSetupCommand_Gradle(t *testing.T) {
 	testGradleUserHome := t.TempDir()
 	t.Setenv(gradle.UserHomeEnv, testGradleUserHome)
@@ -577,6 +592,10 @@ func TestSetupCommand_Helm(t *testing.T) {
 	// (helm will create this file and directory structure if it doesn't exist)
 	helmRegistryConfig := filepath.Join(helmConfigDir, "registry.json")
 	t.Setenv("HELM_REGISTRY_CONFIG", helmRegistryConfig)
+	// Initialize empty Helm config with no credsStore to avoid OS-specific helpers like wincred for testing.
+	if err := os.WriteFile(helmRegistryConfig, []byte(`{"auths": {}, "credsStore": ""}`), 0600); err != nil {
+		require.NoError(t, err, "Failed to initialize empty helm config: %v")
+	}
 
 	// Create the Helm setup command
 	helmCmd := createTestSetupCommand(project.Helm)
@@ -593,7 +612,7 @@ func TestSetupCommand_Helm(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Remove any existing config file from previous test iterations
 			if err := os.Remove(helmRegistryConfig); err != nil && !os.IsNotExist(err) {
-				t.Fatalf("Failed to remove existing helm registry config: %v", err)
+				require.NoError(t, err, "Failed to remove existing helm registry config: %v")
 			}
 
 			// Set up server details for the current test case's authentication type
