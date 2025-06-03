@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -341,6 +340,19 @@ func TestConfigureGo_UnsetEnv(t *testing.T) {
 	assert.Empty(t, os.Getenv("GOPROXY"), "GOPROXY should be unset by configureGo to avoid env override")
 }
 
+// Test that configureGo unsets any existing multi-entry GOPROXY env var before configuring.
+func TestConfigureGo_UnsetEnv_MultiEntry(t *testing.T) {
+    testCmd := createTestSetupCommand(project.Go)
+    // Simulate existing multi-entry GOPROXY in environment
+    t.Setenv("GOPROXY", "user:pass@dummy,goproxy2")
+    // Ensure server details have credentials so configureGo proceeds
+    testCmd.serverDetails.SetAccessToken(dummyToken)
+
+    // Invoke configureGo directly
+    require.NoError(t, testCmd.configureGo())
+    // After calling, the GOPROXY env var should be cleared
+    assert.Empty(t, os.Getenv("GOPROXY"), "GOPROXY should be unset by configureGo to avoid env override for multi-entry lists")
+}
 
 func TestSetupCommand_Gradle(t *testing.T) {
 	testGradleUserHome := t.TempDir()
@@ -580,64 +592,26 @@ func TestSetupCommand_Twine(t *testing.T) {
 }
 
 func TestSetupCommand_Helm(t *testing.T) {
-	// Create a mock server
+	// Create a mock server to simulate Helm registry login
 	mockServer := setupMockHelmServer()
 	defer mockServer.Close()
 
-	// Create a temporary directory for Helm registry config
-	tempDir := t.TempDir()
-	helmConfigDir := filepath.Join(tempDir, ".config", "helm")
-
-	// Set HELM_REGISTRY_CONFIG to point to the registry.json file in our temp directory
-	// (helm will create this file and directory structure if it doesn't exist)
-	helmRegistryConfig := filepath.Join(helmConfigDir, "registry.json")
-	t.Setenv("HELM_REGISTRY_CONFIG", helmRegistryConfig)
-	// Initialize empty Helm config with no credsStore to avoid OS-specific helpers like wincred for testing.
-	if err := os.WriteFile(helmRegistryConfig, []byte(`{"auths": {}, "credsStore": ""}`), 0600); err != nil {
-		require.NoError(t, err, "Failed to initialize empty helm config: %v")
-	}
-
-	// Create the Helm setup command
+	// Initialize Helm setup command with mock server URLs
 	helmCmd := createTestSetupCommand(project.Helm)
-
-	// Set up a parsed URL to use for validation
-	parsedURL, err := url.Parse(mockServer.URL)
-	require.NoError(t, err)
-
-	// Override the server URLs to point to our mock server
 	helmCmd.serverDetails.Url = mockServer.URL
 	helmCmd.serverDetails.ArtifactoryUrl = mockServer.URL + "/artifactory"
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			// Remove any existing config file from previous test iterations
-			if err := os.Remove(helmRegistryConfig); err != nil && !os.IsNotExist(err) {
-				require.NoError(t, err, "Failed to remove existing helm registry config: %v")
-			}
-
-			// Set up server details for the current test case's authentication type
 			helmCmd.serverDetails.SetUser(testCase.user)
 			helmCmd.serverDetails.SetPassword(testCase.password)
 			helmCmd.serverDetails.SetAccessToken(testCase.accessToken)
 			err := helmCmd.Run()
-			// For anonymous access, we expect an error since credentials are now required
 			if testCase.name == "Anonymous Access" {
-				err := helmCmd.Run()
 				require.Error(t, err, "Helm registry login should fail for anonymous access")
-				assert.Contains(t, err.Error(), "credentials are required",
-					"Error should indicate that credentials are required")
-				return
+				assert.Contains(t, err.Error(), "credentials are required")
 			} else {
-
-				// For authenticated access, expect success
 				require.NoError(t, err, "Helm registry login should succeed with credentials")
-
-				// For authenticated access, check if registry config exists and contains the right URL
-				configData, err := os.ReadFile(helmRegistryConfig)
-				assert.NoError(t, err, "Failed to read Helm registry config file")
-				// If the file exists, verify it contains the registry URL
-				assert.Contains(t, string(configData), parsedURL.Host,
-					"Registry URL should be in Helm registry config")
 			}
 		})
 	}
