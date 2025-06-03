@@ -15,13 +15,7 @@ import (
 func (rbc *ReleaseBundleCreateCommand) createFromBuilds(servicesManager *lifecycle.LifecycleServicesManager,
 	rbDetails services.ReleaseBundleDetails, queryParams services.CommonOptionalQueryParams) error {
 
-	var buildsSource services.CreateFromBuildsSource
-	var err error
-	if rbc.buildsSpecPath != "" {
-		buildsSource, err = rbc.getBuildSourceFromBuildsSpec()
-	} else {
-		buildsSource, err = rbc.convertSpecToBuildsSource(rbc.spec.Files)
-	}
+	err, buildsSource := rbc.createBuildSourceFromSpec()
 	if err != nil {
 		return err
 	}
@@ -31,6 +25,20 @@ func (rbc *ReleaseBundleCreateCommand) createFromBuilds(servicesManager *lifecyc
 	}
 
 	return servicesManager.CreateReleaseBundleFromBuilds(rbDetails, queryParams, rbc.signingKeyName, buildsSource)
+}
+
+func (rbc *ReleaseBundleCreateCommand) createBuildSourceFromSpec() (error, services.CreateFromBuildsSource) {
+	var buildsSource services.CreateFromBuildsSource
+	var err error
+	if rbc.buildsSpecPath != "" {
+		buildsSource, err = rbc.getBuildSourceFromBuildsSpec()
+	} else {
+		buildsSource, err = rbc.convertSpecToBuildsSource(rbc.spec.Files)
+	}
+	if err != nil {
+		return err, buildsSource
+	}
+	return nil, buildsSource
 }
 
 func (rbc *ReleaseBundleCreateCommand) getBuildSourceFromBuildsSpec() (buildsSource services.CreateFromBuildsSource, err error) {
@@ -64,6 +72,11 @@ func (rbc *ReleaseBundleCreateCommand) convertBuildsSpecToBuildsSource(builds Cr
 func (rbc *ReleaseBundleCreateCommand) convertSpecToBuildsSource(files []spec.File) (services.CreateFromBuildsSource, error) {
 	buildsSource := services.CreateFromBuildsSource{}
 	for _, file := range files {
+		// support multiple sources
+		if file.Build == "" {
+			continue
+		}
+
 		buildName, buildNumber, err := rbc.getBuildDetailsFromIdentifier(file.Build, file.Project)
 		if err != nil {
 			return services.CreateFromBuildsSource{}, err
