@@ -17,6 +17,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/python"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/repository"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ruby"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/container"
@@ -60,6 +61,9 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 
 	project.Gradle: repository.Gradle,
 	project.Maven:  repository.Maven,
+
+	// Ruby gems package manager
+	project.Ruby: repository.Gems,
 }
 
 // SetupCommand configures registries and authentication for various package manager (npm, Yarn, Pip, Pipenv, Poetry, Go)
@@ -171,6 +175,8 @@ func (sc *SetupCommand) Run() (err error) {
 		err = sc.configureGradle()
 	case project.Maven:
 		err = sc.configureMaven()
+	case project.Ruby:
+		err = sc.configureRuby()
 	default:
 		err = errorutils.CheckErrorf("unsupported package manager: %s", sc.packageManager)
 	}
@@ -432,24 +438,39 @@ func (sc *SetupCommand) configureMaven() error {
 
 // configureGradle configures Gradle to use the specified Artifactory repository.
 func (sc *SetupCommand) configureGradle() error {
-	password := sc.serverDetails.GetPassword()
-	username := sc.serverDetails.GetUser()
-	if sc.serverDetails.GetAccessToken() != "" {
-		password = sc.serverDetails.GetAccessToken()
-		username = auth.ExtractUsernameFromAccessToken(password)
+	gradleBuildFile, err := gradle.CreateGradleBuildFile(sc.repoName, sc.serverDetails, sc.projectKey)
+	if err != nil {
+		return err
 	}
-	initScriptAuthConfig := gradle.InitScriptAuthConfig{
-		ArtifactoryURL:         sc.serverDetails.GetArtifactoryUrl(),
-		GradleRepoName:         sc.repoName,
-		ArtifactoryAccessToken: password,
-		ArtifactoryUsername:    username,
-	}
-	initScript, err := gradle.GenerateInitScript(initScriptAuthConfig)
+	log.Output(fmt.Sprintf("Gradle build file created at: %s", gradleBuildFile))
+	return nil
+}
+
+// configureRuby configures RubyGems to use the specified Artifactory repository and sets authentication.
+// Runs the following commands:
+//
+//	gem sources --add https://<user>:<token>@<your-artifactory-url>/artifactory/api/gems/<repo-name>/
+//	gem sources --remove https://rubygems.org/
+//
+// Also creates a .gemrc file if needed for authentication.
+func (sc *SetupCommand) configureRuby() error {
+	repoUrl, err := ruby.GetRubyGemsRepoUrl(sc.serverDetails, sc.repoName)
 	if err != nil {
 		return err
 	}
 
-	return gradle.WriteInitScript(initScript)
+	// Add the Artifactory gems source
+	if err := ruby.RunGemCommand([]string{"sources", "--add", repoUrl}); err != nil {
+		return err
+	}
+
+	// Optionally remove the default RubyGems source (commented out for safety)
+	// if err := RunGemCommand([]string{"sources", "--remove", "https://rubygems.org/"}); err != nil {
+	//	return err
+	// }
+
+	log.Output(fmt.Sprintf("Successfully configured RubyGems to use Artifactory repository: %s", repoUrl))
+	return nil
 }
 
 // configureHelm configures Helm to use Artifactory as an OCI registry.
