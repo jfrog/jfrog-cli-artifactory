@@ -3,6 +3,7 @@ package evidence
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"testing"
 
@@ -52,13 +53,13 @@ func TestGetCustomEvidence(t *testing.T) {
 	}{
 		{
 			name:                "Successful evidence retrieval",
-			onemodelClient:      &mockOnemodelManagerSuccess{},
+			onemodelClient:      &mockOnemodelManagerCustomSuccess{},
 			expectedError:       false,
 			expectedEvidenceLen: 1,
 		},
 		{
 			name:                "Error retrieving evidence",
-			onemodelClient:      &mockOnemodelManagerError{},
+			onemodelClient:      &mockOnemodelManagerCustomError{},
 			expectedError:       true,
 			expectedEvidenceLen: 0,
 		},
@@ -90,8 +91,12 @@ func TestGetCustomEvidence(t *testing.T) {
 				if err := json.Unmarshal(evidence, &data); err == nil {
 					if evidenceData, ok := data["data"].(map[string]interface{}); ok {
 						if evidenceNode, ok := evidenceData["evidence"].(map[string]interface{}); ok {
-							if searchEvidence, ok := evidenceNode["searchEvidence"].(map[string]interface{}); ok {
-								edges := searchEvidence["edges"].([]interface{})
+							if searchEvidence, ok := evidenceNode["searchEvidence"].(map[string]any); ok {
+								edgesInterface, ok := searchEvidence["edges"].([]any)
+								if !ok {
+									log.Fatalf("Type assertion failed: expected []any")
+								}
+								edges := edgesInterface
 								assert.Equal(t, tt.expectedEvidenceLen, len(edges))
 							}
 						}

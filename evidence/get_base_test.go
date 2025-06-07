@@ -59,7 +59,10 @@ func TestExportEvidenceToFile(t *testing.T) {
 		}
 		// Clean up the created file if it was created
 		if !tt.expectedError && tt.outputFileName != "" {
-			os.Remove(tt.outputFileName)
+			err = os.Remove(tt.outputFileName)
+			if err != nil {
+				t.Errorf("Error removing output file: %v", err)
+			}
 		}
 	}
 }

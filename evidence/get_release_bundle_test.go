@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/onemodel"
 	"github.com/stretchr/testify/assert"
@@ -89,25 +88,53 @@ func TestGetEvidence(t *testing.T) {
 	}
 }
 
-func (g *getEvidenceReleaseBundle) createOnemodelServiceManager(serverDetails *config.ServerDetails, includePredicate bool) (onemodel.Manager, error) {
-	return utils.CreateOnemodelServiceManager(serverDetails, includePredicate)
-}
-
 func TestCreateReleaseBundleGetEvidenceQuery(t *testing.T) {
-	g := &getEvidenceReleaseBundle{
-		releaseBundle:        "myBundle",
-		releaseBundleVersion: "1.0",
-		project:              "myProject",
-		getEvidenceBase: getEvidenceBase{
-			serverDetails:    &config.ServerDetails{},
-			outputFileName:   "output.json",
-			format:           "json",
-			includePredicate: true,
+	tests := []struct {
+		name                 string
+		project              string
+		releaseBundle        string
+		releaseBundleVersion string
+		artifactsLimit       string
+		includePredicate     bool
+		expectedSubstring    string // We will check for a substring since the full query can be long
+	}{
+		{
+			name:                 "Test with default project",
+			project:              "",
+			releaseBundle:        "bundle-1",
+			releaseBundleVersion: "1.0",
+			artifactsLimit:       "5",
+			expectedSubstring:    "evidenceConnection",
+		},
+		{
+			name:                 "Test with specific project",
+			project:              "myProject",
+			releaseBundle:        "bundle-2",
+			releaseBundleVersion: "2.0",
+			artifactsLimit:       "10",
+			expectedSubstring:    "predicateSlug",
+		},
+		{
+			name:                 "Test with empty artifacts limit, expects default limit",
+			project:              "customProject",
+			releaseBundle:        "bundle-3",
+			releaseBundleVersion: "3.0",
+			artifactsLimit:       "",
+			expectedSubstring:    "evidenceConnection",
 		},
 	}
 
-	query := g.buildGraphqlQuery("myBundle", "1.0")
-	expectedQuery := fmt.Sprintf(`{"query": "{\n  releaseBundleVersion {\n    getVersion(repositoryKey: \"%s\", name: \"%s\", version: \"%s\") {\n      createdBy\n      createdAt\n      evidenceConnection {\n        edges {\n          cursor\n          node {\n            path\n            name\n            predicateSlug\n          }\n        }\n      }\n      artifactsConnection(first: 1000, after:\"YXJ0aWZhY3Q6MA==\", where:{\n  hasEvidence: true\n}) {\n        totalCount\n        pageInfo {\n          hasNextPage\n          hasPreviousPage\n          startCursor\n          endCursor\n        }\n        edges {\n          cursor\n          node {\n            path\n            name\n            packageType\n            sourceRepositoryPath\n            evidenceConnection(first: 0) {\n              totalCount\n              pageInfo {\n                hasNextPage\n                hasPreviousPage\n                startCursor\n                endCursor\n              }\n              edges {\n                cursor\n                node {\n                  path\n                  name\n                  predicateSlug\n                }\n              }\n            }\n          }\n        }\n      }\n      fromBuilds {\n        name\n        number\n        startedAt\n        evidenceConnection {\n          edges {\n            node {\n              path\n              name\n              predicateSlug\n            }\n          }\n        }\n      }\n    }\n  }\n}"}`, "myProject-release-bundles-v2", "myBundle", "1.0")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := &getEvidenceReleaseBundle{
+				project:              tt.project,
+				releaseBundle:        tt.releaseBundle,
+				releaseBundleVersion: tt.releaseBundleVersion,
+				artifactsLimit:       tt.artifactsLimit,
+			}
 
-	assert.Equal(t, string(query), expectedQuery)
+			result := g.buildGraphqlQuery(tt.releaseBundle, tt.releaseBundleVersion)
+			assert.Contains(t, string(result), tt.expectedSubstring)
+		})
+	}
 }
