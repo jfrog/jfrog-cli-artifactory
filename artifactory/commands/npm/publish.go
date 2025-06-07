@@ -3,7 +3,14 @@ package npm
 import (
 	"archive/tar"
 	"compress/gzip"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+
 	"github.com/jfrog/build-info-go/build"
 	biutils "github.com/jfrog/build-info-go/build/utils"
 	gofrogcmd "github.com/jfrog/gofrog/io"
@@ -20,10 +27,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"io"
-	"os"
-	"path/filepath"
-	"strings"
 )
 
 const (
@@ -54,6 +57,12 @@ type NpmPublishCommand struct {
 	detailedSummary bool
 	npmVersion      *version.Version
 	*NpmPublishCommandArgs
+}
+
+// packageJsonInfo holds information about a package.json file found in a tarball
+type packageJsonInfo struct {
+	path    string
+	content []byte
 }
 
 func NewNpmPublishCommand() *NpmPublishCommand {
@@ -344,24 +353,111 @@ func (npc *NpmPublishCommand) readPackageInfoFromTarball(packedFilePath string) 
 		return errorutils.CheckError(err)
 	}
 
+	// First pass: Collect all package.json files and validate their content
+	var standardLocation *packageJsonInfo
+	var rootLevelLocations []*packageJsonInfo
+	var otherLocations []*packageJsonInfo
+
 	tarReader := tar.NewReader(gZipReader)
 	for {
 		hdr, err := tarReader.Next()
 		if err != nil {
 			if err == io.EOF {
-				return errorutils.CheckErrorf("Could not find 'package.json' in the compressed npm package: " + packedFilePath)
+				break
 			}
 			return errorutils.CheckError(err)
 		}
-		if hdr.Name == "package/package.json" {
-			packageJson, err := io.ReadAll(tarReader)
-			if err != nil {
-				return errorutils.CheckError(err)
-			}
-			npc.packageInfo, err = biutils.ReadPackageInfo(packageJson, npc.npmVersion)
-			return err
+
+		if !strings.HasSuffix(hdr.Name, "package.json") {
+			continue
+		}
+
+		content, err := io.ReadAll(tarReader)
+		if err != nil {
+			return errorutils.CheckError(err)
+		}
+
+		// Validate JSON before storing
+		if err := validatePackageJson(content); err != nil {
+			log.Debug("Invalid package.json found at", hdr.Name+":", err.Error())
+			continue
+		}
+
+		info := &packageJsonInfo{
+			path:    hdr.Name,
+			content: content,
+		}
+
+		// Categorize based on location
+		switch {
+		case hdr.Name == "package/package.json":
+			standardLocation = info
+		case strings.Count(hdr.Name, "/") == 1:
+			rootLevelLocations = append(rootLevelLocations, info)
+		default:
+			otherLocations = append(otherLocations, info)
 		}
 	}
+
+	// Use package.json based on priority
+	switch {
+	case standardLocation != nil:
+		log.Debug("Found package.json in standard location:", standardLocation.path)
+		npc.packageInfo, err = biutils.ReadPackageInfo(standardLocation.content, npc.npmVersion)
+		return err
+
+	case len(rootLevelLocations) > 0:
+		if len(rootLevelLocations) > 1 {
+			log.Debug("Found multiple package.json files in root-level directories:", formatPaths(rootLevelLocations))
+			log.Debug("Using first found:", rootLevelLocations[0].path)
+		} else {
+			log.Debug("Using package.json found in root-level directory:", rootLevelLocations[0].path)
+		}
+		npc.packageInfo, err = biutils.ReadPackageInfo(rootLevelLocations[0].content, npc.npmVersion)
+		return err
+
+	case len(otherLocations) > 0:
+		if len(otherLocations) > 1 {
+			log.Debug("Found multiple package.json files in non-standard locations:", formatPaths(otherLocations))
+			log.Debug("Using first found:", otherLocations[0].path)
+		} else {
+			log.Debug("Found package.json in non-standard location:", otherLocations[0].path)
+		}
+		npc.packageInfo, err = biutils.ReadPackageInfo(otherLocations[0].content, npc.npmVersion)
+		return err
+	}
+
+	return errorutils.CheckErrorf("Could not find valid 'package.json' in the compressed npm package: " + packedFilePath)
+}
+
+// validatePackageJson checks if the content is valid JSON and has required npm fields
+func validatePackageJson(content []byte) error {
+	var packageJson map[string]interface{}
+	if err := json.Unmarshal(content, &packageJson); err != nil {
+		return fmt.Errorf("invalid JSON: %v", err)
+	}
+
+	// Check required fields
+	name, hasName := packageJson["name"].(string)
+	version, hasVersion := packageJson["version"].(string)
+
+	if !hasName || name == "" {
+		return fmt.Errorf("missing or empty 'name' field")
+	}
+	if !hasVersion || version == "" {
+		return fmt.Errorf("missing or empty 'version' field")
+	}
+
+	return nil
+}
+
+// formatPaths returns a formatted string of package.json paths for logging
+func formatPaths(infos []*packageJsonInfo) string {
+	paths := make([]string, len(infos))
+	for i, info := range infos {
+		paths[i] = info.path
+	}
+	return strings.Join(paths, ", ")
 }
 
 func deleteCreatedTarball(packedFilesPath []string) error {

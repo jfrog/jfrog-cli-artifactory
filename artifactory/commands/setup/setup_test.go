@@ -2,6 +2,8 @@ package setup
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -324,6 +326,34 @@ func TestSetupCommand_Go(t *testing.T) {
 	}
 }
 
+// Test that configureGo unsets any existing GOPROXY env var before configuring.
+func TestConfigureGo_UnsetEnv(t *testing.T) {
+	testCmd := createTestSetupCommand(project.Go)
+	// Simulate existing GOPROXY in environment
+	t.Setenv("GOPROXY", "user:pass@dummy")
+	// Ensure server details have credentials so configureGo proceeds
+	testCmd.serverDetails.SetAccessToken(dummyToken)
+
+	// Invoke configureGo directly
+	require.NoError(t, testCmd.configureGo())
+	// After calling, the GOPROXY env var should be cleared
+	assert.Empty(t, os.Getenv("GOPROXY"), "GOPROXY should be unset by configureGo to avoid env override")
+}
+
+// Test that configureGo unsets any existing multi-entry GOPROXY env var before configuring.
+func TestConfigureGo_UnsetEnv_MultiEntry(t *testing.T) {
+    testCmd := createTestSetupCommand(project.Go)
+    // Simulate existing multi-entry GOPROXY in environment
+    t.Setenv("GOPROXY", "user:pass@dummy,goproxy2")
+    // Ensure server details have credentials so configureGo proceeds
+    testCmd.serverDetails.SetAccessToken(dummyToken)
+
+    // Invoke configureGo directly
+    require.NoError(t, testCmd.configureGo())
+    // After calling, the GOPROXY env var should be cleared
+    assert.Empty(t, os.Getenv("GOPROXY"), "GOPROXY should be unset by configureGo to avoid env override for multi-entry lists")
+}
+
 func TestSetupCommand_Gradle(t *testing.T) {
 	testGradleUserHome := t.TempDir()
 	t.Setenv(gradle.UserHomeEnv, testGradleUserHome)
@@ -559,4 +589,45 @@ func TestSetupCommand_Twine(t *testing.T) {
 			assert.NoError(t, os.Remove(pypircFilePath))
 		})
 	}
+}
+
+func TestSetupCommand_Helm(t *testing.T) {
+	// Create a mock server to simulate Helm registry login
+	mockServer := setupMockHelmServer()
+	defer mockServer.Close()
+
+	// Initialize Helm setup command with mock server URLs
+	helmCmd := createTestSetupCommand(project.Helm)
+	helmCmd.serverDetails.Url = mockServer.URL
+	helmCmd.serverDetails.ArtifactoryUrl = mockServer.URL + "/artifactory"
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			helmCmd.serverDetails.SetUser(testCase.user)
+			helmCmd.serverDetails.SetPassword(testCase.password)
+			helmCmd.serverDetails.SetAccessToken(testCase.accessToken)
+			err := helmCmd.Run()
+			if testCase.name == "Anonymous Access" {
+				require.Error(t, err, "Helm registry login should fail for anonymous access")
+				assert.Contains(t, err.Error(), "credentials are required")
+			} else {
+				require.NoError(t, err, "Helm registry login should succeed with credentials")
+			}
+		})
+	}
+}
+
+// setupMockHelmServer creates a mock HTTP server that responds to Helm registry login requests
+func setupMockHelmServer() *httptest.Server {
+	// Create a test server that properly responds to OCI registry auth requests
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// For any registry-related request, simply return a 200 OK
+		// This simulates a successful registry login without triggering external auth requests
+		w.WriteHeader(http.StatusOK)
+		_, err := w.Write([]byte(`{"token": "fake-token"}`))
+		if err != nil {
+			http.Error(w, "Failed to write response", http.StatusInternalServerError)
+			return
+		}
+	}))
 }

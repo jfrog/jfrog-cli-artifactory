@@ -3,8 +3,10 @@ package setup
 import (
 	_ "embed"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
+	"os/exec"
 	"slices"
 	"strings"
 
@@ -51,6 +53,8 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	// Docker package managers
 	project.Docker: repository.Docker,
 	project.Podman: repository.Docker,
+
+	project.Helm: repository.Helm,
 
 	project.Go: repository.Go,
 
@@ -161,6 +165,8 @@ func (sc *SetupCommand) Run() (err error) {
 		err = sc.configureDotnetNuget()
 	case project.Docker, project.Podman:
 		err = sc.configureContainer()
+	case project.Helm:
+		err = sc.configureHelm()
 	case project.Gradle:
 		err = sc.configureGradle()
 	case project.Maven:
@@ -175,7 +181,7 @@ func (sc *SetupCommand) Run() (err error) {
 	if sc.packageManager != project.Docker && sc.packageManager != project.Podman {
 		repoPrefix = coreutils.PrintBoldTitle(fmt.Sprintf(" repository '%s'", sc.repoName))
 	}
-	log.Output(fmt.Sprintf("Successfully configured %s to use JFrog Artifactory%s.", coreutils.PrintBoldTitle(sc.packageManager.String()), repoPrefix))
+	log.Output(fmt.Sprintf("Successfully configured %s to use JFrog%s.", coreutils.PrintBoldTitle(sc.packageManager.String()), repoPrefix))
 	return nil
 }
 
@@ -191,7 +197,7 @@ func (sc *SetupCommand) promptUserToSelectRepository() (err error) {
 	sc.repoName, err = utils.SelectRepositoryInteractively(
 		sc.serverDetails,
 		repoFilterParams,
-		fmt.Sprintf("To configure %s, we need you to select a %s repository in Artifactory:", repoFilterParams.PackageType, repoFilterParams.RepoType))
+		fmt.Sprintf("To configure %s, we need you to select a %s repository:", repoFilterParams.PackageType, repoFilterParams.RepoType))
 
 	return err
 }
@@ -317,6 +323,19 @@ func (sc *SetupCommand) configureYarn() (err error) {
 //
 //	go env -w GOPROXY=https://<user>:<token>@<your-artifactory-url>/artifactory/go/<repo-name>,direct
 func (sc *SetupCommand) configureGo() error {
+	if goProxyVal := os.Getenv("GOPROXY"); goProxyVal != "" {
+		// Remove the variable so it won't override the newly configured proxy (temporarily).
+		if err := os.Unsetenv("GOPROXY"); err != nil {
+			return errorutils.CheckErrorf("failed to unset GOPROXY environment variable: %w", err)
+		}
+		// Mask credentials in the GOPROXY value
+		if i := strings.Index(goProxyVal, "@"); i != -1 {
+			goProxyVal = "****" + goProxyVal[i:]
+		}
+		// Log a warning about the existing GOPROXY environment variable so the user can unset it permanently
+		log.Warn(fmt.Sprintf("A local GOPROXY='%s' is set and will override the global setting.\n"+
+			"Unset it in your shell config (e.g., .zshrc, .bashrc).", goProxyVal))
+	}
 	repoWithCredsUrl, err := golang.GetArtifactoryRemoteRepoUrl(sc.serverDetails, sc.repoName, golang.GoProxyUrlParams{Direct: true})
 	if err != nil {
 		return err
@@ -382,7 +401,7 @@ func (sc *SetupCommand) configureContainer() error {
 	}
 	urlWithoutScheme := parsedPlatformURL.Host + parsedPlatformURL.Path
 	return container.ContainerManagerLogin(
-		urlWithoutScheme,
+		strings.TrimPrefix(urlWithoutScheme, "/"),
 		&container.ContainerManagerLoginConfig{ServerDetails: sc.serverDetails},
 		containerManagerType,
 	)
@@ -431,4 +450,47 @@ func (sc *SetupCommand) configureGradle() error {
 	}
 
 	return gradle.WriteInitScript(initScript)
+}
+
+// configureHelm configures Helm to use Artifactory as an OCI registry.
+// It executes:
+//
+//	helm registry login <registry-url> --username <user> --password-stdin
+//
+// If anonymous access is enabled for the repository, no login is performed.
+func (sc *SetupCommand) configureHelm() error {
+	// Parse the URL to get the registry domain without scheme or path
+	parsedURL, err := url.Parse(sc.serverDetails.GetUrl())
+	if err != nil {
+		return err
+	}
+	// Use just the hostname part for OCI registry
+	registryURL := parsedURL.Host
+
+	// Prepare credentials
+	user := sc.serverDetails.GetUser()
+	pass := sc.serverDetails.GetPassword()
+	if token := sc.serverDetails.GetAccessToken(); token != "" {
+		if user == "" {
+			user = auth.ExtractUsernameFromAccessToken(token)
+		}
+		pass = token
+	}
+
+	// If no credentials are provided, throw an error
+	if user == "" && pass == "" {
+		return errorutils.CheckErrorf("credentials are required for Helm registry login")
+	}
+
+	// Login to the Helm OCI registry
+	cmdLogin := exec.Command("helm", "registry", "login", registryURL, "--username", user, "--password-stdin")
+
+	// Pipe password to stdin
+	cmdLogin.Stdin = strings.NewReader(pass)
+
+	// Suppress success output, retain errors only
+	cmdLogin.Stdout = io.Discard
+	cmdLogin.Stderr = os.Stderr
+
+	return cmdLogin.Run()
 }
