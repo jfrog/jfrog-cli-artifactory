@@ -144,10 +144,7 @@ func assertValidCreationMethod(c *components.Context) error {
 
 	multiSrcMethodCount := coreutils.SumTrueValues(multiSourcesMethods)
 
-	if err := validateCreationMethods(c, methodCount, multiSrcMethodCount); err != nil {
-		return err
-	}
-	return nil
+	return validateCreationMethods(c, methodCount, multiSrcMethodCount)
 }
 
 func validateRegularMethods(c *components.Context, methodCount int) error {
