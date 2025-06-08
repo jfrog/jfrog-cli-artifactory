@@ -3,7 +3,11 @@ package buildinfo
 import (
 	"errors"
 	"fmt"
+	evidenceCli "github.com/jfrog/jfrog-cli-artifactory/evidence/cli"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/evidenceproviders"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
+	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
+	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"net/url"
 	"strconv"
 	"strings"
@@ -175,9 +179,49 @@ func (bpc *BuildPublishCommand) Run() error {
 		log.Info(logMsg + " Browse it in Artifactory under " + buildLink)
 		return nil
 	}
-	// TODO: Add support for attaching evidence for given build name and number
 	log.Info(logMsg)
-	return logJsonOutput(buildLink)
+	err = logJsonOutput(buildLink)
+	if err != nil {
+		return err
+	}
+	// check configuration to create evidence.
+	evidenceConfig, err := evidenceproviders.GetConfig()
+	if err != nil {
+		return logErrorAndReturn(err)
+	}
+	buildPublishConfig := &evidenceproviders.BuildPublishConfig{}
+	// validate evidence configuration to proceed to create evidence.
+	if evidenceBuildPublishConfig, ok := evidenceConfig["buildPublish"]; ok && evidenceBuildPublishConfig != nil {
+		if err := evidenceBuildPublishConfig.Decode(buildPublishConfig); err != nil {
+			return logErrorAndReturn(err)
+		}
+		if buildPublishConfig == nil || !buildPublishConfig.IsEnabled() {
+			log.Warn("Evidence configuration for build publish is not enabled. Skipping evidence creation.")
+			return nil
+		}
+		err := buildPublishConfig.Validate()
+		if err != nil {
+			return logErrorAndReturn(err)
+		}
+		ctx := &components.Context{}
+		ctx.AddStringFlag("build-name", buildInfo.Name)
+		ctx.AddStringFlag("build-number", buildInfo.Number)
+		ctx.AddStringFlag("predicate-type", buildPublishConfig.EvidenceProvider)
+		ctx.AddStringFlag("key", buildPublishConfig.KeyPath)
+		ctx.AddStringFlag("key-alias", buildPublishConfig.KeyAlias)
+		buildInfoEvidenceCMD := evidenceCli.NewEvidenceBuildCommand(ctx, commands.Exec)
+		evidenceCli.PlatformToEvidenceUrls(bpc.serverDetails)
+		err = buildInfoEvidenceCMD.CreateEvidence(ctx, bpc.serverDetails)
+		return logErrorAndReturn(err)
+	}
+	return nil
+}
+
+func logErrorAndReturn(err error) error {
+	if err != nil {
+		log.Error(err)
+	}
+	return nil
 }
 
 // CalculateBuildNumberFrequency since the build number is not unique, we need to calculate the frequency of each build number

@@ -9,6 +9,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/evidenceproviders"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/evidence"
+	"github.com/jfrog/jfrog-client-go/evidence/external/sonarqube"
 	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -151,6 +152,17 @@ func validateSonarConfig(se *SonarEvidence) error {
 	if se.SonarConfig.RetryInterval == nil {
 		se.SonarConfig.RetryInterval = func() *int { v := DefaultIntervalInSeconds; return &v }()
 	}
+	if err := validateSonarAccessToken(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateSonarAccessToken() error {
+	sonarQubeToken := os.Getenv(sonarqube.SonarAccessTokenKey)
+	if sonarQubeToken == "" {
+		return errorutils.CheckErrorf("Sonar access token not found in environment variable " + sonarqube.SonarAccessTokenKey)
+	}
 	return nil
 }
 
@@ -175,6 +187,9 @@ func FetchSonarEvidenceWithRetry(sonarQubeURL, reportTaskFile, proxy string, max
 		sonarQubeURL = taskURL
 	}
 	log.Debug(fmt.Sprintf("Fetching sonarqube task status using taskID %s sonarqube URL %s", taskID, sonarQubeURL))
+	if taskID == "" {
+		return nil, errorutils.CheckError(errors.New("unable to determine task ID from report task file: " + reportTaskFile))
+	}
 	evd := &evidence.EvidenceServicesManager{}
 	var taskReport *TaskReport
 	retryExecutor := utils.RetryExecutor{

@@ -11,7 +11,6 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	coreUtils "github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
-	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"gopkg.in/yaml.v3"
@@ -94,11 +93,20 @@ func generateEvidenceProviderConfig(ctx *components.Context) error {
 		}
 	}
 	evidenceConfig := &evidenceproviders.EvidenceConfig{}
-	evidenceProvider := ctx.GetArgumentAt(0)
-	if strings.EqualFold(evidenceProvider, "sonar") {
-		err = CreateSonarConfig(evidenceConfigMap["sonar"], evidenceConfig)
-		if err != nil {
-			return err
+	evidenceProviders := strings.Split(ctx.GetArgumentAt(0), ",")
+	for _, ep := range evidenceProviders {
+		evidenceProvider := strings.TrimSpace(ep)
+		if strings.EqualFold(evidenceProvider, "sonar") {
+			err = CreateSonarConfig(evidenceConfigMap["sonar"], evidenceConfig)
+			if err != nil {
+				return err
+			}
+		}
+		if strings.EqualFold(evidenceProvider, "buildPublish") {
+			err = CreateBuildPublishConfig(evidenceConfigMap["buildPublish"], evidenceConfig)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return WriteConfigFile(globalFlag, evidenceConfig)
@@ -206,19 +214,13 @@ func evidenceDetailsByFlags(ctx *components.Context) (*coreConfig.ServerDetails,
 	if serverDetails.Url == "" {
 		return nil, errors.New("platform URL is mandatory for evidence commands")
 	}
-	platformToEvidenceUrls(serverDetails)
+	PlatformToEvidenceUrls(serverDetails)
 
 	if serverDetails.GetUser() != "" && serverDetails.GetPassword() != "" {
 		return nil, errors.New("evidence service does not support basic authentication")
 	}
 
 	return serverDetails, nil
-}
-
-func platformToEvidenceUrls(rtDetails *coreConfig.ServerDetails) {
-	rtDetails.ArtifactoryUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "artifactory/"
-	rtDetails.EvidenceUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "evidence/"
-	rtDetails.MetadataUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "metadata/"
 }
 
 func assertValueProvided(c *components.Context, fieldName string) error {

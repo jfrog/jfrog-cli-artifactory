@@ -12,7 +12,8 @@ import (
 )
 
 type EvidenceConfig struct {
-	Sonar *SonarConfig `yaml:"sonar,omitempty"`
+	Sonar        *SonarConfig        `yaml:"sonar,omitempty"`
+	BuildPublish *BuildPublishConfig `yaml:"buildPublish,omitempty"`
 }
 
 type SonarConfig struct {
@@ -21,6 +22,54 @@ type SonarConfig struct {
 	MaxRetries     *int   `yaml:"maxRetries"`
 	RetryInterval  *int   `yaml:"retryIntervalInSecs"`
 	Proxy          string `yaml:"proxy"`
+}
+
+type BuildPublishConfig struct {
+	Enable           bool   `yaml:"enabled" default:"true"`
+	EvidenceProvider string `yaml:"evidenceProvider"`
+	KeyAlias         string `yaml:"keyAlias"`
+	KeyPath          string `yaml:"keyPath"`
+}
+
+func (bpc *BuildPublishConfig) IsEnabled() bool {
+	if bpc == nil {
+		return false
+	}
+	return bpc.Enable
+}
+
+func (bpc *BuildPublishConfig) Validate() error {
+	if bpc.EvidenceProvider == "" {
+		return errorutils.CheckError(errors.New("evidence provider is not set, evidence provider is the name of the custom evidence provider that will be used to create predicate"))
+	}
+	if bpc.KeyAlias == "" {
+		return errorutils.CheckError(errors.New("key alias is not set, key alias is the name of the key in the keystore that will be used to sign the evidence file"))
+	}
+	if bpc.KeyPath == "" {
+		return errorutils.CheckError(errors.New("key path is not set, key path is the path to the private key file that will be used to sign the evidence file"))
+	}
+	if exists, err := fileutils.IsFileExists(bpc.KeyPath, false); err != nil || !exists {
+		return errorutils.CheckError(errors.New("key path is not a valid file path"))
+	}
+	return nil
+}
+
+func (bpc *BuildPublishConfig) CreateBuildPublishConfig(yamlNode *yaml.Node) (buildPublishConfig *BuildPublishConfig) {
+	buildPublishConfig = &BuildPublishConfig{}
+	if yamlNode == nil {
+		return &BuildPublishConfig{
+			Enable:           true,
+			EvidenceProvider: "",
+			KeyAlias:         "",
+			KeyPath:          "",
+		}
+	}
+	if err := yamlNode.Decode(buildPublishConfig); err != nil {
+		log.Warn(err)
+		return nil
+	}
+	log.Debug("Creating build publish configuration", buildPublishConfig)
+	return buildPublishConfig
 }
 
 var ErrEvidenceDirNotExist = errors.New("evidence directory does not exist")

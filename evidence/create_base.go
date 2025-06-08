@@ -101,7 +101,7 @@ func (c *createEvidenceBase) AutoCollectEvidence(predicate []byte, err error) ([
 	clientlog.Info("Auto populating the predicate from provided predicate type")
 	var evidenceProvider evidenceproviders.EvidenceProvider
 	switch c.predicateType {
-	case "https://jfrog.com/evidence/sonarqube/v1":
+	case "https://jfrog.com/evidence/sonarqube/v1", "sonar":
 		evidenceProvider, err = sonarqube.CreateSonarEvidence()
 		if err != nil {
 			return nil, err

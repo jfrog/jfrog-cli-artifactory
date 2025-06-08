@@ -20,7 +20,7 @@ import (
 func CreateSonarConfig(sonarConfigNode *yaml.Node, evidenceConfig *evidenceproviders.EvidenceConfig) (err error) {
 	var sonarConfig *evidenceproviders.SonarConfig
 	if sonarConfigNode != nil {
-		log.Debug("Using existing evidence.yaml file")
+		log.Debug("Using existing evidence.yaml file for Sonar configuration")
 		if sonarConfig, err = sonarqube.CreateSonarConfiguration(sonarConfigNode); sonarConfig != nil {
 			sonarConfig = sonarqube.NewSonarConfig(
 				defaultIfEmpty(sonarConfig.URL, sonarqube.DefaultSonarHost),
@@ -36,6 +36,23 @@ func CreateSonarConfig(sonarConfigNode *yaml.Node, evidenceConfig *evidenceprovi
 		sonarConfig = sonarqube.NewDefaultSonarConfig()
 	}
 	return interactiveSonarEvidenceConfiguration(sonarConfig, evidenceConfig)
+}
+
+// CreateBuildPublishConfig creates build publish configuration based on existing config first if not available
+// falls back on to default config values.
+func CreateBuildPublishConfig(buildPublishConfigNode *yaml.Node, evidenceConfig *evidenceproviders.EvidenceConfig) (err error) {
+	buildPublishConfigData := &evidenceproviders.BuildPublishConfig{}
+	if buildPublishConfigNode != nil {
+		log.Debug("Using existing evidence.yaml file for build publish configuration")
+		if buildPublishConfigData = buildPublishConfigData.CreateBuildPublishConfig(buildPublishConfigNode); buildPublishConfigData == nil {
+			buildPublishConfigData = &evidenceproviders.BuildPublishConfig{
+				Enable:   true,
+				KeyPath:  "",
+				KeyAlias: "",
+			}
+		}
+	}
+	return interactiveBuildPublishConfiguration(buildPublishConfigData, evidenceConfig)
 }
 
 func defaultIfEmpty(value, defaultValue string) string {
@@ -60,7 +77,7 @@ func interactiveSonarEvidenceConfiguration(sonarConfig *evidenceproviders.SonarC
 	}
 	reportTaskFile := ioutils.AskStringWithDefault("Report task file", "", sonarConfig.ReportTaskFile)
 	maxRetries := ioutils.AskStringWithDefault("Max retries", "", strconv.Itoa(*sonarConfig.MaxRetries))
-	retryInterval := ioutils.AskStringWithDefault("Retry interval", "", strconv.Itoa(*sonarConfig.RetryInterval))
+	retryInterval := ioutils.AskStringWithDefault("Retry interval in Seconds", "", strconv.Itoa(*sonarConfig.RetryInterval))
 	var proxy string
 	if sonarConfig.Proxy == "" {
 		proxy = ioutils.AskString("Proxy", "", true, false)
@@ -69,6 +86,30 @@ func interactiveSonarEvidenceConfiguration(sonarConfig *evidenceproviders.SonarC
 	}
 	sc := sonarqube.NewSonarConfig(sonarURL, reportTaskFile, maxRetries, retryInterval, proxy)
 	evidenceConfig.Sonar = sc
+	return nil
+}
+
+func interactiveBuildPublishConfiguration(buildPublishConfig *evidenceproviders.BuildPublishConfig, evidenceConfig *evidenceproviders.EvidenceConfig) (err error) {
+	if buildPublishConfig == nil {
+		buildPublishConfig = &evidenceproviders.BuildPublishConfig{}
+	}
+	enableBuildPublish := ioutils.AskStringWithDefault("Enable Build Publish Evidence", "", "true")
+	buildPublishConfig.Enable, err = strconv.ParseBool(enableBuildPublish)
+	if err != nil {
+		log.Warn("Invalid value for Enable Build Publish Evidence, defaulting to false")
+		buildPublishConfig.Enable = false
+	}
+	if !buildPublishConfig.Enable {
+		return nil
+	}
+	buildPublishConfig.EvidenceProvider = ioutils.AskStringWithDefault("Evidence Provider (Eg:- sonar)", "", buildPublishConfig.EvidenceProvider)
+	buildPublishConfig.KeyAlias = ioutils.AskStringWithDefault("Key Alias", "", buildPublishConfig.KeyAlias)
+	keyPath := ioutils.AskStringWithDefault("Private Key Path", "", buildPublishConfig.KeyPath)
+	if exists, err := fileutils.IsFileExists(keyPath, false); err != nil || !exists {
+		return errorutils.CheckErrorf("Private Key path %s does not exist or is not a valid file path", keyPath)
+	}
+	buildPublishConfig.KeyPath = keyPath
+	evidenceConfig.BuildPublish = buildPublishConfig
 	return nil
 }
 
