@@ -69,7 +69,7 @@ func GetRubyGemsRepoUrlWithCredentials(serverDetails *config.ServerDetails, repo
 		password = serverDetails.GetAccessToken()
 	}
 
-	rtUrl = rtUrl.JoinPath("artifactory/api/gems", repository)
+	rtUrl = rtUrl.JoinPath("api/gems", repository)
 	return rtUrl, username, password, err
 }
 
@@ -96,8 +96,9 @@ func RunConfigCommand(buildTool project.ProjectType, args []string) error {
 // RunGemCommand runs a gem command with the provided arguments
 func RunGemCommand(args []string) error {
 	cmd := exec.Command("gem", args...)
-	if err := cmd.Run(); err != nil {
-		return errorutils.CheckErrorf("gem command failed with: %q", err)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errorutils.CheckErrorf("gem command failed with: %q, output: %s", err, string(output))
 	}
 	return nil
 }
