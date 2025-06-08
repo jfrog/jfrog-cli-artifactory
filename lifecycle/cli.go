@@ -159,15 +159,10 @@ func validateRegularMethods(c *components.Context, methodCount int) error {
 }
 
 func validateCreationMethods(c *components.Context, regularMethodsCount int, multiSrcMethodsCount int) error {
-	if multiSrcMethodsCount == 0 {
-		if err := validateRegularMethods(c, regularMethodsCount); err != nil {
-			return err
-		}
-	} else {
+	if multiSrcMethodsCount > 0 {
 		if _, err := multipleSourcesSupported(c); err != nil {
 			return err
 		}
-
 		if regularMethodsCount > 0 {
 			return errorutils.CheckErrorf(
 				"only multiple sources must be supplied: --%s, --%s,\n"+
@@ -176,8 +171,9 @@ func validateCreationMethods(c *components.Context, regularMethodsCount int, mul
 				"spec", flagkit.Builds, flagkit.ReleaseBundles,
 			)
 		}
+		return nil
 	}
-	return nil
+	return validateRegularMethods(c, regularMethodsCount)
 }
 
 func validateSingleCreationMethod(methodCount int) error {
