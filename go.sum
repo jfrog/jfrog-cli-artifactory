@@ -50,8 +50,8 @@ github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSs
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1VwoXQT9A3Wy9MM3WgvqSxFWenqJduM=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/dortam888/jfrog-client-go v0.0.0-20250602224248-8f8ecf6baf1b h1:OUzPwFuSg70wLhDq1rBHk0kUNPYKfWBhR0Zh+PMxk2U=
-github.com/dortam888/jfrog-client-go v0.0.0-20250602224248-8f8ecf6baf1b/go.mod h1:XxYs2QtlTm92yqJ5O4j4vzWI8d4sDtKQUT1miNHMgnw=
+github.com/dortam888/jfrog-client-go v0.0.0-20250608122218-4c5ecbca23a9 h1:Eflhq3Ww7QjrAxxT4wKN8MIWn0mIZBfjIHnhDzC7kvE=
+github.com/dortam888/jfrog-client-go v0.0.0-20250608122218-4c5ecbca23a9/go.mod h1:XxYs2QtlTm92yqJ5O4j4vzWI8d4sDtKQUT1miNHMgnw=
 github.com/dsnet/compress v0.0.2-0.20210315054119-f66993602bf5 h1:iFaUwBSo5Svw6L7HYpRu/0lE3e0BaElwnNO1qkNQxBY=
 github.com/dsnet/compress v0.0.2-0.20210315054119-f66993602bf5/go.mod h1:qssHWj60/X5sZFNxpG4HBPDHVqxNm4DfnCKgrbZOT+s=
 github.com/dsnet/golib v0.0.0-20171103203638-1ea166775780/go.mod h1:Lj+Z9rebOhdfkVLjJ8T6VcRQv3SXugXy999NBtR9aFY=

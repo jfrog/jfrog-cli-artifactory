@@ -12,12 +12,13 @@ type createEvidenceCustom struct {
 }
 
 func NewCreateEvidenceCustom(serverDetails *coreConfig.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, subjectRepoPath,
-	subjectSha256 string) Command {
+	subjectSha256, providerId string) Command {
 	return &createEvidenceCustom{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
 			predicateFilePath: predicateFilePath,
 			predicateType:     predicateType,
+			providerId:        providerId,
 			markdownFilePath:  markdownFilePath,
 			key:               key,
 			keyId:             keyId,
