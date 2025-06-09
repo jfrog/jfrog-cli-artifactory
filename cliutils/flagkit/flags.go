@@ -1,11 +1,12 @@
 package flagkit
 
 import (
+	"strconv"
+
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/cmddefs"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	"strconv"
 )
 
 const (
@@ -323,6 +324,7 @@ const (
 	// Build tool flags
 	deploymentThreads = "deployment-threads"
 	skipLogin         = "skip-login"
+	validateSha       = "validate-sha"
 
 	// Unique docker promote flags
 	dockerPromotePrefix = "docker-promote-"
@@ -654,7 +656,7 @@ var commandFlags = map[string][]string{
 	},
 	ContainerPush: {
 		BuildName, BuildNumber, module, url, user, password, accessToken, sshPassphrase, sshKeyPath,
-		serverId, skipLogin, threads, Project, detailedSummary,
+		serverId, skipLogin, threads, Project, detailedSummary, validateSha,
 	},
 	ContainerPull: {
 		BuildName, BuildNumber, module, url, user, password, accessToken, sshPassphrase, sshKeyPath,
@@ -972,6 +974,7 @@ var flagsMap = map[string]components.Flag{
 
 	// Docker specific commands flags
 	skipLogin:           components.NewBoolFlag(skipLogin, "[Default: false] Set to true if you'd like the command to skip performing docker login.", components.WithBoolDefaultValueFalse()),
+	validateSha:         components.NewBoolFlag(validateSha, "[Default: false] Set to true to enable SHA validation during Docker push.", components.WithBoolDefaultValueFalse()),
 	watches:             components.NewStringFlag(watches, "[Optional] A comma-separated(,) list of Xray watches, to determine Xray's violations creation.", components.SetMandatoryFalse()),
 	repoPath:            components.NewStringFlag(repoPath, "[Optional] Target repo path, to enable Xray to determine watches accordingly.", components.SetMandatoryFalse()),
 	licenses:            components.NewBoolFlag(licenses, "[Default: false] Set to true if you'd like to receive licenses from Xray scanning.", components.WithBoolDefaultValueFalse()),
