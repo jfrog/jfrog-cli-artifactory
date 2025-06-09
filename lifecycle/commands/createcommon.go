@@ -309,23 +309,76 @@ func handleAqlSource(rbc *ReleaseBundleCreateCommand, sources []services.RbSourc
 	return sources, nil
 }
 
-func buildReleaseBundleSourcesParamsFromSpec(rbc *ReleaseBundleCreateCommand, detectedSources []services.SourceType) (sources []services.RbSource, err error) {
-
+func buildReleaseBundleSourcesParamsFromSpec(rbc *ReleaseBundleCreateCommand, detectedSources []services.SourceType) ([]services.RbSource, error) {
+	sourceTypeMap := make(map[services.SourceType]bool)
 	for _, sourceType := range detectedSources {
-		switch sourceType {
-		case services.ReleaseBundles:
-			sources, err = handleReleaseBundlesSources(rbc, sources)
-		case services.Builds:
-			sources, err = handleBuildsSources(rbc, sources)
-		case services.Artifacts:
-			sources, err = handleArtifactsSources(rbc, sources)
-		case services.Packages:
-			sources, err = handlePackagesSources(rbc, sources)
-		case services.Aql:
-			sources, err = handleAqlSource(rbc, sources)
+		sourceTypeMap[sourceType] = true
+	}
+
+	var sources []services.RbSource
+
+	if sourceTypeMap[services.ReleaseBundles] {
+		err, releaseBundleSources := rbc.createReleaseBundleSourceFromSpec()
+		if err != nil {
+			return nil, err
+		}
+
+		if len(releaseBundleSources.ReleaseBundles) > 0 {
+			sources = append(sources, services.RbSource{
+				SourceType:     services.ReleaseBundles,
+				ReleaseBundles: releaseBundleSources.ReleaseBundles,
+			})
 		}
 	}
-	return sources, err
+
+	if sourceTypeMap[services.Builds] {
+		err, buildsSource := rbc.createBuildSourceFromSpec()
+		if err != nil {
+			return nil, err
+		}
+
+		if len(buildsSource.Builds) > 0 {
+			sources = append(sources, services.RbSource{
+				SourceType: services.Builds,
+				Builds:     buildsSource.Builds,
+			})
+		}
+	}
+
+	if sourceTypeMap[services.Artifacts] {
+		artifactsSource, err := rbc.createArtifactSourceFromSpec()
+		if err != nil {
+			return nil, err
+		}
+
+		if len(artifactsSource.Artifacts) > 0 {
+			sources = append(sources, services.RbSource{
+				SourceType: services.Artifacts,
+				Artifacts:  artifactsSource.Artifacts,
+			})
+		}
+	}
+
+	if sourceTypeMap[services.Packages] {
+		packagesSource := rbc.createPackageSourceFromSpec()
+
+		if len(packagesSource.Packages) > 0 {
+			sources = append(sources, services.RbSource{
+				SourceType: services.Packages,
+				Packages:   packagesSource.Packages,
+			})
+		}
+	}
+
+	if sourceTypeMap[services.Aql] {
+		aqlQuery := rbc.createAqlQueryFromSpec()
+		sources = append(sources, services.RbSource{
+			SourceType: services.Aql,
+			Aql:        aqlQuery,
+		})
+	}
+
+	return sources, nil
 }
 
 func (rbc *ReleaseBundleCreateCommand) identifySourceTypeBySpecOrByLegacyCommands(multipleSourcesAndPackagesSupported bool) (sourceTypes []services.SourceType, err error) {
