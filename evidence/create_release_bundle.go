@@ -2,7 +2,7 @@ package evidence
 
 import (
 	"fmt"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -36,7 +36,7 @@ func (c *createEvidenceReleaseBundle) CommandName() string {
 	return "create-release-bundle-evidence"
 }
 
-func (c *createEvidenceReleaseBundle) ServerDetails() (*config.ServerDetails, error) {
+func (c *createEvidenceReleaseBundle) ServerDetails() (*coreConfig.ServerDetails, error) {
 	return c.serverDetails, nil
 }
 
