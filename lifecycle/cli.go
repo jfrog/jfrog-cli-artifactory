@@ -160,7 +160,7 @@ func validateRegularMethods(c *components.Context, methodCount int) error {
 
 func validateCreationMethods(c *components.Context, regularMethodsCount int, multiSrcMethodsCount int) error {
 	if multiSrcMethodsCount > 0 {
-		if _, err := multipleSourcesSupported(c); err != nil {
+		if err := multipleSourcesSupported(c); err != nil {
 			return err
 		}
 		if regularMethodsCount > 0 {
@@ -225,7 +225,9 @@ func create(c *components.Context) (err error) {
 		SetReleaseBundleProject(pluginsCommon.GetProject(c)).SetSpec(creationSpec).
 		SetBuildsSpecPath(c.GetStringFlagValue(flagkit.Builds)).SetReleaseBundlesSpecPath(c.GetStringFlagValue(flagkit.ReleaseBundles))
 
-	if isSupported, _ := multipleSourcesSupported(c); isSupported {
+	err = lifecycle.ValidateFeatureSupportedVersion(lcDetails, minArtifactoryVersionForMultiSourceSupport)
+	// err == nil means new flags are supported and may be added to createCmd
+	if err == nil {
 		createCmd.SetReleaseBundlesSources(c.GetStringFlagValue(flagkit.SourcesReleaseBundles)).
 			SetBuildsSources(c.GetStringFlagValue(flagkit.SourcesBuilds))
 	}
@@ -233,17 +235,17 @@ func create(c *components.Context) (err error) {
 	return commands.Exec(createCmd)
 }
 
-func multipleSourcesSupported(c *components.Context) (bool, error) {
+func multipleSourcesSupported(c *components.Context) error {
 	lcDetails, err := createLifecycleDetailsByFlags(c)
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	err = lifecycle.ValidateFeatureSupportedVersion(lcDetails, minArtifactoryVersionForMultiSourceSupport)
 	if err != nil {
-		return false, err
+		return err
 	}
-	return true, nil
+	return nil
 }
 
 func getReleaseBundleCreationSpec(c *components.Context) (*spec.SpecFiles, error) {
