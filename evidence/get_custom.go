@@ -10,62 +10,66 @@ import (
 	"github.com/jfrog/jfrog-client-go/onemodel"
 )
 
-const getCustomEvidenceWithoutPredicateGraphqlQuery = `query SearchEvidence {
-    evidence {
-        searchEvidence(
-            where: { 
-                hasSubjectWith: { 
-                    repositoryKey: \"%s\", 
-                    path: \"%s\" 
-                } 
-            } 
-        ) {
-            totalCount
-            pageInfo {
-                hasNextPage
-                hasPreviousPage
-                startCursor
-                endCursor
-            }
-            edges {
-                cursor
-                node {
-                    path
-                    name
-                    predicateSlug
-                }
-            }
-        }
-    }
+const getCustomEvidenceWithoutPredicateGraphqlQuery = `{
+	"query":  "{
+		evidence {
+			searchEvidence(
+				where: { 
+					hasSubjectWith: { 
+						repositoryKey: \"%s\", 
+						path: \"%s\" 
+					} 
+				} 
+			) {
+				totalCount
+				pageInfo {
+					hasNextPage
+					hasPreviousPage
+					startCursor
+					endCursor
+				}
+				edges {
+					cursor
+					node {
+						path
+						name
+						predicateSlug
+					}
+				}
+			}
+		}
+	}"
 }`
-const getCustomEvidenceWithPredicateGraphqlQuery = `query SearchEvidence {
-    evidence {
-        searchEvidence(
-            where: { 
-                hasSubjectWith: { 
-                    repositoryKey: \"%s\", 
-                    path: \"%s\" 
-                } 
-            }
-        ) {
-            totalCount
-            pageInfo {
-                hasNextPage
-                hasPreviousPage
-                startCursor
-                endCursor
-            }
-            edges {
-                cursor
-                node {
-                    path
-                    name
-                    predicateSlug
-                    predicate
-                }
-            }
-        }
-    }
+const getCustomEvidenceWithPredicateGraphqlQuery = `{
+	"query": "{
+		evidence {
+			searchEvidence(
+				where: { 
+					hasSubjectWith: { 
+						repositoryKey: \"%s\", 
+						path: \"%s\" 
+					} 
+				}
+			) {
+				totalCount
+				pageInfo {
+					hasNextPage
+					hasPreviousPage
+					startCursor
+					endCursor
+				}
+				edges {
+					cursor
+					node {
+						path
+						name
+						predicateSlug
+						predicate
+					}
+				}
+			}
+		}
+	}"
 }`
 
 type getEvidenceCustom struct {
