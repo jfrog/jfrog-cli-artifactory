@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	rbV2manifestName                   = "release-bundle.json.evd"
-	releaseBundlesV2                   = "release-bundles-v2"
-	minimalLifecycleArtifactoryVersion = "7.63.2"
+	rbV2manifestName                                      = "release-bundle.json.evd"
+	releaseBundlesV2                                      = "release-bundles-v2"
+	minimalLifecycleArtifactoryVersion                    = "7.63.2"
+	minArtifactoryVersionForMultiSourceAndPackagesSupport = "7.114.0"
 )
 
 type releaseBundleCmd struct {

@@ -73,26 +73,24 @@ func (rbc *ReleaseBundleCreateCommand) convertSpecToBuildsSource(files []spec.Fi
 	buildsSource := services.CreateFromBuildsSource{}
 	for _, file := range files {
 		// support multiple sources
-		if file.Build == "" {
-			continue
-		}
+		if file.Build != "" {
+			buildName, buildNumber, err := rbc.getBuildDetailsFromIdentifier(file.Build, file.Project)
+			if err != nil {
+				return services.CreateFromBuildsSource{}, err
+			}
+			isIncludeDeps, err := file.IsIncludeDeps(false)
+			if err != nil {
+				return services.CreateFromBuildsSource{}, err
+			}
 
-		buildName, buildNumber, err := rbc.getBuildDetailsFromIdentifier(file.Build, file.Project)
-		if err != nil {
-			return services.CreateFromBuildsSource{}, err
+			buildSource := services.BuildSource{
+				BuildName:           buildName,
+				BuildNumber:         buildNumber,
+				BuildRepository:     utils.GetBuildInfoRepositoryByProject(file.Project),
+				IncludeDependencies: isIncludeDeps,
+			}
+			buildsSource.Builds = append(buildsSource.Builds, buildSource)
 		}
-		isIncludeDeps, err := file.IsIncludeDeps(false)
-		if err != nil {
-			return services.CreateFromBuildsSource{}, err
-		}
-
-		buildSource := services.BuildSource{
-			BuildName:           buildName,
-			BuildNumber:         buildNumber,
-			BuildRepository:     utils.GetBuildInfoRepositoryByProject(file.Project),
-			IncludeDependencies: isIncludeDeps,
-		}
-		buildsSource.Builds = append(buildsSource.Builds, buildSource)
 	}
 	return buildsSource, nil
 }

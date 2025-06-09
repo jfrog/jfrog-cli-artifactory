@@ -14,7 +14,7 @@ import (
 func (rbc *ReleaseBundleCreateCommand) createFromArtifacts(lcServicesManager *lifecycle.LifecycleServicesManager,
 	rbDetails services.ReleaseBundleDetails, queryParams services.CommonOptionalQueryParams) (err error) {
 
-	err, artifactsSource := rbc.createArtifactSourceFromSpec()
+	artifactsSource, err := rbc.createArtifactSourceFromSpec()
 	if err != nil {
 		return err
 	}
@@ -32,27 +32,27 @@ func (rbc *ReleaseBundleCreateCommand) getArtifactFilesFromSpec() []spec.File {
 	return artifactFiles
 }
 
-func (rbc *ReleaseBundleCreateCommand) createArtifactSourceFromSpec() (error, services.CreateFromArtifacts) {
+func (rbc *ReleaseBundleCreateCommand) createArtifactSourceFromSpec() (services.CreateFromArtifacts, error) {
 	var artifactsSource services.CreateFromArtifacts
 
 	rtServicesManager, err := utils.CreateServiceManager(rbc.serverDetails, 3, 0, false)
 	if err != nil {
-		return err, artifactsSource
+		return artifactsSource, err
 	}
 
-	searchResults, callbackFunc, err := utils.SearchFilesBySpecific(rtServicesManager, rbc.getArtifactFilesFromSpec())
+	searchResults, callbackFunc, err := utils.SearchFilesBySpecs(rtServicesManager, rbc.getArtifactFilesFromSpec())
 	defer func() {
 		err = errors.Join(err, callbackFunc())
 	}()
 	if err != nil {
-		return err, artifactsSource
+		return artifactsSource, err
 	}
 
 	artifactsSource, err = aqlResultToArtifactsSource(searchResults)
 	if err != nil {
-		return err, artifactsSource
+		return artifactsSource, err
 	}
-	return nil, artifactsSource
+	return artifactsSource, err
 }
 
 func aqlResultToArtifactsSource(readers []*content.ContentReader) (artifactsSource services.CreateFromArtifacts, err error) {

@@ -35,8 +35,8 @@ import (
 )
 
 const (
-	lcCategory                        = "Lifecycle"
-	minMultiSourcesArtifactoryVersion = "7.114.0"
+	lcCategory                                 = "Lifecycle"
+	minArtifactoryVersionForMultiSourceSupport = "7.114.0"
 )
 
 func GetCommands() []components.Command {
@@ -130,21 +130,21 @@ func validateCreateReleaseBundleContext(c *components.Context) error {
 
 func assertValidCreationMethod(c *components.Context) error {
 	// Determine the methods provided
-	regularMethods := []bool{
+	monoReleaseBundleSource := []bool{
 		c.IsFlagSet("spec"),
 		c.IsFlagSet(flagkit.Builds),
 		c.IsFlagSet(flagkit.ReleaseBundles),
 	}
-	methodCount := coreutils.SumTrueValues(regularMethods)
+	methodCount := coreutils.SumTrueValues(monoReleaseBundleSource)
 
-	multiSourcesMethods := []bool{
+	multiReleaseBundleSources := []bool{
 		c.IsFlagSet(flagkit.SourcesReleaseBundles),
 		c.IsFlagSet(flagkit.SourcesBuilds),
 	}
 
-	multiSrcMethodCount := coreutils.SumTrueValues(multiSourcesMethods)
+	multiReleaseBundleSourcesCount := coreutils.SumTrueValues(multiReleaseBundleSources)
 
-	return validateCreationMethods(c, methodCount, multiSrcMethodCount)
+	return validateCreationMethods(c, methodCount, multiReleaseBundleSourcesCount)
 }
 
 func validateRegularMethods(c *components.Context, methodCount int) error {
@@ -226,17 +226,20 @@ func create(c *components.Context) (err error) {
 		SetBuildsSpecPath(c.GetStringFlagValue(flagkit.Builds)).SetReleaseBundlesSpecPath(c.GetStringFlagValue(flagkit.ReleaseBundles))
 
 	if isSupported, _ := multipleSourcesSupported(c); isSupported {
-		createCmd.SetSourcesReleaseBundles(c.GetStringFlagValue(flagkit.SourcesReleaseBundles)).
-			SetSourcesBuilds(c.GetStringFlagValue(flagkit.SourcesBuilds))
+		createCmd.SetReleaseBundlesSources(c.GetStringFlagValue(flagkit.SourcesReleaseBundles)).
+			SetBuildsSources(c.GetStringFlagValue(flagkit.SourcesBuilds))
 	}
 
 	return commands.Exec(createCmd)
 }
 
 func multipleSourcesSupported(c *components.Context) (bool, error) {
-	lcDetails, _ := createLifecycleDetailsByFlags(c)
+	lcDetails, err := createLifecycleDetailsByFlags(c)
+	if err != nil {
+		return false, err
+	}
 
-	err := lifecycle.ValidateFeatureSupportedVersion(lcDetails, minMultiSourcesArtifactoryVersion)
+	err = lifecycle.ValidateFeatureSupportedVersion(lcDetails, minArtifactoryVersionForMultiSourceSupport)
 	if err != nil {
 		return false, err
 	}
