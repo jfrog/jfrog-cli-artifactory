@@ -164,12 +164,11 @@ func validateCreationMethods(c *components.Context, regularMethodsCount int, mul
 			return err
 		}
 		if regularMethodsCount > 0 {
-			return errorutils.CheckErrorf(
-				"only multiple sources must be supplied: --%s, --%s,\n"+
-					"or one of: --%s, --%s or --%s",
+			errMsg := fmt.Sprintf("only multiple sources must be supplied: --%s, --%s,\n"+
+				"or one of: --%s, --%s or --%s",
 				flagkit.SourcesReleaseBundles, flagkit.SourcesBuilds,
-				"spec", flagkit.Builds, flagkit.ReleaseBundles,
-			)
+				"spec", flagkit.Builds, flagkit.ReleaseBundles)
+			return errorutils.CheckError(errors.New(errMsg))
 		}
 		return nil
 	}
