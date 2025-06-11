@@ -401,7 +401,7 @@ func (sc *SetupCommand) configureContainer() error {
 	}
 	urlWithoutScheme := parsedPlatformURL.Host + parsedPlatformURL.Path
 	return container.ContainerManagerLogin(
-		strings.TrimPrefix(urlWithoutScheme, "/"),
+		strings.TrimSuffix(urlWithoutScheme, "/"),
 		&container.ContainerManagerLoginConfig{ServerDetails: sc.serverDetails},
 		containerManagerType,
 	)
