@@ -138,6 +138,6 @@ replace github.com/jfrog/jfrog-cli-core/v2 => github.com/rimapol/jfrog-cli-core/
 
 // replace github.com/jfrog/jfrog-cli-core/v2 => ../jfrog-cli-core
 
-replace github.com/jfrog/jfrog-client-go => github.com/rimapol/jfrog-client-go v0.0.0-20250612141307-1c82bd3fb9b8
+replace github.com/jfrog/jfrog-client-go => github.com/rimapol/jfrog-client-go v0.0.0-20250612223352-8bf50cddd4bd
 
 // replace github.com/jfrog/jfrog-client-go => ../jfrog-client-go
