@@ -1,6 +1,7 @@
 package evidence
 
 import (
+	"errors"
 	"fmt"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -92,7 +93,7 @@ func getBuildLatestTimestamp(name string, number string, project string, artifac
 	}
 	if !ok {
 		errorMessage := fmt.Sprintf("failed to find buildName, name:%s, number:%s, project: %s", name, number, project)
-		return "", errorutils.CheckErrorf(errorMessage)
+		return "", errorutils.CheckError(errors.New(errorMessage))
 	}
 	timestamp, err := utils.ParseIsoTimestamp(res.BuildInfo.Started)
 	if err != nil {
