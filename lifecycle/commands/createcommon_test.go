@@ -47,6 +47,8 @@ func TestValidateCreationForMultipleSources(t *testing.T) {
 		{"missing creation sources", []services.SourceType{}, true, missingCreationSourcesErrMsg},
 		{"multiple creation source", []services.SourceType{services.Aql, services.Artifacts, services.Builds, services.ReleaseBundles},
 			false, ""},
+		{"multiple creation source with duplicated source types", []services.SourceType{services.Aql, services.Artifacts, services.Builds,
+			services.ReleaseBundles, services.ReleaseBundles, services.Packages, services.Packages}, false, ""},
 		{"single aql err", []services.SourceType{services.Aql, services.Aql}, true, singleAqlErrMsg},
 		{"valid aql", []services.SourceType{services.Aql}, false, ""},
 		{"valid artifacts", []services.SourceType{services.Artifacts, services.Artifacts}, false, ""},
@@ -86,7 +88,7 @@ func TestValidateFile(t *testing.T) {
 		{"invalid fields", spec.File{PathMapping: utils.PathMapping{Input: "input"}, Target: "target"}, true, ""},
 		{"multiple creation sources in a file",
 			spec.File{Aql: utils.Aql{ItemsFind: "abc"}, Build: "name/number", Bundle: "name/number", Pattern: "repo/path/file"},
-			true, "exactly one creation source is supported per file (aql, builds, release bundles or pattern (artifacts))"},
+			true, ""},
 		{"invalid aql", spec.File{Aql: utils.Aql{ItemsFind: "abc"}, Props: "prop"}, true, ""},
 		{"invalid builds", spec.File{Build: "name/number", Recursive: "false"}, true, ""},
 		{"invalid bundles", spec.File{Bundle: "name/number", IncludeDeps: "true"}, true, ""},
@@ -106,7 +108,7 @@ func TestValidateFile(t *testing.T) {
 	}
 }
 
-func TestValidateFileForPackageSupportedVer(t *testing.T) {
+func TestValidateFileForPackageAndMultipleSourceSupportedVer(t *testing.T) {
 	testCases := []struct {
 		testName           string
 		file               spec.File
@@ -126,8 +128,8 @@ func TestValidateFileForPackageSupportedVer(t *testing.T) {
 				Recursive:    "false"}, false, services.Artifacts},
 		{"invalid fields", spec.File{PathMapping: utils.PathMapping{Input: "input"}, Target: "target"}, true, ""},
 		{"multiple creation sources in a file",
-			spec.File{Aql: utils.Aql{ItemsFind: "abc"}, Build: "name/number", Bundle: "name/number", Pattern: "repo/path/file", Package: "ab"},
-			true, "exactly one creation source is supported per file (aql, builds, release bundles or pattern (artifacts))"},
+			spec.File{Aql: utils.Aql{ItemsFind: "abc"}, Build: "name/number", Bundle: "name/number", Pattern: "repo/path/file"},
+			false, "aql"},
 		{"invalid aql", spec.File{Aql: utils.Aql{ItemsFind: "abc"}, Props: "prop"}, true, ""},
 		{"invalid builds", spec.File{Build: "name/number", Recursive: "false"}, true, ""},
 		{"invalid bundles", spec.File{Bundle: "name/number", IncludeDeps: "true"}, true, ""},

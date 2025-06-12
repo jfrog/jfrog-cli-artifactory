@@ -234,6 +234,7 @@ func create(c *components.Context) (err error) {
 	return commands.Exec(createCmd)
 }
 
+// the function validates that the current artifactory version supports multiple source feature
 func multipleSourcesSupported(c *components.Context) error {
 	lcDetails, err := createLifecycleDetailsByFlags(c)
 	if err != nil {

@@ -22,6 +22,8 @@ const (
 	unsupportedCreationSourceMethod = "creation source 'package' is not supported in current version"
 )
 
+type SourceTypeSet map[services.SourceType]bool
+
 type ReleaseBundleSources struct {
 	sourcesBuilds         string
 	sourcesReleaseBundles string
@@ -157,7 +159,7 @@ func (rbc *ReleaseBundleCreateCommand) Run() error {
 		case services.Packages:
 			return rbc.createFromPackages(servicesManager, rbDetails, queryParams)
 		default:
-			return errorutils.CheckErrorf("unknown source for release bundle creation was provided")
+			return errorutils.CheckError(errors.New("unknown source for release bundle creation was provided"))
 		}
 	}
 
@@ -248,75 +250,104 @@ func buildReleaseBundleSourcesParams(rbc *ReleaseBundleCreateCommand) (sources [
 }
 
 func buildReleaseBundleSourcesParamsFromSpec(rbc *ReleaseBundleCreateCommand, detectedSources []services.SourceType) ([]services.RbSource, error) {
-	sourceTypeMap := make(map[services.SourceType]bool)
-	for _, sourceType := range detectedSources {
-		sourceTypeMap[sourceType] = true
-	}
-
 	var sources []services.RbSource
+	var err error
 
-	if sourceTypeMap[services.ReleaseBundles] {
-		err, releaseBundleSources := rbc.createReleaseBundleSourceFromSpec()
-		if err != nil {
-			return nil, err
+	// Track handled source types to avoid duplication
+	handledSources := make(SourceTypeSet)
+
+	for _, sourceType := range detectedSources {
+		if handledSources[sourceType] {
+			continue
 		}
 
-		if len(releaseBundleSources.ReleaseBundles) > 0 {
-			sources = append(sources, services.RbSource{
-				SourceType:     services.ReleaseBundles,
-				ReleaseBundles: releaseBundleSources.ReleaseBundles,
-			})
+		handledSources[sourceType] = true
+
+		switch sourceType {
+		case services.ReleaseBundles:
+			if sources, err = appendReleaseBundlesSource(rbc, sources); err != nil {
+				return nil, err
+			}
+		case services.Builds:
+			if sources, err = appendBuildsSource(rbc, sources); err != nil {
+				return nil, err
+			}
+		case services.Artifacts:
+			if sources, err = appendArtifactsSource(rbc, sources); err != nil {
+				return nil, err
+			}
+		case services.Packages:
+			sources = appendPackagesSource(rbc, sources)
+		case services.Aql:
+			sources = appendAqlSource(rbc, sources)
+		default:
+			return nil, errorutils.CheckError(errors.New("unexpected source type: " + string(sourceType)))
 		}
-	}
-
-	if sourceTypeMap[services.Builds] {
-		err, buildsSource := rbc.createBuildSourceFromSpec()
-		if err != nil {
-			return nil, err
-		}
-
-		if len(buildsSource.Builds) > 0 {
-			sources = append(sources, services.RbSource{
-				SourceType: services.Builds,
-				Builds:     buildsSource.Builds,
-			})
-		}
-	}
-
-	if sourceTypeMap[services.Artifacts] {
-		artifactsSource, err := rbc.createArtifactSourceFromSpec()
-		if err != nil {
-			return nil, err
-		}
-
-		if len(artifactsSource.Artifacts) > 0 {
-			sources = append(sources, services.RbSource{
-				SourceType: services.Artifacts,
-				Artifacts:  artifactsSource.Artifacts,
-			})
-		}
-	}
-
-	if sourceTypeMap[services.Packages] {
-		packagesSource := rbc.createPackageSourceFromSpec()
-
-		if len(packagesSource.Packages) > 0 {
-			sources = append(sources, services.RbSource{
-				SourceType: services.Packages,
-				Packages:   packagesSource.Packages,
-			})
-		}
-	}
-
-	if sourceTypeMap[services.Aql] {
-		aqlQuery := rbc.createAqlQueryFromSpec()
-		sources = append(sources, services.RbSource{
-			SourceType: services.Aql,
-			Aql:        aqlQuery,
-		})
 	}
 
 	return sources, nil
+}
+
+func appendReleaseBundlesSource(rbc *ReleaseBundleCreateCommand, sources []services.RbSource) ([]services.RbSource, error) {
+	err, releaseBundleSources := rbc.createReleaseBundleSourceFromSpec()
+	if err != nil {
+		return nil, err
+	}
+	if len(releaseBundleSources.ReleaseBundles) > 0 {
+		sources = append(sources, services.RbSource{
+			SourceType:     services.ReleaseBundles,
+			ReleaseBundles: releaseBundleSources.ReleaseBundles,
+		})
+	}
+	return sources, nil
+}
+
+func appendBuildsSource(rbc *ReleaseBundleCreateCommand, sources []services.RbSource) ([]services.RbSource, error) {
+	err, buildsSource := rbc.createBuildSourceFromSpec()
+	if err != nil {
+		return nil, err
+	}
+	if len(buildsSource.Builds) > 0 {
+		sources = append(sources, services.RbSource{
+			SourceType: services.Builds,
+			Builds:     buildsSource.Builds,
+		})
+	}
+	return sources, nil
+}
+
+func appendArtifactsSource(rbc *ReleaseBundleCreateCommand, sources []services.RbSource) ([]services.RbSource, error) {
+	artifactsSource, err := rbc.createArtifactSourceFromSpec()
+	if err != nil {
+		return nil, err
+	}
+	if len(artifactsSource.Artifacts) > 0 {
+		sources = append(sources, services.RbSource{
+			SourceType: services.Artifacts,
+			Artifacts:  artifactsSource.Artifacts,
+		})
+	}
+	return sources, nil
+}
+
+func appendPackagesSource(rbc *ReleaseBundleCreateCommand, sources []services.RbSource) []services.RbSource {
+	packagesSource := rbc.createPackageSourceFromSpec()
+	if len(packagesSource.Packages) > 0 {
+		sources = append(sources, services.RbSource{
+			SourceType: services.Packages,
+			Packages:   packagesSource.Packages,
+		})
+	}
+	return sources
+}
+
+func appendAqlSource(rbc *ReleaseBundleCreateCommand, sources []services.RbSource) []services.RbSource {
+	aqlQuery := rbc.createAqlQueryFromSpec()
+	sources = append(sources, services.RbSource{
+		SourceType: services.Aql,
+		Aql:        aqlQuery,
+	})
+	return sources
 }
 
 func (rbc *ReleaseBundleCreateCommand) identifySourceTypeBySpecOrByLegacyCommands(multipleSourcesAndPackagesSupported bool) (sourceTypes []services.SourceType, err error) {
@@ -450,7 +481,7 @@ func generateSingleCreationSourceErr(detectedCreationSources []services.SourceTy
 		"%s '%s'", multipleCreationSourcesErrMsg, coreutils.ListToText(detectedStr))
 }
 
-func validateFile(file spec.File, packageSupported bool) (services.SourceType, error) {
+func validateFile(file spec.File, packageAndMultiSourceSupported bool) (services.SourceType, error) {
 	// Aql creation source:
 	isAql := len(file.Aql.ItemsFind) > 0
 
@@ -500,13 +531,9 @@ func validateFile(file spec.File, packageSupported bool) (services.SourceType, e
 			"release bundle creation file spec only supports the following fields: " +
 			"'aql', 'build', 'includeDeps', 'bundle', 'project', 'pattern', 'exclusions', 'props', 'excludeProps' and 'recursive'")
 	}
-	if packageSupported {
-		if coreutils.SumTrueValues([]bool{isAql, isBuild, isBundle, isPattern, isPackage}) != 1 {
-			return "", errorutils.CheckErrorf("exactly one creation source is supported per file (aql, builds, release bundles, pattern (artifacts) or package)")
-		}
-	} else {
+	if !packageAndMultiSourceSupported {
 		if coreutils.SumTrueValues([]bool{isAql, isBuild, isBundle, isPattern}) != 1 {
-			return "", errorutils.CheckErrorf("exactly one creation source is supported per file (aql, builds, release bundles or pattern (artifacts))")
+			return "", errorutils.CheckErrorf("exactly one creation source should be defined per file (aql, builds, release bundles or pattern (artifacts))")
 		}
 	}
 
