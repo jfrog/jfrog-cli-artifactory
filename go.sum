@@ -219,8 +219,8 @@ github.com/pkg/term v1.1.0/go.mod h1:E25nymQcrSllhX42Ok8MRm1+hyBdHY0dCeiKZ9jpNGw
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 h1:Jamvg5psRIccs7FGNTlIRMkT8wgtp5eCXdBlqhYGL6U=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/rimapol/jfrog-cli-core/v2 v2.0.0-20250612143350-79186c369d4c h1:2QqjoBH7kPQSfxdTRrxXpBZm/1cvmGbbQXv2T+KRhLU=
-github.com/rimapol/jfrog-cli-core/v2 v2.0.0-20250612143350-79186c369d4c/go.mod h1:uQ/eA3Pgqjck1b+Pz3Bwg0+5nJxKR48MIM7e9ccpcw8=
+github.com/rimapol/jfrog-cli-core/v2 v2.0.0-20250612225153-44cbb944f16f h1:6kgkCtmTJF+OcvU5caKBqoC9xwQ7KPSA/GDDFwsh3vI=
+github.com/rimapol/jfrog-cli-core/v2 v2.0.0-20250612225153-44cbb944f16f/go.mod h1:Ry/3BMWKKLmisRdoKaarVWe9yjfscQppxgUQJMF6+R0=
 github.com/rimapol/jfrog-client-go v0.0.0-20250612223352-8bf50cddd4bd h1:EE5uFJxpxKQnbYHBCVBtftjdVLChANFFgogavBgLKdQ=
 github.com/rimapol/jfrog-client-go v0.0.0-20250612223352-8bf50cddd4bd/go.mod h1:1v0eih4thdPA4clBo9TuvAMT25sGDr1IQJ81DXQ/lBY=
 github.com/rivo/uniseg v0.2.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJtxc=
