@@ -138,8 +138,8 @@ func assertValidCreationMethod(c *components.Context) error {
 	methodCount := coreutils.SumTrueValues(monoReleaseBundleSource)
 
 	multiReleaseBundleSources := []bool{
-		c.IsFlagSet(flagkit.SourcesReleaseBundles),
-		c.IsFlagSet(flagkit.SourcesBuilds),
+		c.IsFlagSet(flagkit.SourceTypeReleaseBundles),
+		c.IsFlagSet(flagkit.SourceTypeBuilds),
 	}
 
 	multiReleaseBundleSourcesCount := coreutils.SumTrueValues(multiReleaseBundleSources)
@@ -166,7 +166,7 @@ func validateCreationMethods(c *components.Context, regularMethodsCount int, mul
 		if regularMethodsCount > 0 {
 			errMsg := fmt.Sprintf("only multiple sources must be supplied: --%s, --%s,\n"+
 				"or one of: --%s, --%s or --%s",
-				flagkit.SourcesReleaseBundles, flagkit.SourcesBuilds,
+				flagkit.SourceTypeReleaseBundles, flagkit.SourceTypeBuilds,
 				"spec", flagkit.Builds, flagkit.ReleaseBundles)
 			return errorutils.CheckError(errors.New(errMsg))
 		}
@@ -227,8 +227,8 @@ func create(c *components.Context) (err error) {
 	err = lifecycle.ValidateFeatureSupportedVersion(lcDetails, minArtifactoryVersionForMultiSourceSupport)
 	// err == nil means new flags are supported and may be added to createCmd
 	if err == nil {
-		createCmd.SetReleaseBundlesSources(c.GetStringFlagValue(flagkit.SourcesReleaseBundles)).
-			SetBuildsSources(c.GetStringFlagValue(flagkit.SourcesBuilds))
+		createCmd.SetReleaseBundlesSources(c.GetStringFlagValue(flagkit.SourceTypeReleaseBundles)).
+			SetBuildsSources(c.GetStringFlagValue(flagkit.SourceTypeBuilds))
 	}
 
 	return commands.Exec(createCmd)
@@ -253,7 +253,7 @@ func getReleaseBundleCreationSpec(c *components.Context) (*spec.SpecFiles, error
 		return nil, nil
 	}
 
-	if c.IsFlagSet(flagkit.SourcesReleaseBundles) || c.IsFlagSet(flagkit.SourcesBuilds) {
+	if c.IsFlagSet(flagkit.SourceTypeReleaseBundles) || c.IsFlagSet(flagkit.SourceTypeBuilds) {
 		return nil, nil
 	}
 
