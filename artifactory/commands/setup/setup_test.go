@@ -342,16 +342,16 @@ func TestConfigureGo_UnsetEnv(t *testing.T) {
 
 // Test that configureGo unsets any existing multi-entry GOPROXY env var before configuring.
 func TestConfigureGo_UnsetEnv_MultiEntry(t *testing.T) {
-    testCmd := createTestSetupCommand(project.Go)
-    // Simulate existing multi-entry GOPROXY in environment
-    t.Setenv("GOPROXY", "user:pass@dummy,goproxy2")
-    // Ensure server details have credentials so configureGo proceeds
-    testCmd.serverDetails.SetAccessToken(dummyToken)
+	testCmd := createTestSetupCommand(project.Go)
+	// Simulate existing multi-entry GOPROXY in environment
+	t.Setenv("GOPROXY", "user:pass@dummy,goproxy2")
+	// Ensure server details have credentials so configureGo proceeds
+	testCmd.serverDetails.SetAccessToken(dummyToken)
 
-    // Invoke configureGo directly
-    require.NoError(t, testCmd.configureGo())
-    // After calling, the GOPROXY env var should be cleared
-    assert.Empty(t, os.Getenv("GOPROXY"), "GOPROXY should be unset by configureGo to avoid env override for multi-entry lists")
+	// Invoke configureGo directly
+	require.NoError(t, testCmd.configureGo())
+	// After calling, the GOPROXY env var should be cleared
+	assert.Empty(t, os.Getenv("GOPROXY"), "GOPROXY should be unset by configureGo to avoid env override for multi-entry lists")
 }
 
 func TestSetupCommand_Gradle(t *testing.T) {
