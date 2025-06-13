@@ -121,7 +121,7 @@ func (bac *BuildAppendCommand) getBuildTimestamp(servicesManager artifactory.Art
 		buildString = buildString + " of project: " + bac.buildConfiguration.GetProject()
 	}
 	if !found {
-		return 0, errorutils.CheckErrorf(buildString + " not found in Artifactory.")
+		return 0, errorutils.CheckError(errors.New(buildString + " not found in Artifactory."))
 	}
 
 	buildTime, err := time.Parse(buildinfo.TimeFormat, buildInfo.BuildInfo.Started)

@@ -427,7 +427,7 @@ func (npc *NpmPublishCommand) readPackageInfoFromTarball(packedFilePath string) 
 		return err
 	}
 
-	return errorutils.CheckErrorf("Could not find valid 'package.json' in the compressed npm package: " + packedFilePath)
+	return errorutils.CheckError(errors.New("Could not find valid 'package.json' in the compressed npm package: " + packedFilePath))
 }
 
 // validatePackageJson checks if the content is valid JSON and has required npm fields

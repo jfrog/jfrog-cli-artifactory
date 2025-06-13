@@ -1,6 +1,8 @@
 module github.com/jfrog/jfrog-cli-artifactory
 
-go 1.23.7
+go 1.24.2
+
+toolchain go1.24.4
 
 require (
 	github.com/c-bata/go-prompt v0.2.5
@@ -132,8 +134,12 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
-//replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.31.1-0.20250527091824-60a3b4b741aa
+// replace github.com/jfrog/jfrog-cli-core/v2 => github.com/rimapol/jfrog-cli-core/v2 dev
+replace github.com/jfrog/jfrog-cli-core/v2 => github.com/rimapol/jfrog-cli-core/v2 v2.0.0-20250612225153-44cbb944f16f
 
-//replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20250508130334-f159cff9b11a
+// replace github.com/jfrog/jfrog-cli-core/v2 => ../jfrog-cli-core
 
-//replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20240811142930-ab9715567376
+//replace github.com/jfrog/jfrog-client-go => github.com/rimapol/jfrog-client-go feature/support-multiple-sources
+replace github.com/jfrog/jfrog-client-go => github.com/rimapol/jfrog-client-go v0.0.0-20250612223352-8bf50cddd4bd
+
+// replace github.com/jfrog/jfrog-client-go => ../jfrog-client-go

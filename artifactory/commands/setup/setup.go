@@ -259,8 +259,8 @@ func (sc *SetupCommand) configureTwine() error {
 	if err != nil {
 		return err
 	}
-	// Strip "simple" from url as its not needed for Twine.
-	trimmedUrl := strings.TrimSuffix(repoUrl.String(), "simple")
+	// Strip "/simple" to get the correct upload endpoint for Twine.
+	trimmedUrl := strings.TrimSuffix(repoUrl.String(), "/simple")
 
 	// Configure Twine using the .pypirc file
 	return python.ConfigurePypirc(trimmedUrl, sc.repoName, username, password)
@@ -401,7 +401,7 @@ func (sc *SetupCommand) configureContainer() error {
 	}
 	urlWithoutScheme := parsedPlatformURL.Host + parsedPlatformURL.Path
 	return container.ContainerManagerLogin(
-		strings.TrimSuffix(urlWithoutScheme, "/"),
+		strings.TrimPrefix(urlWithoutScheme, "/"),
 		&container.ContainerManagerLoginConfig{ServerDetails: sc.serverDetails},
 		containerManagerType,
 	)
