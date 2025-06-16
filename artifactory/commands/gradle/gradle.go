@@ -3,11 +3,6 @@ package gradle
 import (
 	_ "embed"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-	"text/template"
-
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -22,6 +17,10 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/spf13/viper"
+	"os"
+	"path/filepath"
+	"strings"
+	"text/template"
 )
 
 //go:embed resources/jfrog.init.gradle
@@ -357,47 +356,4 @@ func setDeployFalse(vConfig *viper.Viper) {
 	if vConfig.GetString(build.DeployerPrefix+build.Repo) == "" {
 		vConfig.Set(build.DeployerPrefix+build.Repo, "empty_repo")
 	}
-}
-
-// CreateGradleBuildFile creates a Gradle init script file for the specified repository configuration.
-// It generates the init script content and writes it to the Gradle user home init.d directory.
-func CreateGradleBuildFile(repoName string, serverDetails *config.ServerDetails, projectKey string) (string, error) {
-	// Extract username and password/token
-	username := serverDetails.GetUser()
-	password := serverDetails.GetPassword()
-
-	// Get credentials from access-token if exists
-	if serverDetails.GetAccessToken() != "" {
-		if username == "" {
-			username = "token"
-		}
-		password = serverDetails.GetAccessToken()
-	}
-
-	// Configure the init script auth config
-	config := InitScriptAuthConfig{
-		ArtifactoryURL:         strings.TrimSuffix(serverDetails.GetArtifactoryUrl(), "/"),
-		GradleRepoName:         fmt.Sprintf("api/gradle/%s", repoName),
-		ArtifactoryUsername:    username,
-		ArtifactoryAccessToken: password,
-	}
-
-	// Generate the init script content
-	initScript, err := GenerateInitScript(config)
-	if err != nil {
-		return "", err
-	}
-
-	// Write the init script to the Gradle user home
-	if err := WriteInitScript(initScript); err != nil {
-		return "", err
-	}
-
-	// Return the path where the init script was written
-	gradleHome := os.Getenv(UserHomeEnv)
-	if gradleHome == "" {
-		gradleHome = filepath.Join(clientutils.GetUserHomeDir(), ".gradle")
-	}
-
-	return filepath.Join(gradleHome, "init.d", InitScriptName), nil
 }
