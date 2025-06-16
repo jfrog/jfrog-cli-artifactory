@@ -12,10 +12,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
-const (
-	gemRemoteRegistryFlag = "--source"
-)
-
 type RubyCommand struct {
 	serverDetails *config.ServerDetails
 	commandName   string
