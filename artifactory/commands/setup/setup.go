@@ -432,12 +432,24 @@ func (sc *SetupCommand) configureMaven() error {
 
 // configureGradle configures Gradle to use the specified Artifactory repository.
 func (sc *SetupCommand) configureGradle() error {
-	gradleBuildFile, err := gradle.CreateGradleBuildFile(sc.repoName, sc.serverDetails, sc.projectKey)
+	password := sc.serverDetails.GetPassword()
+	username := sc.serverDetails.GetUser()
+	if sc.serverDetails.GetAccessToken() != "" {
+		password = sc.serverDetails.GetAccessToken()
+		username = auth.ExtractUsernameFromAccessToken(password)
+	}
+	initScriptAuthConfig := gradle.InitScriptAuthConfig{
+		ArtifactoryURL:         sc.serverDetails.GetArtifactoryUrl(),
+		GradleRepoName:         sc.repoName,
+		ArtifactoryAccessToken: password,
+		ArtifactoryUsername:    username,
+	}
+	initScript, err := gradle.GenerateInitScript(initScriptAuthConfig)
 	if err != nil {
 		return err
 	}
-	log.Output(fmt.Sprintf("Gradle build file created at: %s", gradleBuildFile))
-	return nil
+
+	return gradle.WriteInitScript(initScript)
 }
 
 // configureHelm configures Helm to use Artifactory as an OCI registry.
