@@ -1,9 +1,8 @@
 package container
 
 import (
-	"strings"
-
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"strings"
 
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/container"
