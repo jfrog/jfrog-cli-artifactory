@@ -72,7 +72,7 @@ func (bpc *BuildPublishConfig) CreateBuildPublishConfig(yamlNode *yaml.Node) (bu
 	return buildPublishConfig
 }
 
-var ErrEvidenceDirNotExist = errors.New("evidence directory does not exist")
+var ErrEvidenceDirNotExist = errors.New("evidence configuration does not exist")
 
 func LoadConfig(path string) (map[string]*yaml.Node, error) {
 	log.Debug("Loading external provider config", path)

@@ -91,8 +91,8 @@ func NewSonarConfig(url, reportTaskFile, maxRetries, retryInterval, proxy string
 // It filters the sonar configuration to only include the fields that are needed for the sonar evidence.
 func CreateSonarEvidence() (*SonarEvidence, error) {
 	externalEvidenceProviderConfig, err := evidenceproviders.GetConfig()
-	if err != nil {
-		if errors.Is(err, evidenceproviders.ErrEvidenceDirNotExist) {
+	if err != nil || externalEvidenceProviderConfig["sonar"] == nil {
+		if errors.Is(err, evidenceproviders.ErrEvidenceDirNotExist) || externalEvidenceProviderConfig["sonar"] == nil {
 			log.Debug("No external evidence provider config found, using default sonar config")
 			return &SonarEvidence{SonarConfig: NewDefaultSonarConfig()}, nil
 		}

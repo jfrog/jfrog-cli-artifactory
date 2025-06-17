@@ -102,7 +102,7 @@ func interactiveBuildPublishConfiguration(buildPublishConfig *evidenceproviders.
 	if !buildPublishConfig.Enable {
 		return nil
 	}
-	buildPublishConfig.EvidenceProvider = ioutils.AskStringWithDefault("Evidence Provider (Eg:- sonar)", "", buildPublishConfig.EvidenceProvider)
+	buildPublishConfig.EvidenceProvider = ioutils.AskStringWithDefault("Predicate Type (Eg:- sonar)", "", buildPublishConfig.EvidenceProvider)
 	buildPublishConfig.KeyAlias = ioutils.AskStringWithDefault("Key Alias", "", buildPublishConfig.KeyAlias)
 	keyPath := ioutils.AskStringWithDefault("Private Key Path", "", buildPublishConfig.KeyPath)
 	if exists, err := fileutils.IsFileExists(keyPath, false); err != nil || !exists {
