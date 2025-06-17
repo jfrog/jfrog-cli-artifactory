@@ -34,25 +34,28 @@ func (rbc *ReleaseBundleCreateCommand) getArtifactFilesFromSpec() []spec.File {
 
 func (rbc *ReleaseBundleCreateCommand) createArtifactSourceFromSpec() (services.CreateFromArtifacts, error) {
 	var artifactsSource services.CreateFromArtifacts
-
 	rtServicesManager, err := utils.CreateServiceManager(rbc.serverDetails, 3, 0, false)
 	if err != nil {
+
 		return artifactsSource, err
 	}
 
 	searchResults, callbackFunc, err := utils.SearchFilesBySpecs(rtServicesManager, rbc.getArtifactFilesFromSpec())
-	defer func() {
-		err = errors.Join(err, callbackFunc())
-	}()
 	if err != nil {
 		return artifactsSource, err
 	}
+
+	defer func() {
+		if callbackFunc != nil {
+			err = errors.Join(err, callbackFunc())
+		}
+	}()
 
 	artifactsSource, err = aqlResultToArtifactsSource(searchResults)
 	if err != nil {
 		return artifactsSource, err
 	}
-	return artifactsSource, err
+	return artifactsSource, nil
 }
 
 func aqlResultToArtifactsSource(readers []*content.ContentReader) (artifactsSource services.CreateFromArtifacts, err error) {

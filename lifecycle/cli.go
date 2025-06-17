@@ -241,11 +241,7 @@ func multipleSourcesSupported(c *components.Context) error {
 		return err
 	}
 
-	err = lifecycle.ValidateFeatureSupportedVersion(lcDetails, minArtifactoryVersionForMultiSourceSupport)
-	if err != nil {
-		return err
-	}
-	return nil
+	return lifecycle.ValidateFeatureSupportedVersion(lcDetails, minArtifactoryVersionForMultiSourceSupport)
 }
 
 func getReleaseBundleCreationSpec(c *components.Context) (*spec.SpecFiles, error) {

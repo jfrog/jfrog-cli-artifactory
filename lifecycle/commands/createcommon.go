@@ -110,7 +110,7 @@ func (rbc *ReleaseBundleCreateCommand) ServerDetails() (*config.ServerDetails, e
 	return rbc.serverDetails, nil
 }
 
-func isSingleType(sourceTypes []services.SourceType) bool {
+func isSingleSourceType(sourceTypes []services.SourceType) bool {
 	if len(sourceTypes) == 1 {
 		return true
 	}
@@ -146,7 +146,7 @@ func (rbc *ReleaseBundleCreateCommand) Run() error {
 		return err
 	}
 
-	if sourceTypes != nil && isSingleType(sourceTypes) {
+	if sourceTypes != nil && isSingleSourceType(sourceTypes) {
 		switch sourceTypes[0] {
 		case services.Aql:
 			return rbc.createFromAql(servicesManager, rbDetails, queryParams)
@@ -168,8 +168,8 @@ func (rbc *ReleaseBundleCreateCommand) Run() error {
 		if err != nil {
 			return err
 		}
-
-		return rbc.createFromMultipleSources(servicesManager, rbDetails, queryParams, sources)
+		_, err = rbc.createFromMultipleSources(servicesManager, rbDetails, queryParams, sources)
+		return err
 	}
 
 	return errorutils.CheckErrorf("release bundle creation failed, unable to identify source for creation")
@@ -387,7 +387,7 @@ func (rbc *ReleaseBundleCreateCommand) multiSourcesDefinedFromSpec() ([]services
 
 func (rbc *ReleaseBundleCreateCommand) createFromMultipleSources(servicesManager *lifecycle.LifecycleServicesManager,
 	rbDetails services.ReleaseBundleDetails, queryParams services.CommonOptionalQueryParams,
-	sources []services.RbSource) error {
+	sources []services.RbSource) (response []byte, err error) {
 	return servicesManager.CreateReleaseBundlesFromMultipleSources(rbDetails, queryParams, rbc.signingKeyName, sources)
 }
 

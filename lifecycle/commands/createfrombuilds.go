@@ -27,18 +27,13 @@ func (rbc *ReleaseBundleCreateCommand) createFromBuilds(servicesManager *lifecyc
 	return servicesManager.CreateReleaseBundleFromBuilds(rbDetails, queryParams, rbc.signingKeyName, buildsSource)
 }
 
-func (rbc *ReleaseBundleCreateCommand) createBuildSourceFromSpec() (error, services.CreateFromBuildsSource) {
-	var buildsSource services.CreateFromBuildsSource
-	var err error
+func (rbc *ReleaseBundleCreateCommand) createBuildSourceFromSpec() (err error, buildsSource services.CreateFromBuildsSource) {
 	if rbc.buildsSpecPath != "" {
 		buildsSource, err = rbc.getBuildSourceFromBuildsSpec()
 	} else {
 		buildsSource, err = rbc.convertSpecToBuildsSource(rbc.spec.Files)
 	}
-	if err != nil {
-		return err, buildsSource
-	}
-	return nil, buildsSource
+	return err, buildsSource
 }
 
 func (rbc *ReleaseBundleCreateCommand) getBuildSourceFromBuildsSpec() (buildsSource services.CreateFromBuildsSource, err error) {
