@@ -13,6 +13,7 @@ import (
 type Verifier struct {
 	keys              []string
 	artifactoryClient artifactory.ArtifactoryServicesManager
+	localKeys         []dsse.Verifier
 	trustedVerifiers  []dsse.Verifier
 	keypairVerifiers  []dsse.Verifier
 }
@@ -132,6 +133,9 @@ func readEnvelopeFromRemote(downloadPath string, client artifactory.ArtifactoryS
 }
 
 func (v *Verifier) getKeyFiles() ([]dsse.Verifier, error) {
+	if v.localKeys != nil {
+		return v.localKeys, nil
+	}
 	var keys []dsse.Verifier
 	for _, keyPath := range v.keys {
 		keyFile, err := os.ReadFile(keyPath)
@@ -151,6 +155,7 @@ func (v *Verifier) getKeyFiles() ([]dsse.Verifier, error) {
 		}
 		keys = append(keys, verifier...)
 	}
+	v.localKeys = keys
 	return keys, nil
 }
 
