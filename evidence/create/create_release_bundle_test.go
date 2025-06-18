@@ -1,4 +1,4 @@
-package evidence
+package create
 
 import (
 	"github.com/stretchr/testify/assert"
@@ -14,7 +14,7 @@ type mockReleaseBundleArtifactoryServicesManager struct {
 	artifactory.EmptyArtifactoryServicesManager
 }
 
-func (m *mockReleaseBundleArtifactoryServicesManager) FileInfo(relativePath string) (*utils.FileInfo, error) {
+func (m *mockReleaseBundleArtifactoryServicesManager) FileInfo(_ string) (*utils.FileInfo, error) {
 	fi := &utils.FileInfo{
 		Checksums: struct {
 			Sha1   string `json:"sha1,omitempty"`

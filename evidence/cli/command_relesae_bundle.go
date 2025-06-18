@@ -1,9 +1,10 @@
 package cli
 
 import (
-	"github.com/jfrog/jfrog-cli-artifactory/evidence"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/create"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
@@ -19,13 +20,13 @@ func NewEvidenceReleaseBundleCommand(ctx *components.Context, execute execComman
 	}
 }
 
-func (erc *evidenceReleaseBundleCommand) CreateEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
+func (erc *evidenceReleaseBundleCommand) CreateEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
 	err := erc.validateEvidenceReleaseBundleContext(ctx)
 	if err != nil {
 		return err
 	}
 
-	createCmd := evidence.NewCreateEvidenceReleaseBundle(
+	createCmd := create.NewCreateEvidenceReleaseBundle(
 		serverDetails,
 		erc.ctx.GetStringFlagValue(predicate),
 		erc.ctx.GetStringFlagValue(predicateType),
@@ -36,6 +37,24 @@ func (erc *evidenceReleaseBundleCommand) CreateEvidence(ctx *components.Context,
 		erc.ctx.GetStringFlagValue(releaseBundle),
 		erc.ctx.GetStringFlagValue(releaseBundleVersion))
 	return erc.execute(createCmd)
+}
+
+func (erc *evidenceReleaseBundleCommand) VerifyEvidences(ctx *components.Context, serverDetails *config.ServerDetails) error {
+	err := erc.validateEvidenceReleaseBundleContext(ctx)
+	if err != nil {
+		return err
+	}
+
+	verifyCmd := verify.NewVerifyEvidenceReleaseBundle(
+		serverDetails,
+		erc.ctx.GetStringFlagValue(format),
+		erc.ctx.GetStringFlagValue(project),
+		erc.ctx.GetStringFlagValue(releaseBundle),
+		erc.ctx.GetStringFlagValue(releaseBundleVersion),
+		erc.ctx.GetStringsArrFlagValue(publicKeys),
+		erc.ctx.GetBoolFlagValue(useArtifactoryKeys),
+	)
+	return erc.execute(verifyCmd)
 }
 
 func (erc *evidenceReleaseBundleCommand) validateEvidenceReleaseBundleContext(ctx *components.Context) error {

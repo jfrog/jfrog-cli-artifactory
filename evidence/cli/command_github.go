@@ -1,9 +1,9 @@
 package cli
 
 import (
-	"github.com/jfrog/jfrog-cli-artifactory/evidence"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/create"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
@@ -19,13 +19,13 @@ func NewEvidenceGitHubCommand(ctx *components.Context, execute execCommandFunc) 
 	}
 }
 
-func (ebc *evidenceGitHubCommand) CreateEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
+func (ebc *evidenceGitHubCommand) CreateEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
 	err := ebc.validateEvidenceBuildContext(ctx)
 	if err != nil {
 		return err
 	}
 
-	createCmd := evidence.NewCreateGithub(
+	createCmd := create.NewCreateGithub(
 		serverDetails,
 		ebc.ctx.GetStringFlagValue(predicate),
 		ebc.ctx.GetStringFlagValue(predicateType),
@@ -37,6 +37,11 @@ func (ebc *evidenceGitHubCommand) CreateEvidence(ctx *components.Context, server
 		ebc.ctx.GetStringFlagValue(buildNumber),
 		ebc.ctx.GetStringFlagValue(typeFlag))
 	return ebc.execute(createCmd)
+}
+
+func (ebc *evidenceGitHubCommand) VerifyEvidences(_ *components.Context, _ *config.ServerDetails) error {
+	return errorutils.CheckErrorf("Verify evidences is not supported with github")
+
 }
 
 func (ebc *evidenceGitHubCommand) validateEvidenceBuildContext(ctx *components.Context) error {

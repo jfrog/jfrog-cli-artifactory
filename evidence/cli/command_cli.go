@@ -2,13 +2,15 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/create"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/verify"
 	jfrogArtClient "github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	coreUtils "github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -26,6 +28,14 @@ func GetCommands() []components.Command {
 			Description: create.GetDescription(),
 			Arguments:   create.GetArguments(),
 			Action:      createEvidence,
+		},
+		{
+			Name:        "verify-evidences",
+			Aliases:     []string{"verify"},
+			Flags:       GetCommandFlags(VerifyEvidence),
+			Description: verify.GetDescription(),
+			Arguments:   verify.GetArguments(),
+			Action:      verifyEvidences,
 		},
 	}
 }
@@ -63,6 +73,39 @@ func createEvidence(ctx *components.Context) error {
 		return commandFunc(ctx, execFunc).CreateEvidence(ctx, serverDetails)
 	}
 
+	return errors.New("unsupported subject")
+}
+
+func verifyEvidences(ctx *components.Context) error {
+	// validate common context
+	serverDetails, err := evidenceDetailsByFlags(ctx)
+	if err != nil {
+		return err
+	}
+	subjectType, err := getAndValidateSubject(ctx)
+	if err != nil {
+		return err
+	}
+	err = validateKeys(ctx)
+	if err != nil {
+		return err
+	}
+	evidenceCommands := map[string]func(*components.Context, execCommandFunc) EvidenceCommands{
+		subjectRepoPath: NewEvidenceCustomCommand,
+		releaseBundle:   NewEvidenceReleaseBundleCommand,
+		buildName:       NewEvidenceBuildCommand,
+		packageName:     NewEvidencePackageCommand,
+	}
+	if commandFunc, exists := evidenceCommands[subjectType[0]]; exists {
+		err = commandFunc(ctx, execFunc).VerifyEvidences(ctx, serverDetails)
+		if err != nil {
+			if err.Error() != "" {
+				return fmt.Errorf("evidence verification failed: %w", err)
+			}
+			return err
+		}
+		return nil
+	}
 	return errors.New("unsupported subject")
 }
 
@@ -156,6 +199,24 @@ func setBuildValue(ctx *components.Context, flag, envVar string) bool {
 	return false
 }
 
+func validateKeys(ctx *components.Context) error {
+	signingKeyValue, _ := jfrogArtClient.GetEnvVariable(coreUtils.SigningKey)
+	providedKeys := ctx.GetStringsArrFlagValue(publicKeys)
+	if signingKeyValue == "" {
+		if len(providedKeys) == 0 && !ctx.GetBoolFlagValue(useArtifactoryKeys) {
+			return errorutils.CheckErrorf("JFROG_CLI_SIGNING_KEY env variable or --public-keys flag or --use-artifactory-publicKeys must be provided when verifying evidence")
+		}
+		return nil
+	}
+	if len(providedKeys) > 0 {
+		joinedKeys := strings.Join(append(providedKeys, signingKeyValue), ";")
+		ctx.SetStringFlagValue(publicKeys, joinedKeys)
+	} else {
+		ctx.AddStringFlag(publicKeys, signingKeyValue)
+	}
+	return nil
+}
+
 func validateFoundSubjects(ctx *components.Context, foundSubjects []string) error {
 	if slices.Contains(foundSubjects, typeFlag) && slices.Contains(foundSubjects, buildName) {
 		return nil
@@ -171,7 +232,7 @@ func validateFoundSubjects(ctx *components.Context, foundSubjects []string) erro
 	return nil
 }
 
-func evidenceDetailsByFlags(ctx *components.Context) (*coreConfig.ServerDetails, error) {
+func evidenceDetailsByFlags(ctx *components.Context) (*config.ServerDetails, error) {
 	serverDetails, err := pluginsCommon.CreateServerDetailsWithConfigOffer(ctx, true, commonCliUtils.Platform)
 	if err != nil {
 		return nil, err
@@ -188,10 +249,11 @@ func evidenceDetailsByFlags(ctx *components.Context) (*coreConfig.ServerDetails,
 	return serverDetails, nil
 }
 
-func platformToEvidenceUrls(rtDetails *coreConfig.ServerDetails) {
+func platformToEvidenceUrls(rtDetails *config.ServerDetails) {
 	rtDetails.ArtifactoryUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "artifactory/"
 	rtDetails.EvidenceUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "evidence/"
 	rtDetails.MetadataUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "metadata/"
+	rtDetails.OnemodelUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "onemodel/"
 }
 
 func assertValueProvided(c *components.Context, fieldName string) error {

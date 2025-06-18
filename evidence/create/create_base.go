@@ -1,9 +1,10 @@
-package evidence
+package create
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/sign"
 	"os"
 	"strings"
 
@@ -214,7 +215,7 @@ func createAndSignEnvelope(payloadJson []byte, key string, keyId string) (*dsse.
 	}
 
 	// Use the signers to create an envelope signer
-	envelopeSigner, err := dsse.NewEnvelopeSigner(signers...)
+	envelopeSigner, err := sign.NewEnvelopeSigner(signers...)
 	if err != nil {
 		return nil, err
 	}

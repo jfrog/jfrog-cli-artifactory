@@ -1,8 +1,8 @@
-package evidence
+package create
 
 import (
+	"github.com/jfrog/jfrog-cli-artifactory/evidence"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
 
 type createEvidenceCustom struct {
@@ -11,8 +11,8 @@ type createEvidenceCustom struct {
 	subjectSha256   string
 }
 
-func NewCreateEvidenceCustom(serverDetails *coreConfig.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, subjectRepoPath,
-	subjectSha256, providerId string) Command {
+func NewCreateEvidenceCustom(serverDetails *config.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, subjectRepoPath,
+	subjectSha256, providerId string) evidence.Command {
 	return &createEvidenceCustom{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,

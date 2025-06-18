@@ -1,9 +1,10 @@
 package cli
 
 import (
-	"github.com/jfrog/jfrog-cli-artifactory/evidence"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/create"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
@@ -19,13 +20,13 @@ func NewEvidencePackageCommand(ctx *components.Context, execute execCommandFunc)
 	}
 }
 
-func (epc *evidencePackageCommand) CreateEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
+func (epc *evidencePackageCommand) CreateEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
 	err := epc.validateEvidencePackageContext(ctx)
 	if err != nil {
 		return err
 	}
 
-	createCmd := evidence.NewCreateEvidencePackage(
+	createCmd := create.NewCreateEvidencePackage(
 		serverDetails,
 		epc.ctx.GetStringFlagValue(predicate),
 		epc.ctx.GetStringFlagValue(predicateType),
@@ -36,6 +37,24 @@ func (epc *evidencePackageCommand) CreateEvidence(ctx *components.Context, serve
 		epc.ctx.GetStringFlagValue(packageVersion),
 		epc.ctx.GetStringFlagValue(packageRepoName))
 	return epc.execute(createCmd)
+}
+
+func (epc *evidencePackageCommand) VerifyEvidences(ctx *components.Context, serverDetails *config.ServerDetails) error {
+	err := epc.validateEvidencePackageContext(ctx)
+	if err != nil {
+		return err
+	}
+
+	verifyCmd := verify.NewVerifyEvidencePackage(
+		serverDetails,
+		epc.ctx.GetStringFlagValue(format),
+		epc.ctx.GetStringFlagValue(packageName),
+		epc.ctx.GetStringFlagValue(packageVersion),
+		epc.ctx.GetStringFlagValue(packageRepoName),
+		epc.ctx.GetStringsArrFlagValue(publicKeys),
+		epc.ctx.GetBoolFlagValue(useArtifactoryKeys),
+	)
+	return epc.execute(verifyCmd)
 }
 
 func (epc *evidencePackageCommand) validateEvidencePackageContext(ctx *components.Context) error {

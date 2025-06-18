@@ -1,4 +1,4 @@
-package evidence
+package create
 
 import (
 	"encoding/json"
@@ -46,7 +46,7 @@ func TestCreateAndSignEnvelope(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			keyContent, err := os.ReadFile(filepath.Join("..", tt.keyPath))
+			keyContent, err := os.ReadFile(filepath.Join("../..", tt.keyPath))
 
 			if err != nil {
 				t.Fatalf("failed to read key file: %v", err)

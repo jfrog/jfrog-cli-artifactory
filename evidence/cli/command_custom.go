@@ -1,9 +1,10 @@
 package cli
 
 import (
-	"github.com/jfrog/jfrog-cli-artifactory/evidence"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/create"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
 
 type evidenceCustomCommand struct {
@@ -17,8 +18,8 @@ func NewEvidenceCustomCommand(ctx *components.Context, execute execCommandFunc) 
 		execute: execute,
 	}
 }
-func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDetails *coreConfig.ServerDetails) error {
-	createCmd := evidence.NewCreateEvidenceCustom(
+func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDetails *config.ServerDetails) error {
+	createCmd := create.NewCreateEvidenceCustom(
 		serverDetails,
 		ecc.ctx.GetStringFlagValue(predicate),
 		ecc.ctx.GetStringFlagValue(predicateType),
@@ -29,4 +30,15 @@ func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDe
 		ecc.ctx.GetStringFlagValue(subjectSha256),
 		ecc.ctx.GetStringFlagValue(providerId))
 	return ecc.execute(createCmd)
+}
+
+func (ecc *evidenceCustomCommand) VerifyEvidences(_ *components.Context, serverDetails *config.ServerDetails) error {
+	verifyCmd := verify.NewVerifyEvidenceCustom(
+		serverDetails,
+		ecc.ctx.GetStringFlagValue(subjectRepoPath),
+		ecc.ctx.GetStringFlagValue(format),
+		ecc.ctx.GetStringsArrFlagValue(publicKeys),
+		ecc.ctx.GetBoolFlagValue(useArtifactoryKeys),
+	)
+	return ecc.execute(verifyCmd)
 }
