@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"golang.org/x/crypto/ssh"
 	"hash"
@@ -155,4 +156,33 @@ func hexDecode(t *testing.T, data string) ([]byte, error) {
 		return nil, err
 	}
 	return b, nil
+}
+
+// createVerifier creates dsse.Verifier(s) from an SSLibKey.
+func createVerifier(publicKey *SSLibKey) ([]dsse.Verifier, error) {
+	var verifiers []dsse.Verifier
+
+	switch publicKey.KeyType {
+	case ECDSAKeyType:
+		ecdsaSinger, err := NewECDSASignerVerifierFromSSLibKey(publicKey)
+		if err != nil {
+			return nil, err
+		}
+		verifiers = append(verifiers, ecdsaSinger)
+	case RSAKeyType:
+		rsaSinger, err := NewRSAPSSSignerVerifierFromSSLibKey(publicKey)
+		if err != nil {
+			return nil, err
+		}
+		verifiers = append(verifiers, rsaSinger)
+	case ED25519KeyType:
+		ed25519Singer, err := NewED25519SignerVerifierFromSSLibKey(publicKey)
+		if err != nil {
+			return nil, err
+		}
+		verifiers = append(verifiers, ed25519Singer)
+	default:
+		return nil, errors.New("unsupported key type")
+	}
+	return verifiers, nil
 }

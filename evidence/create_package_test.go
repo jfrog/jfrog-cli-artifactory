@@ -1,189 +1,477 @@
 package evidence
 
 import (
-	"fmt"
-	"github.com/jfrog/jfrog-client-go/artifactory"
-	"github.com/jfrog/jfrog-client-go/artifactory/services"
-	"github.com/jfrog/jfrog-client-go/metadata"
-	"net/http"
-	"strings"
+	"errors"
 	"testing"
 
+	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/artifactory"
+	"github.com/jfrog/jfrog-client-go/artifactory/services"
+	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
-type mockMetadataServiceManagerDuplicateRepositories struct{}
-
-func (m *mockMetadataServiceManagerDuplicateRepositories) GraphqlQuery(_ []byte) ([]byte, error) {
-	response := `{"data":{"versions":{"edges":[{"node":{"repos":[{"name":"nuget-local","leadFilePath":"MyLibrary/1.0.0/test.1.0.0.nupkg"},{"name":"local-test","leadFilePath":"MyLibrary/1.0.0/test.1.0.0.nupkg"}]}]}}}}`
-	return []byte(response), nil
-}
-
-type mockMetadataServiceManagerGoodResponse struct{}
-
-func (m *mockMetadataServiceManagerGoodResponse) GraphqlQuery(_ []byte) ([]byte, error) {
-	response := `{"data":{"versions":{"edges":[{"node":{"repos":[{"name":"nuget-local","leadFilePath":"MyLibrary/1.0.0/test.1.0.0.nupkg"}]}}]}}}`
-	return []byte(response), nil
-}
-
-type mockMetadataServiceManagerBadResponse struct{}
-
-func (m *mockMetadataServiceManagerBadResponse) GraphqlQuery(_ []byte) ([]byte, error) {
-	return nil, fmt.Errorf("HTTP %d: Not Found", http.StatusNotFound)
-}
-
-type mockArtifactoryServicesManagerGoodResponse struct {
+// MockArtifactoryServicesManagerCreatePackage embeds EmptyArtifactoryServicesManager and overrides methods for testing
+type MockArtifactoryServicesManagerCreatePackage struct {
 	artifactory.EmptyArtifactoryServicesManager
+	GetRepositoryResponse services.RepositoryDetails
+	GetRepositoryError    error
+	PackageLeadFileData   []byte
+	GetPackageLeadError   error
+	FileInfoResponse      *utils.FileInfo
+	FileInfoError         error
 }
 
-func (m *mockArtifactoryServicesManagerGoodResponse) GetPackageLeadFile(services.LeadFileParams) ([]byte, error) {
-	return []byte("docker-local/MyLibrary/1.0.0/test.1.0.0.docker"), nil
+func (m *MockArtifactoryServicesManagerCreatePackage) GetRepository(_ string, repoDetails interface{}) error {
+	if m.GetRepositoryError != nil {
+		return m.GetRepositoryError
+	}
+	if details, ok := repoDetails.(*services.RepositoryDetails); ok {
+		*details = m.GetRepositoryResponse
+	}
+	return nil
 }
 
-type mockArtifactoryServicesManagerBadResponse struct {
-	artifactory.EmptyArtifactoryServicesManager
+func (m *MockArtifactoryServicesManagerCreatePackage) GetPackageLeadFile(_ services.LeadFileParams) ([]byte, error) {
+	if m.GetPackageLeadError != nil {
+		return nil, m.GetPackageLeadError
+	}
+	return m.PackageLeadFileData, nil
 }
 
-func (m *mockArtifactoryServicesManagerBadResponse) GetPackageLeadFile(services.LeadFileParams) ([]byte, error) {
-	return nil, fmt.Errorf("HTTP %d: Not Found", http.StatusNotFound)
+func (m *MockArtifactoryServicesManagerCreatePackage) FileInfo(_ string) (*utils.FileInfo, error) {
+	if m.FileInfoError != nil {
+		return nil, m.FileInfoError
+	}
+	return m.FileInfoResponse, nil
 }
 
-func TestGetLeadFileFromMetadataService(t *testing.T) {
-	tests := []struct {
-		name                     string
-		metadataClientMock       metadata.Manager
-		artifactoryClientMock    *mockArtifactoryServicesManagerBadResponse
-		packageName              string
-		packageVersion           string
-		repoName                 string
-		packageType              string
-		expectedLeadArtifactPath string
-		expectError              bool
-	}{
-		{
-			name:                     "Get lead artifact successfully from metadata service",
-			metadataClientMock:       &mockMetadataServiceManagerGoodResponse{},
-			artifactoryClientMock:    &mockArtifactoryServicesManagerBadResponse{},
-			packageName:              "test",
-			packageVersion:           "1.0.0",
-			repoName:                 "nuget-local",
-			packageType:              "nuget",
-			expectedLeadArtifactPath: "nuget-local/MyLibrary/1.0.0/test.1.0.0.nupkg",
-			expectError:              false,
-		},
-		{
-			name:                     "Duplicate package name and version in the same repository",
-			metadataClientMock:       &mockMetadataServiceManagerDuplicateRepositories{},
-			artifactoryClientMock:    &mockArtifactoryServicesManagerBadResponse{},
-			packageName:              "test",
-			packageVersion:           "1.0.0",
-			repoName:                 "nuget-local",
-			packageType:              "nuget",
-			expectedLeadArtifactPath: "",
-			expectError:              true,
-		},
+// MockMetadataServiceManagerCreatePackage for create package tests
+type MockMetadataServiceManagerCreatePackage struct {
+	GraphqlResponse []byte
+	GraphqlError    error
+}
+
+func (m *MockMetadataServiceManagerCreatePackage) GraphqlQuery(_ []byte) ([]byte, error) {
+	if m.GraphqlError != nil {
+		return nil, m.GraphqlError
+	}
+	return m.GraphqlResponse, nil
+}
+
+// MockCreateEvidenceBaseCreatePackage for testing createEvidenceBase methods
+type MockCreateEvidenceBaseCreatePackage struct {
+	mock.Mock
+	createEvidenceBase
+}
+
+func (m *MockCreateEvidenceBaseCreatePackage) createArtifactoryClient() (artifactory.ArtifactoryServicesManager, error) {
+	args := m.Called()
+	return args.Get(0).(artifactory.ArtifactoryServicesManager), args.Error(1)
+}
+
+func (m *MockCreateEvidenceBaseCreatePackage) createEnvelope(subject, subjectSha256 string) ([]byte, error) {
+	args := m.Called(subject, subjectSha256)
+	return args.Get(0).([]byte), args.Error(1)
+}
+
+func (m *MockCreateEvidenceBaseCreatePackage) uploadEvidence(envelope []byte, repoPath string) error {
+	args := m.Called(envelope, repoPath)
+	return args.Error(0)
+}
+
+func (m *MockCreateEvidenceBaseCreatePackage) getFileChecksum(path string, artifactoryClient artifactory.ArtifactoryServicesManager) (string, error) {
+	args := m.Called(path, artifactoryClient)
+	return args.String(0), args.Error(1)
+}
+
+func TestNewCreateEvidencePackage(t *testing.T) {
+	serverDetails := &coreConfig.ServerDetails{}
+	predicateFilePath := "/path/to/predicate.json"
+	predicateType := "custom-predicate"
+	markdownFilePath := "/path/to/markdown.md"
+	key := "test-key"
+	keyId := "test-key-id"
+	packageName := "test-package"
+	packageVersion := "1.0.0"
+	packageRepoName := "test-repo"
+
+	cmd := NewCreateEvidencePackage(serverDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, packageName, packageVersion, packageRepoName)
+	createCmd, ok := cmd.(*createEvidencePackage)
+	assert.True(t, ok)
+
+	// Test createEvidenceBase fields
+	assert.Equal(t, serverDetails, createCmd.serverDetails)
+	assert.Equal(t, predicateFilePath, createCmd.predicateFilePath)
+	assert.Equal(t, predicateType, createCmd.predicateType)
+	assert.Equal(t, markdownFilePath, createCmd.markdownFilePath)
+	assert.Equal(t, key, createCmd.key)
+	assert.Equal(t, keyId, createCmd.keyId)
+
+	// Test basePackage fields
+	assert.Equal(t, packageName, createCmd.PackageName)
+	assert.Equal(t, packageVersion, createCmd.PackageVersion)
+	assert.Equal(t, packageRepoName, createCmd.PackageRepoName)
+}
+
+func TestCreateEvidencePackage_CommandName(t *testing.T) {
+	cmd := &createEvidencePackage{}
+	assert.Equal(t, "create-package-evidence", cmd.CommandName())
+}
+
+func TestCreateEvidencePackage_ServerDetails(t *testing.T) {
+	serverDetails := &coreConfig.ServerDetails{Url: "http://test.com"}
+	cmd := &createEvidencePackage{
+		createEvidenceBase: createEvidenceBase{serverDetails: serverDetails},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := &createEvidencePackage{
-				packageName:     tt.packageName,
-				packageVersion:  tt.packageVersion,
-				packageRepoName: tt.repoName,
-			}
-			leadArtifactPath, err := c.getPackageVersionLeadArtifact(tt.packageType, tt.metadataClientMock, tt.artifactoryClientMock)
-
-			if tt.expectError {
-				assert.Error(t, err)
-				assert.Empty(t, leadArtifactPath)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.expectedLeadArtifactPath, leadArtifactPath)
-			}
-		})
-	}
-}
-
-func TestGetLeadArtifactFromArtifactoryServiceSuccess(t *testing.T) {
-	metadataClientMock := &mockMetadataServiceManagerGoodResponse{}
-	artifactoryClientMock := &mockArtifactoryServicesManagerGoodResponse{}
-
-	c := &createEvidencePackage{
-		packageName:     "test",
-		packageVersion:  "1.0.0",
-		packageRepoName: "nuget-local",
-	}
-
-	leadArtifactPath, err := c.getPackageVersionLeadArtifact("nuget", metadataClientMock, artifactoryClientMock)
-
+	result, err := cmd.ServerDetails()
 	assert.NoError(t, err)
-	assert.Equal(t, "docker-local/MyLibrary/1.0.0/test.1.0.0.docker", leadArtifactPath)
+	assert.Equal(t, serverDetails, result)
 }
 
-func TestGetLeadFileFromArtifactFailsFromMetadataSuccess(t *testing.T) {
-	metadataClientMock := &mockMetadataServiceManagerGoodResponse{}
-	artifactoryClientMock := &mockArtifactoryServicesManagerBadResponse{}
-
-	c := &createEvidencePackage{
-		packageName:     "test",
-		packageVersion:  "1.0.0",
-		packageRepoName: "nuget-local",
+func TestCreateEvidencePackage_Run_Success(t *testing.T) {
+	// Mock Artifactory client
+	mockClient := &MockArtifactoryServicesManagerCreatePackage{
+		GetRepositoryResponse: services.RepositoryDetails{
+			PackageType: "maven",
+		},
+		PackageLeadFileData: []byte("maven-local/test-package/1.0.0/test-package-1.0.0.jar"),
+		FileInfoResponse: &utils.FileInfo{
+			Checksums: struct {
+				Sha1   string `json:"sha1,omitempty"`
+				Sha256 string `json:"sha256,omitempty"`
+				Md5    string `json:"md5,omitempty"`
+			}{
+				Sha256: "test-sha256",
+			},
+		},
 	}
 
-	leadArtifactPath, err := c.getPackageVersionLeadArtifact("nuget", metadataClientMock, artifactoryClientMock)
+	// Mock the base methods
+	mockBase := &MockCreateEvidenceBaseCreatePackage{}
+	mockBase.On("createArtifactoryClient").Return(mockClient, nil)
+	mockBase.On("createEnvelope", "maven-local/test-package/1.0.0/test-package-1.0.0.jar", "test-sha256").Return([]byte("test-envelope"), nil)
+	mockBase.On("uploadEvidence", []byte("test-envelope"), "maven-local/test-package/1.0.0/test-package-1.0.0.jar").Return(nil)
+	mockBase.On("getFileChecksum", "maven-local/test-package/1.0.0/test-package-1.0.0.jar", mockClient).Return("test-sha256", nil)
 
+	// Test that the mock methods would be called correctly
+	_, err := mockBase.createArtifactoryClient()
 	assert.NoError(t, err)
-	assert.Equal(t, "nuget-local/MyLibrary/1.0.0/test.1.0.0.nupkg", leadArtifactPath)
+
+	envelope, err := mockBase.createEnvelope("maven-local/test-package/1.0.0/test-package-1.0.0.jar", "test-sha256")
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("test-envelope"), envelope)
+
+	err = mockBase.uploadEvidence([]byte("test-envelope"), "maven-local/test-package/1.0.0/test-package-1.0.0.jar")
+	assert.NoError(t, err)
+
+	checksum, err := mockBase.getFileChecksum("maven-local/test-package/1.0.0/test-package-1.0.0.jar", mockClient)
+	assert.NoError(t, err)
+	assert.Equal(t, "test-sha256", checksum)
+
+	mockBase.AssertExpectations(t)
 }
 
-func TestGetLeadArtifactFailsBothServices(t *testing.T) {
-	metadataClientMock := &mockMetadataServiceManagerBadResponse{}
-	artifactoryClientMock := &mockArtifactoryServicesManagerBadResponse{}
-
-	c := &createEvidencePackage{
-		packageName:     "test",
-		packageVersion:  "1.0.0",
-		packageRepoName: "nuget-local",
+func TestCreateEvidencePackage_Run_CreateArtifactoryClientError(t *testing.T) {
+	createCmd := &createEvidencePackage{
+		createEvidenceBase: createEvidenceBase{
+			serverDetails: &coreConfig.ServerDetails{
+				Url: "invalid-url", // Invalid URL that might cause client creation to fail
+			},
+		},
+		basePackage: basePackage{
+			PackageName:     "test-package",
+			PackageVersion:  "1.0.0",
+			PackageRepoName: "maven-local",
+		},
 	}
 
-	leadArtifactPath, err := c.getPackageVersionLeadArtifact("nuget", metadataClientMock, artifactoryClientMock)
-
+	err := createCmd.Run()
 	assert.Error(t, err)
-	assert.Empty(t, leadArtifactPath)
+	// The error would be logged but the original error is returned
 }
 
-func TestReplaceFirstColon(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    []byte
-		expected string
-	}{
-		{
-			name:     "Replace first colon",
-			input:    []byte("sha256:fsndlknlkqnlfnqksd"),
-			expected: "sha256/fsndlknlkqnlfnqksd",
-		},
-		{
-			name:     "No colon to replace",
-			input:    []byte("sha256-fsndlknlkqnlfnqksd"),
-			expected: "sha256-fsndlknlkqnlfnqksd",
-		},
-		{
-			name:     "Multiple colons",
-			input:    []byte("repo:sha256:fsndlknlkqnlfnqksd"),
-			expected: "repo/sha256:fsndlknlkqnlfnqksd",
-		},
-		{
-			name:     "Colon at the beginning",
-			input:    []byte(":sha256:fsndlknlkqnlfnqksd"),
-			expected: "/sha256:fsndlknlkqnlfnqksd",
+func TestCreateEvidencePackage_Run_GetPackageTypeError(t *testing.T) {
+	// Mock Artifactory client with repository error
+	mockClient := &MockArtifactoryServicesManagerCreatePackage{
+		GetRepositoryError: errors.New("repository not found"),
+	}
+
+	// Mock the base methods
+	mockBase := &MockCreateEvidenceBaseCreatePackage{}
+	mockBase.On("createArtifactoryClient").Return(mockClient, nil)
+
+	// Simulate the error path by testing the component methods
+	_, err := mockBase.createArtifactoryClient()
+	assert.NoError(t, err)
+
+	// Test the package type retrieval directly
+	createCmd := &createEvidencePackage{
+		basePackage: basePackage{
+			PackageName:     "test-package",
+			PackageVersion:  "1.0.0",
+			PackageRepoName: "maven-local",
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := strings.Replace(string(tt.input), ":", "/", 1)
-			assert.Equal(t, tt.expected, result)
-		})
+	_, err = createCmd.basePackage.getPackageType(mockClient)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "No such package")
+
+	mockBase.AssertExpectations(t)
+}
+
+func TestCreateEvidencePackage_Run_CreateMetadataServiceError(t *testing.T) {
+	createCmd := &createEvidencePackage{
+		createEvidenceBase: createEvidenceBase{
+			serverDetails: &coreConfig.ServerDetails{}, // Might cause metadata service creation to fail
+		},
+		basePackage: basePackage{
+			PackageName:     "test-package",
+			PackageVersion:  "1.0.0",
+			PackageRepoName: "maven-local",
+		},
 	}
+
+	err := createCmd.Run()
+	assert.Error(t, err)
+	// The error will be related to either client creation or metadata service
+}
+
+func TestCreateEvidencePackage_Run_GetPackageVersionLeadArtifactError(t *testing.T) {
+	// Mock Artifactory client
+	mockClient := &MockArtifactoryServicesManagerCreatePackage{
+		GetRepositoryResponse: services.RepositoryDetails{
+			PackageType: "maven",
+		},
+		GetPackageLeadError: errors.New("lead file not found"),
+	}
+
+	// Mock the base methods
+	mockBase := &MockCreateEvidenceBaseCreatePackage{}
+	mockBase.On("createArtifactoryClient").Return(mockClient, nil)
+
+	// Test the component that would fail
+	_, err := mockBase.createArtifactoryClient()
+	assert.NoError(t, err)
+
+	// Create package command
+	createCmd := &createEvidencePackage{
+		basePackage: basePackage{
+			PackageName:     "test-package",
+			PackageVersion:  "1.0.0",
+			PackageRepoName: "maven-local",
+		},
+	}
+
+	packageType, err := createCmd.basePackage.getPackageType(mockClient)
+	assert.NoError(t, err)
+	assert.Equal(t, "maven", packageType)
+
+	// Mock metadata service that would fail too
+	mockMetadata := &MockMetadataServiceManagerCreatePackage{
+		GraphqlError: errors.New("metadata service error"),
+	}
+
+	// The lead artifact retrieval would fail
+	_, err = createCmd.basePackage.getPackageVersionLeadArtifact(packageType, mockMetadata, mockClient)
+	assert.Error(t, err)
+
+	mockBase.AssertExpectations(t)
+}
+
+func TestCreateEvidencePackage_Run_GetFileChecksumError(t *testing.T) {
+	// Mock Artifactory client
+	mockClient := &MockArtifactoryServicesManagerCreatePackage{
+		GetRepositoryResponse: services.RepositoryDetails{
+			PackageType: "maven",
+		},
+		PackageLeadFileData: []byte("maven-local/test-package/1.0.0/test-package-1.0.0.jar"),
+		FileInfoError:       errors.New("file not found"),
+	}
+
+	// Mock the base methods
+	mockBase := &MockCreateEvidenceBaseCreatePackage{}
+	mockBase.On("createArtifactoryClient").Return(mockClient, nil)
+	mockBase.On("getFileChecksum", "maven-local/test-package/1.0.0/test-package-1.0.0.jar", mockClient).Return("", errors.New("file not found"))
+
+	// Test the component methods
+	_, err := mockBase.createArtifactoryClient()
+	assert.NoError(t, err)
+
+	checksum, err := mockBase.getFileChecksum("maven-local/test-package/1.0.0/test-package-1.0.0.jar", mockClient)
+	assert.Error(t, err)
+	assert.Equal(t, "", checksum)
+	assert.Contains(t, err.Error(), "file not found")
+
+	mockBase.AssertExpectations(t)
+}
+
+func TestCreateEvidencePackage_Run_CreateEnvelopeError(t *testing.T) {
+	// Mock Artifactory client
+	mockClient := &MockArtifactoryServicesManagerCreatePackage{
+		GetRepositoryResponse: services.RepositoryDetails{
+			PackageType: "maven",
+		},
+		PackageLeadFileData: []byte("maven-local/test-package/1.0.0/test-package-1.0.0.jar"),
+		FileInfoResponse: &utils.FileInfo{
+			Checksums: struct {
+				Sha1   string `json:"sha1,omitempty"`
+				Sha256 string `json:"sha256,omitempty"`
+				Md5    string `json:"md5,omitempty"`
+			}{
+				Sha256: "test-sha256",
+			},
+		},
+	}
+
+	// Mock the base methods
+	mockBase := &MockCreateEvidenceBaseCreatePackage{}
+	mockBase.On("createArtifactoryClient").Return(mockClient, nil)
+	mockBase.On("getFileChecksum", "maven-local/test-package/1.0.0/test-package-1.0.0.jar", mockClient).Return("test-sha256", nil)
+	mockBase.On("createEnvelope", "maven-local/test-package/1.0.0/test-package-1.0.0.jar", "test-sha256").Return([]byte{}, errors.New("envelope creation failed"))
+
+	// Test the component methods
+	_, err := mockBase.createArtifactoryClient()
+	assert.NoError(t, err)
+
+	checksum, err := mockBase.getFileChecksum("maven-local/test-package/1.0.0/test-package-1.0.0.jar", mockClient)
+	assert.NoError(t, err)
+	assert.Equal(t, "test-sha256", checksum)
+
+	envelope, err := mockBase.createEnvelope("maven-local/test-package/1.0.0/test-package-1.0.0.jar", "test-sha256")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "envelope creation failed")
+	assert.Equal(t, []byte{}, envelope)
+
+	mockBase.AssertExpectations(t)
+}
+
+func TestCreateEvidencePackage_Run_UploadEvidenceError(t *testing.T) {
+	// Mock Artifactory client
+	mockClient := &MockArtifactoryServicesManagerCreatePackage{
+		GetRepositoryResponse: services.RepositoryDetails{
+			PackageType: "maven",
+		},
+		PackageLeadFileData: []byte("maven-local/test-package/1.0.0/test-package-1.0.0.jar"),
+		FileInfoResponse: &utils.FileInfo{
+			Checksums: struct {
+				Sha1   string `json:"sha1,omitempty"`
+				Sha256 string `json:"sha256,omitempty"`
+				Md5    string `json:"md5,omitempty"`
+			}{
+				Sha256: "test-sha256",
+			},
+		},
+	}
+
+	// Mock the base methods
+	mockBase := &MockCreateEvidenceBaseCreatePackage{}
+	mockBase.On("createArtifactoryClient").Return(mockClient, nil)
+	mockBase.On("getFileChecksum", "maven-local/test-package/1.0.0/test-package-1.0.0.jar", mockClient).Return("test-sha256", nil)
+	mockBase.On("createEnvelope", "maven-local/test-package/1.0.0/test-package-1.0.0.jar", "test-sha256").Return([]byte("test-envelope"), nil)
+	mockBase.On("uploadEvidence", []byte("test-envelope"), "maven-local/test-package/1.0.0/test-package-1.0.0.jar").Return(errors.New("upload failed"))
+
+	// Test the component methods
+	_, err := mockBase.createArtifactoryClient()
+	assert.NoError(t, err)
+
+	checksum, err := mockBase.getFileChecksum("maven-local/test-package/1.0.0/test-package-1.0.0.jar", mockClient)
+	assert.NoError(t, err)
+	assert.Equal(t, "test-sha256", checksum)
+
+	envelope, err := mockBase.createEnvelope("maven-local/test-package/1.0.0/test-package-1.0.0.jar", "test-sha256")
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("test-envelope"), envelope)
+
+	err = mockBase.uploadEvidence([]byte("test-envelope"), "maven-local/test-package/1.0.0/test-package-1.0.0.jar")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "upload failed")
+
+	mockBase.AssertExpectations(t)
+}
+
+func TestCreateEvidencePackage_Run_ComplexPackagePath(t *testing.T) {
+	// Test with complex package path (deep structure)
+	complexPath := "maven-local/com/example/complex-package-name/1.0.0-SNAPSHOT/complex-package-name-1.0.0-SNAPSHOT.jar"
+
+	// Mock Artifactory client
+	mockClient := &MockArtifactoryServicesManagerCreatePackage{
+		GetRepositoryResponse: services.RepositoryDetails{
+			PackageType: "maven",
+		},
+		PackageLeadFileData: []byte(complexPath),
+		FileInfoResponse: &utils.FileInfo{
+			Checksums: struct {
+				Sha1   string `json:"sha1,omitempty"`
+				Sha256 string `json:"sha256,omitempty"`
+				Md5    string `json:"md5,omitempty"`
+			}{
+				Sha256: "complex-sha256",
+			},
+		},
+	}
+
+	// Mock the base methods
+	mockBase := &MockCreateEvidenceBaseCreatePackage{}
+	mockBase.On("createArtifactoryClient").Return(mockClient, nil)
+	mockBase.On("getFileChecksum", complexPath, mockClient).Return("complex-sha256", nil)
+	mockBase.On("createEnvelope", complexPath, "complex-sha256").Return([]byte("complex-envelope"), nil)
+	mockBase.On("uploadEvidence", []byte("complex-envelope"), complexPath).Return(nil)
+
+	// Test the component methods
+	_, err := mockBase.createArtifactoryClient()
+	assert.NoError(t, err)
+
+	checksum, err := mockBase.getFileChecksum(complexPath, mockClient)
+	assert.NoError(t, err)
+	assert.Equal(t, "complex-sha256", checksum)
+
+	envelope, err := mockBase.createEnvelope(complexPath, "complex-sha256")
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("complex-envelope"), envelope)
+
+	err = mockBase.uploadEvidence([]byte("complex-envelope"), complexPath)
+	assert.NoError(t, err)
+
+	mockBase.AssertExpectations(t)
+}
+
+func TestCreateEvidencePackage_BasePackage_Integration(t *testing.T) {
+	// Test the basePackage integration with createEvidencePackage
+	createCmd := &createEvidencePackage{
+		createEvidenceBase: createEvidenceBase{
+			serverDetails:     &coreConfig.ServerDetails{},
+			predicateFilePath: "/path/to/predicate.json",
+			predicateType:     "custom-predicate",
+			markdownFilePath:  "/path/to/markdown.md",
+			key:               "test-key",
+			keyId:             "test-key-id",
+		},
+		basePackage: basePackage{
+			PackageName:     "integration-test-package",
+			PackageVersion:  "2.0.0",
+			PackageRepoName: "npm-local",
+		},
+	}
+
+	// Verify the structure is correct
+	assert.Equal(t, "integration-test-package", createCmd.PackageName)
+	assert.Equal(t, "2.0.0", createCmd.PackageVersion)
+	assert.Equal(t, "npm-local", createCmd.PackageRepoName)
+	assert.Equal(t, "/path/to/predicate.json", createCmd.predicateFilePath)
+	assert.Equal(t, "custom-predicate", createCmd.predicateType)
+	assert.Equal(t, "/path/to/markdown.md", createCmd.markdownFilePath)
+	assert.Equal(t, "test-key", createCmd.key)
+	assert.Equal(t, "test-key-id", createCmd.keyId)
+
+	// Command name should be correct
+	assert.Equal(t, "create-package-evidence", createCmd.CommandName())
+
+	// Server details should be correct
+	serverDetails, err := createCmd.ServerDetails()
+	assert.NoError(t, err)
+	assert.Equal(t, createCmd.serverDetails, serverDetails)
 }

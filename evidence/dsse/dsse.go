@@ -44,7 +44,11 @@ func (e *Envelope) Verify(publicKeys ...Verifier) error {
 		if err != nil {
 			return errors.Wrap(errorutils.CheckError(err), "decode envelope signature")
 		}
-		pae := PAE(e.PayloadType, []byte(e.Payload))
+		decodedPayload, err := base64.StdEncoding.DecodeString(e.Payload)
+		if err != nil {
+			return errors.Wrap(errorutils.CheckError(err), "decode envelope payload")
+		}
+		pae := PAE(e.PayloadType, decodedPayload)
 		err = publicKey.Verify(pae, decodedSig)
 		if err != nil {
 			return errors.Wrap(errorutils.CheckError(err), "verify envelope signature")
