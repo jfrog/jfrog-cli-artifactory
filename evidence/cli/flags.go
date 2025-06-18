@@ -8,6 +8,7 @@ import (
 const (
 	// Evidence commands keys
 	CreateEvidence = "create-evidence"
+	VerifyEvidence = "verify-evidences"
 )
 
 const (
@@ -17,6 +18,7 @@ const (
 	user        = "user"
 	accessToken = "access-token"
 	project     = "project"
+	format      = "format"
 
 	// RLM flags keys
 	releaseBundle        = "release-bundle"
@@ -36,6 +38,7 @@ const (
 	subjectSha256   = "subject-sha256"
 	key             = "key"
 	keyAlias        = "key-alias"
+	keys            = "keys"
 )
 
 // Flag keys mapped to their corresponding components.Flag definition.
@@ -46,6 +49,7 @@ var flagsMap = map[string]components.Flag{
 	user:        components.NewStringFlag(user, "JFrog username.", func(f *components.StringFlag) { f.Mandatory = false }),
 	accessToken: components.NewStringFlag(accessToken, "JFrog access token.", func(f *components.StringFlag) { f.Mandatory = false }),
 	project:     components.NewStringFlag(project, "Project key associated with the created evidence.", func(f *components.StringFlag) { f.Mandatory = false }),
+	format:      components.NewStringFlag(format, "Output format. Supported formats: 'json', 'text', 'full'", func(f *components.StringFlag) { f.Mandatory = false }),
 
 	releaseBundle:        components.NewStringFlag(releaseBundle, "Release Bundle name.", func(f *components.StringFlag) { f.Mandatory = false }),
 	releaseBundleVersion: components.NewStringFlag(releaseBundleVersion, "Release Bundle version.", func(f *components.StringFlag) { f.Mandatory = false }),
@@ -63,6 +67,7 @@ var flagsMap = map[string]components.Flag{
 	subjectSha256:   components.NewStringFlag(subjectSha256, "Subject checksum sha256.", func(f *components.StringFlag) { f.Mandatory = false }),
 	key:             components.NewStringFlag(key, "Path to a private key that will sign the DSSE. Supported keys: 'ecdsa','rsa' and 'ed25519'.", func(f *components.StringFlag) { f.Mandatory = false }),
 	keyAlias:        components.NewStringFlag(keyAlias, "Key alias", func(f *components.StringFlag) { f.Mandatory = false }),
+	keys:            components.NewStringFlag(keys, "Paths to public keys for signatures verification", func(f *components.StringFlag) { f.Mandatory = false }),
 }
 
 var commandFlags = map[string][]string{
@@ -87,6 +92,23 @@ var commandFlags = map[string][]string{
 		subjectSha256,
 		key,
 		keyAlias,
+	},
+	VerifyEvidence: {
+		url,
+		user,
+		accessToken,
+		ServerId,
+		keys,
+		format,
+		project,
+		releaseBundle,
+		releaseBundleVersion,
+		subjectRepoPath,
+		buildName,
+		buildNumber,
+		packageName,
+		packageVersion,
+		packageRepoName,
 	},
 }
 

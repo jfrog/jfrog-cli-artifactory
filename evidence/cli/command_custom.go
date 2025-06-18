@@ -29,3 +29,13 @@ func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDe
 		ecc.ctx.GetStringFlagValue(subjectSha256))
 	return ecc.execute(createCmd)
 }
+
+func (ecc *evidenceCustomCommand) VerifyEvidences(_ *components.Context, serverDetails *coreConfig.ServerDetails) error {
+	verifyCmd := evidence.NewVerifyEvidencesCustom(
+		serverDetails,
+		ecc.ctx.GetStringFlagValue(subjectRepoPath),
+		ecc.ctx.GetStringFlagValue(format),
+		ecc.ctx.GetStringsArrFlagValue(keys),
+	)
+	return ecc.execute(verifyCmd)
+}
