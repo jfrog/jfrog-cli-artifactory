@@ -132,14 +132,8 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
-//replace github.com/jfrog/jfrog-cli-core/v2 => github.com/rimapol/jfrog-cli-core/v2 v2.0.0-20250617145201-c031363bfbd8
+replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.31.1-0.20250619122826-54ff6f65b128
 
-replace github.com/jfrog/jfrog-cli-core/v2 => github.com/rimapol/jfrog-cli-core/v2 v2.0.0-20250619111525-4351e686cca4
+replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20250619121353-6ff3439c999d
 
-// replace github.com/jfrog/jfrog-cli-core/v2 => ../jfrog-cli-core
-
-// replace github.com/jfrog/jfrog-client-go => github.com/rimapol/jfrog-client-go v0.0.0-20250617144823-0fc05ece58c5
-
-replace github.com/jfrog/jfrog-client-go => github.com/rimapol/jfrog-client-go v0.0.0-20250619090125-b763fb1d780a
-
-//replace github.com/jfrog/jfrog-client-go => ../jfrog-client-go
+//replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20240811142930-ab9715567376
