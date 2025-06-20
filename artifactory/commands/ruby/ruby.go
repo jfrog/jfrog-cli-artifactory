@@ -1,12 +1,8 @@
 package ruby
 
 import (
-	"fmt"
 	"net/url"
-	"os/exec"
 
-	gofrogcmd "github.com/jfrog/gofrog/io"
-	"github.com/jfrog/jfrog-cli-core/v2/common/project"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -79,30 +75,4 @@ func GetRubyGemsRepoUrl(serverDetails *config.ServerDetails, repository string) 
 		rtUrl.User = url.UserPassword(username, password)
 	}
 	return rtUrl.String(), err
-}
-
-func RunConfigCommand(buildTool project.ProjectType, args []string) error {
-	configCmd := gofrogcmd.NewCommand(buildTool.String(), "config", args)
-	if err := gofrogcmd.RunCmd(configCmd); err != nil {
-		return errorutils.CheckErrorf("%s config command failed with: %q", buildTool.String(), err)
-	}
-	return nil
-}
-
-// RunGemCommand runs a gem command with the provided arguments
-func RunGemCommand(args []string) error {
-	cmd := exec.Command("gem", args...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return errorutils.CheckErrorf("gem command failed with: %q, output: %s", err, string(output))
-	}
-	return nil
-}
-
-// CreateGemrc creates a .gemrc configuration file for authentication
-func CreateGemrc(repoUrl, username, password string) error {
-	// TODO: Implement .gemrc creation logic
-	// This would create a .gemrc file in the user's home directory
-	// with the appropriate authentication configuration
-	return fmt.Errorf("CreateGemrc not yet implemented")
 }
