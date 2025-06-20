@@ -35,7 +35,8 @@ import (
 )
 
 const (
-	lcCategory = "Lifecycle"
+	lcCategory                                 = "Lifecycle"
+	minArtifactoryVersionForMultiSourceSupport = "7.114.0"
 )
 
 func GetCommands() []components.Command {
@@ -129,14 +130,24 @@ func validateCreateReleaseBundleContext(c *components.Context) error {
 
 func assertValidCreationMethod(c *components.Context) error {
 	// Determine the methods provided
-	methods := []bool{
+	monoReleaseBundleSource := []bool{
 		c.IsFlagSet("spec"),
 		c.IsFlagSet(flagkit.Builds),
 		c.IsFlagSet(flagkit.ReleaseBundles),
 	}
-	methodCount := coreutils.SumTrueValues(methods)
+	methodCount := coreutils.SumTrueValues(monoReleaseBundleSource)
 
-	// Validate that only one creation method is provided
+	multiReleaseBundleSources := []bool{
+		c.IsFlagSet(flagkit.SourceTypeReleaseBundles),
+		c.IsFlagSet(flagkit.SourceTypeBuilds),
+	}
+
+	multiReleaseBundleSourcesCount := coreutils.SumTrueValues(multiReleaseBundleSources)
+
+	return validateCreationMethods(c, methodCount, multiReleaseBundleSourcesCount)
+}
+
+func validateRegularMethods(c *components.Context, methodCount int) error {
 	if err := validateSingleCreationMethod(methodCount); err != nil {
 		return err
 	}
@@ -145,6 +156,23 @@ func assertValidCreationMethod(c *components.Context) error {
 		return err
 	}
 	return nil
+}
+
+func validateCreationMethods(c *components.Context, regularMethodsCount int, multiSrcMethodsCount int) error {
+	if multiSrcMethodsCount > 0 {
+		if err := multipleSourcesSupported(c); err != nil {
+			return err
+		}
+		if regularMethodsCount > 0 {
+			errMsg := fmt.Sprintf("only multiple sources must be supplied: --%s, --%s,\n"+
+				"or one of: --%s, --%s or --%s",
+				flagkit.SourceTypeReleaseBundles, flagkit.SourceTypeBuilds,
+				"spec", flagkit.Builds, flagkit.ReleaseBundles)
+			return errorutils.CheckError(errors.New(errMsg))
+		}
+		return nil
+	}
+	return validateRegularMethods(c, regularMethodsCount)
 }
 
 func validateSingleCreationMethod(methodCount int) error {
@@ -191,15 +219,38 @@ func create(c *components.Context) (err error) {
 		return
 	}
 	createCmd := lifecycle.NewReleaseBundleCreateCommand().SetServerDetails(lcDetails).SetReleaseBundleName(c.GetArgumentAt(0)).
-		SetReleaseBundleVersion(c.GetArgumentAt(1)).SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey)).SetSync(c.GetBoolFlagValue(flagkit.Sync)).
+		SetReleaseBundleVersion(c.GetArgumentAt(1)).SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey)).
+		SetSync(c.GetBoolFlagValue(flagkit.Sync)).
 		SetReleaseBundleProject(pluginsCommon.GetProject(c)).SetSpec(creationSpec).
 		SetBuildsSpecPath(c.GetStringFlagValue(flagkit.Builds)).SetReleaseBundlesSpecPath(c.GetStringFlagValue(flagkit.ReleaseBundles))
+
+	err = lifecycle.ValidateFeatureSupportedVersion(lcDetails, minArtifactoryVersionForMultiSourceSupport)
+	// err == nil means new flags are supported and may be added to createCmd
+	if err == nil {
+		createCmd.SetReleaseBundlesSources(c.GetStringFlagValue(flagkit.SourceTypeReleaseBundles)).
+			SetBuildsSources(c.GetStringFlagValue(flagkit.SourceTypeBuilds))
+	}
+
 	return commands.Exec(createCmd)
+}
+
+// the function validates that the current artifactory version supports multiple source feature
+func multipleSourcesSupported(c *components.Context) error {
+	lcDetails, err := createLifecycleDetailsByFlags(c)
+	if err != nil {
+		return err
+	}
+
+	return lifecycle.ValidateFeatureSupportedVersion(lcDetails, minArtifactoryVersionForMultiSourceSupport)
 }
 
 func getReleaseBundleCreationSpec(c *components.Context) (*spec.SpecFiles, error) {
 	// Checking if the "builds" or "release-bundles" flags are set - if so, the spec flag should be ignored
 	if c.IsFlagSet(flagkit.Builds) || c.IsFlagSet(flagkit.ReleaseBundles) {
+		return nil, nil
+	}
+
+	if c.IsFlagSet(flagkit.SourceTypeReleaseBundles) || c.IsFlagSet(flagkit.SourceTypeBuilds) {
 		return nil, nil
 	}
 

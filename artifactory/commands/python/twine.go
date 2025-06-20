@@ -3,6 +3,7 @@ package python
 import (
 	"errors"
 	"fmt"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"os"
 	"os/exec"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/utils"
-	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -76,7 +76,7 @@ func (tc *TwineCommand) SetArgs(args []string) *TwineCommand {
 func (tc *TwineCommand) Run() (err error) {
 	// Assert no forbidden flags were provided.
 	if tc.isRepoConfigFlagProvided() {
-		return errorutils.CheckErrorf(tc.getRepoConfigFlagProvidedErr())
+		return errorutils.CheckError(errors.New(tc.getRepoConfigFlagProvidedErr()))
 	}
 	if err = tc.extractAndFilterArgs(tc.args); err != nil {
 		return err

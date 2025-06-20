@@ -449,28 +449,30 @@ const (
 	ExcludeProjects = "exclude-projects"
 
 	// Unique lifecycle flags
-	Sync                 = "sync"
-	lifecyclePrefix      = "lc-"
-	lcSync               = lifecyclePrefix + Sync
-	lcProject            = lifecyclePrefix + Project
-	Builds               = "builds"
-	lcBuilds             = lifecyclePrefix + Builds
-	ReleaseBundles       = "release-bundles"
-	lcReleaseBundles     = lifecyclePrefix + ReleaseBundles
-	SigningKey           = "signing-key"
-	lcSigningKey         = lifecyclePrefix + SigningKey
-	PathMappingPattern   = "mapping-pattern"
-	lcPathMappingPattern = lifecyclePrefix + PathMappingPattern
-	PathMappingTarget    = "mapping-target"
-	lcPathMappingTarget  = lifecyclePrefix + PathMappingTarget
-	lcDryRun             = lifecyclePrefix + dryRun
-	lcIncludeRepos       = lifecyclePrefix + IncludeRepos
-	lcExcludeRepos       = lifecyclePrefix + ExcludeRepos
-	PromotionType        = "promotion-type"
-	lcTag                = lifecyclePrefix + Tag
-	lcProperties         = lifecyclePrefix + Properties
-	DeleteProperty       = "del-prop"
-	lcDeleteProperties   = lifecyclePrefix + DeleteProperty
+	Sync                     = "sync"
+	lifecyclePrefix          = "lc-"
+	lcSync                   = lifecyclePrefix + Sync
+	lcProject                = lifecyclePrefix + Project
+	Builds                   = "builds"
+	lcBuilds                 = lifecyclePrefix + Builds
+	ReleaseBundles           = "release-bundles"
+	lcReleaseBundles         = lifecyclePrefix + ReleaseBundles
+	SigningKey               = "signing-key"
+	lcSigningKey             = lifecyclePrefix + SigningKey
+	PathMappingPattern       = "mapping-pattern"
+	lcPathMappingPattern     = lifecyclePrefix + PathMappingPattern
+	PathMappingTarget        = "mapping-target"
+	lcPathMappingTarget      = lifecyclePrefix + PathMappingTarget
+	lcDryRun                 = lifecyclePrefix + dryRun
+	lcIncludeRepos           = lifecyclePrefix + IncludeRepos
+	lcExcludeRepos           = lifecyclePrefix + ExcludeRepos
+	PromotionType            = "promotion-type"
+	lcTag                    = lifecyclePrefix + Tag
+	lcProperties             = lifecyclePrefix + Properties
+	DeleteProperty           = "del-prop"
+	lcDeleteProperties       = lifecyclePrefix + DeleteProperty
+	SourceTypeReleaseBundles = "source-type-release-bundles"
+	SourceTypeBuilds         = "source-type-builds"
 )
 
 var commandFlags = map[string][]string{
@@ -496,7 +498,7 @@ var commandFlags = map[string][]string{
 	},
 	cmddefs.ReleaseBundleCreate: {
 		platformUrl, user, password, accessToken, serverId, lcSigningKey, lcSync, lcProject, lcBuilds, lcReleaseBundles,
-		specFlag, specVars, BuildName, BuildNumber,
+		specFlag, specVars, BuildName, BuildNumber, SourceTypeReleaseBundles, SourceTypeBuilds,
 	},
 	cmddefs.ReleaseBundlePromote: {
 		platformUrl, user, password, accessToken, serverId, lcSigningKey, lcSync, lcProject, lcIncludeRepos,
@@ -1056,12 +1058,14 @@ var flagsMap = map[string]components.Flag{
 	lcDryRun: components.NewBoolFlag(dryRun, "Set to true to only simulate the distribution of the release bundle.", components.WithBoolDefaultValueFalse()),
 	lcIncludeRepos: components.NewStringFlag(IncludeRepos, "List of semicolon-separated(;) repositories to include in the promotion. If this property is left undefined, all repositories (except those specifically excluded) are included in the promotion. "+
 		"If one or more repositories are specifically included, all other repositories are excluded.` `", components.SetMandatoryFalse()),
-	lcExcludeRepos:     components.NewStringFlag(ExcludeRepos, "List of semicolon-separated(;) repositories to exclude from the promotion.` `", components.SetMandatoryFalse()),
-	platformUrl:        components.NewStringFlag(url, "JFrog platform URL. (example: https://acme.jfrog.io)` `", components.SetMandatoryFalse()),
-	PromotionType:      components.NewStringFlag(PromotionType, "The promotion type. Can be one of 'copy' or 'move'.", components.WithStrDefaultValue("copy")),
-	lcTag:              components.NewStringFlag(Tag, "Tag to put on Release Bundle version.", components.SetMandatoryFalse()),
-	lcProperties:       components.NewStringFlag(Properties, "Properties to put on the of Manifest Release Bundle version.", components.SetMandatoryFalse()),
-	lcDeleteProperties: components.NewStringFlag(DeleteProperty, "Properties to be deleted on the of Manifest Release Bundle version.", components.SetMandatoryFalse()),
+	lcExcludeRepos:           components.NewStringFlag(ExcludeRepos, "List of semicolon-separated(;) repositories to exclude from the promotion.` `", components.SetMandatoryFalse()),
+	platformUrl:              components.NewStringFlag(url, "JFrog platform URL. (example: https://acme.jfrog.io)` `", components.SetMandatoryFalse()),
+	PromotionType:            components.NewStringFlag(PromotionType, "The promotion type. Can be one of 'copy' or 'move'.", components.WithStrDefaultValue("copy")),
+	lcTag:                    components.NewStringFlag(Tag, "Tag to put on Release Bundle version.", components.SetMandatoryFalse()),
+	lcProperties:             components.NewStringFlag(Properties, "Properties to put on the of Manifest Release Bundle version.", components.SetMandatoryFalse()),
+	lcDeleteProperties:       components.NewStringFlag(DeleteProperty, "Properties to be deleted on the of Manifest Release Bundle version.", components.SetMandatoryFalse()),
+	SourceTypeReleaseBundles: components.NewStringFlag(SourceTypeReleaseBundles, "List of semicolon-seperated(;) release bundles in the form of 'name=releaseBundleName1, version=version1; name=releaseBundleName2, version=version2' to be included in the new bundle.", components.SetMandatoryFalse()),
+	SourceTypeBuilds:         components.NewStringFlag(SourceTypeBuilds, "List of semicolon-separated(;) builds in the form of 'name=buildName1, id=runID1, include-deps=true; name=buildName2, id=runID2' to be included in the new bundle.", components.SetMandatoryFalse()),
 }
 
 func GetCommandFlags(cmdKey string) []components.Flag {
