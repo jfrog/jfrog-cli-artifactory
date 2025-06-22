@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"github.com/jfrog/gofrog/log"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils"
@@ -29,7 +30,10 @@ func getEnvVariable(envVarName string) (string, error) {
 }
 
 func PlatformToEvidenceUrls(rtDetails *coreConfig.ServerDetails) {
+	log.Debug("Converting platform URLs to evidence URLs", rtDetails.Url)
 	rtDetails.ArtifactoryUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "artifactory/"
 	rtDetails.EvidenceUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "evidence/"
 	rtDetails.MetadataUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "metadata/"
+	log.Debug("Converted artifactory URL is", rtDetails.ArtifactoryUrl)
+	log.Debug("Converted evidence URL is", rtDetails.EvidenceUrl)
 }
