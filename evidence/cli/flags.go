@@ -41,6 +41,7 @@ const (
 	key              = "key"
 	keyAlias         = "key-alias"
 	artifactsLimit   = "artifacts-limit"
+  providerId      = "provider-id"
 )
 
 // Flag keys mapped to their corresponding components.Flag definition.
@@ -72,6 +73,7 @@ var flagsMap = map[string]components.Flag{
 	key:              components.NewStringFlag(key, "Path to a private key that will sign the DSSE. Supported keys: 'ecdsa','rsa' and 'ed25519'.", func(f *components.StringFlag) { f.Mandatory = false }),
 	keyAlias:         components.NewStringFlag(keyAlias, "Key alias", func(f *components.StringFlag) { f.Mandatory = false }),
 	artifactsLimit:   components.NewStringFlag(artifactsLimit, "The number of artifacts in a release bundle to be included in the evidences file.", func(f *components.StringFlag) { f.Mandatory = false }),
+  providerId:      components.NewStringFlag(providerId, "Provider ID for the evidence.", func(f *components.StringFlag) { f.Mandatory = false }),
 }
 
 var commandFlags = map[string][]string{
@@ -96,6 +98,7 @@ var commandFlags = map[string][]string{
 		subjectSha256,
 		key,
 		keyAlias,
+		providerId,
 	},
 	GetEvidence: {
 		url,

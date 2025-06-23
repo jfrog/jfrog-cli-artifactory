@@ -173,7 +173,8 @@ func (tpa *TerraformPublishCommandArgs) extractTerraformPublishOptionsFromArgs(a
 		return err
 	}
 	if len(args) != 0 {
-		err = errorutils.CheckErrorf("Unknown flag:" + strings.Split(args[0], "=")[0] + ". for a terraform publish command please provide --namespace, --provider, --tag and optionally --exclusions.")
+		errMsg := "Unknown flag:" + strings.Split(args[0], "=")[0] + ". for a terraform publish command please provide --namespace, --provider, --tag and optionally --exclusions."
+		err = errorutils.CheckError(errors.New(errMsg))
 	}
 	return
 }
