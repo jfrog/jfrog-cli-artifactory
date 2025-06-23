@@ -15,13 +15,7 @@ import (
 func (rbc *ReleaseBundleCreateCommand) createFromBuilds(servicesManager *lifecycle.LifecycleServicesManager,
 	rbDetails services.ReleaseBundleDetails, queryParams services.CommonOptionalQueryParams) error {
 
-	var buildsSource services.CreateFromBuildsSource
-	var err error
-	if rbc.buildsSpecPath != "" {
-		buildsSource, err = rbc.getBuildSourceFromBuildsSpec()
-	} else {
-		buildsSource, err = rbc.convertSpecToBuildsSource(rbc.spec.Files)
-	}
+	err, buildsSource := rbc.createBuildSourceFromSpec()
 	if err != nil {
 		return err
 	}
@@ -31,6 +25,15 @@ func (rbc *ReleaseBundleCreateCommand) createFromBuilds(servicesManager *lifecyc
 	}
 
 	return servicesManager.CreateReleaseBundleFromBuilds(rbDetails, queryParams, rbc.signingKeyName, buildsSource)
+}
+
+func (rbc *ReleaseBundleCreateCommand) createBuildSourceFromSpec() (err error, buildsSource services.CreateFromBuildsSource) {
+	if rbc.buildsSpecPath != "" {
+		buildsSource, err = rbc.getBuildSourceFromBuildsSpec()
+	} else {
+		buildsSource, err = rbc.convertSpecToBuildsSource(rbc.spec.Files)
+	}
+	return err, buildsSource
 }
 
 func (rbc *ReleaseBundleCreateCommand) getBuildSourceFromBuildsSpec() (buildsSource services.CreateFromBuildsSource, err error) {
@@ -64,22 +67,25 @@ func (rbc *ReleaseBundleCreateCommand) convertBuildsSpecToBuildsSource(builds Cr
 func (rbc *ReleaseBundleCreateCommand) convertSpecToBuildsSource(files []spec.File) (services.CreateFromBuildsSource, error) {
 	buildsSource := services.CreateFromBuildsSource{}
 	for _, file := range files {
-		buildName, buildNumber, err := rbc.getBuildDetailsFromIdentifier(file.Build, file.Project)
-		if err != nil {
-			return services.CreateFromBuildsSource{}, err
-		}
-		isIncludeDeps, err := file.IsIncludeDeps(false)
-		if err != nil {
-			return services.CreateFromBuildsSource{}, err
-		}
+		// support multiple sources
+		if file.Build != "" {
+			buildName, buildNumber, err := rbc.getBuildDetailsFromIdentifier(file.Build, file.Project)
+			if err != nil {
+				return services.CreateFromBuildsSource{}, err
+			}
+			isIncludeDeps, err := file.IsIncludeDeps(false)
+			if err != nil {
+				return services.CreateFromBuildsSource{}, err
+			}
 
-		buildSource := services.BuildSource{
-			BuildName:           buildName,
-			BuildNumber:         buildNumber,
-			BuildRepository:     utils.GetBuildInfoRepositoryByProject(file.Project),
-			IncludeDependencies: isIncludeDeps,
+			buildSource := services.BuildSource{
+				BuildName:           buildName,
+				BuildNumber:         buildNumber,
+				BuildRepository:     utils.GetBuildInfoRepositoryByProject(file.Project),
+				IncludeDependencies: isIncludeDeps,
+			}
+			buildsSource.Builds = append(buildsSource.Builds, buildSource)
 		}
-		buildsSource.Builds = append(buildsSource.Builds, buildSource)
 	}
 	return buildsSource, nil
 }
