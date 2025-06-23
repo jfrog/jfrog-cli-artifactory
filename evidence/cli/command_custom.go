@@ -30,3 +30,15 @@ func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDe
 		ecc.ctx.GetStringFlagValue(providerId))
 	return ecc.execute(createCmd)
 }
+
+func (ecc *evidenceCustomCommand) GetEvidence(_ *components.Context, serverDetails *coreConfig.ServerDetails) error {
+	getCmd := evidence.NewGetEvidenceCustom(
+		serverDetails,
+		ecc.ctx.GetStringFlagValue(subjectRepoPath),
+		ecc.ctx.GetStringFlagValue(format),
+		ecc.ctx.GetStringFlagValue(output),
+		ecc.ctx.GetBoolFlagValue(includePredicate),
+	)
+
+	return ecc.execute(getCmd)
+}
