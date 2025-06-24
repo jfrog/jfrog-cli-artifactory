@@ -49,7 +49,7 @@ func (bpc *BuildPublishConfig) Validate() error {
 		return errorutils.CheckError(errors.New("key path is not set, key path is the path to the private key file that will be used to sign the evidence file"))
 	}
 	if exists, err := fileutils.IsFileExists(bpc.KeyPath, false); err != nil || !exists {
-		return errorutils.CheckError(errors.New("key path is not a valid file path"))
+		return errorutils.CheckError(errors.New("key path " + bpc.KeyPath + " is not a valid file path"))
 	}
 	return nil
 }
