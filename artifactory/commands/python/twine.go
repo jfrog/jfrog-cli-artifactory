@@ -3,6 +3,9 @@ package python
 import (
 	"errors"
 	"fmt"
+	rtUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
+	"github.com/jfrog/jfrog-client-go/artifactory/services"
+	specutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"os"
 	"os/exec"
@@ -176,6 +179,53 @@ func (tc *TwineCommand) uploadAndCollectBuildInfo() error {
 	if err = pythonModule.AddArtifacts(artifacts); err != nil {
 		return err
 	}
+
+	buildName, err := tc.buildConfiguration.GetBuildName()
+	if err != nil {
+		return err
+	}
+	buildNumber, err := tc.buildConfiguration.GetBuildNumber()
+	if err != nil {
+		return err
+	}
+
+	var fileInitials string
+	for _, arg := range artifacts {
+		if strings.HasSuffix(arg.Path, ".tar.gz") {
+			fileInitials = strings.TrimSuffix(arg.Path, ".tar.gz")
+		}
+	}
+
+	searchParams := services.SearchParams{
+		CommonParams: &specutils.CommonParams{
+			Aql: specutils.Aql{
+				ItemsFind: CreateAqlQueryForSearch(tc.targetRepo, fileInitials),
+			},
+		},
+	}
+
+	servicesManager, err := rtUtils.CreateServiceManager(tc.serverDetails, -1, 0, false)
+	if err != nil {
+		return err
+	}
+
+	searchReader, err := servicesManager.SearchFiles(searchParams)
+	if err != nil {
+		log.Error("Failed to get uploaded twine package: ", err.Error())
+		return err
+	}
+
+	propsParams := services.PropsParams{
+		Reader: searchReader,
+		Props:  fmt.Sprintf("build.name=%s;build.number=%s", buildName, buildNumber),
+	}
+
+	_, err = servicesManager.SetProps(propsParams)
+	if err != nil {
+		log.Warn("Unable to set build properties: ", err, "\nThis may cause build to not properly link with artifact, please add build name and build number properties on the artifacts manually")
+		return err
+	}
+
 	log.Debug(fmt.Sprintf("Command finished successfully. %d artifacs were added to build info.", len(artifacts)))
 	return nil
 }
@@ -193,4 +243,18 @@ func (tc *TwineCommand) isRepoConfigFlagProvided() bool {
 
 func (tc *TwineCommand) getRepoConfigFlagProvidedErr() string {
 	return "twine command must not be executed with the following flags: " + coreutils.ListToText(twineRepoConfigFlags)
+}
+
+func CreateAqlQueryForSearch(repo, fileInitial string) string {
+	itemsPart :=
+		`{` +
+			`"repo": "%s",` +
+			`"$or": [{` +
+			`"$and":[{` +
+			`"path": {"$match": "*"},` +
+			`"name": {"$match": "%s*"}` +
+			`}]` +
+			`}]` +
+			`}`
+	return fmt.Sprintf(itemsPart, repo, fileInitial)
 }
