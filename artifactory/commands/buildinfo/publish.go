@@ -9,6 +9,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -203,11 +204,12 @@ func (bpc *BuildPublishCommand) Run() error {
 		if err != nil {
 			return logErrorAndReturn(err)
 		}
+		os.ExpandEnv(buildPublishConfig.KeyPath)
 		ctx := &components.Context{}
 		ctx.AddStringFlag("build-name", buildInfo.Name)
 		ctx.AddStringFlag("build-number", buildInfo.Number)
 		ctx.AddStringFlag("predicate-type", buildPublishConfig.EvidenceProvider)
-		ctx.AddStringFlag("key", buildPublishConfig.KeyPath)
+		ctx.AddStringFlag("key", os.ExpandEnv(buildPublishConfig.KeyPath))
 		ctx.AddStringFlag("key-alias", buildPublishConfig.KeyAlias)
 		buildInfoEvidenceCMD := evidenceCli.NewEvidenceBuildCommand(ctx, commands.Exec)
 		evidenceCli.PlatformToEvidenceUrls(bpc.serverDetails)
