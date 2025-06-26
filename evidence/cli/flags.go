@@ -70,7 +70,7 @@ var flagsMap = map[string]components.Flag{
 	key:                components.NewStringFlag(key, "Path to a private key that will sign the DSSE. Supported keys: 'ecdsa','rsa' and 'ed25519'.", func(f *components.StringFlag) { f.Mandatory = false }),
 	keyAlias:           components.NewStringFlag(keyAlias, "Key alias", func(f *components.StringFlag) { f.Mandatory = false }),
 	providerId:         components.NewStringFlag(providerId, "Provider ID for the evidence.", func(f *components.StringFlag) { f.Mandatory = false }),
-	keys:               components.NewStringFlag(keys, "Array of paths to keys for signatures verification with \";\" separator", func(f *components.StringFlag) { f.Mandatory = false }),
+	keys:               components.NewStringFlag(keys, "Array of paths to keys for signatures verification with \";\" separator. Supported keys: 'ecdsa','rsa' and 'ed25519'.", func(f *components.StringFlag) { f.Mandatory = false }),
 	useArtifactoryKeys: components.NewBoolFlag(useArtifactoryKeys, "Use Artifactory keys for verification. When enabled, the verify command retrieves keys from Artifactory.", func(f *components.BoolFlag) { f.DefaultValue = false }),
 }
 
