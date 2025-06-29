@@ -10,67 +10,8 @@ import (
 	"github.com/jfrog/jfrog-client-go/onemodel"
 )
 
-const getCustomEvidenceWithoutPredicateGraphqlQuery = `{
-	"query":  "{
-		evidence {
-			searchEvidence(
-				where: { 
-					hasSubjectWith: { 
-						repositoryKey: \"%s\", 
-						path: \"%s\" 
-					} 
-				} 
-			) {
-				totalCount
-				pageInfo {
-					hasNextPage
-					hasPreviousPage
-					startCursor
-					endCursor
-				}
-				edges {
-					cursor
-					node {
-						path
-						name
-						predicateSlug
-					}
-				}
-			}
-		}
-	}"
-}`
-const getCustomEvidenceWithPredicateGraphqlQuery = `{
-	"query": "{
-		evidence {
-			searchEvidence(
-				where: { 
-					hasSubjectWith: { 
-						repositoryKey: \"%s\", 
-						path: \"%s\" 
-					} 
-				}
-			) {
-				totalCount
-				pageInfo {
-					hasNextPage
-					hasPreviousPage
-					startCursor
-					endCursor
-				}
-				edges {
-					cursor
-					node {
-						path
-						name
-						predicateSlug
-						predicate
-					}
-				}
-			}
-		}
-	}"
-}`
+const getCustomEvidenceWithoutPredicateGraphqlQuery = `{"query":"{ evidence { searchEvidence( where: { hasSubjectWith: { repositoryKey: \"%s\", path: \"%s\"}} ) { totalCount edges { cursor node { path name predicateSlug createdAt createdBy subject { sha256 } signingKey { alias } } } } } }"}`
+const getCustomEvidenceWithPredicateGraphqlQuery = `{"query":"{ evidence { searchEvidence( where: { hasSubjectWith: { repositoryKey: \"%s\", path: \"%s\"}} ) { totalCount edges { cursor node { path name predicateSlug predicate createdAt createdBy subject { sha256 } signingKey { alias } } } } } }"}`
 
 type getEvidenceCustom struct {
 	getEvidenceBase
