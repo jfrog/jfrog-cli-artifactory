@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
+
 	"github.com/jfrog/gofrog/log"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cryptox"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
@@ -14,8 +17,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	evidenceService "github.com/jfrog/jfrog-client-go/evidence/services"
 	clientlog "github.com/jfrog/jfrog-client-go/utils/log"
-	"os"
-	"strings"
 )
 
 type createEvidenceBase struct {
@@ -205,7 +206,7 @@ func createAndSignEnvelope(payloadJson []byte, key string, keyId string) (*dsse.
 
 	privateKey.KeyID = keyId
 
-	signers, err := createSigners(privateKey)
+	signers, err := CreateSigners(privateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +225,7 @@ func createAndSignEnvelope(payloadJson []byte, key string, keyId string) (*dsse.
 	return signedEnvelope, nil
 }
 
-func createSigners(privateKey *cryptox.SSLibKey) ([]dsse.Signer, error) {
+func CreateSigners(privateKey *cryptox.SSLibKey) ([]dsse.Signer, error) {
 	var signers []dsse.Signer
 
 	switch privateKey.KeyType {
