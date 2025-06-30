@@ -13,8 +13,7 @@ import (
 )
 
 const localKeySource = "Local Key"
-const artifactoryPublicKeySource = "Artifactory Public Key"
-const artifactorySigningKeySource = "Artifactory Signing Key"
+const artifactoryKeySource = "Artifactory Key"
 
 // EvidenceVerifierInterface defines the interface for evidence verification
 type EvidenceVerifierInterface interface {
@@ -26,8 +25,6 @@ type EvidenceVerifier struct {
 	useArtifactoryKeys bool
 	artifactoryClient  artifactory.ArtifactoryServicesManager
 	localKeys          []dsse.Verifier
-	trustedVerifiers   []dsse.Verifier
-	keypairVerifiers   []dsse.Verifier
 }
 
 func NewEvidenceVerifier(keys []string, useArtifactoryKeys bool, client *artifactory.ArtifactoryServicesManager) *EvidenceVerifier {
@@ -92,7 +89,7 @@ func (v *EvidenceVerifier) verifyEvidence(evidence *model.SearchEvidenceEdge, su
 			SignaturesVerificationStatus: model.Failed,
 		},
 	}
-	localVerifiers, err := v.getKeyFiles()
+	localVerifiers, err := v.getLocalVerifiers()
 	if err != nil && v.keys != nil && len(v.keys) > 0 {
 		return nil, err
 	}
@@ -105,21 +102,12 @@ func (v *EvidenceVerifier) verifyEvidence(evidence *model.SearchEvidenceEdge, su
 	if !v.useArtifactoryKeys {
 		return result, nil
 	}
-
-	trustedVerifiers, err := v.getTrustedVerifiers()
+	artifactoryVerifiers, err := getArtifactoryVerifiers(evidence)
 	if err != nil {
 		return nil, err
 	}
-	if len(trustedVerifiers) > 0 && verifyEnvelop(trustedVerifiers, &envelope, result) {
-		result.VerificationResult.KeySource = artifactoryPublicKeySource
-		return result, nil
-	}
-	keypairVerifiers, err := v.getKeypairVerifiers()
-	if err != nil {
-		return nil, err
-	}
-	if len(keypairVerifiers) > 0 && verifyEnvelop(keypairVerifiers, &envelope, result) {
-		result.VerificationResult.KeySource = artifactorySigningKeySource
+	if verifyEnvelop(*artifactoryVerifiers, &envelope, result) {
+		result.VerificationResult.KeySource = artifactoryKeySource
 		return result, nil
 	}
 	return result, nil
@@ -167,7 +155,7 @@ func readEnvelopeFromRemote(downloadPath string, client artifactory.ArtifactoryS
 	return envelope, nil
 }
 
-func (v *EvidenceVerifier) getKeyFiles() ([]dsse.Verifier, error) {
+func (v *EvidenceVerifier) getLocalVerifiers() ([]dsse.Verifier, error) {
 	if v.localKeys != nil {
 		return v.localKeys, nil
 	}
@@ -198,24 +186,15 @@ func (v *EvidenceVerifier) readEnvelope(evidence model.SearchEvidenceEdge) (dsse
 	return readEnvelopeFromRemote(evidence.Node.DownloadPath, v.artifactoryClient)
 }
 
-func (v *EvidenceVerifier) getTrustedVerifiers() ([]dsse.Verifier, error) {
-	if v.trustedVerifiers != nil {
-		return v.trustedVerifiers, nil
+func getArtifactoryVerifiers(evidence *model.SearchEvidenceEdge) (*[]dsse.Verifier, error) {
+	evidenceSigningKey := evidence.Node.SigningKey
+	if evidenceSigningKey.PublicKey == "" {
+		return nil, fmt.Errorf("evidence signing key is missing or invalid for evidence: %s", evidence.Node.DownloadPath)
 	}
-	trustedVerifiers, err := FetchTrustedKeys(v.artifactoryClient)
-	if err == nil {
-		v.trustedVerifiers = trustedVerifiers
+	key, err := LoadKey([]byte(evidenceSigningKey.PublicKey))
+	if err != nil {
+		return nil, fmt.Errorf("failed to load artifactory key: %w", err)
 	}
-	return trustedVerifiers, err
-}
-
-func (v *EvidenceVerifier) getKeypairVerifiers() ([]dsse.Verifier, error) {
-	if v.keypairVerifiers != nil {
-		return v.keypairVerifiers, nil
-	}
-	keypairVerifiers, err := FetchKeyPairs(v.artifactoryClient)
-	if err == nil {
-		v.keypairVerifiers = keypairVerifiers
-	}
-	return keypairVerifiers, err
+	verifier, _ := createVerifier(key)
+	return &verifier, nil
 }

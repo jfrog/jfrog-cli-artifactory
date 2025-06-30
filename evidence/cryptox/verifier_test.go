@@ -64,7 +64,7 @@ func (m *MockArtifactoryServicesManagerVerifierStrict) GetTrustedKeys() (*servic
 
 func (m *MockArtifactoryServicesManagerVerifierStrict) GetKeyPairs() (*[]services.KeypairResponseItem, error) {
 	// This should NOT be called when useArtifactoryKeys=false
-	m.t.Fatal("GetKeyPairs() should not be called when useArtifactoryKeys=false")
+	m.t.Fatal("GetKeyPair() should not be called when useArtifactoryKeys=false")
 	return nil, nil
 }
 
@@ -207,7 +207,7 @@ func TestVerifier_Verify_InvalidEvidenceMetadata(t *testing.T) {
 		ReadRemoteFileResponse: io.NopCloser(bytes.NewReader(createMockEnvelopeBytes())),
 	}
 	var clientInterface artifactory.ArtifactoryServicesManager = mockClient
-	verifier := NewEvidenceVerifier(nil, true, &clientInterface)
+	verifier := NewEvidenceVerifier(nil, false, &clientInterface)
 
 	// Create evidence metadata with empty SHA256 - this should still process but fail checksum verification
 	invalidMetadata := &[]model.SearchEvidenceEdge{
@@ -380,32 +380,6 @@ func TestVerifyEnvelop_MismatchedKeyIDs(t *testing.T) {
 	mockVerifier.AssertExpectations(t)
 }
 
-// Test getTrustedVerifiers with caching
-func TestVerifier_GetTrustedVerifiers_Caching(t *testing.T) {
-	cachedVerifiers := []dsse.Verifier{&MockDSSEVerifier{KeyIDValue: "cached-key"}}
-	verifier := &EvidenceVerifier{
-		trustedVerifiers: cachedVerifiers,
-	}
-
-	verifiers, err := verifier.getTrustedVerifiers()
-
-	assert.NoError(t, err)
-	assert.Equal(t, cachedVerifiers, verifiers)
-}
-
-// Test getKeypairVerifiers with caching
-func TestVerifier_GetKeypairVerifiers_Caching(t *testing.T) {
-	cachedVerifiers := []dsse.Verifier{&MockDSSEVerifier{KeyIDValue: "cached-key"}}
-	verifier := &EvidenceVerifier{
-		keypairVerifiers: cachedVerifiers,
-	}
-
-	verifiers, err := verifier.getKeypairVerifiers()
-
-	assert.NoError(t, err)
-	assert.Equal(t, cachedVerifiers, verifiers)
-}
-
 // Test Verify with successful verification using local keys
 func TestVerifier_Verify_Success(t *testing.T) {
 	// Create mock DSSE verifier that will succeed
@@ -545,7 +519,7 @@ func TestVerifier_Verify_UseArtifactoryKeysFalse_NoArtifactoryClientCalls(t *tes
 	// Set up the mock to return success (no error)
 	mockDSSEVerifier.On("Verify", mock.Anything, mock.Anything).Return(nil)
 
-	// Create strict mock that will fail the test if GetTrustedKeys or GetKeyPairs are called
+	// Create strict mock that will fail the test if GetTrustedKeys or GetKeyPair are called
 	mockClient := &MockArtifactoryServicesManagerVerifierStrict{
 		ReadRemoteFileResponse: io.NopCloser(bytes.NewReader(createMockEnvelopeBytes())),
 		t:                      t,
@@ -576,7 +550,7 @@ func TestVerifier_Verify_UseArtifactoryKeysFalse_NoArtifactoryClientCalls(t *tes
 		},
 	}
 
-	// Call Verify method - if GetTrustedKeys/GetKeyPairs are called, the test will fail
+	// Call Verify method - if GetTrustedKeys/GetKeyPair are called, the test will fail
 	result, err := verifier.Verify("test-sha256", evidenceMetadata, "/test/subject/path")
 
 	// Assertions - should succeed with local key verification
@@ -590,64 +564,4 @@ func TestVerifier_Verify_UseArtifactoryKeysFalse_NoArtifactoryClientCalls(t *tes
 
 	// Verify that the DSSE verifier was called
 	mockDSSEVerifier.AssertExpectations(t)
-}
-
-// Test Verify with useArtifactoryKeys=true ensures Artifactory client methods ARE called
-func TestVerifier_Verify_UseArtifactoryKeysTrue_ArtifactoryClientCalled(t *testing.T) {
-	// Create mock DSSE verifier that will fail (so we test the Artifactory key path)
-	mockDSSEVerifier := &MockDSSEVerifier{
-		KeyIDValue: "test-key-id",
-		PublicKey:  nil,
-	}
-	// Set up the mock to return failure so we proceed to Artifactory keys
-	mockDSSEVerifier.On("Verify", mock.Anything, mock.Anything).Return(errors.New("local key verification failed"))
-
-	// Create mock client that should be called for trusted keys and key pairs
-	mockClient := &MockArtifactoryServicesManagerVerifier{
-		ReadRemoteFileResponse: io.NopCloser(bytes.NewReader(createMockEnvelopeBytes())),
-	}
-
-	var clientInterface artifactory.ArtifactoryServicesManager = mockClient
-
-	// Create verifier with useArtifactoryKeys=true and pre-set local keys that will fail
-	verifier := &EvidenceVerifier{
-		keys:               []string{"test-key.pem"},
-		useArtifactoryKeys: true, // This should allow Artifactory client calls for key fetching
-		artifactoryClient:  clientInterface,
-		localKeys:          []dsse.Verifier{mockDSSEVerifier}, // Will fail verification
-	}
-
-	// Create mock evidence metadata
-	evidenceMetadata := &[]model.SearchEvidenceEdge{
-		{
-			Node: model.EvidenceMetadata{
-				Subject: model.EvidenceSubject{
-					Sha256: "test-sha256",
-				},
-				DownloadPath:  "/evidence/path",
-				PredicateType: "test-predicate",
-				CreatedBy:     "test-user",
-				CreatedAt:     "2023-01-01T00:00:00Z",
-			},
-		},
-	}
-
-	// Call Verify method - this should call GetTrustedKeys and GetKeyPairs
-	result, err := verifier.Verify("test-sha256", evidenceMetadata, "/test/subject/path")
-
-	// Assertions - should succeed without error (even though verification fails)
-	assert.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Equal(t, model.VerificationStatus(model.Failed), result.OverallVerificationStatus)
-
-	evidence := (*result.EvidenceVerifications)[0]
-	assert.Equal(t, model.VerificationStatus(model.Failed), evidence.VerificationResult.SignaturesVerificationStatus)
-
-	// Verify that the DSSE verifier was called
-	mockDSSEVerifier.AssertExpectations(t)
-
-	// Most importantly: verify that getTrustedVerifiers() and getKeypairVerifiers() WERE called
-	// by checking that these fields are now set (even if empty)
-	assert.NotNil(t, verifier.trustedVerifiers, "trustedVerifiers should be set when useArtifactoryKeys=true")
-	assert.NotNil(t, verifier.keypairVerifiers, "keypairVerifiers should be set when useArtifactoryKeys=true")
 }

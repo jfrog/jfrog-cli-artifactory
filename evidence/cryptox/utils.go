@@ -7,16 +7,17 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"hash"
+	"testing"
+
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"golang.org/x/crypto/ssh"
-	"hash"
-	"strings"
-	"testing"
 
 	"github.com/secure-systems-lab/go-securesystemslib/cjson"
 )
@@ -194,8 +195,6 @@ func GenerateFingerprint(pub crypto.PublicKey) (string, error) {
 	if pub == nil {
 		return "", errorutils.CheckError(fmt.Errorf("public key not available"))
 	}
-	key, _ := ssh.NewPublicKey(pub)
-	ssh.FingerprintSHA256(key)
 	pubBytes, err := x509.MarshalPKIXPublicKey(pub)
 
 	if err != nil {
@@ -203,10 +202,5 @@ func GenerateFingerprint(pub crypto.PublicKey) (string, error) {
 	}
 
 	sum256 := sha256.Sum256(pubBytes)
-	hexParts := make([]string, len(sum256))
-	for i, b := range sum256 {
-		hexParts[i] = hex.EncodeToString([]byte{b})
-	}
-
-	return strings.Join(hexParts, ":"), nil
+	return base64.StdEncoding.EncodeToString(sum256[:]), nil
 }

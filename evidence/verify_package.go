@@ -3,9 +3,10 @@ package evidence
 import (
 	"errors"
 	"fmt"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	"strings"
 
-	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
+	cliUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
 
@@ -54,7 +55,7 @@ func (c *verifyEvidencePackage) Run() error {
 	if err != nil {
 		return fmt.Errorf("failed to get package type: %w", err)
 	}
-	metadataClient, err := utils.CreateMetadataServiceManager(c.serverDetails, false)
+	metadataClient, err := cliUtils.CreateMetadataServiceManager(c.serverDetails, false)
 	if err != nil {
 		return fmt.Errorf("failed to create metadata service manager: %w", err)
 	}
@@ -68,7 +69,7 @@ func (c *verifyEvidencePackage) Run() error {
 	path := fmt.Sprintf("%s/%s", c.basePackage.PackageName, c.basePackage.PackageVersion)
 
 	query := fmt.Sprintf(aqlPackageQueryTemplate, c.basePackage.PackageRepoName, path, fileName)
-	result, err := ExecuteAqlQuery(query, artifactoryClient)
+	result, err := utils.ExecuteAqlQuery(query, artifactoryClient)
 	if err != nil {
 		return fmt.Errorf("failed to execute AQL query: %w", err)
 	}

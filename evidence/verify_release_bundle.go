@@ -2,6 +2,7 @@ package evidence
 
 import (
 	"fmt"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
@@ -49,7 +50,7 @@ func (c *verifyEvidenceReleaseBundle) Run() error {
 	}
 	repoKey := buildRepoKey(c.project)
 	path := fmt.Sprintf("%s/%s", c.releaseBundle, c.releaseBundleVersion)
-	result, err := ExecuteAqlQuery(fmt.Sprintf(aqlReleaseBundleQueryTemplate, repoKey, path, "release-bundle.json.evd"), artifactoryClient)
+	result, err := utils.ExecuteAqlQuery(fmt.Sprintf(aqlReleaseBundleQueryTemplate, repoKey, path, "release-bundle.json.evd"), artifactoryClient)
 	if err != nil {
 		return fmt.Errorf("failed to execute AQL query: %w", err)
 	}

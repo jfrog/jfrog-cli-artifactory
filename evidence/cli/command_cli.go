@@ -198,6 +198,7 @@ func validateKeys(ctx *components.Context) error {
 		if len(providedKeys) == 0 && !ctx.GetBoolFlagValue(useArtifactoryKeys) {
 			return errorutils.CheckErrorf("JFROG_CLI_SIGNING_KEY env variable or --keys flag or --use-artifactory-keys must be provided when verifying evidence")
 		}
+		return nil
 	}
 	if len(providedKeys) > 0 {
 		joinedKeys := strings.Join(append(providedKeys, signingKeyValue), ";")

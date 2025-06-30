@@ -3,25 +3,21 @@ package evidence
 import (
 	"encoding/json"
 	"fmt"
-	clientLog "github.com/jfrog/jfrog-client-go/utils/log"
-	"io"
-
 	"github.com/gookit/color"
-	gofrogio "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cryptox"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/artifactory"
-	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/onemodel"
+	clientLog "github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 var success = color.Green.Render("success")
 var failed = color.Red.Render("failed")
 
-const searchEvidenceQuery = `{"query":"{ evidence { searchEvidence( where: { hasSubjectWith: { repositoryKey: \"%s\", path: \"%s\", name: \"%s\" }} ) { edges { cursor node { downloadPath predicateType createdAt createdBy subject { sha256 } } } } } }"}`
+const searchEvidenceQuery = `{"query":"{ evidence { searchEvidence( where: { hasSubjectWith: { repositoryKey: \"%s\", path: \"%s\", name: \"%s\" }} ) { edges { cursor node { downloadPath predicateType createdAt createdBy subject { sha256 } signingKey {alias, publicKey} } } } } }"}`
 
 // verifyEvidenceBase provides shared logic for evidence verification commands.
 type verifyEvidenceBase struct {
@@ -190,27 +186,4 @@ func getColoredStatus(status model.VerificationStatus) string {
 	default:
 		return failed
 	}
-}
-
-// ExecuteAqlQuery executes an AQL query and returns the result.
-func ExecuteAqlQuery(query string, client *artifactory.ArtifactoryServicesManager) (*AqlResult, error) {
-	clientLog.Debug("Getting artifactory sha256 using AQL query:", query)
-	stream, err := (*client).Aql(query)
-	if err != nil {
-		return nil, err
-	}
-	defer gofrogio.Close(stream, &err)
-	result, err := io.ReadAll(stream)
-	if err != nil {
-		return nil, err
-	}
-	parsedResult := new(AqlResult)
-	if err = json.Unmarshal(result, parsedResult); err != nil {
-		return nil, err
-	}
-	return parsedResult, nil
-}
-
-type AqlResult struct {
-	Results []*servicesUtils.ResultItem `json:"results,omitempty"`
 }

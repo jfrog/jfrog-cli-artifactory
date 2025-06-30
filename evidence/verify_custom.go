@@ -2,6 +2,7 @@ package evidence
 
 import (
 	"fmt"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	"strings"
 
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -40,7 +41,7 @@ func (v *VerifyEvidenceCustom) Run() error {
 		return fmt.Errorf("failed to create Artifactory client: %w", err)
 	}
 	query := prepareAqlQuery(path, repo, name)
-	result, err := ExecuteAqlQuery(query, client)
+	result, err := utils.ExecuteAqlQuery(query, client)
 	if err != nil {
 		return fmt.Errorf("failed to execute AQL query: %w", err)
 	}

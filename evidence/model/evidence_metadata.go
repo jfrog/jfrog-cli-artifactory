@@ -46,5 +46,6 @@ type EvidenceSubject struct {
 }
 
 type SingingKey struct {
-	Alias string `json:"alias"`
+	Alias     string `json:"alias"`
+	PublicKey string `json:"publicKey"`
 }

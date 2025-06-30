@@ -346,7 +346,7 @@ func TestValidateResponse_NilResponse(t *testing.T) {
 func TestVerifyEvidenceBase_SearchEvidenceQueryExactMatch(t *testing.T) {
 	// Test the exact query string to protect against accidental modifications
 	// This test ensures the GraphQL query structure remains unchanged
-	expectedQuery := `{"query":"{ evidence { searchEvidence( where: { hasSubjectWith: { repositoryKey: \"%s\", path: \"%s\", name: \"%s\" }} ) { edges { cursor node { downloadPath predicateType createdAt createdBy subject { sha256 } } } } } }"}`
+	expectedQuery := `{"query":"{ evidence { searchEvidence( where: { hasSubjectWith: { repositoryKey: \"%s\", path: \"%s\", name: \"%s\" }} ) { edges { cursor node { downloadPath predicateType createdAt createdBy subject { sha256 } signingKey {alias, publicKey} } } } } }"}`
 
 	assert.Equal(t, expectedQuery, searchEvidenceQuery,
 		"searchEvidenceQuery has been modified. If this change is intentional, please update this test. "+
