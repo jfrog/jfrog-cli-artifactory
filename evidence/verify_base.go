@@ -17,7 +17,8 @@ import (
 var success = color.Green.Render("success")
 var failed = color.Red.Render("failed")
 
-const searchEvidenceQuery = `{"query":"{ evidence { searchEvidence( where: { hasSubjectWith: { repositoryKey: \"%s\", path: \"%s\", name: \"%s\" }} ) { edges { cursor node { downloadPath predicateType createdAt createdBy subject { sha256 } signingKey {alias, publicKey} } } } } }"}`
+const searchEvidenceQueryWithPublicKey = `{"query":"{ evidence { searchEvidence( where: { hasSubjectWith: { repositoryKey: \"%s\", path: \"%s\", name: \"%s\" }} ) { edges { cursor node { downloadPath predicateType createdAt createdBy subject { sha256 } signingKey {alias, publicKey} } } } } }"}`
+const searchEvidenceQueryWithoutPublicKey = `{"query":"{ evidence { searchEvidence( where: { hasSubjectWith: { repositoryKey: \"%s\", path: \"%s\", name: \"%s\" }} ) { edges { cursor node { downloadPath predicateType createdAt createdBy subject { sha256 } } } } } }"}`
 
 // verifyEvidenceBase provides shared logic for evidence verification commands.
 type verifyEvidenceBase struct {
@@ -69,7 +70,12 @@ func (v *verifyEvidenceBase) queryEvidenceMetadata(repo string, path string, nam
 	if err != nil {
 		return nil, err
 	}
-	query := fmt.Sprintf(searchEvidenceQuery, repo, path, name)
+	var query string
+	if v.useArtifactoryKeys {
+		query = fmt.Sprintf(searchEvidenceQueryWithPublicKey, repo, path, name)
+	} else {
+		query = fmt.Sprintf(searchEvidenceQueryWithoutPublicKey, repo, path, name)
+	}
 	clientLog.Debug("Fetch evidence metadata using query:", query)
 	queryByteArray := []byte(query)
 	response, err := v.oneModelClient.GraphqlQuery(queryByteArray)

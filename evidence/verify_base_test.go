@@ -29,8 +29,24 @@ func (m *MockOneModelManagerBase) GraphqlQuery(_ []byte) ([]byte, error) {
 	return m.GraphqlResponse, nil
 }
 
+// MockOneModelManagerWithQueryCapture captures the GraphQL query for testing
+type MockOneModelManagerWithQueryCapture struct {
+	GraphqlResponse []byte
+	GraphqlError    error
+	CapturedQuery   []byte
+}
+
+func (m *MockOneModelManagerWithQueryCapture) GraphqlQuery(query []byte) ([]byte, error) {
+	m.CapturedQuery = query
+	if m.GraphqlError != nil {
+		return nil, m.GraphqlError
+	}
+	return m.GraphqlResponse, nil
+}
+
 // Satisfy interface for onemodel.Manager
 var _ onemodel.Manager = (*MockOneModelManagerBase)(nil)
+var _ onemodel.Manager = (*MockOneModelManagerWithQueryCapture)(nil)
 
 // Helper to capture output for testing print functions
 func captureOutput(f func()) string {
@@ -192,13 +208,30 @@ func TestVerifyEvidenceBase_CreateArtifactoryClient_Error(t *testing.T) {
 		assert.NotNil(t, client)
 	}
 }
-
-func TestVerifyEvidenceBase_QueryEvidenceMetadata_Success(t *testing.T) {
-	mockManager := &MockOneModelManagerBase{
+func TestVerifyEvidenceBase_QueryEvidenceMetadata_SuccessWithPublicKey(t *testing.T) {
+	mockManager := &MockOneModelManagerWithQueryCapture{
 		GraphqlResponse: []byte(`{"data":{"evidence":{"searchEvidence":{"edges":[{"cursor":"c","node":{"downloadPath":"p","predicateType":"t","predicateCategory":"cat","createdAt":"now","createdBy":"me","subject":{"sha256":"abc"},"signingKey":{"alias":"a"}}}]}}}}`),
 	}
 
-	v := &verifyEvidenceBase{oneModelClient: mockManager}
+	v := &verifyEvidenceBase{
+		oneModelClient:     mockManager,
+		useArtifactoryKeys: true,
+	}
+	edges, err := v.queryEvidenceMetadata("test-repo", "test/path", "test-file.txt")
+	assert.NoError(t, err)
+	assert.NotNil(t, edges)
+	assert.Equal(t, 1, len(*edges))
+}
+
+func TestVerifyEvidenceBase_QueryEvidenceMetadata_SuccessWithoutPublicKey(t *testing.T) {
+	mockManager := &MockOneModelManagerWithQueryCapture{
+		GraphqlResponse: []byte(`{"data":{"evidence":{"searchEvidence":{"edges":[{"cursor":"c","node":{"downloadPath":"p","predicateType":"t","predicateCategory":"cat","createdAt":"now","createdBy":"me","subject":{"sha256":"abc"},"signingKey":{"alias":"a"}}}]}}}}`),
+	}
+
+	v := &verifyEvidenceBase{
+		oneModelClient:     mockManager,
+		useArtifactoryKeys: false,
+	}
 	edges, err := v.queryEvidenceMetadata("test-repo", "test/path", "test-file.txt")
 	assert.NoError(t, err)
 	assert.NotNil(t, edges)
@@ -206,7 +239,7 @@ func TestVerifyEvidenceBase_QueryEvidenceMetadata_Success(t *testing.T) {
 }
 
 func TestVerifyEvidenceBase_QueryEvidenceMetadata_GraphqlError(t *testing.T) {
-	mockManager := &MockOneModelManagerBase{
+	mockManager := &MockOneModelManagerWithQueryCapture{
 		GraphqlError: errors.New("graphql query failed"),
 	}
 
@@ -218,7 +251,7 @@ func TestVerifyEvidenceBase_QueryEvidenceMetadata_GraphqlError(t *testing.T) {
 }
 
 func TestVerifyEvidenceBase_QueryEvidenceMetadata_UnmarshalError(t *testing.T) {
-	mockManager := &MockOneModelManagerBase{
+	mockManager := &MockOneModelManagerWithQueryCapture{
 		GraphqlResponse: []byte("invalid json"),
 	}
 
@@ -229,7 +262,7 @@ func TestVerifyEvidenceBase_QueryEvidenceMetadata_UnmarshalError(t *testing.T) {
 }
 
 func TestVerifyEvidenceBase_QueryEvidenceMetadata_NoEdges(t *testing.T) {
-	mockManager := &MockOneModelManagerBase{
+	mockManager := &MockOneModelManagerWithQueryCapture{
 		GraphqlResponse: []byte(`{"data":{"evidence":{"searchEvidence":{"edges":[]}}}}`),
 	}
 
@@ -348,12 +381,12 @@ func TestVerifyEvidenceBase_SearchEvidenceQueryExactMatch(t *testing.T) {
 	// This test ensures the GraphQL query structure remains unchanged
 	expectedQuery := `{"query":"{ evidence { searchEvidence( where: { hasSubjectWith: { repositoryKey: \"%s\", path: \"%s\", name: \"%s\" }} ) { edges { cursor node { downloadPath predicateType createdAt createdBy subject { sha256 } signingKey {alias, publicKey} } } } } }"}`
 
-	assert.Equal(t, expectedQuery, searchEvidenceQuery,
-		"searchEvidenceQuery has been modified. If this change is intentional, please update this test. "+
+	assert.Equal(t, expectedQuery, searchEvidenceQueryWithPublicKey,
+		"searchEvidenceQueryWithPublicKey has been modified. If this change is intentional, please update this test. "+
 			"This test protects against accidental modifications to the GraphQL query structure.")
 
 	// Verify the query can be formatted with test parameters
-	formattedQuery := fmt.Sprintf(searchEvidenceQuery, "test-repo", "test/path", "test-file.txt")
+	formattedQuery := fmt.Sprintf(searchEvidenceQueryWithPublicKey, "test-repo", "test/path", "test-file.txt")
 	assert.Contains(t, formattedQuery, "test-repo")
 	assert.Contains(t, formattedQuery, "test/path")
 	assert.Contains(t, formattedQuery, "test-file.txt")
@@ -415,4 +448,84 @@ func TestVerifyEvidenceBase_MultipleFormats(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+func TestVerifyEvidenceBase_QueryEvidenceMetadata_QueryContainsPublicKey_WhenUseArtifactoryKeysTrue(t *testing.T) {
+	mockManager := &MockOneModelManagerWithQueryCapture{
+		GraphqlResponse: []byte(`{"data":{"evidence":{"searchEvidence":{"edges":[{"cursor":"c","node":{"downloadPath":"p","predicateType":"t","createdAt":"now","createdBy":"me","subject":{"sha256":"abc"},"signingKey":{"alias":"a","publicKey":"test-key"}}}]}}}}`),
+	}
+
+	v := &verifyEvidenceBase{
+		oneModelClient:     mockManager,
+		useArtifactoryKeys: true,
+	}
+	_, err := v.queryEvidenceMetadata("test-repo", "test/path", "test-file.txt")
+	assert.NoError(t, err)
+
+	// Verify that the captured query contains publicKey
+	capturedQuery := string(mockManager.CapturedQuery)
+	assert.Contains(t, capturedQuery, "publicKey", "Query should contain publicKey when useArtifactoryKeys is true")
+	assert.Contains(t, capturedQuery, "signingKey", "Query should contain signingKey when useArtifactoryKeys is true")
+}
+
+func TestVerifyEvidenceBase_QueryEvidenceMetadata_QueryContainsPublicKey_WhenUseArtifactoryKeysFalse(t *testing.T) {
+	mockManager := &MockOneModelManagerWithQueryCapture{
+		GraphqlResponse: []byte(`{"data":{"evidence":{"searchEvidence":{"edges":[{"cursor":"c","node":{"downloadPath":"p","predicateType":"t","createdAt":"now","createdBy":"me","subject":{"sha256":"abc"}}}]}}}}`),
+	}
+
+	v := &verifyEvidenceBase{
+		oneModelClient:     mockManager,
+		useArtifactoryKeys: false,
+	}
+	_, err := v.queryEvidenceMetadata("test-repo", "test/path", "test-file.txt")
+	assert.NoError(t, err)
+
+	// Verify that the captured query does NOT contain publicKey or signingKey
+	capturedQuery := string(mockManager.CapturedQuery)
+	assert.NotContains(t, capturedQuery, "publicKey", "Query should NOT contain publicKey when useArtifactoryKeys is false")
+	assert.NotContains(t, capturedQuery, "signingKey", "Query should NOT contain signingKey when useArtifactoryKeys is false")
+}
+
+func TestVerifyEvidenceBase_QueryEvidenceMetadata_QueryStructure_WithPublicKey(t *testing.T) {
+	mockManager := &MockOneModelManagerWithQueryCapture{
+		GraphqlResponse: []byte(`{"data":{"evidence":{"searchEvidence":{"edges":[{"cursor":"c","node":{"downloadPath":"p","predicateType":"t","createdAt":"now","createdBy":"me","subject":{"sha256":"abc"},"signingKey":{"alias":"a","publicKey":"test-key"}}}]}}}}`),
+	}
+
+	v := &verifyEvidenceBase{
+		oneModelClient:     mockManager,
+		useArtifactoryKeys: true,
+	}
+	_, err := v.queryEvidenceMetadata("test-repo", "test/path", "test-file.txt")
+	assert.NoError(t, err)
+
+	// Verify the query structure and parameters
+	capturedQuery := string(mockManager.CapturedQuery)
+	assert.Contains(t, capturedQuery, "test-repo", "Query should contain the repository parameter")
+	assert.Contains(t, capturedQuery, "test/path", "Query should contain the path parameter")
+	assert.Contains(t, capturedQuery, "test-file.txt", "Query should contain the name parameter")
+
+	// Verify the GraphQL structure includes signingKey with publicKey
+	assert.Contains(t, capturedQuery, "signingKey {alias, publicKey}", "Query should request signingKey with alias and publicKey")
+}
+
+func TestVerifyEvidenceBase_QueryEvidenceMetadata_QueryStructure_WithoutPublicKey(t *testing.T) {
+	mockManager := &MockOneModelManagerWithQueryCapture{
+		GraphqlResponse: []byte(`{"data":{"evidence":{"searchEvidence":{"edges":[{"cursor":"c","node":{"downloadPath":"p","predicateType":"t","createdAt":"now","createdBy":"me","subject":{"sha256":"abc"}}}]}}}}`),
+	}
+
+	v := &verifyEvidenceBase{
+		oneModelClient:     mockManager,
+		useArtifactoryKeys: false,
+	}
+	_, err := v.queryEvidenceMetadata("test-repo", "test/path", "test-file.txt")
+	assert.NoError(t, err)
+
+	// Verify the query structure and parameters
+	capturedQuery := string(mockManager.CapturedQuery)
+	assert.Contains(t, capturedQuery, "test-repo", "Query should contain the repository parameter")
+	assert.Contains(t, capturedQuery, "test/path", "Query should contain the path parameter")
+	assert.Contains(t, capturedQuery, "test-file.txt", "Query should contain the name parameter")
+
+	// Verify the GraphQL structure does NOT include signingKey with publicKey
+	assert.NotContains(t, capturedQuery, "signingKey {alias, publicKey}", "Query should NOT request signingKey with alias and publicKey when useArtifactoryKeys is false")
 }
