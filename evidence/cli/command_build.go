@@ -38,6 +38,24 @@ func (ebc *evidenceBuildCommand) CreateEvidence(ctx *components.Context, serverD
 	return ebc.execute(createCmd)
 }
 
+func (ebc *evidenceBuildCommand) VerifyEvidences(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
+	err := ebc.validateEvidenceBuildContext(ctx)
+	if err != nil {
+		return err
+	}
+
+	verifyCmd := evidence.NewVerifyEvidencesBuild(
+		serverDetails,
+		ebc.ctx.GetStringFlagValue(project),
+		ebc.ctx.GetStringFlagValue(buildName),
+		ebc.ctx.GetStringFlagValue(buildNumber),
+		ebc.ctx.GetStringFlagValue(format),
+		ebc.ctx.GetStringsArrFlagValue(keys),
+		ebc.ctx.GetBoolFlagValue(useArtifactoryKeys),
+	)
+	return ebc.execute(verifyCmd)
+}
+
 func (ebc *evidenceBuildCommand) validateEvidenceBuildContext(ctx *components.Context) error {
 	if !ctx.IsFlagSet(buildNumber) || assertValueProvided(ctx, buildNumber) != nil {
 		return errorutils.CheckErrorf("--%s is a mandatory field for creating a Release Bundle evidence", buildNumber)

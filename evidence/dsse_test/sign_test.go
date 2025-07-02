@@ -1,7 +1,8 @@
-package dsse
+package dsse_test
 
 import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cryptox"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
@@ -15,7 +16,7 @@ func TestNewEnvelopeSigner(t *testing.T) {
 	rsaSinger, err := cryptox.NewRSAPSSSignerVerifierFromSSLibKey(privateKey)
 	assert.NoError(t, err)
 	assert.NotNil(t, rsaSinger)
-	es, err := NewEnvelopeSigner(rsaSinger)
+	es, err := dsse.NewEnvelopeSigner(rsaSinger)
 	assert.NoError(t, err)
 	assert.NotNil(t, es)
 }
@@ -26,7 +27,7 @@ func TestSignPayload(t *testing.T) {
 	rsaSinger, err := cryptox.NewRSAPSSSignerVerifierFromSSLibKey(privateKey)
 	assert.NoError(t, err)
 	assert.NotNil(t, rsaSinger)
-	es, err := NewEnvelopeSigner(rsaSinger)
+	es, err := dsse.NewEnvelopeSigner(rsaSinger)
 	assert.NoError(t, err)
 	assert.NotNil(t, es)
 	env, err := es.SignPayload("payloadType", []byte("payload"))
