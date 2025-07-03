@@ -173,7 +173,7 @@ func CreateSonarConfiguration(yamlNode *yaml.Node) (sonarConfig *evidenceprovide
 	if err := yamlNode.Decode(&sonarConfig); err != nil {
 		return nil, err
 	}
-	log.Debug("Reading sonarqube config", sonarConfig)
+	log.Debug("Read sonarqube config with these values", sonarConfig.URL, sonarConfig.ReportTaskFile, sonarConfig.MaxRetries, sonarConfig.RetryInterval)
 	return sonarConfig, nil
 }
 
