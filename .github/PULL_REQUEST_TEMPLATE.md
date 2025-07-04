@@ -1,5 +1,6 @@
 - [ ] All [tests](https://github.com/jfrog/jfrog-cli-core#tests) passed. If this feature is not already covered by the tests, I added new tests.
 - [ ] All [static analysis checks](https://github.com/jfrog/jfrog-cli-core/actions/workflows/analysis.yml) passed.
-- [ ] This pull request is on the dev branch.
+- [ ] Appropriate label is added to auto generate release notes.
 - [ ] I used gofmt for formatting the code before submitting the pull request.
+- [ ] PR description is clear and concise, and it includes the proposed solution/fix.
 -----
