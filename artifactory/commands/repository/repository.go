@@ -20,6 +20,7 @@ const (
 	// The actual field in the repository configuration is an array (plural) but in practice only one environment is allowed.
 	// This is why the question differs from the repository configuration.
 	environmentsKey = "environments"
+	singleConfig    = 1
 )
 
 type RepoCommand struct {
@@ -36,23 +37,17 @@ func (rc *RepoCommand) TemplatePath() string {
 	return rc.templatePath
 }
 
-func (rc *RepoCommand) PerformRepoCmd(isUpdate bool) (err error) {
-	repoConfigMap, err := utils.ConvertTemplateToMap(rc)
-	if err != nil {
-		return err
-	}
-	// All the values in the template are strings
-	// Go over the confMap and write the values with the correct type using the writersMap
-	for key, value := range repoConfigMap {
-		if err = utils.ValidateMapEntry(key, value, writersMap); err != nil {
-			return
-		}
-		if err = writersMap[key](&repoConfigMap, key, fmt.Sprint(value)); err != nil {
-			return
-		}
-	}
-	// Write a JSON with the correct values
-	content, err := json.Marshal(repoConfigMap)
+type handler interface {
+	Execute(repoConfigMaps []map[string]interface{}, servicesManager artifactory.ArtifactoryServicesManager, isUpdate bool) error
+}
+
+type (
+	MultipleRepositoryHandler struct{}
+	SingleRepositoryHandler   struct{}
+)
+
+func (rc *RepoCommand) PerformRepoCmd(isUpdate bool) error {
+	repoConfigMaps, err := utils.ConvertTemplateToMaps(rc)
 	if err != nil {
 		return err
 	}
@@ -61,26 +56,79 @@ func (rc *RepoCommand) PerformRepoCmd(isUpdate bool) (err error) {
 	if err != nil {
 		return err
 	}
-	// Rclass and packageType are mandatory keys in our templates
-	// Using their values we'll pick the suitable handler from one of the handler maps to create/update a repository
-	var handlerFunc func(servicesManager artifactory.ArtifactoryServicesManager, jsonConfig []byte, isUpdate bool) error
-	packageType := fmt.Sprint(repoConfigMap[PackageType])
-	switch repoConfigMap[Rclass] {
-	case Local:
-		handlerFunc = localRepoHandlers[packageType]
-	case Remote:
-		handlerFunc = remoteRepoHandlers[packageType]
-	case Virtual:
-		handlerFunc = virtualRepoHandlers[packageType]
-	case Federated:
-		handlerFunc = federatedRepoHandlers[packageType]
-	default:
-		return errorutils.CheckErrorf("unsupported rclass: %s", repoConfigMap[Rclass])
+
+	var strategy handler
+	if len(repoConfigMaps) > singleConfig {
+		strategy = &MultipleRepositoryHandler{}
+	} else {
+		strategy = &SingleRepositoryHandler{}
 	}
-	if handlerFunc == nil {
-		return errors.New("unsupported package type: " + packageType)
+
+	return strategy.Execute(repoConfigMaps, servicesManager, isUpdate)
+}
+
+func (m *MultipleRepositoryHandler) Execute(repoConfigMaps []map[string]interface{}, servicesManager artifactory.ArtifactoryServicesManager, isUpdate bool) error {
+	content, err := json.Marshal(repoConfigMaps)
+	if err != nil {
+		return err
 	}
-	return handlerFunc(servicesManager, content, isUpdate)
+	return multipleRepoHandler(servicesManager, content, isUpdate)
+}
+
+func (s *SingleRepositoryHandler) Execute(repoConfigMaps []map[string]interface{}, servicesManager artifactory.ArtifactoryServicesManager, isUpdate bool) error {
+	// Go over the confMap and write the values with the correct type using the writersMap
+	for _, repoConfigMap := range repoConfigMaps {
+		for key, value := range repoConfigMap {
+			if err := utils.ValidateMapEntry(key, value, writersMap); err != nil {
+				return err
+			}
+			if err := writersMap[key](&repoConfigMap, key, fmt.Sprint(value)); err != nil {
+				return err
+			}
+		}
+
+		content, err := json.Marshal(repoConfigMap)
+		if err != nil {
+			return err
+		}
+
+		// Rclass and packageType are mandatory keys in our templates
+		// Using their values we'll pick the suitable handler from one of the handler maps to create/update a repository
+		var handlerFunc func(servicesManager artifactory.ArtifactoryServicesManager, jsonConfig []byte, isUpdate bool) error
+		packageType := fmt.Sprint(repoConfigMap[PackageType])
+		switch repoConfigMap[Rclass] {
+		case Local:
+			handlerFunc = localRepoHandlers[packageType]
+		case Remote:
+			handlerFunc = remoteRepoHandlers[packageType]
+		case Virtual:
+			handlerFunc = virtualRepoHandlers[packageType]
+		case Federated:
+			handlerFunc = federatedRepoHandlers[packageType]
+		default:
+			return errorutils.CheckErrorf("unsupported rclass: %s", repoConfigMap[Rclass])
+		}
+		if handlerFunc == nil {
+			return errors.New("unsupported package type: " + packageType)
+		}
+
+		if err := handlerFunc(servicesManager, content, isUpdate); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func multipleRepoHandler(servicesManager artifactory.ArtifactoryServicesManager, jsonConfig []byte, isUpdate bool) error {
+	var err error
+
+	if isUpdate {
+		err = servicesManager.UpdateRepositoriesInBatch().PerformBatchRequest(jsonConfig)
+	} else {
+		err = servicesManager.CreateRepositoriesInBatch().PerformBatchRequest(jsonConfig)
+	}
+
+	return err
 }
 
 var writersMap = map[string]ioutils.AnswerWriter{
