@@ -7,6 +7,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ide/jetbrains"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
 
 func GetCommands() []components.Command {
@@ -30,6 +31,9 @@ This command will:
 - Create automatic backups before making changes
 - Require IDEs to be restarted to apply changes
 
+Optional: Provide server configuration flags (--url, --user, --password, --access-token, or --server-id) 
+to enable repository validation. Without these flags, the command will only modify the local IDE configuration.
+
 Supported IDEs: IntelliJ IDEA, PyCharm, WebStorm, PhpStorm, RubyMine, CLion, DataGrip, GoLand, Rider, Android Studio, AppCode, RustRover, Aqua`,
 		},
 	}
@@ -45,19 +49,38 @@ func jetbrainsConfigCmd(c *components.Context) error {
 		return fmt.Errorf("repository URL cannot be empty\n\nUsage: jf rt jetbrains-config <repository-url>")
 	}
 
-	// Extract repo key from repository URL for validation
+	// Extract repo key from repository URL for potential validation
 	repoKey := extractRepoKeyFromRepositoryURL(repositoryURL)
 
-	// Create server details from flags
-	rtDetails, err := pluginsCommon.CreateArtifactoryDetailsByFlags(c)
-	if err != nil {
-		return err
+	// Create server details only if server configuration flags are provided
+	// This makes server configuration optional for basic JetBrains setup
+	var rtDetails *config.ServerDetails
+	var err error
+
+	// Check if any server configuration flags are provided
+	if hasServerConfigFlags(c) {
+		rtDetails, err = pluginsCommon.CreateArtifactoryDetailsByFlags(c)
+		if err != nil {
+			return fmt.Errorf("failed to create server configuration: %w", err)
+		}
 	}
 
 	jetbrainsCmd := jetbrains.NewJetbrainsCommand(repositoryURL, repoKey)
-	jetbrainsCmd.SetServerDetails(rtDetails)
+	if rtDetails != nil {
+		jetbrainsCmd.SetServerDetails(rtDetails)
+	}
 
 	return jetbrainsCmd.Run()
+}
+
+// hasServerConfigFlags checks if any server configuration flags are provided
+func hasServerConfigFlags(c *components.Context) bool {
+	// Check for common server configuration flags
+	return c.IsFlagSet("url") ||
+		c.IsFlagSet("user") ||
+		c.IsFlagSet("password") ||
+		c.IsFlagSet("access-token") ||
+		c.IsFlagSet("server-id")
 }
 
 // extractRepoKeyFromRepositoryURL extracts the repository key from a JetBrains repository URL

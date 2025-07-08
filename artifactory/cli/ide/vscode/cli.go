@@ -7,6 +7,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ide/vscode"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
 
 const (
@@ -34,6 +35,9 @@ This command will:
 - Create an automatic backup before making changes
 - Require VSCode to be restarted to apply changes
 
+Optional: Provide server configuration flags (--url, --user, --password, --access-token, or --server-id) 
+to enable repository validation. Without these flags, the command will only modify the local VSCode configuration.
+
 Note: On macOS/Linux, you may need to run with sudo for system-installed VSCode.`,
 		},
 	}
@@ -57,19 +61,38 @@ func vscodeConfigCmd(c *components.Context) error {
 
 	productPath := c.GetStringFlagValue(productJsonPath)
 
-	// Extract repo key from service URL for validation
+	// Extract repo key from service URL for potential validation
 	repoKey := extractRepoKeyFromServiceURL(serviceURL)
 
-	// Create server details from flags
-	rtDetails, err := pluginsCommon.CreateArtifactoryDetailsByFlags(c)
-	if err != nil {
-		return err
+	// Create server details only if server configuration flags are provided
+	// This makes server configuration optional for basic VS Code setup
+	var rtDetails *config.ServerDetails
+	var err error
+
+	// Check if any server configuration flags are provided
+	if hasServerConfigFlags(c) {
+		rtDetails, err = pluginsCommon.CreateArtifactoryDetailsByFlags(c)
+		if err != nil {
+			return fmt.Errorf("failed to create server configuration: %w", err)
+		}
 	}
 
 	vscodeCmd := vscode.NewVscodeCommand(serviceURL, productPath, repoKey)
-	vscodeCmd.SetServerDetails(rtDetails)
+	if rtDetails != nil {
+		vscodeCmd.SetServerDetails(rtDetails)
+	}
 
 	return vscodeCmd.Run()
+}
+
+// hasServerConfigFlags checks if any server configuration flags are provided
+func hasServerConfigFlags(c *components.Context) bool {
+	// Check for common server configuration flags
+	return c.IsFlagSet("url") ||
+		c.IsFlagSet("user") ||
+		c.IsFlagSet("password") ||
+		c.IsFlagSet("access-token") ||
+		c.IsFlagSet("server-id")
 }
 
 // extractRepoKeyFromServiceURL extracts the repository key from a VSCode service URL
