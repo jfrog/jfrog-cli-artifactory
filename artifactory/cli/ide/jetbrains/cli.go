@@ -23,7 +23,6 @@ https://<artifactory-url>/artifactory/api/jetbrainsplugins/<repo-key>
 
 Examples:
   jf rt jetbrains-config https://mycompany.jfrog.io/artifactory/api/jetbrainsplugins/jetbrains-plugins
-  jf rt jetbrains-config https://vsjetd2c04.jfrogdev.org/artifactory/api/jetbrainsplugins/jetbrains-remote
 
 This command will:
 - Detect all installed JetBrains IDEs

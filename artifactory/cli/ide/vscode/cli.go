@@ -28,7 +28,6 @@ https://<artifactory-url>/artifactory/api/vscodeextensions/<repo-key>/_apis/publ
 
 Examples:
   jf rt vscode-config https://mycompany.jfrog.io/artifactory/api/vscodeextensions/vscode-extensions/_apis/public/gallery
-  jf rt vscode-config https://vscoded2c07.jfrogdev.org/artifactory/api/vscodeextensions/vscode-remote/_apis/public/gallery
 
 This command will:
 - Modify the VSCode product.json file to change the extensions gallery URL
