@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	ioutils "github.com/jfrog/gofrog/io"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/cli/ide/jetbrains"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/cli/ide/vscode"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/buildinfo"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/container"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/curl"
@@ -83,7 +85,7 @@ const (
 )
 
 func GetCommands() []components.Command {
-	return []components.Command{
+	commands := []components.Command{
 		{
 			Name:        "upload",
 			Flags:       flagkit.GetCommandFlags(flagkit.Upload),
@@ -404,6 +406,12 @@ func GetCommands() []components.Command {
 			Category:    replicCategory,
 		},
 	}
+	// Add all VSCode commands
+	commands = append(commands, vscode.GetCommands()...)
+	// Add all JetBrains commands
+	commands = append(commands, jetbrains.GetCommands()...)
+
+	return commands
 }
 
 func getRetries(c *components.Context) (retries int, err error) {
