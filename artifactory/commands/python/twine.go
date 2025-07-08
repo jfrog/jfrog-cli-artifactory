@@ -7,9 +7,6 @@ import (
 	"os/exec"
 	"strings"
 
-	ioutils "github.com/jfrog/gofrog/io"
-	"github.com/jfrog/jfrog-client-go/utils/io/content"
-
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/utils/pythonutils"
 	rtUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -192,32 +189,35 @@ func (tc *TwineCommand) uploadAndCollectBuildInfo() error {
 		return err
 	}
 
-	var resultItems []servicesUtils.ResultItem
-	for _, artifact := range artifacts {
-		resultItem := servicesUtils.ResultItem{
-			Repo: artifact.OriginalDeploymentRepo,
-			Path: strings.TrimSuffix(artifact.Path, artifact.Name),
-			Name: artifact.Name,
+	var fileInitials string
+	for _, arg := range artifacts {
+		if strings.HasSuffix(arg.Name, ".tar.gz") {
+			fileInitials = strings.TrimSuffix(arg.Name, ".tar.gz")
 		}
-		resultItems = append(resultItems, resultItem)
 	}
 
-	pathToFile, err := writeResultItemsToFile(resultItems)
-	if err != nil {
-		return err
-	}
-
-	reader := content.NewContentReader(pathToFile, content.DefaultKey)
-	defer ioutils.Close(reader, &err)
-
-	propsParams := services.PropsParams{
-		Reader: reader,
-		Props:  fmt.Sprintf("build.name=%s;build.number=%s", buildName, buildNumber),
+	searchParams := services.SearchParams{
+		CommonParams: &servicesUtils.CommonParams{
+			Aql: servicesUtils.Aql{
+				ItemsFind: CreateAqlQueryForSearch(tc.targetRepo, fileInitials),
+			},
+		},
 	}
 
 	servicesManager, err := rtUtils.CreateServiceManager(tc.serverDetails, -1, 0, false)
 	if err != nil {
 		return err
+	}
+
+	searchReader, err := servicesManager.SearchFiles(searchParams)
+	if err != nil {
+		log.Error("Failed to get uploaded twine package: ", err.Error())
+		return err
+	}
+
+	propsParams := services.PropsParams{
+		Reader: searchReader,
+		Props:  fmt.Sprintf("build.name=%s;build.number=%s", buildName, buildNumber),
 	}
 
 	_, err = servicesManager.SetProps(propsParams)
@@ -245,16 +245,16 @@ func (tc *TwineCommand) getRepoConfigFlagProvidedErr() string {
 	return "twine command must not be executed with the following flags: " + coreutils.ListToText(twineRepoConfigFlags)
 }
 
-func writeResultItemsToFile(resultItems []servicesUtils.ResultItem) (filePath string, err error) {
-	writer, err := content.NewContentWriter("results", true, false)
-	if err != nil {
-		return
-	}
-	defer ioutils.Close(writer, &err)
-	for _, resultItem := range resultItems {
-		writer.Write(resultItem)
-	}
-	filePath = writer.GetFilePath()
-
-	return
+func CreateAqlQueryForSearch(repo, fileInitial string) string {
+	itemsPart :=
+		`{` +
+			`"repo": "%s",` +
+			`"$or": [{` +
+			`"$and":[{` +
+			`"path": {"$match": "*"},` +
+			`"name": {"$match": "%s*"}` +
+			`}]` +
+			`}]` +
+			`}`
+	return fmt.Sprintf(itemsPart, repo, fileInitial)
 }
