@@ -157,7 +157,7 @@ func Test_PerformRepoCmd_MultipleRepositories(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/api/v2/repositories/batch" {
-					if r.Method == "PUT" {
+					if r.Method == http.MethodPut {
 						w.WriteHeader(http.StatusCreated)
 					} else {
 						w.WriteHeader(http.StatusOK)
