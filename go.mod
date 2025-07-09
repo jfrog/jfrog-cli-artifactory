@@ -6,23 +6,23 @@ require (
 	github.com/c-bata/go-prompt v0.2.5
 	github.com/forPelevin/gomoji v1.3.0
 	github.com/jfrog/build-info-go v1.10.14
-	github.com/jfrog/froggit-go v1.17.0
+	github.com/jfrog/froggit-go v1.18.0
 	github.com/jfrog/gofrog v1.7.6
-	github.com/jfrog/jfrog-cli-core/v2 v2.59.0
-	github.com/jfrog/jfrog-client-go v1.54.1
+	github.com/jfrog/jfrog-cli-core/v2 v2.59.2
+	github.com/jfrog/jfrog-client-go v1.54.2
 	github.com/pkg/errors v0.9.1
 	github.com/secure-systems-lab/go-securesystemslib v0.8.0
 	github.com/spf13/viper v1.19.0
 	github.com/stretchr/testify v1.10.0
 	github.com/urfave/cli v1.22.16
 	go.uber.org/mock v0.4.0
-	golang.org/x/crypto v0.36.0
+	golang.org/x/crypto v0.37.0
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394
 	golang.org/x/mod v0.24.0
 	gopkg.in/ini.v1 v1.67.0
 )
 
-require golang.org/x/net v0.38.0 // indirect
+require golang.org/x/net v0.39.0 // indirect
 
 require (
 	dario.cat/mergo v1.0.1 // indirect
@@ -46,7 +46,7 @@ require (
 	github.com/gfleury/go-bitbucket-v1 v0.0.0-20230825095122-9bc1711434ab // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-git/go-billy/v5 v5.6.2 // indirect
-	github.com/go-git/go-git/v5 v5.14.0 // indirect
+	github.com/go-git/go-git/v5 v5.16.0 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/zapr v1.3.0 // indirect
 	github.com/gocarina/gocsv v0.0.0-20240520201108-78e41c74b4b1 // indirect
@@ -113,10 +113,10 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/oauth2 v0.23.0 // indirect
-	golang.org/x/sync v0.12.0 // indirect
-	golang.org/x/sys v0.31.0 // indirect
-	golang.org/x/term v0.30.0 // indirect
-	golang.org/x/text v0.23.0 // indirect
+	golang.org/x/sync v0.13.0 // indirect
+	golang.org/x/sys v0.32.0 // indirect
+	golang.org/x/term v0.31.0 // indirect
+	golang.org/x/text v0.24.0 // indirect
 	golang.org/x/time v0.7.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
@@ -132,8 +132,8 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
-replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.31.1-0.20250619122826-54ff6f65b128
+// replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.31.1-0.20250619122826-54ff6f65b128
 
-replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20250623080810-85bcce028748
+// replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20250623080810-85bcce028748
 
 //replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20240811142930-ab9715567376
