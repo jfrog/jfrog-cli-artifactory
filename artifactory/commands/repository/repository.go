@@ -52,6 +52,18 @@ func (rc *RepoCommand) PerformRepoCmd(isUpdate bool) error {
 		return err
 	}
 
+	var missingKeys []string
+
+	for _, config := range repoConfigMaps {
+		if key, ok := config["key"]; !ok || key == "" {
+			missingKeys = append(missingKeys, fmt.Sprintf("%v\n", config))
+		}
+	}
+
+	if len(missingKeys) > 0 {
+		return fmt.Errorf("'key' is missing in the following configs\n: %v", missingKeys)
+	}
+
 	servicesManager, err := rtUtils.CreateServiceManager(rc.serverDetails, -1, 0, false)
 	if err != nil {
 		return err
