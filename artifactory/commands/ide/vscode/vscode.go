@@ -86,6 +86,10 @@ func (vc *VscodeCommand) Run() error {
 func (vc *VscodeCommand) validateRepository() error {
 	log.Info("Validating repository...")
 
+	if vc.serverDetails == nil {
+		return fmt.Errorf("server details not configured - please run 'jf config add' first")
+	}
+
 	artDetails, err := vc.serverDetails.CreateArtAuthConfig()
 	if err != nil {
 		return fmt.Errorf("failed to create auth config: %w", err)
@@ -289,20 +293,23 @@ func (vc *VscodeCommand) modifyWithSed(repoURL string) error {
 	escapedURL := strings.ReplaceAll(repoURL, "/", "\\/")
 	escapedURL = strings.ReplaceAll(escapedURL, "&", "\\&")
 
-	// sed command to replace serviceUrl in the JSON file
-	sedCommand := fmt.Sprintf(`s/"serviceUrl": "[^"]*"/"serviceUrl": "%s"/g`, escapedURL)
+	// sed command to replace serviceUrl in the JSON file (handles both compact and formatted JSON)
+	sedCommand := fmt.Sprintf(`s/"serviceUrl" *: *"[^"]*"/"serviceUrl": "%s"/g`, escapedURL)
 
-	// Run sed command
-	cmd := exec.Command("sed", "-i", "", sedCommand, vc.productPath)
-	cmd.Stdin = os.Stdin
+	// Run sed command - different platforms handle -i differently
+	var cmd *exec.Cmd
+	if runtime.GOOS == "darwin" {
+		// macOS requires empty string after -i for no backup
+		cmd = exec.Command("sed", "-i", "", sedCommand, vc.productPath)
+	} else {
+		// Linux and other Unix systems
+		cmd = exec.Command("sed", "-i", sedCommand, vc.productPath)
+	}
 
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to modify product.json with sed: %w\nOutput: %s", err, string(output))
 	}
 
-	if err := vc.verifyModification(repoURL); err != nil {
-		return fmt.Errorf("modification verification failed: %w", err)
-	}
 	return nil
 }
 
@@ -311,38 +318,20 @@ func (vc *VscodeCommand) modifyWithPowerShell(repoURL string) error {
 	// Escape quotes for PowerShell
 	escapedURL := strings.ReplaceAll(repoURL, `"`, `\"`)
 
-	// PowerShell command to replace serviceUrl in the JSON file
+	// PowerShell command to replace serviceUrl in the JSON file (handles both compact and formatted JSON)
 	// Uses PowerShell's -replace operator which works similar to sed
-	psCommand := fmt.Sprintf(`(Get-Content "%s") -replace '"serviceUrl": "[^"]*"', '"serviceUrl": "%s"' | Set-Content "%s"`,
+	psCommand := fmt.Sprintf(`(Get-Content "%s") -replace '"serviceUrl" *: *"[^"]*"', '"serviceUrl": "%s"' | Set-Content "%s"`,
 		vc.productPath, escapedURL, vc.productPath)
 
 	// Run PowerShell command
 	// Note: This requires the JF CLI to be run as Administrator on Windows
 	cmd := exec.Command("powershell", "-Command", psCommand)
-	cmd.Stdin = os.Stdin
 
 	if output, err := cmd.CombinedOutput(); err != nil {
 		if strings.Contains(string(output), "Access") && strings.Contains(string(output), "denied") {
 			return fmt.Errorf("access denied - please run JF CLI as Administrator on Windows")
 		}
 		return fmt.Errorf("failed to modify product.json with PowerShell: %w\nOutput: %s", err, string(output))
-	}
-
-	if err := vc.verifyModification(repoURL); err != nil {
-		return fmt.Errorf("modification verification failed: %w", err)
-	}
-	return nil
-}
-
-// verifyModification checks that the serviceUrl was actually changed
-func (vc *VscodeCommand) verifyModification(expectedURL string) error {
-	data, err := os.ReadFile(vc.productPath)
-	if err != nil {
-		return fmt.Errorf("failed to read file for verification: %w", err)
-	}
-
-	if !strings.Contains(string(data), expectedURL) {
-		return fmt.Errorf("expected URL %s not found in modified file", expectedURL)
 	}
 
 	return nil

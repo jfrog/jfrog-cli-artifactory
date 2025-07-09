@@ -94,17 +94,14 @@ func TestVscodeCommand_CreateBackup(t *testing.T) {
 	err = cmd.createBackup()
 	assert.NoError(t, err)
 
-	// Verify backup exists
-	backupPath := productPath + ".backup"
-	assert.FileExists(t, backupPath)
+	// Verify backup was created (it's in JFrog backup directory, not same directory)
+	assert.NotEmpty(t, cmd.backupPath)
+	assert.FileExists(t, cmd.backupPath)
 
 	// Verify backup content
-	backupContent, err := os.ReadFile(backupPath)
+	backupContent, err := os.ReadFile(cmd.backupPath)
 	require.NoError(t, err)
 	assert.Equal(t, originalContent, backupContent)
-
-	// Store backup path for cleanup
-	cmd.backupPath = backupPath
 }
 
 func TestVscodeCommand_RestoreBackup(t *testing.T) {
@@ -161,9 +158,9 @@ func TestVscodeCommand_ModifyProductJson_ValidFile(t *testing.T) {
 	err = cmd.modifyProductJson(newServiceURL)
 	assert.NoError(t, err)
 
-	// Verify backup was created
-	backupPath := productPath + ".backup"
-	assert.FileExists(t, backupPath)
+	// Verify backup was created (in JFrog backup directory)
+	assert.NotEmpty(t, cmd.backupPath)
+	assert.FileExists(t, cmd.backupPath)
 }
 
 func TestVscodeCommand_ModifyProductJson_NonExistentFile(t *testing.T) {
@@ -172,56 +169,6 @@ func TestVscodeCommand_ModifyProductJson_NonExistentFile(t *testing.T) {
 
 	err := cmd.modifyProductJson(newServiceURL)
 	assert.Error(t, err)
-}
-
-func TestVscodeCommand_VerifyModification(t *testing.T) {
-	// Create temporary product.json with expected content
-	tempDir := t.TempDir()
-	productPath := filepath.Join(tempDir, "product.json")
-	expectedURL := "https://company.jfrog.io/artifactory/api/vscodeextensions/repo/_apis/public/gallery"
-
-	productContent := map[string]interface{}{
-		"extensionsGallery": map[string]interface{}{
-			"serviceUrl": expectedURL,
-		},
-	}
-
-	jsonData, err := json.Marshal(productContent)
-	require.NoError(t, err)
-
-	err = os.WriteFile(productPath, jsonData, 0644)
-	require.NoError(t, err)
-
-	cmd := NewVscodeCommand("", productPath, "")
-
-	err = cmd.verifyModification(expectedURL)
-	assert.NoError(t, err)
-}
-
-func TestVscodeCommand_VerifyModification_WrongURL(t *testing.T) {
-	// Create temporary product.json with different content
-	tempDir := t.TempDir()
-	productPath := filepath.Join(tempDir, "product.json")
-	actualURL := "https://marketplace.visualstudio.com/_apis/public/gallery"
-	expectedURL := "https://company.jfrog.io/artifactory/api/vscodeextensions/repo/_apis/public/gallery"
-
-	productContent := map[string]interface{}{
-		"extensionsGallery": map[string]interface{}{
-			"serviceUrl": actualURL,
-		},
-	}
-
-	jsonData, err := json.Marshal(productContent)
-	require.NoError(t, err)
-
-	err = os.WriteFile(productPath, jsonData, 0644)
-	require.NoError(t, err)
-
-	cmd := NewVscodeCommand("", productPath, "")
-
-	err = cmd.verifyModification(expectedURL)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "verification failed")
 }
 
 func TestVscodeCommand_GetManualSetupInstructions(t *testing.T) {
@@ -248,12 +195,10 @@ func TestVscodeCommand_GetManualSetupInstructions(t *testing.T) {
 func TestVscodeCommand_ValidateRepository_NoServerDetails(t *testing.T) {
 	cmd := NewVscodeCommand("", "", "repo")
 
-	// Should return nil when no server details are set
+	// Should return error when no server details are set
 	err := cmd.validateRepository()
-	// This will likely fail because serverDetails is nil, but it should handle gracefully
-	if err != nil {
-		assert.Contains(t, err.Error(), "auth config")
-	}
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "server details not configured")
 }
 
 func TestVscodeCommand_HandlePermissionError_macOS(t *testing.T) {

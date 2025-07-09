@@ -132,6 +132,10 @@ func (jc *JetbrainsCommand) Run() error {
 func (jc *JetbrainsCommand) validateRepository() error {
 	log.Info("Validating repository...")
 
+	if jc.serverDetails == nil {
+		return fmt.Errorf("server details not configured")
+	}
+
 	artDetails, err := jc.serverDetails.CreateArtAuthConfig()
 	if err != nil {
 		return fmt.Errorf("failed to create auth config: %w", err)
