@@ -22,7 +22,7 @@ func Test_PerformRepoCmd_SingleRepository(t *testing.T) {
 		isUpdate       bool
 		expectedRepo   services.RepositoryBaseParams
 		expectedStatus int
-		shouldError    bool
+		expErr         error
 	}{
 		{
 			name:         "Create single Maven local repository",
@@ -36,7 +36,7 @@ func Test_PerformRepoCmd_SingleRepository(t *testing.T) {
 				Description: "Test Maven repo",
 			},
 			expectedStatus: http.StatusOK,
-			shouldError:    false,
+			expErr:         nil,
 		},
 		{
 			name:         "Update single Maven local repository",
@@ -50,11 +50,11 @@ func Test_PerformRepoCmd_SingleRepository(t *testing.T) {
 				Description: "Updated Maven repo",
 			},
 			expectedStatus: http.StatusOK,
-			shouldError:    false,
+			expErr:         nil,
 		},
 	}
 
-	for _, tt := range tests {
+	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.expectedStatus)
@@ -80,11 +80,7 @@ func Test_PerformRepoCmd_SingleRepository(t *testing.T) {
 
 			err := repoCmd.PerformRepoCmd(tt.isUpdate)
 
-			if tt.shouldError {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
+			assert.Equal(t, tt.expErr, err, "Testcase %v failed , expected error: %v, got: %v", i+1, tt.expErr, err)
 		})
 	}
 }
@@ -97,7 +93,7 @@ func Test_PerformRepoCmd_MultipleRepositories(t *testing.T) {
 		isUpdate       bool
 		expectedRepos  []services.RepositoryBaseParams
 		expectedStatus int
-		shouldError    bool
+		expErr         error
 	}{
 		{
 			name:         "Create multiple repositories",
@@ -125,7 +121,7 @@ func Test_PerformRepoCmd_MultipleRepositories(t *testing.T) {
 				},
 			},
 			expectedStatus: http.StatusOK,
-			shouldError:    false,
+			expErr:         nil,
 		},
 		{
 			name:         "Update multiple repositories",
@@ -153,11 +149,11 @@ func Test_PerformRepoCmd_MultipleRepositories(t *testing.T) {
 				},
 			},
 			expectedStatus: http.StatusOK,
-			shouldError:    false,
+			expErr:         nil,
 		},
 	}
 
-	for _, tt := range tests {
+	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/api/v2/repositories/batch" {
@@ -202,11 +198,7 @@ func Test_PerformRepoCmd_MultipleRepositories(t *testing.T) {
 
 			err := repoCmd.PerformRepoCmd(tt.isUpdate)
 
-			if tt.shouldError {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
+			assert.Equal(t, tt.expErr, err, "Testcase %v failed , expected error: %v, got: %v", i+1, tt.expErr, err)
 		})
 	}
 }
@@ -217,36 +209,32 @@ func Test_PerformRepoCmd_ErrorCases(t *testing.T) {
 		templatePath string
 		vars         string
 		isUpdate     bool
-		shouldError  bool
-		errorMsg     string
+		expErr       string
 	}{
 		{
 			name:         "Invalid JSON template",
 			templatePath: createTempTemplate(t, invalidJsonTemplate),
 			vars:         "REPO_KEY=test-repo",
 			isUpdate:     false,
-			shouldError:  true,
-			errorMsg:     "invalid character",
+			expErr:       "invalid character",
 		},
 		{
 			name:         "Missing required fields",
 			templatePath: createTempTemplate(t, missingFieldsTemplate),
 			vars:         "REPO_KEY=test-repo",
 			isUpdate:     false,
-			shouldError:  true,
-			errorMsg:     "unsupported rclass",
+			expErr:       "'key' is missing in the following configs",
 		},
 		{
 			name:         "Unsupported package type",
 			templatePath: createTempTemplate(t, unsupportedPackageTemplate),
 			vars:         "REPO_KEY=test-repo",
 			isUpdate:     false,
-			shouldError:  true,
-			errorMsg:     "unsupported package type",
+			expErr:       "unsupported package type",
 		},
 	}
 
-	for _, tt := range tests {
+	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repoCmd := &RepoCommand{
 				serverDetails: &config.ServerDetails{ArtifactoryUrl: "http://invalid-server:8081/"},
@@ -256,13 +244,10 @@ func Test_PerformRepoCmd_ErrorCases(t *testing.T) {
 
 			err := repoCmd.PerformRepoCmd(tt.isUpdate)
 
-			if tt.shouldError {
-				assert.Error(t, err)
-				if tt.errorMsg != "" {
-					assert.Contains(t, err.Error(), tt.errorMsg)
-				}
+			if err != nil {
+				assert.Contains(t, err.Error(), tt.expErr, "Testcase %v failed , expected error message to contain: %v, got: %v", i+1, tt.expErr, err.Error())
 			} else {
-				assert.NoError(t, err)
+				assert.Fail(t, "Testcase %v failed, expected error but got nil", i+1)
 			}
 		})
 	}
@@ -316,7 +301,6 @@ const invalidJsonTemplate = `{
 }`
 
 const missingFieldsTemplate = `{
-  "key": "${REPO_KEY}",
   "description": "${DESCRIPTION}"
 }`
 
