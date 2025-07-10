@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/jfrog/gofrog/version"
 	"strconv"
 	"strings"
 
@@ -19,8 +20,8 @@ import (
 const (
 	// The actual field in the repository configuration is an array (plural) but in practice only one environment is allowed.
 	// This is why the question differs from the repository configuration.
-	environmentsKey = "environments"
-	singleConfig    = 1
+	environmentsKey        = "environments"
+	singleRepoCreateEntity = 1
 )
 
 type RepoCommand struct {
@@ -37,7 +38,7 @@ func (rc *RepoCommand) TemplatePath() string {
 	return rc.templatePath
 }
 
-type handler interface {
+type repoCreateHandler interface {
 	Execute(repoConfigMaps []map[string]interface{}, servicesManager artifactory.ArtifactoryServicesManager, isUpdate bool) error
 }
 
@@ -53,7 +54,6 @@ func (rc *RepoCommand) PerformRepoCmd(isUpdate bool) error {
 	}
 
 	var missingKeys []string
-
 	for _, config := range repoConfigMaps {
 		if key, ok := config["key"]; !ok || key == "" {
 			missingKeys = append(missingKeys, fmt.Sprintf("%v\n", config))
@@ -69,8 +69,8 @@ func (rc *RepoCommand) PerformRepoCmd(isUpdate bool) error {
 		return err
 	}
 
-	var strategy handler
-	if len(repoConfigMaps) > singleConfig {
+	var strategy repoCreateHandler
+	if len(repoConfigMaps) > singleRepoCreateEntity {
 		strategy = &MultipleRepositoryHandler{}
 	} else {
 		strategy = &SingleRepositoryHandler{}
@@ -132,15 +132,23 @@ func (s *SingleRepositoryHandler) Execute(repoConfigMaps []map[string]interface{
 }
 
 func multipleRepoHandler(servicesManager artifactory.ArtifactoryServicesManager, jsonConfig []byte, isUpdate bool) error {
-	var err error
-
-	if isUpdate {
-		err = servicesManager.UpdateRepositoriesInBatch().PerformBatchRequest(jsonConfig)
-	} else {
-		err = servicesManager.CreateRepositoriesInBatch().PerformBatchRequest(jsonConfig)
+	artifactoryVersion, err := servicesManager.GetVersion()
+	if err != nil {
+		return errorutils.CheckErrorf("failed to get Artifactory rtVersion: %v", err)
 	}
 
-	return err
+	rtVersion := version.NewVersion(artifactoryVersion)
+
+	if isUpdate {
+		if rtVersion.AtLeast("7.104.2") {
+			return errorutils.CheckErrorf("bulk repository updation is supported from Artifactory rtVersion 7.104.2, current rtVersion: %v", artifactoryVersion)
+		}
+	} else {
+		if rtVersion.AtLeast("7.84.3") {
+			return errorutils.CheckErrorf("bulk repository creation is supported from Artifactory rtVersion 7.84.3, current rtVersion: %v", artifactoryVersion)
+		}
+	}
+	return servicesManager.CreateUpdateRepositoriesInBatch(jsonConfig, isUpdate)
 }
 
 var writersMap = map[string]ioutils.AnswerWriter{
