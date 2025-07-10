@@ -156,6 +156,10 @@ func multipleRepoHandler(servicesManager artifactory.ArtifactoryServicesManager,
 	log.Info("creating/updating repositories in batch...")
 
 	err = servicesManager.CreateUpdateRepositoriesInBatch(jsonConfig, isUpdate)
+	if err != nil {
+		return err
+	}
+
 	if isUpdate {
 		log.Info("Successfully updated the repositories")
 	} else {
