@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/jfrog/gofrog/version"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"strconv"
 	"strings"
 
@@ -47,7 +48,7 @@ type (
 	SingleRepositoryHandler   struct{}
 )
 
-func (rc *RepoCommand) PerformRepoCmd(isUpdate bool) error {
+func (rc *RepoCommand) PerformRepoCmd(isUpdate bool) (err error) {
 	repoConfigMaps, err := utils.ConvertTemplateToMaps(rc)
 	if err != nil {
 		return err
@@ -76,7 +77,12 @@ func (rc *RepoCommand) PerformRepoCmd(isUpdate bool) error {
 		strategy = &SingleRepositoryHandler{}
 	}
 
-	return strategy.Execute(repoConfigMaps, servicesManager, isUpdate)
+	err = strategy.Execute(repoConfigMaps, servicesManager, isUpdate)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (m *MultipleRepositoryHandler) Execute(repoConfigMaps []map[string]interface{}, servicesManager artifactory.ArtifactoryServicesManager, isUpdate bool) error {
@@ -131,24 +137,31 @@ func (s *SingleRepositoryHandler) Execute(repoConfigMaps []map[string]interface{
 	return nil
 }
 
-func multipleRepoHandler(servicesManager artifactory.ArtifactoryServicesManager, jsonConfig []byte, isUpdate bool) error {
+func multipleRepoHandler(servicesManager artifactory.ArtifactoryServicesManager, jsonConfig []byte, isUpdate bool) (err error) {
 	artifactoryVersion, err := servicesManager.GetVersion()
 	if err != nil {
 		return errorutils.CheckErrorf("failed to get Artifactory rtVersion: %v", err)
 	}
-
 	rtVersion := version.NewVersion(artifactoryVersion)
-
 	if isUpdate {
-		if rtVersion.AtLeast("7.104.2") {
+		if !rtVersion.AtLeast("7.104.2") {
 			return errorutils.CheckErrorf("bulk repository updation is supported from Artifactory rtVersion 7.104.2, current rtVersion: %v", artifactoryVersion)
 		}
 	} else {
-		if rtVersion.AtLeast("7.84.3") {
+		if !rtVersion.AtLeast("7.84.3") {
 			return errorutils.CheckErrorf("bulk repository creation is supported from Artifactory rtVersion 7.84.3, current rtVersion: %v", artifactoryVersion)
 		}
 	}
-	return servicesManager.CreateUpdateRepositoriesInBatch(jsonConfig, isUpdate)
+
+	log.Info("creating/updating repositories in batch...")
+
+	err = servicesManager.CreateUpdateRepositoriesInBatch(jsonConfig, isUpdate)
+	if isUpdate {
+		log.Info("Successfully updated the repositories")
+	} else {
+		log.Info("Successfully created the repositories")
+	}
+	return nil
 }
 
 var writersMap = map[string]ioutils.AnswerWriter{
