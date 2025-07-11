@@ -140,7 +140,7 @@ func (s *SingleRepositoryHandler) Execute(repoConfigMaps []map[string]interface{
 func multipleRepoHandler(servicesManager artifactory.ArtifactoryServicesManager, jsonConfig []byte, isUpdate bool) (err error) {
 	artifactoryVersion, err := servicesManager.GetVersion()
 	if err != nil {
-		return errorutils.CheckErrorf("failed to get Artifactory rtVersion: %v", err)
+		return errorutils.CheckErrorf("failed to get Artifactory rtVersion: %s", err)
 	}
 	rtVersion := version.NewVersion(artifactoryVersion)
 	if isUpdate {
