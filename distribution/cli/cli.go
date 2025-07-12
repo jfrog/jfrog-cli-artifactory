@@ -2,6 +2,10 @@ package cli
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/cmddefs"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	distributionCommands "github.com/jfrog/jfrog-cli-artifactory/distribution/commands"
@@ -16,13 +20,10 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	distributionServices "github.com/jfrog/jfrog-client-go/distribution/services"
 	distributionServicesUtils "github.com/jfrog/jfrog-client-go/distribution/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
-	"os"
-	"path/filepath"
-	"strings"
 )
 
 const distributionCategory = "distribution"
@@ -280,7 +281,7 @@ func createReleaseBundleCreateUpdateParams(c *components.Context, bundleName, bu
 	return releaseBundleParams, nil
 }
 
-func createDistributionDetailsByFlags(c *components.Context) (*coreConfig.ServerDetails, error) {
+func createDistributionDetailsByFlags(c *components.Context) (*config.ServerDetails, error) {
 	dsDetails, err := pluginsCommon.CreateServerDetailsWithConfigOffer(c, true, cliutils.Ds)
 	if err != nil {
 		return nil, err

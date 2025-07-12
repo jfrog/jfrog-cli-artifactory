@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"os"
 
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 type getEvidenceBase struct {
-	serverDetails    *coreConfig.ServerDetails
+	serverDetails    *config.ServerDetails
 	outputFileName   string
 	format           string
 	includePredicate bool

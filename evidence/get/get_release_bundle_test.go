@@ -1,6 +1,7 @@
 package get
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -137,4 +138,162 @@ func TestCreateReleaseBundleGetEvidenceQuery(t *testing.T) {
 			assert.Contains(t, string(result), tt.expectedSubstring)
 		})
 	}
+}
+
+func TestPrettifyGraphQLOutput(t *testing.T) {
+	g := &getEvidenceReleaseBundle{}
+
+	// Test input with cursors, errors, and null fields
+	input := `{
+		"data": {
+			"releaseBundleVersion": {
+				"getVersion": {
+					"createdBy": "test@example.com",
+					"createdAt": "2024-12-02T08:26:32.890Z",
+					"evidenceConnection": {
+						"edges": [
+							{
+								"cursor": "ZXZpZGVuY2U6MQ==",
+								"node": {
+									"path": "test/path.evd",
+									"name": "test-evidence.json",
+									"predicateSlug": "test-slug"
+								}
+							}
+						]
+					},
+					"artifactsConnection": null,
+					"fromBuilds": null
+				}
+			}
+		},
+		"errors": [
+			{
+				"message": "Subgraph errors redacted",
+				"path": []
+			}
+		]
+	}`
+
+	expectedOutput := `{
+  "data": {
+    "releaseBundleVersion": {
+      "getVersion": {
+        "createdBy": "test@example.com",
+        "createdAt": "2024-12-02T08:26:32.890Z",
+        "evidenceConnection": {
+          "edges": [
+            {
+              "node": {
+                "path": "test/path.evd",
+                "name": "test-evidence.json",
+                "predicateSlug": "test-slug"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}`
+
+	result, err := g.prettifyGraphQLOutput([]byte(input))
+	assert.NoError(t, err)
+
+	// Parse both JSON strings to compare them properly
+	var expected, actual map[string]interface{}
+	err = json.Unmarshal([]byte(expectedOutput), &expected)
+	assert.NoError(t, err)
+	err = json.Unmarshal(result, &actual)
+	assert.NoError(t, err)
+
+	assert.Equal(t, expected, actual)
+}
+
+func TestPrettifyGraphQLOutputWithComplexStructure(t *testing.T) {
+	g := &getEvidenceReleaseBundle{}
+
+	// Test input with more complex structure including pageInfo with cursors
+	input := `{
+		"data": {
+			"releaseBundleVersion": {
+				"getVersion": {
+					"createdBy": "test@example.com",
+					"createdAt": "2024-12-02T08:26:32.890Z",
+					"evidenceConnection": {
+						"edges": [
+							{
+								"cursor": "ZXZpZGVuY2U6MQ==",
+								"node": {
+									"path": "test/path.evd",
+									"name": "test-evidence.json",
+									"predicateSlug": "test-slug"
+								}
+							}
+						]
+					},
+					"artifactsConnection": {
+						"totalCount": 5,
+						"pageInfo": {
+							"hasNextPage": false,
+							"hasPreviousPage": false,
+							"startCursor": "YXJ0aWZhY3Q6MA==",
+							"endCursor": "YXJ0aWZhY3Q6NA=="
+						},
+						"edges": [
+							{
+								"cursor": "YXJ0aWZhY3Q6MA==",
+								"node": {
+									"path": "artifact1",
+									"name": "artifact1.jar",
+									"packageType": "maven"
+								}
+							}
+						]
+					},
+					"fromBuilds": [
+						{
+							"name": "test-build",
+							"number": "1",
+							"startedAt": "2024-12-02T07:17:48.109Z",
+							"evidenceConnection": {
+								"edges": [
+									{
+										"cursor": "ZXZpZGVuY2U6MQ==",
+										"node": {
+											"path": "build-evidence.json",
+											"name": "build-signature.json",
+											"predicateSlug": "build-signature"
+										}
+									}
+								]
+							}
+						}
+					]
+				}
+			}
+		},
+		"errors": [
+			{
+				"message": "Subgraph errors redacted",
+				"path": []
+			}
+		]
+	}`
+
+	result, err := g.prettifyGraphQLOutput([]byte(input))
+	assert.NoError(t, err)
+
+	// Verify that cursors and errors are removed
+	resultStr := string(result)
+	assert.NotContains(t, resultStr, "cursor")
+	assert.NotContains(t, resultStr, "errors")
+	assert.NotContains(t, resultStr, "startCursor")
+	assert.NotContains(t, resultStr, "endCursor")
+
+	// Verify that important data is preserved
+	assert.Contains(t, resultStr, "test@example.com")
+	assert.Contains(t, resultStr, "test-evidence.json")
+	assert.Contains(t, resultStr, "artifact1.jar")
+	assert.Contains(t, resultStr, "build-signature")
 }

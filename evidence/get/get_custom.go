@@ -2,24 +2,25 @@ package get
 
 import (
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/jfrog/gofrog/log"
-	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	"github.com/jfrog/jfrog-client-go/onemodel"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence"
+	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/onemodel"
 )
 
-const getCustomEvidenceWithoutPredicateGraphqlQuery = `{"query":"{ evidence { searchEvidence( where: { hasSubjectWith: { repositoryKey: \"%s\", path: \"%s\"}} ) { totalCount edges { cursor node { path name predicateSlug createdAt createdBy subject { sha256 } signingKey { alias } } } } } }"}`
-const getCustomEvidenceWithPredicateGraphqlQuery = `{"query":"{ evidence { searchEvidence( where: { hasSubjectWith: { repositoryKey: \"%s\", path: \"%s\"}} ) { totalCount edges { cursor node { path name predicateSlug predicate createdAt createdBy subject { sha256 } signingKey { alias } } } } } }"}`
+const getCustomEvidenceWithoutPredicateGraphqlQuery = `{"query":"{ evidence { searchEvidence( where: { hasSubjectWith: { repositoryKey: \"%s\", path: \"%s\", name: \"%s\"}} ) { totalCount edges { node { createdAt createdBy path name predicateSlug subject { sha256 } signingKey { alias } } } } } }"}`
+const getCustomEvidenceWithPredicateGraphqlQuery = `{"query":"{ evidence { searchEvidence( where: { hasSubjectWith: { repositoryKey: \"%s\", path: \"%s\", name: \"%s\"}} ) { totalCount edges { node {createdAt createdBy path name predicateSlug predicate subject { sha256 } signingKey { alias } } } } } }"}`
 
 type getEvidenceCustom struct {
 	getEvidenceBase
 	subjectRepoPath string
 }
 
-func NewGetEvidenceCustom(serverDetails *coreConfig.ServerDetails, subjectRepoPath, format, outputFileName string, includePredicate bool) evidence.Command {
+func NewGetEvidenceCustom(serverDetails *config.ServerDetails, subjectRepoPath, format, outputFileName string, includePredicate bool) evidence.Command {
 	return &getEvidenceCustom{
 		getEvidenceBase: getEvidenceBase{
 			serverDetails:    serverDetails,
@@ -35,7 +36,7 @@ func (g *getEvidenceCustom) CommandName() string {
 	return "get-custom-evidence"
 }
 
-func (g *getEvidenceCustom) ServerDetails() (*coreConfig.ServerDetails, error) {
+func (g *getEvidenceCustom) ServerDetails() (*config.ServerDetails, error) {
 	return g.serverDetails, nil
 }
 
@@ -69,11 +70,11 @@ func (g *getEvidenceCustom) getEvidence(onemodelClient onemodel.Manager) ([]byte
 }
 
 func (g *getEvidenceCustom) buildGraphqlQuery(subjectRepoPath string) ([]byte, error) {
-	repoKey, path, err := g.getRepoKeyAndPath(subjectRepoPath)
+	repoKey, path, name, err := g.getRepoKeyAndPath(subjectRepoPath)
 	if err != nil {
 		return nil, err
 	}
-	graphqlQuery := fmt.Sprintf(g.getGraphqlQuery(g.includePredicate), repoKey, path)
+	graphqlQuery := fmt.Sprintf(g.getGraphqlQuery(g.includePredicate), repoKey, path, name)
 	log.Debug("GraphQL query: ", graphqlQuery)
 	return []byte(graphqlQuery), nil
 }
@@ -85,11 +86,19 @@ func (g *getEvidenceCustom) getGraphqlQuery(includePredicate bool) string {
 	return getCustomEvidenceWithoutPredicateGraphqlQuery
 }
 
-func (g *getEvidenceCustom) getRepoKeyAndPath(subjectRepoPath string) (string, string, error) {
-	idx := strings.Index(subjectRepoPath, "/")
-	if idx <= 0 || idx == len(subjectRepoPath)-1 {
-		return "", "", fmt.Errorf("invalid input: expected format 'repo/path', got '%s'", subjectRepoPath)
+func (g *getEvidenceCustom) getRepoKeyAndPath(subjectRepoPath string) (string, string, string, error) {
+	firstSlashIndex := strings.Index(subjectRepoPath, "/")
+	if firstSlashIndex <= 0 || firstSlashIndex == len(subjectRepoPath)-1 {
+		return "", "", "", fmt.Errorf("invalid input: expected format 'repo/path', got '%s'", subjectRepoPath)
+	}
+	repo := subjectRepoPath[:firstSlashIndex]
+	pathAndName := subjectRepoPath[firstSlashIndex+1:]
+
+	pathVal := path.Dir(pathAndName)
+	name := path.Base(pathAndName)
+	if pathVal == "." {
+		pathVal = ""
 	}
 
-	return subjectRepoPath[:idx], subjectRepoPath[idx+1:], nil
+	return repo, pathVal, name, nil
 }

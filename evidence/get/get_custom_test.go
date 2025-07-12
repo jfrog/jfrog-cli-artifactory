@@ -110,48 +110,62 @@ func TestGetCustomEvidence(t *testing.T) {
 // Test getRepoKeyAndPath method
 func TestGetRepoKeyAndPath(t *testing.T) {
 	tests := []struct {
-		name            string
-		subjectRepoPath string
-		expectedRepo    string
-		expectedPath    string
-		expectedError   bool
+		name          string
+		fullPath      string
+		expectedRepo  string
+		expectedPath  string
+		expectedName  string
+		expectedError bool
 	}{
 		{
-			name:            "Valid repo/path format",
-			subjectRepoPath: "myRepo/my/path",
-			expectedRepo:    "myRepo",
-			expectedPath:    "my/path",
-			expectedError:   false,
+			name:          "Full path with multiple directories",
+			fullPath:      "repo-key/my/path/to/file/file.txt",
+			expectedRepo:  "repo-key",
+			expectedPath:  "my/path/to/file",
+			expectedName:  "file.txt",
+			expectedError: false,
 		},
 		{
-			name:            "Invalid repo/path format",
-			subjectRepoPath: "invalidFormat",
-			expectedRepo:    "",
-			expectedPath:    "",
-			expectedError:   true,
+			name:          "Path with a file directly in the repo",
+			fullPath:      "another-repo/image.jpg",
+			expectedRepo:  "another-repo",
+			expectedPath:  "",
+			expectedName:  "image.jpg",
+			expectedError: false,
 		},
 		{
-			name:            "Edge case with a single repo in the path",
-			subjectRepoPath: "myRepo/",
-			expectedRepo:    "myRepo",
-			expectedPath:    "",
-			expectedError:   true,
+			name:          "Path with two levels",
+			fullPath:      "myRepo/my/path",
+			expectedRepo:  "myRepo",
+			expectedPath:  "my",
+			expectedName:  "path",
+			expectedError: false,
+		},
+		{
+			name:          "Invalid input with no slash",
+			fullPath:      "invalidFormat",
+			expectedRepo:  "",
+			expectedPath:  "",
+			expectedName:  "",
+			expectedError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			g := &getEvidenceCustom{}
-			repo, path, err := g.getRepoKeyAndPath(tt.subjectRepoPath)
+			repo, path, name, err := g.getRepoKeyAndPath(tt.fullPath)
 
 			if tt.expectedError {
 				assert.Error(t, err)
 				assert.Empty(t, repo)
 				assert.Empty(t, path)
+				assert.Empty(t, name)
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expectedRepo, repo)
 				assert.Equal(t, tt.expectedPath, path)
+				assert.Equal(t, tt.expectedName, name)
 			}
 		})
 	}
