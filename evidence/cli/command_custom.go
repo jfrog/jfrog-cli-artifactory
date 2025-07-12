@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/create"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/get"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -32,6 +33,18 @@ func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDe
 	return ecc.execute(createCmd)
 }
 
+func (ecc *evidenceCustomCommand) GetEvidence(_ *components.Context, serverDetails *config.ServerDetails) error {
+	getCmd := get.NewGetEvidenceCustom(
+		serverDetails,
+		ecc.ctx.GetStringFlagValue(subjectRepoPath),
+		ecc.ctx.GetStringFlagValue(format),
+		ecc.ctx.GetStringFlagValue(output),
+		ecc.ctx.GetBoolFlagValue(includePredicate),
+	)
+
+	return ecc.execute(getCmd)
+}
+
 func (ecc *evidenceCustomCommand) VerifyEvidences(_ *components.Context, serverDetails *config.ServerDetails) error {
 	verifyCmd := verify.NewVerifyEvidenceCustom(
 		serverDetails,
@@ -42,3 +55,4 @@ func (ecc *evidenceCustomCommand) VerifyEvidences(_ *components.Context, serverD
 	)
 	return ecc.execute(verifyCmd)
 }
+
