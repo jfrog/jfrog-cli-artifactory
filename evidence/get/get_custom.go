@@ -6,7 +6,7 @@ import (
 
 	"github.com/jfrog/gofrog/log"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/onemodel"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence"
 )
@@ -19,7 +19,7 @@ type getEvidenceCustom struct {
 	subjectRepoPath string
 }
 
-func NewGetEvidenceCustom(serverDetails *coreConfig.ServerDetails, subjectRepoPath, format, outputFileName string, includePredicate bool) evidence.Command {
+func NewGetEvidenceCustom(serverDetails *config.ServerDetails, subjectRepoPath, format, outputFileName string, includePredicate bool) evidence.Command {
 	return &getEvidenceCustom{
 		getEvidenceBase: getEvidenceBase{
 			serverDetails:    serverDetails,
@@ -35,7 +35,7 @@ func (g *getEvidenceCustom) CommandName() string {
 	return "get-custom-evidence"
 }
 
-func (g *getEvidenceCustom) ServerDetails() (*coreConfig.ServerDetails, error) {
+func (g *getEvidenceCustom) ServerDetails() (*config.ServerDetails, error) {
 	return g.serverDetails, nil
 }
 

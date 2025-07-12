@@ -5,7 +5,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/get"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
 
 type evidenceCustomCommand struct {
@@ -19,7 +19,7 @@ func NewEvidenceCustomCommand(ctx *components.Context, execute execCommandFunc) 
 		execute: execute,
 	}
 }
-func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDetails *coreConfig.ServerDetails) error {
+func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDetails *config.ServerDetails) error {
 	createCmd := create.NewCreateEvidenceCustom(
 		serverDetails,
 		ecc.ctx.GetStringFlagValue(predicate),
@@ -33,7 +33,7 @@ func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDe
 	return ecc.execute(createCmd)
 }
 
-func (ecc *evidenceCustomCommand) GetEvidence(_ *components.Context, serverDetails *coreConfig.ServerDetails) error {
+func (ecc *evidenceCustomCommand) GetEvidence(_ *components.Context, serverDetails *config.ServerDetails) error {
 	getCmd := get.NewGetEvidenceCustom(
 		serverDetails,
 		ecc.ctx.GetStringFlagValue(subjectRepoPath),
@@ -45,7 +45,7 @@ func (ecc *evidenceCustomCommand) GetEvidence(_ *components.Context, serverDetai
 	return ecc.execute(getCmd)
 }
 
-func (ecc *evidenceCustomCommand) VerifyEvidences(_ *components.Context, serverDetails *coreConfig.ServerDetails) error {
+func (ecc *evidenceCustomCommand) VerifyEvidences(_ *components.Context, serverDetails *config.ServerDetails) error {
 	verifyCmd := verify.NewVerifyEvidenceCustom(
 		serverDetails,
 		ecc.ctx.GetStringFlagValue(subjectRepoPath),

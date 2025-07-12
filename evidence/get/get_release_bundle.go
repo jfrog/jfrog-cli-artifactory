@@ -5,7 +5,7 @@ import (
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/onemodel"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
@@ -167,7 +167,7 @@ type getEvidenceReleaseBundle struct {
 	artifactsLimit       string
 }
 
-func NewGetEvidenceReleaseBundle(serverDetails *coreConfig.ServerDetails,
+func NewGetEvidenceReleaseBundle(serverDetails *config.ServerDetails,
 	releaseBundle, releaseBundleVersion, project, format, outputFileName, artifactsLimit string, includePredicate bool) evidence.Command {
 	return &getEvidenceReleaseBundle{
 		getEvidenceBase: getEvidenceBase{
@@ -187,7 +187,7 @@ func (g *getEvidenceReleaseBundle) CommandName() string {
 	return "get-release-bundle-evidence"
 }
 
-func (g *getEvidenceReleaseBundle) ServerDetails() (*coreConfig.ServerDetails, error) {
+func (g *getEvidenceReleaseBundle) ServerDetails() (*config.ServerDetails, error) {
 	return g.serverDetails, nil
 }
 

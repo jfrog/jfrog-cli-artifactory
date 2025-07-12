@@ -39,7 +39,7 @@ func (ebc *evidenceBuildCommand) CreateEvidence(ctx *components.Context, serverD
 	return ebc.execute(createCmd)
 }
 
-func (ebc *evidenceBuildCommand) GetEvidence(ctx *components.Context, serverDetails *coreConfig.ServerDetails) error {
+func (ebc *evidenceBuildCommand) GetEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
 	return errorutils.CheckErrorf("Get evidence is not supported with builds")
 }
 
@@ -59,7 +59,6 @@ func (ebc *evidenceBuildCommand) VerifyEvidences(ctx *components.Context, server
 		ebc.ctx.GetBoolFlagValue(useArtifactoryKeys),
 	)
 	return ebc.execute(verifyCmd)
-}
 }
 
 func (ebc *evidenceBuildCommand) validateEvidenceBuildContext(ctx *components.Context) error {

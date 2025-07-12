@@ -154,7 +154,6 @@ func verifyEvidences(ctx *components.Context) error {
 	}
 	return errors.New("unsupported subject")
 }
-}
 
 func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 	if show, err := pluginsCommon.ShowCmdHelpIfNeeded(ctx, ctx.Arguments); show || err != nil {

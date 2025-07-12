@@ -1,6 +1,7 @@
 package create
 
 import (
+	"github.com/jfrog/jfrog-cli-artifactory/evidence"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
 
