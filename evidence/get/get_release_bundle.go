@@ -1,8 +1,9 @@
-package evidence
+package get
 
 import (
 	"fmt"
 
+	"github.com/jfrog/jfrog-cli-artifactory/evidence"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/onemodel"
@@ -167,7 +168,7 @@ type getEvidenceReleaseBundle struct {
 }
 
 func NewGetEvidenceReleaseBundle(serverDetails *coreConfig.ServerDetails,
-	releaseBundle, releaseBundleVersion, project, format, outputFileName, artifactsLimit string, includePredicate bool) Command {
+	releaseBundle, releaseBundleVersion, project, format, outputFileName, artifactsLimit string, includePredicate bool) evidence.Command {
 	return &getEvidenceReleaseBundle{
 		getEvidenceBase: getEvidenceBase{
 			serverDetails:    serverDetails,
