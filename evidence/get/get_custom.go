@@ -1,4 +1,4 @@
-package evidence
+package get
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/onemodel"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence"
 )
 
 const getCustomEvidenceWithoutPredicateGraphqlQuery = `{"query":"{ evidence { searchEvidence( where: { hasSubjectWith: { repositoryKey: \"%s\", path: \"%s\"}} ) { totalCount edges { cursor node { path name predicateSlug createdAt createdBy subject { sha256 } signingKey { alias } } } } } }"}`
@@ -18,7 +19,7 @@ type getEvidenceCustom struct {
 	subjectRepoPath string
 }
 
-func NewGetEvidenceCustom(serverDetails *coreConfig.ServerDetails, subjectRepoPath, format, outputFileName string, includePredicate bool) Command {
+func NewGetEvidenceCustom(serverDetails *coreConfig.ServerDetails, subjectRepoPath, format, outputFileName string, includePredicate bool) evidence.Command {
 	return &getEvidenceCustom{
 		getEvidenceBase: getEvidenceBase{
 			serverDetails:    serverDetails,
