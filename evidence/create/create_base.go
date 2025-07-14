@@ -146,7 +146,7 @@ func (c *createEvidenceBase) setMarkdown(statement *intoto.Statement) error {
 	return nil
 }
 
-func (c *createEvidenceBase) uploadEvidence(envelope []byte, repoPath string) error {
+func (c *createEvidenceBase) uploadEvidence(evidencePayload []byte, repoPath string) error {
 	evidenceManager, err := utils.CreateEvidenceServiceManager(c.serverDetails, false)
 	if err != nil {
 		return err
@@ -154,7 +154,7 @@ func (c *createEvidenceBase) uploadEvidence(envelope []byte, repoPath string) er
 
 	evidenceDetails := evidenceService.EvidenceDetails{
 		SubjectUri:  repoPath,
-		DSSEFileRaw: envelope,
+		DSSEFileRaw: evidencePayload,
 		ProviderId:  c.providerId,
 	}
 	body, err := evidenceManager.UploadEvidence(evidenceDetails)

@@ -41,6 +41,7 @@ const (
 	providerId         = "provider-id"
 	publicKeys         = "public-keys"
 	useArtifactoryKeys = "use-artifactory-keys"
+	sigstoreBundle     = "sigstore-bundle"
 )
 
 // Flag keys mapped to their corresponding components.Flag definition.
@@ -62,8 +63,8 @@ var flagsMap = map[string]components.Flag{
 	packageRepoName:      components.NewStringFlag(packageRepoName, "Package repository Name.", func(f *components.StringFlag) { f.Mandatory = false }),
 	typeFlag:             components.NewStringFlag(typeFlag, "Type can contain 'gh-commiter' value.", func(f *components.StringFlag) { f.Mandatory = false }),
 
-	predicate:          components.NewStringFlag(predicate, "Path to the predicate, arbitrary JSON.", func(f *components.StringFlag) { f.Mandatory = true }),
-	predicateType:      components.NewStringFlag(predicateType, "Type of the predicate.", func(f *components.StringFlag) { f.Mandatory = true }),
+	predicate:          components.NewStringFlag(predicate, "Path to the predicate, arbitrary JSON.", func(f *components.StringFlag) { f.Mandatory = false }),
+	predicateType:      components.NewStringFlag(predicateType, "Type of the predicate.", func(f *components.StringFlag) { f.Mandatory = false }),
 	markdown:           components.NewStringFlag(markdown, "Markdown of the predicate.", func(f *components.StringFlag) { f.Mandatory = false }),
 	subjectRepoPath:    components.NewStringFlag(subjectRepoPath, "Full path to some subject' location.", func(f *components.StringFlag) { f.Mandatory = false }),
 	subjectSha256:      components.NewStringFlag(subjectSha256, "Subject checksum sha256.", func(f *components.StringFlag) { f.Mandatory = false }),
@@ -72,6 +73,7 @@ var flagsMap = map[string]components.Flag{
 	providerId:         components.NewStringFlag(providerId, "Provider ID for the evidence.", func(f *components.StringFlag) { f.Mandatory = false }),
 	publicKeys:         components.NewStringFlag(publicKeys, "Array of paths to public keys for signatures verification with \";\" separator. Supported keys: 'ecdsa','rsa' and 'ed25519'.", func(f *components.StringFlag) { f.Mandatory = false }),
 	useArtifactoryKeys: components.NewBoolFlag(useArtifactoryKeys, "Use Artifactory keys for verification. When enabled, the verify command retrieves keys from Artifactory.", func(f *components.BoolFlag) { f.DefaultValue = false }),
+	sigstoreBundle:     components.NewStringFlag(sigstoreBundle, "Path to a sigstore bundle file containing a pre-signed DSSE envelope", func(f *components.StringFlag) { f.Mandatory = false }),
 }
 
 var commandFlags = map[string][]string{
@@ -97,6 +99,7 @@ var commandFlags = map[string][]string{
 		key,
 		keyAlias,
 		providerId,
+		sigstoreBundle,
 	},
 	VerifyEvidence: {
 		url,

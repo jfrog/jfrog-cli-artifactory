@@ -21,6 +21,11 @@ func NewEvidenceReleaseBundleCommand(ctx *components.Context, execute execComman
 }
 
 func (erc *evidenceReleaseBundleCommand) CreateEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
+	// Check if sigstore-bundle is provided (currently not supported for release bundle evidence)
+	if erc.ctx.GetStringFlagValue(sigstoreBundle) != "" {
+		return errorutils.CheckErrorf("--sigstore-bundle is currently not supported for release bundle evidence. This feature may be supported in future releases.")
+	}
+
 	err := erc.validateEvidenceReleaseBundleContext(ctx)
 	if err != nil {
 		return err

@@ -3,6 +3,9 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
+	"strings"
+
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/create"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/verify"
 	jfrogArtClient "github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
@@ -15,8 +18,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"golang.org/x/exp/slices"
-	"os"
-	"strings"
 )
 
 func GetCommands() []components.Command {
@@ -118,6 +119,15 @@ func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 		return pluginsCommon.WrongNumberOfArgumentsHandler(ctx)
 	}
 
+	// If sigstore-bundle is provided, validate conflicting parameters
+	// We check both IsFlagSet and assertValueProvided to ensure the flag is both set and has a value
+	if ctx.IsFlagSet(sigstoreBundle) && assertValueProvided(ctx, sigstoreBundle) == nil {
+		if err := validateSigstoreBundleConflicts(ctx); err != nil {
+			return err
+		}
+		return nil
+	}
+
 	if (!ctx.IsFlagSet(predicate) || assertValueProvided(ctx, predicate) != nil) && !ctx.IsFlagSet(typeFlag) {
 		return errorutils.CheckErrorf("'predicate' is a mandatory field for creating evidence: --%s", predicate)
 	}
@@ -133,6 +143,34 @@ func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 	if !ctx.IsFlagSet(keyAlias) {
 		setKeyAliasIfProvided(ctx, keyAlias)
 	}
+	return nil
+}
+
+// validateSigstoreBundleConflicts checks if conflicting parameters are provided when using sigstore-bundle.
+// When --sigstore-bundle is used, the following parameters cannot be provided:
+// --key, --key-alias, --predicate, --predicate-type
+// Returns an error if any conflicting parameters are found.
+func validateSigstoreBundleConflicts(ctx *components.Context) error {
+	var conflictingParams []string
+
+	// Check each conflicting parameter
+	if ctx.IsFlagSet(key) && ctx.GetStringFlagValue(key) != "" {
+		conflictingParams = append(conflictingParams, "--key")
+	}
+	if ctx.IsFlagSet(keyAlias) && ctx.GetStringFlagValue(keyAlias) != "" {
+		conflictingParams = append(conflictingParams, "--key-alias")
+	}
+	if ctx.IsFlagSet(predicate) && ctx.GetStringFlagValue(predicate) != "" {
+		conflictingParams = append(conflictingParams, "--predicate")
+	}
+	if ctx.IsFlagSet(predicateType) && ctx.GetStringFlagValue(predicateType) != "" {
+		conflictingParams = append(conflictingParams, "--predicate-type")
+	}
+
+	if len(conflictingParams) > 0 {
+		return errorutils.CheckErrorf("The following parameters cannot be used with --sigstore-bundle: %s. When using --sigstore-bundle, these values are extracted from the bundle itself.", strings.Join(conflictingParams, ", "))
+	}
+
 	return nil
 }
 
@@ -165,6 +203,10 @@ func getAndValidateSubject(ctx *components.Context) ([]string, error) {
 	}
 
 	if len(foundSubjects) == 0 {
+		// If sigstore-bundle is provided, subject will be extracted from bundle
+		if ctx.IsFlagSet(sigstoreBundle) && assertValueProvided(ctx, sigstoreBundle) == nil {
+			return []string{subjectRepoPath}, nil // Return subjectRepoPath as the type for routing
+		}
 		// If we have no subject - we will try to create EVD on build
 		if !attemptSetBuildNameAndNumber(ctx) {
 			return nil, errorutils.CheckErrorf("subject must be one of the fields: [%s]", strings.Join(subjectTypes, ", "))

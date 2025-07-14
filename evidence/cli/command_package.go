@@ -21,6 +21,11 @@ func NewEvidencePackageCommand(ctx *components.Context, execute execCommandFunc)
 }
 
 func (epc *evidencePackageCommand) CreateEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
+	// Check if sigstore-bundle is provided (currently not supported for package evidence)
+	if epc.ctx.GetStringFlagValue(sigstoreBundle) != "" {
+		return errorutils.CheckErrorf("--sigstore-bundle is currently not supported for package evidence. This feature may be supported in future releases.")
+	}
+
 	err := epc.validateEvidencePackageContext(ctx)
 	if err != nil {
 		return err
