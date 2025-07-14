@@ -87,16 +87,17 @@ func (erc *evidenceReleaseBundleCommand) validateEvidenceReleaseBundleContext(ct
 	if !ctx.IsFlagSet(releaseBundleVersion) || assertValueProvided(ctx, releaseBundleVersion) != nil {
 		return errorutils.CheckErrorf("--%s is a mandatory field for creating a Release Bundle evidence", releaseBundleVersion)
 	}
-	if ctx.IsFlagSet(artifactsLimit) && !isNumber(ctx.GetStringFlagValue(artifactsLimit)) {
+	if ctx.IsFlagSet(artifactsLimit) && !isPositiveNumber(ctx.GetStringFlagValue(artifactsLimit)) {
 		return errorutils.CheckErrorf("--%s must be a number", artifactsLimit)
 	}
 	return nil
 }
 
-func isNumber(artifactsLimit string) bool {
-	// Validate that the artifactsLimit is a number
-	if _, err := strconv.Atoi(artifactsLimit); err != nil {
+func isPositiveNumber(artifactsLimit string) bool {
+	// Validate that the artifactsLimit is a positive number
+	num, err := strconv.Atoi(artifactsLimit)
+	if err != nil {
 		return false
 	}
-	return true
+	return num > 0
 }

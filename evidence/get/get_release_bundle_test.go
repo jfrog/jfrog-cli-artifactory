@@ -28,7 +28,7 @@ func (m *mockOnemodelManagerError) GraphqlQuery(_ []byte) ([]byte, error) {
 
 func TestNewGetEvidenceReleaseBundle(t *testing.T) {
 	serverDetails := &config.ServerDetails{}
-	cmd := NewGetEvidenceReleaseBundle(serverDetails, "myBundle", "1.0", "myProject", "json", "output.json", "1000", true)
+	cmd := NewGetEvidenceReleaseBundle(serverDetails, "myBundle", SCHEMA_VERSION, "myProject", "json", "output.json", "1000", true)
 
 	bundle, ok := cmd.(*getEvidenceReleaseBundle)
 
@@ -36,7 +36,7 @@ func TestNewGetEvidenceReleaseBundle(t *testing.T) {
 	assert.IsType(t, &getEvidenceReleaseBundle{}, bundle)
 	assert.Equal(t, serverDetails, bundle.serverDetails)
 	assert.Equal(t, "myBundle", bundle.releaseBundle)
-	assert.Equal(t, "1.0", bundle.releaseBundleVersion)
+	assert.Equal(t, SCHEMA_VERSION, bundle.releaseBundleVersion)
 	assert.Equal(t, "myProject", bundle.project)
 	assert.Equal(t, "json", bundle.format)
 	assert.Equal(t, "output.json", bundle.outputFileName)
@@ -66,7 +66,7 @@ func TestGetEvidence(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := &getEvidenceReleaseBundle{
 				releaseBundle:        "myBundle",
-				releaseBundleVersion: "1.0",
+				releaseBundleVersion: SCHEMA_VERSION,
 				project:              "myProject",
 				getEvidenceBase: getEvidenceBase{
 					serverDetails:    &config.ServerDetails{},
@@ -103,7 +103,7 @@ func TestCreateReleaseBundleGetEvidenceQuery(t *testing.T) {
 			name:                 "Test with default project",
 			project:              "",
 			releaseBundle:        "bundle-1",
-			releaseBundleVersion: "1.0",
+			releaseBundleVersion: SCHEMA_VERSION,
 			artifactsLimit:       "5",
 			expectedSubstring:    "evidenceConnection",
 		},
@@ -140,160 +140,133 @@ func TestCreateReleaseBundleGetEvidenceQuery(t *testing.T) {
 	}
 }
 
-func TestPrettifyGraphQLOutput(t *testing.T) {
-	g := &getEvidenceReleaseBundle{}
-
-	// Test input with cursors, errors, and null fields
-	input := `{
-		"data": {
-			"releaseBundleVersion": {
-				"getVersion": {
-					"createdBy": "test@example.com",
-					"createdAt": "2024-12-02T08:26:32.890Z",
-					"evidenceConnection": {
-						"edges": [
-							{
-								"cursor": "ZXZpZGVuY2U6MQ==",
-								"node": {
-									"path": "test/path.evd",
-									"name": "test-evidence.json",
-									"predicateSlug": "test-slug"
-								}
-							}
-						]
-					},
-					"artifactsConnection": null,
-					"fromBuilds": null
-				}
-			}
+func TestTransformReleaseBundleGraphQLOutput(t *testing.T) {
+	g := &getEvidenceReleaseBundle{
+		releaseBundle:        "test-bundle",
+		releaseBundleVersion: SCHEMA_VERSION,
+		getEvidenceBase: getEvidenceBase{
+			includePredicate: false,
 		},
-		"errors": [
-			{
-				"message": "Subgraph errors redacted",
-				"path": []
-			}
-		]
-	}`
+	}
 
-	expectedOutput := `{
-  "data": {
-    "releaseBundleVersion": {
-      "getVersion": {
-        "createdBy": "test@example.com",
-        "createdAt": "2024-12-02T08:26:32.890Z",
-        "evidenceConnection": {
-          "edges": [
-            {
-              "node": {
-                "path": "test/path.evd",
-                "name": "test-evidence.json",
-                "predicateSlug": "test-slug"
-              }
-            }
-          ]
-        }
-      }
-    }
-  }
-}`
-
-	result, err := g.prettifyGraphQLOutput([]byte(input))
+	inputStr, err := ReadTestDataFile("release_bundle_complex_input.json")
 	assert.NoError(t, err)
 
-	// Parse both JSON strings to compare them properly
-	var expected, actual map[string]interface{}
-	err = json.Unmarshal([]byte(expectedOutput), &expected)
-	assert.NoError(t, err)
-	err = json.Unmarshal(result, &actual)
+	result, err := g.transformReleaseBundleGraphQLOutput([]byte(inputStr))
 	assert.NoError(t, err)
 
-	assert.Equal(t, expected, actual)
+	// Parse the result to verify structure
+	var output ReleaseBundleOutput
+	err = json.Unmarshal(result, &output)
+	assert.NoError(t, err)
+
+	// Check top-level fields
+	assert.Equal(t, SCHEMA_VERSION, output.SchemaVersion)
+	assert.Equal(t, "release-bundle", output.Type)
+
+	// Check result structure
+	assert.Equal(t, "test-bundle", output.Result.ReleaseBundle)
+	assert.Equal(t, SCHEMA_VERSION, output.Result.ReleaseBundleVersion)
+
+	// Check release bundle evidence
+	assert.Len(t, output.Result.Evidence, 1)
+
+	// Check first evidence entry
+	firstEvidence := output.Result.Evidence[0]
+	assert.Equal(t, "jfxr@01j1ww94gjdccy7x8f8g2vdp25", firstEvidence.CreatedBy)
+	assert.Equal(t, "cyclonedx-sbom", firstEvidence.PredicateSlug)
+	assert.Equal(t, true, firstEvidence.Verified)
+
+	// Check artifacts
+	assert.Len(t, output.Result.Artifacts, 1)
+
+	firstArtifact := output.Result.Artifacts[0]
+	assert.Equal(t, "greenpizza-docker-dev/call-moderation/48/list.manifest.json", firstArtifact.RepoPath)
+	assert.Equal(t, "docker", firstArtifact.PackageType)
+
+	// Check builds
+	assert.Len(t, output.Result.Builds, 1)
+
+	firstBuild := output.Result.Builds[0]
+	assert.Equal(t, "greenpizza-build", firstBuild.BuildName)
+	assert.Equal(t, "48", firstBuild.BuildNumber)
+	assert.Equal(t, "2024-12-02T07:17:48.109Z", firstBuild.StartedAt)
 }
 
-func TestPrettifyGraphQLOutputWithComplexStructure(t *testing.T) {
-	g := &getEvidenceReleaseBundle{}
-
-	// Test input with more complex structure including pageInfo with cursors
-	input := `{
-		"data": {
-			"releaseBundleVersion": {
-				"getVersion": {
-					"createdBy": "test@example.com",
-					"createdAt": "2024-12-02T08:26:32.890Z",
-					"evidenceConnection": {
-						"edges": [
-							{
-								"cursor": "ZXZpZGVuY2U6MQ==",
-								"node": {
-									"path": "test/path.evd",
-									"name": "test-evidence.json",
-									"predicateSlug": "test-slug"
-								}
-							}
-						]
-					},
-					"artifactsConnection": {
-						"totalCount": 5,
-						"pageInfo": {
-							"hasNextPage": false,
-							"hasPreviousPage": false,
-							"startCursor": "YXJ0aWZhY3Q6MA==",
-							"endCursor": "YXJ0aWZhY3Q6NA=="
-						},
-						"edges": [
-							{
-								"cursor": "YXJ0aWZhY3Q6MA==",
-								"node": {
-									"path": "artifact1",
-									"name": "artifact1.jar",
-									"packageType": "maven"
-								}
-							}
-						]
-					},
-					"fromBuilds": [
-						{
-							"name": "test-build",
-							"number": "1",
-							"startedAt": "2024-12-02T07:17:48.109Z",
-							"evidenceConnection": {
-								"edges": [
-									{
-										"cursor": "ZXZpZGVuY2U6MQ==",
-										"node": {
-											"path": "build-evidence.json",
-											"name": "build-signature.json",
-											"predicateSlug": "build-signature"
-										}
-									}
-								]
-							}
-						}
-					]
-				}
-			}
+func TestTransformReleaseBundleGraphQLOutputWithPredicate(t *testing.T) {
+	g := &getEvidenceReleaseBundle{
+		releaseBundle:        "test-bundle",
+		releaseBundleVersion: SCHEMA_VERSION,
+		getEvidenceBase: getEvidenceBase{
+			includePredicate: true,
 		},
-		"errors": [
-			{
-				"message": "Subgraph errors redacted",
-				"path": []
-			}
-		]
-	}`
+	}
 
-	result, err := g.prettifyGraphQLOutput([]byte(input))
+	inputStr, err := ReadTestDataFile("release_bundle_predicate_input.json")
 	assert.NoError(t, err)
 
-	// Verify that cursors and errors are removed
-	resultStr := string(result)
-	assert.NotContains(t, resultStr, "cursor")
-	assert.NotContains(t, resultStr, "errors")
-	assert.NotContains(t, resultStr, "startCursor")
-	assert.NotContains(t, resultStr, "endCursor")
+	result, err := g.transformReleaseBundleGraphQLOutput([]byte(inputStr))
+	assert.NoError(t, err)
 
-	// Verify that important data is preserved
-	assert.Contains(t, resultStr, "test@example.com")
-	assert.Contains(t, resultStr, "test-evidence.json")
-	assert.Contains(t, resultStr, "artifact1.jar")
-	assert.Contains(t, resultStr, "build-signature")
+	var output ReleaseBundleOutput
+	err = json.Unmarshal(result, &output)
+	assert.NoError(t, err)
+
+	assert.Len(t, output.Result.Evidence, 1)
+
+	firstEvidence := output.Result.Evidence[0]
+	assert.Equal(t, "base64(json)", *firstEvidence.Predicate)
+}
+
+func TestTransformReleaseBundleGraphQLOutputEmptyResponse(t *testing.T) {
+	g := &getEvidenceReleaseBundle{
+		releaseBundle:        "test-bundle",
+		releaseBundleVersion: SCHEMA_VERSION,
+		getEvidenceBase: getEvidenceBase{
+			includePredicate: false,
+		},
+	}
+
+	inputStr, err := ReadTestDataFile("release_bundle_empty_input.json")
+	assert.NoError(t, err)
+
+	result, err := g.transformReleaseBundleGraphQLOutput([]byte(inputStr))
+	assert.NoError(t, err)
+
+	var output ReleaseBundleOutput
+	err = json.Unmarshal(result, &output)
+	assert.NoError(t, err)
+
+	assert.Len(t, output.Result.Evidence, 0)
+
+	// Should not have artifacts or builds fields when empty
+	assert.Len(t, output.Result.Artifacts, 0)
+	assert.Len(t, output.Result.Builds, 0)
+}
+
+func TestTransformReleaseBundleGraphQLOutputInvalidStructure(t *testing.T) {
+	g := &getEvidenceReleaseBundle{
+		releaseBundle:        "test-bundle",
+		releaseBundleVersion: SCHEMA_VERSION,
+		getEvidenceBase: getEvidenceBase{
+			includePredicate: false,
+		},
+	}
+
+	// Test with invalid JSON
+	_, err := g.transformReleaseBundleGraphQLOutput([]byte("invalid json"))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse GraphQL response")
+
+	// Test with missing data field
+	input := `{"someOtherField": "value"}`
+	_, err = g.transformReleaseBundleGraphQLOutput([]byte(input))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing data field")
+
+	// Test with missing releaseBundleVersion field
+	input = `{"data": {"someOtherField": "value"}}`
+	_, err = g.transformReleaseBundleGraphQLOutput([]byte(input))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing releaseBundleVersion field")
 }

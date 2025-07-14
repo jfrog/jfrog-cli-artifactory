@@ -11,9 +11,11 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-const getReleaseBundleEvidenceWithoutPredicateGraphqlQuery = "{\"query\":\"{ releaseBundleVersion { getVersion(repositoryKey: \\\"%s\\\", name: \\\"%s\\\", version: \\\"%s\\\") { createdBy createdAt evidenceConnection { edges { cursor node { createdBy createdAt path name predicateSlug } } } artifactsConnection(first: %s, after: \\\"YXJ0aWZhY3Q6MA==\\\", where: { hasEvidence: true }) { totalCount pageInfo { hasNextPage hasPreviousPage startCursor endCursor } edges { cursor node { path name packageType sourceRepositoryPath evidenceConnection(first: 0) { totalCount edges { cursor node { createdBy createdAt path name predicateSlug } } } } } } fromBuilds { name number startedAt evidenceConnection { edges { node { createdBy createdAt path name predicateSlug } } } } } } }\"}"
+// A graphql query to get evidence for a release bundle including evidences on artifacts and builds inside the release bundle.
+// Artifacts in release bundle will be given from the first artifact YXJ0aWZhY3Q6MA== which is base64 of artifact:0
+const getReleaseBundleEvidenceWithoutPredicateGraphqlQuery = "{\"query\":\"{ releaseBundleVersion { getVersion(repositoryKey: \\\"%s\\\", name: \\\"%s\\\", version: \\\"%s\\\") { evidenceConnection { edges { node { predicateSlug predicateType downloadPath verified signingKey { alias } createdBy createdAt } } } artifactsConnection(first: %s, after: \\\"YXJ0aWZhY3Q6MA==\\\", where: { hasEvidence: true }) { totalCount edges { node { sourceRepositoryPath packageType evidenceConnection(first: 0) { totalCount edges { node { createdBy createdAt downloadPath predicateSlug verified signingKey { alias }} } } } } } fromBuilds { name number startedAt evidenceConnection { edges { node { predicateSlug predicateType downloadPath verified signingKey { alias } createdBy createdAt } } } } } } }\"}"
 
-const getReleaseBundleEvidenceWithPredicateGraphqlQuery = "{\"query\":\"{ releaseBundleVersion { getVersion(repositoryKey: \\\"%s\\\", name: \\\"%s\\\", version: \\\"%s\\\") { createdBy createdAt evidenceConnection { edges { cursor node { createdBy createdAt path name predicateSlug predicate } } } artifactsConnection(first: %s, after: \\\"YXJ0aWZhY3Q6MA==\\\", where: { hasEvidence: true }) { totalCount pageInfo { hasNextPage hasPreviousPage startCursor endCursor } edges { cursor node { path name packageType sourceRepositoryPath evidenceConnection(first: 0) { totalCount pageInfo { hasNextPage hasPreviousPage startCursor endCursor } edges { cursor node { createdBy createdAt path name predicateSlug predicate } } } } } } fromBuilds { name number startedAt evidenceConnection { edges { node { createdBy createdAt path name predicateSlug predicate } } } } } } }\"}"
+const getReleaseBundleEvidenceWithPredicateGraphqlQuery = "{\"query\":\"{ releaseBundleVersion { getVersion(repositoryKey: \\\"%s\\\", name: \\\"%s\\\", version: \\\"%s\\\") { evidenceConnection { edges { node { predicateSlug predicateType downloadPath verified signingKey { alias } createdBy createdAt predicate } } } artifactsConnection(first: %s, after: \\\"YXJ0aWZhY3Q6MA==\\\", where: { hasEvidence: true }) { totalCount edges { node { sourceRepositoryPath packageType evidenceConnection(first: 0) { totalCount edges { node { createdBy createdAt downloadPath predicateSlug verified signingKey { alias } predicate } } } } } } fromBuilds { name number startedAt evidenceConnection { edges { node { predicateSlug predicateType downloadPath verified signingKey { alias } createdBy createdAt predicate } } } } } } }\"}"
 
 const defaultArtifactsLimit = "1000" // Default limit for the number of artifacts to show in the evidence response.
 type getEvidenceReleaseBundle struct {
@@ -22,6 +24,12 @@ type getEvidenceReleaseBundle struct {
 	releaseBundle        string
 	releaseBundleVersion string
 	artifactsLimit       string
+}
+
+type ReleaseBundleOutput struct {
+	SchemaVersion string              `json:"schemaVersion"`
+	Type          string              `json:"type"`
+	Result        ReleaseBundleResult `json:"result"`
 }
 
 func NewGetEvidenceReleaseBundle(serverDetails *config.ServerDetails,
@@ -79,66 +87,13 @@ func (g *getEvidenceReleaseBundle) getEvidence(onemodelClient onemodel.Manager) 
 		return nil, fmt.Errorf("no evidence found for release bundle %s:%s", g.releaseBundle, g.releaseBundleVersion)
 	}
 
-	// Prettify the output by removing cursors, errors, and null fields
-	prettifiedEvidence, err := g.prettifyGraphQLOutput(evidence)
+	transformedEvidence, err := g.transformReleaseBundleGraphQLOutput(evidence)
 	if err != nil {
-		log.Error("Failed to prettify GraphQL output:", err)
-		// Return original evidence if prettification fails
+		log.Error("Failed to transform GraphQL output:", err)
 		return evidence, nil
 	}
 
-	return prettifiedEvidence, nil
-}
-
-// prettifyGraphQLOutput removes cursor fields, errors, and null fields from the GraphQL response
-func (g *getEvidenceReleaseBundle) prettifyGraphQLOutput(rawEvidence []byte) ([]byte, error) {
-	var data map[string]interface{}
-	if err := json.Unmarshal(rawEvidence, &data); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal GraphQL response: %w", err)
-	}
-
-	// Remove errors field if present
-	delete(data, "errors")
-
-	// Process the data recursively to remove cursors and null fields
-	if dataObj, ok := data["data"].(map[string]interface{}); ok {
-		g.removeCursorsAndNulls(dataObj)
-	}
-
-	// Marshal back to JSON with proper indentation
-	prettified, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal prettified response: %w", err)
-	}
-
-	return prettified, nil
-}
-
-// removeCursorsAndNulls recursively removes cursor fields and null fields from the data structure
-func (g *getEvidenceReleaseBundle) removeCursorsAndNulls(data interface{}) {
-	switch v := data.(type) {
-	case map[string]interface{}:
-		// Remove cursor fields
-		delete(v, "cursor")
-		delete(v, "startCursor")
-		delete(v, "endCursor")
-
-		// Remove null fields
-		for key, value := range v {
-			if value == nil {
-				delete(v, key)
-			} else {
-				// Recursively process nested structures
-				g.removeCursorsAndNulls(value)
-			}
-		}
-
-	case []interface{}:
-		// Process each element in the slice
-		for _, item := range v {
-			g.removeCursorsAndNulls(item)
-		}
-	}
+	return transformedEvidence, nil
 }
 
 func (g *getEvidenceReleaseBundle) getRepoKey(project string) string {
@@ -169,3 +124,160 @@ func (g *getEvidenceReleaseBundle) getArtifactLimit(artifactsLimit string) strin
 	}
 	return artifactsLimit
 }
+
+func (g *getEvidenceReleaseBundle) transformReleaseBundleGraphQLOutput(rawEvidence []byte) ([]byte, error) {
+	var graphqlResponse map[string]interface{}
+	if err := json.Unmarshal(rawEvidence, &graphqlResponse); err != nil {
+		return nil, fmt.Errorf("failed to parse GraphQL response: %w", err)
+	}
+
+	data, ok := graphqlResponse["data"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("missing data field in GraphQL response")
+	}
+
+	releaseBundleVersion, ok := data["releaseBundleVersion"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("missing releaseBundleVersion field in GraphQL response")
+	}
+
+	getVersion, ok := releaseBundleVersion["getVersion"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("missing getVersion field in GraphQL response")
+	}
+
+	output := ReleaseBundleOutput{
+		SchemaVersion: "1.0",
+		Type:          "release-bundle",
+		Result: ReleaseBundleResult{
+			ReleaseBundle:        g.releaseBundle,
+			ReleaseBundleVersion: g.releaseBundleVersion,
+		},
+	}
+
+	releaseBundleEvidence := g.extractEvidenceFromConnection(getVersion, "evidenceConnection")
+	output.Result.Evidence = releaseBundleEvidence
+
+	artifactsEvidence := g.extractArtifactsEvidence(getVersion)
+	if len(artifactsEvidence) > 0 {
+		output.Result.Artifacts = artifactsEvidence
+	}
+
+	buildsEvidence := g.extractBuildsEvidence(getVersion)
+	if len(buildsEvidence) > 0 {
+		output.Result.Builds = buildsEvidence
+	}
+
+	transformed, err := json.MarshalIndent(output, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal transformed output: %w", err)
+	}
+
+	return transformed, nil
+}
+
+func (g *getEvidenceReleaseBundle) extractEvidenceFromConnection(data map[string]interface{}, connectionName string) []EvidenceEntry {
+	connection, ok := data[connectionName].(map[string]interface{})
+	if !ok {
+		return []EvidenceEntry{}
+	}
+
+	edges, ok := connection["edges"].([]interface{})
+	if !ok {
+		return []EvidenceEntry{}
+	}
+
+	evidence := make([]EvidenceEntry, 0, len(edges))
+	for _, edge := range edges {
+		edgeMap, ok := edge.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		node, ok := edgeMap["node"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		evidenceEntry := createOrderedEvidenceEntry(node, g.includePredicate)
+		evidence = append(evidence, evidenceEntry)
+	}
+
+	return evidence
+}
+
+func (g *getEvidenceReleaseBundle) extractArtifactsEvidence(data map[string]interface{}) []ArtifactEvidence {
+	artifactsConnection, ok := data["artifactsConnection"].(map[string]interface{})
+	if !ok {
+		return []ArtifactEvidence{}
+	}
+
+	edges, ok := artifactsConnection["edges"].([]interface{})
+	if !ok {
+		return []ArtifactEvidence{}
+	}
+
+	artifacts := make([]ArtifactEvidence, 0, len(edges))
+	for _, edge := range edges {
+		edgeMap, ok := edge.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		node, ok := edgeMap["node"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		repoPath, _ := node["sourceRepositoryPath"].(string)
+		packageType, _ := node["packageType"].(string)
+		evidence := g.extractEvidenceFromConnection(node, "evidenceConnection")
+
+		// Create ArtifactEvidence for each evidence entry
+		for _, evidenceEntry := range evidence {
+			artifact := ArtifactEvidence{
+				Evidence:    evidenceEntry,
+				PackageType: packageType,
+				RepoPath:    repoPath,
+			}
+			artifacts = append(artifacts, artifact)
+		}
+	}
+
+	return artifacts
+}
+
+func (g *getEvidenceReleaseBundle) extractBuildsEvidence(data map[string]interface{}) []BuildEvidence {
+	fromBuilds, ok := data["fromBuilds"].([]interface{})
+	if !ok {
+		return []BuildEvidence{}
+	}
+
+	builds := make([]BuildEvidence, 0, len(fromBuilds))
+	for _, build := range fromBuilds {
+		buildMap, ok := build.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		buildName, _ := buildMap["name"].(string)
+		buildNumber, _ := buildMap["number"].(string)
+		startedAt, _ := buildMap["startedAt"].(string)
+		evidence := g.extractEvidenceFromConnection(buildMap, "evidenceConnection")
+
+		// Create BuildEvidence for each evidence entry
+		for _, evidenceEntry := range evidence {
+			buildEvidence := BuildEvidence{
+				Evidence:    evidenceEntry,
+				BuildName:   buildName,
+				BuildNumber: buildNumber,
+				StartedAt:   startedAt,
+			}
+			builds = append(builds, buildEvidence)
+		}
+	}
+
+	return builds
+}
+
+

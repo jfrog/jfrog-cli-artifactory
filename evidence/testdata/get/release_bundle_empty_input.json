@@ -1,0 +1,15 @@
+{
+	"data": {
+		"releaseBundleVersion": {
+			"getVersion": {
+				"evidenceConnection": {
+					"edges": []
+				},
+				"artifactsConnection": {
+					"edges": []
+				},
+				"fromBuilds": []
+			}
+		}
+	}
+} 

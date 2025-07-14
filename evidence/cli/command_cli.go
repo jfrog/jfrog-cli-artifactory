@@ -51,6 +51,7 @@ func GetCommands() []components.Command {
 }
 
 var execFunc = commands.Exec
+var ErrUnsupportedSubject = errors.New("unsupported subject")
 
 func createEvidence(ctx *components.Context) error {
 	if err := validateCreateEvidenceCommonContext(ctx); err != nil {
@@ -80,7 +81,7 @@ func createEvidence(ctx *components.Context) error {
 		return commandFunc(ctx, execFunc).CreateEvidence(ctx, serverDetails)
 	}
 
-	return errors.New("unsupported subject")
+	return ErrUnsupportedSubject
 }
 
 func getEvidence(ctx *components.Context) error {
@@ -107,7 +108,7 @@ func getEvidence(ctx *components.Context) error {
 		return commandFunc(ctx, execFunc).GetEvidence(ctx, serverDetails)
 	}
 
-	return errors.New("unsupported subject")
+	return ErrUnsupportedSubject
 }
 
 func validateGetEvidenceCommonContext(ctx *components.Context) error {

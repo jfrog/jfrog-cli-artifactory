@@ -59,7 +59,6 @@ func TestEvidenceCustomCommand_CreateEvidence_SigstoreBundle(t *testing.T) {
 			ctx, err := components.ConvertContext(cliCtx, tt.flags...)
 			assert.NoError(t, err)
 
-			var cmdError error
 			mockExec := func(cmd commands.Command) error {
 				// Mock successful execution
 				return nil
@@ -69,9 +68,6 @@ func TestEvidenceCustomCommand_CreateEvidence_SigstoreBundle(t *testing.T) {
 			serverDetails := &config.ServerDetails{}
 
 			err = cmd.CreateEvidence(ctx, serverDetails)
-			if cmdError != nil {
-				err = cmdError
-			}
 
 			if tt.expectError {
 				assert.Error(t, err)
