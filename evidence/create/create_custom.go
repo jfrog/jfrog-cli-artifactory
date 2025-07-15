@@ -1,7 +1,8 @@
 package create
 
 import (
-	"os"
+	"encoding/json"
+	"github.com/sigstore/sigstore-go/pkg/bundle"
 	"strings"
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence"
@@ -68,34 +69,25 @@ func (c *createEvidenceCustom) Run() error {
 	return nil
 }
 
-// processSigstoreBundle reads and processes a Sigstore bundle, returning the envelope and subject
 func (c *createEvidenceCustom) processSigstoreBundle() ([]byte, error) {
-	// Read the Sigstore bundle file
-	bundle, err := os.ReadFile(c.sigstoreBundlePath)
+	sigstoreBundle, err := sigstore.ParseBundle(c.sigstoreBundlePath)
 	if err != nil {
 		return nil, errorutils.CheckErrorf("failed to read sigstore bundle: %s", err.Error())
 	}
 
-	// Only extract subject from bundle if current subject is empty
 	if c.subjectRepoPath == "" {
-		extractedSubject, err := c.extractSubjectFromBundle()
+
+		extractedSubject, err := c.extractSubjectFromBundle(sigstoreBundle)
 		if err != nil {
 			return nil, err
 		}
 		c.subjectRepoPath = extractedSubject
 	}
 
-	return bundle, nil
+	return json.Marshal(sigstoreBundle)
 }
 
-func (c *createEvidenceCustom) extractSubjectFromBundle() (string, error) {
-	// Parse the bundle first
-	bundle, err := sigstore.ParseBundle(c.sigstoreBundlePath)
-	if err != nil {
-		return "", err
-	}
-
-	// Extract subject from the parsed bundle
+func (c *createEvidenceCustom) extractSubjectFromBundle(bundle *bundle.Bundle) (string, error) {
 	repoPath, err := sigstore.ExtractSubjectFromBundle(bundle)
 	if err != nil {
 		return "", err
@@ -104,7 +96,6 @@ func (c *createEvidenceCustom) extractSubjectFromBundle() (string, error) {
 	return repoPath, nil
 }
 
-// createDSSEEnvelope creates a DSSE envelope from the provided predicate and subject information
 func (c *createEvidenceCustom) createDSSEEnvelope() ([]byte, error) {
 	envelope, err := c.createEnvelope(c.subjectRepoPath, c.subjectSha256)
 	if err != nil {

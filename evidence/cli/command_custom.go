@@ -20,7 +20,6 @@ func NewEvidenceCustomCommand(ctx *components.Context, execute execCommandFunc) 
 	}
 }
 func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDetails *config.ServerDetails) error {
-	// Validate that subject-sha256 is not used with sigstore-bundle
 	if ecc.ctx.GetStringFlagValue(sigstoreBundle) != "" && ecc.ctx.GetStringFlagValue(subjectSha256) != "" {
 		return errorutils.CheckErrorf("The parameter --subject-sha256 cannot be used with --sigstore-bundle. When using --sigstore-bundle, the subject hash is extracted from the bundle itself.")
 	}

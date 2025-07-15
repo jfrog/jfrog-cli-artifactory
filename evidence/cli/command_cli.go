@@ -119,8 +119,6 @@ func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 		return pluginsCommon.WrongNumberOfArgumentsHandler(ctx)
 	}
 
-	// If sigstore-bundle is provided, validate conflicting parameters
-	// We check both IsFlagSet and assertValueProvided to ensure the flag is both set and has a value
 	if ctx.IsFlagSet(sigstoreBundle) && assertValueProvided(ctx, sigstoreBundle) == nil {
 		if err := validateSigstoreBundleConflicts(ctx); err != nil {
 			return err
@@ -146,14 +144,9 @@ func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 	return nil
 }
 
-// validateSigstoreBundleConflicts checks if conflicting parameters are provided when using sigstore-bundle.
-// When --sigstore-bundle is used, the following parameters cannot be provided:
-// --key, --key-alias, --predicate, --predicate-type
-// Returns an error if any conflicting parameters are found.
 func validateSigstoreBundleConflicts(ctx *components.Context) error {
 	var conflictingParams []string
 
-	// Check each conflicting parameter
 	if ctx.IsFlagSet(key) && ctx.GetStringFlagValue(key) != "" {
 		conflictingParams = append(conflictingParams, "--key")
 	}
@@ -203,7 +196,6 @@ func getAndValidateSubject(ctx *components.Context) ([]string, error) {
 	}
 
 	if len(foundSubjects) == 0 {
-		// If sigstore-bundle is provided, subject will be extracted from bundle
 		if ctx.IsFlagSet(sigstoreBundle) && assertValueProvided(ctx, sigstoreBundle) == nil {
 			return []string{subjectRepoPath}, nil // Return subjectRepoPath as the type for routing
 		}
