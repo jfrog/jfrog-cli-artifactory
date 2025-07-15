@@ -2,6 +2,7 @@ package create
 
 import (
 	"encoding/json"
+	clientLog "github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 	"strings"
 
@@ -49,8 +50,10 @@ func (c *createEvidenceCustom) Run() error {
 	var err error
 
 	if c.sigstoreBundlePath != "" {
+		clientLog.Debug("Reading sigstore bundle from path:", c.sigstoreBundlePath)
 		evidencePayload, err = c.processSigstoreBundle()
 	} else {
+		clientLog.Debug("Creating DSSE envelope for subject:", c.subjectRepoPath)
 		evidencePayload, err = c.createDSSEEnvelope()
 	}
 
@@ -81,6 +84,7 @@ func (c *createEvidenceCustom) processSigstoreBundle() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		clientLog.Debug("subject extracted from sigstore bundle:", extractedSubject)
 		c.subjectRepoPath = extractedSubject
 	}
 
