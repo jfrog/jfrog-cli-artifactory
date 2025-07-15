@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ide"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
@@ -75,16 +76,14 @@ func (vc *VscodeCommand) Run() error {
 		return errorutils.CheckError(fmt.Errorf("failed to modify product.json: %w\n\nManual setup instructions:\n%s", err, vc.getManualSetupInstructions(vc.serviceURL)))
 	}
 
-	log.Info("VSCode configuration updated successfully")
-	log.Info("Repository URL:", vc.serviceURL)
-	log.Info("Please restart VSCode to apply changes")
+	log.Info("VSCode configuration updated successfully. Repository URL:", vc.serviceURL, "- Please restart VSCode to apply changes")
 
 	return nil
 }
 
 // validateRepository uses the established pattern for repository validation
 func (vc *VscodeCommand) validateRepository() error {
-	log.Info("Validating repository...")
+	log.Debug("Validating repository...")
 
 	if vc.serverDetails == nil {
 		return fmt.Errorf("server details not configured - please run 'jf config add' first")
@@ -133,35 +132,13 @@ func (vc *VscodeCommand) checkWritePermissions() error {
 // handlePermissionError provides appropriate guidance based on the operating system
 func (vc *VscodeCommand) handlePermissionError() error {
 	if runtime.GOOS == "darwin" && strings.HasPrefix(vc.productPath, "/Applications/") {
-		// Get current user info for better error message
 		userInfo := "the current user"
 		if user := os.Getenv("USER"); user != "" {
 			userInfo = user
 		}
-
-		return fmt.Errorf(`insufficient permissions to modify VSCode configuration.
-
-VSCode is installed in /Applications/ which requires elevated privileges to modify.
-
-To fix this, run the command with sudo:
-
-    sudo jf vscode set service-url '%s'
-
-This is the same approach that works with manual editing:
-    sudo nano "%s"
-
-Note: This does NOT require disabling System Integrity Protection (SIP).
-The file is owned by admin and %s needs elevated privileges to write to it.
-
-Alternative: Install VSCode in a user-writable location like ~/Applications/`, vc.serviceURL, vc.productPath, userInfo)
+		return fmt.Errorf(ide.VscodeMacOSPermissionError, vc.serviceURL, vc.productPath, userInfo)
 	}
-
-	return fmt.Errorf(`insufficient permissions to modify VSCode configuration.
-
-To fix this, try running the command with elevated privileges:
-    sudo jf vscode set service-url '%s'
-
-Or use the manual setup instructions provided in the error output.`, vc.serviceURL)
+	return fmt.Errorf(ide.VscodeGenericPermissionError, vc.serviceURL)
 }
 
 // detectVSCodeInstallation attempts to auto-detect VSCode installation
@@ -339,34 +316,5 @@ func (vc *VscodeCommand) modifyWithPowerShell(repoURL string) error {
 
 // getManualSetupInstructions returns manual setup instructions
 func (vc *VscodeCommand) getManualSetupInstructions(serviceURL string) string {
-	instructions := fmt.Sprintf(`
-Manual VSCode Setup Instructions:
-=================================
-
-1. Close VSCode completely
-
-2. Locate your VSCode installation directory:
-   • macOS: /Applications/Visual Studio Code.app/Contents/Resources/app/
-   • Windows: %%LOCALAPPDATA%%\Programs\Microsoft VS Code\resources\app\
-   • Linux: /usr/share/code/resources/app/
-
-3. Open the product.json file in a text editor with appropriate permissions:
-   • macOS: sudo nano "/Applications/Visual Studio Code.app/Contents/Resources/app/product.json"
-   • Windows: Run editor as Administrator
-   • Linux: sudo nano /usr/share/code/resources/app/product.json
-
-4. Find the "extensionsGallery" section and modify the "serviceUrl":
-   {
-     "extensionsGallery": {
-       "serviceUrl": "%s",
-       ...
-     }
-   }
-
-5. Save the file and restart VSCode
-
-Service URL: %s
-`, serviceURL, serviceURL)
-
-	return instructions
+	return fmt.Sprintf(ide.VscodeManualInstructionsTemplate, serviceURL, serviceURL)
 }

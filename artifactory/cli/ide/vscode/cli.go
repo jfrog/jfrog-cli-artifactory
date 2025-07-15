@@ -2,8 +2,10 @@ package vscode
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/cli/ide"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ide/vscode"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
@@ -17,27 +19,11 @@ const (
 func GetCommands() []components.Command {
 	return []components.Command{
 		{
-			Name:    "vscode-config",
-			Aliases: []string{"vscode"},
-			Flags:   getFlags(),
-			Action:  vscodeConfigCmd,
-			Description: `Configure VSCode to use JFrog Artifactory for extensions.
-
-The service URL should be in the format:
-https://<artifactory-url>/artifactory/api/vscodeextensions/<repo-key>/_apis/public/gallery
-
-Examples:
-  jf rt vscode-config https://mycompany.jfrog.io/artifactory/api/vscodeextensions/vscode-extensions/_apis/public/gallery
-
-This command will:
-- Modify the VSCode product.json file to change the extensions gallery URL
-- Create an automatic backup before making changes
-- Require VSCode to be restarted to apply changes
-
-Optional: Provide server configuration flags (--url, --user, --password, --access-token, or --server-id) 
-to enable repository validation. Without these flags, the command will only modify the local VSCode configuration.
-
-Note: On macOS/Linux, you may need to run with sudo for system-installed VSCode.`,
+			Name:        "vscode-config",
+			Aliases:     []string{"vscode"},
+			Flags:       getFlags(),
+			Action:      vscodeConfigCmd,
+			Description: ide.VscodeConfigDescription,
 		},
 	}
 }
@@ -49,13 +35,9 @@ func getFlags() []components.Flag {
 }
 
 func vscodeConfigCmd(c *components.Context) error {
-	if c.GetNumberOfArgs() == 0 {
-		return fmt.Errorf("service URL is required\n\nUsage: jf rt vscode-config <service-url>\nExample: jf rt vscode-config https://mycompany.jfrog.io/artifactory/api/vscodeextensions/vscode-extensions/_apis/public/gallery")
-	}
-
-	serviceURL := c.GetArgumentAt(0)
-	if serviceURL == "" {
-		return fmt.Errorf("service URL cannot be empty\n\nUsage: jf rt vscode-config <service-url>")
+	serviceURL, err := ide.ValidateSingleNonEmptyArg(c, "jf vscode-config <service-url>")
+	if err != nil {
+		return err
 	}
 
 	productPath := c.GetStringFlagValue(productJsonPath)
@@ -66,10 +48,8 @@ func vscodeConfigCmd(c *components.Context) error {
 	// Create server details only if server configuration flags are provided
 	// This makes server configuration optional for basic VS Code setup
 	var rtDetails *config.ServerDetails
-	var err error
 
-	// Check if any server configuration flags are provided
-	if hasServerConfigFlags(c) {
+	if ide.HasServerConfigFlags(c) {
 		rtDetails, err = pluginsCommon.CreateArtifactoryDetailsByFlags(c)
 		if err != nil {
 			return fmt.Errorf("failed to create server configuration: %w", err)
@@ -84,16 +64,6 @@ func vscodeConfigCmd(c *components.Context) error {
 	return vscodeCmd.Run()
 }
 
-// hasServerConfigFlags checks if any server configuration flags are provided
-func hasServerConfigFlags(c *components.Context) bool {
-	// Check for common server configuration flags
-	return c.IsFlagSet("url") ||
-		c.IsFlagSet("user") ||
-		c.IsFlagSet("password") ||
-		c.IsFlagSet("access-token") ||
-		c.IsFlagSet("server-id")
-}
-
 // extractRepoKeyFromServiceURL extracts the repository key from a VSCode service URL
 // Expected format: https://<server>/artifactory/api/vscodeextensions/<repo-key>/_apis/public/gallery
 func extractRepoKeyFromServiceURL(serviceURL string) string {
@@ -101,20 +71,22 @@ func extractRepoKeyFromServiceURL(serviceURL string) string {
 		return ""
 	}
 
-	// Look for the pattern: /api/vscodeextensions/<repo-key>/_apis/public/gallery
-	const prefix = "/api/vscodeextensions/"
-	const suffix = "/_apis/public/gallery"
-
-	startIdx := strings.Index(serviceURL, prefix)
-	if startIdx == -1 {
-		return ""
-	}
-	startIdx += len(prefix)
-
-	endIdx := strings.Index(serviceURL[startIdx:], suffix)
-	if endIdx == -1 {
+	// Parse the URL to extract the repository key
+	parsedURL, err := url.Parse(serviceURL)
+	if err != nil {
 		return ""
 	}
 
-	return serviceURL[startIdx : startIdx+endIdx]
+	// Split the path to find the repository key
+	// Expected path: /artifactory/api/vscodeextensions/<repo-key>/_apis/public/gallery
+	pathParts := strings.Split(strings.TrimPrefix(parsedURL.Path, "/"), "/")
+
+	// Look for the vscodeextensions API path
+	for i, part := range pathParts {
+		if part == "api" && i+1 < len(pathParts) && pathParts[i+1] == "vscodeextensions" && i+2 < len(pathParts) {
+			return pathParts[i+2]
+		}
+	}
+
+	return ""
 }

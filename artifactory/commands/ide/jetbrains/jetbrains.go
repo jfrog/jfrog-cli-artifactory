@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ide"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -91,11 +92,6 @@ func (jc *JetbrainsCommand) Run() error {
 		return errorutils.CheckError(fmt.Errorf("no JetBrains IDEs found\n\nManual setup instructions:\n%s", jc.getManualSetupInstructions(jc.repositoryURL)))
 	}
 
-	log.Info("Found", len(jc.detectedIDEs), "JetBrains IDE installation(s):")
-	for _, ide := range jc.detectedIDEs {
-		log.Info("  " + ide.Name + " " + ide.Version)
-	}
-
 	modifiedCount := 0
 	for _, ide := range jc.detectedIDEs {
 		log.Info("Configuring " + ide.Name + " " + ide.Version + "...")
@@ -121,9 +117,7 @@ func (jc *JetbrainsCommand) Run() error {
 		return errorutils.CheckError(fmt.Errorf("failed to configure any JetBrains IDEs\n\nManual setup instructions:\n%s", jc.getManualSetupInstructions(jc.repositoryURL)))
 	}
 
-	log.Info("Successfully configured", modifiedCount, "out of", len(jc.detectedIDEs), "JetBrains IDE(s)")
-	log.Info("Repository URL:", jc.repositoryURL)
-	log.Info("Please restart your JetBrains IDEs to apply changes")
+	log.Info("Successfully configured", modifiedCount, "out of", len(jc.detectedIDEs), "JetBrains IDE(s). Repository URL:", jc.repositoryURL, "- Please restart your JetBrains IDEs to apply changes")
 
 	return nil
 }
@@ -255,7 +249,7 @@ func (jc *JetbrainsCommand) createBackup(ide IDEInstallation) error {
 	}
 
 	jc.backupPaths[ide.PropertiesPath] = backupPath
-	log.Info("	Backup created at: " + backupPath)
+	log.Info("Backup created at:", backupPath)
 	return nil
 }
 
@@ -284,7 +278,7 @@ func (jc *JetbrainsCommand) restoreBackup(ide IDEInstallation) error {
 		return fmt.Errorf("failed to restore backup: %w", err)
 	}
 
-	log.Info("	Backup restored for " + ide.Name)
+	log.Info("Backup restored for", ide.Name)
 	return nil
 }
 
@@ -310,7 +304,7 @@ func (jc *JetbrainsCommand) modifyPropertiesFile(ide IDEInstallation, repository
 				// Replace with our repository URL
 				lines = append(lines, fmt.Sprintf("idea.plugins.host=%s", repositoryURL))
 				pluginsHostSet = true
-				log.Info("  Updated existing idea.plugins.host property")
+				log.Info("Updated existing idea.plugins.host property")
 			} else {
 				lines = append(lines, line)
 			}
@@ -328,7 +322,7 @@ func (jc *JetbrainsCommand) modifyPropertiesFile(ide IDEInstallation, repository
 		}
 		lines = append(lines, "# JFrog Artifactory plugins repository")
 		lines = append(lines, fmt.Sprintf("idea.plugins.host=%s", repositoryURL))
-		log.Info("  Added idea.plugins.host property")
+		log.Info("Added idea.plugins.host property")
 	}
 
 	// Ensure config directory exists
@@ -359,31 +353,5 @@ func (jc *JetbrainsCommand) getManualSetupInstructions(repositoryURL string) str
 		configPath = "[JetBrains config directory]/[IDE][VERSION]/idea.properties"
 	}
 
-	instructions := fmt.Sprintf(`
-Manual JetBrains IDE Setup Instructions:
-=======================================
-
-1. Close all JetBrains IDEs
-
-2. Locate your IDE configuration directory:
-   %s
-
-   Examples:
-   • IntelliJ IDEA: IntelliJIdea2023.3/idea.properties
-   • PyCharm: PyCharm2023.3/idea.properties
-   • WebStorm: WebStorm2023.3/idea.properties
-
-3. Open or create the idea.properties file in a text editor
-
-4. Add or modify the following line:
-   idea.plugins.host=%s
-
-5. Save the file and restart your IDE
-
-Repository URL: %s
-
-Supported IDEs: IntelliJ IDEA, PyCharm, WebStorm, PhpStorm, RubyMine, CLion, DataGrip, GoLand, Rider, Android Studio, AppCode, RustRover, Aqua
-`, configPath, repositoryURL, repositoryURL)
-
-	return instructions
+	return fmt.Sprintf(ide.JetbrainsManualInstructionsTemplate, configPath, repositoryURL, repositoryURL)
 }
