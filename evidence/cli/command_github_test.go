@@ -27,7 +27,7 @@ func TestEvidenceGitHubCommand_CreateEvidence_SigstoreBundle(t *testing.T) {
 				setDefaultValue(typeFlag, "github"),
 			},
 			expectError:   true,
-			errorContains: "--sigstore-bundle is currently not supported for GitHub evidence. This feature may be supported in future releases.",
+			errorContains: "--sigstore-bundle is currently not supported for GitHub evidence.",
 		},
 		{
 			name: "Valid_Without_SigstoreBundle",

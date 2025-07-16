@@ -26,7 +26,7 @@ func TestEvidenceBuildCommand_CreateEvidence_SigstoreBundle(t *testing.T) {
 				setDefaultValue(buildNumber, "123"),
 			},
 			expectError:   true,
-			errorContains: "--sigstore-bundle is currently not supported for build evidence. This feature may be supported in future releases.",
+			errorContains: "--sigstore-bundle is currently not supported for build evidence.",
 		},
 		{
 			name: "Valid_Without_SigstoreBundle",

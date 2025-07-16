@@ -22,7 +22,7 @@ func NewEvidenceBuildCommand(ctx *components.Context, execute execCommandFunc) E
 
 func (ebc *evidenceBuildCommand) CreateEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
 	if ebc.ctx.GetStringFlagValue(sigstoreBundle) != "" {
-		return errorutils.CheckErrorf("--sigstore-bundle is currently not supported for build evidence. This feature may be supported in future releases.")
+		return errorutils.CheckErrorf("--%s is currently not supported for build evidence.", sigstoreBundle)
 	}
 
 	err := ebc.validateEvidenceBuildContext(ctx)

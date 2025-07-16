@@ -27,7 +27,7 @@ func GetDSSEEnvelope(b *bundle.Bundle) (*protodsse.Envelope, error) {
 	switch c := content.(type) {
 	case *protobundle.Bundle_DsseEnvelope:
 		if c.DsseEnvelope == nil {
-			return nil, errorutils.CheckErrorf("DSSE envelope is nil")
+			return nil, errorutils.CheckErrorf("DSSE envelope is empty")
 		}
 		return c.DsseEnvelope, nil
 	default:

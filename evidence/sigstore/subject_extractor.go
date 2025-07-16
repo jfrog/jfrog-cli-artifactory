@@ -40,34 +40,5 @@ func extractRepoPathFromStatement(statement map[string]interface{}) string {
 			}
 		}
 	}
-
-	if predicate, ok := statement["predicate"].(map[string]interface{}); ok {
-		if artifact, ok := predicate["artifact"].(map[string]interface{}); ok {
-			if path, ok := artifact["path"].(string); ok && path != "" {
-				return path
-			}
-			if uri, ok := artifact["uri"].(string); ok && uri != "" {
-				return uri
-			}
-		}
-
-		if subject, ok := predicate["subject"].(map[string]interface{}); ok {
-			if path, ok := subject["path"].(string); ok && path != "" {
-				return path
-			}
-			if uri, ok := subject["uri"].(string); ok && uri != "" {
-				return uri
-			}
-		}
-
-		if materials, ok := predicate["materials"].([]interface{}); ok && len(materials) > 0 {
-			if material, ok := materials[0].(map[string]interface{}); ok {
-				if uri, ok := material["uri"].(string); ok && uri != "" {
-					return uri
-				}
-			}
-		}
-	}
-
 	return ""
 }

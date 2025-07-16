@@ -586,7 +586,7 @@ func TestValidateSigstoreBundleConflicts(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			err = validateSigstoreBundleConflicts(context)
+			err = validateSigstoreBundleArgsConflicts(context)
 
 			if tt.expectError {
 				assert.Error(t, err)

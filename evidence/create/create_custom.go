@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	clientLog "github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
+	"regexp"
 	"strings"
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence"
@@ -61,11 +62,13 @@ func (c *createEvidenceCustom) Run() error {
 		return err
 	}
 
+	err = validateSubject(c.subjectRepoPath)
+	if err != nil {
+		return err
+	}
 	err = c.uploadEvidence(evidencePayload, c.subjectRepoPath)
 	if err != nil {
-		if strings.Contains(err.Error(), "evidence selector must be of {repository}/{path}/{name}") {
-			return errorutils.CheckErrorf("Invalid subject format: '%s'. Subject must be in format: <repo>/<path>/<name> or <repo>/<name>", c.subjectRepoPath)
-		}
+		err = handleSubjectNotFound(err, c.subjectRepoPath)
 		return err
 	}
 
@@ -84,7 +87,6 @@ func (c *createEvidenceCustom) processSigstoreBundle() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		clientLog.Debug("subject extracted from sigstore bundle:", extractedSubject)
 		c.subjectRepoPath = extractedSubject
 	}
 
@@ -92,12 +94,18 @@ func (c *createEvidenceCustom) processSigstoreBundle() ([]byte, error) {
 }
 
 func (c *createEvidenceCustom) extractSubjectFromBundle(bundle *bundle.Bundle) (string, error) {
-	repoPath, err := sigstore.ExtractSubjectFromBundle(bundle)
+	subject, err := sigstore.ExtractSubjectFromBundle(bundle)
 	if err != nil {
 		return "", err
 	}
 
-	return repoPath, nil
+	if subject == "" {
+		return "", errorutils.CheckErrorf("Subject is not found in the sigstore bundle. Please ensure the bundle contains a valid subject.")
+	} else {
+		clientLog.Info("Subject '%s' is resolved from sigstore bundle:", subject)
+	}
+
+	return subject, nil
 }
 
 func (c *createEvidenceCustom) createDSSEEnvelope() ([]byte, error) {
@@ -107,4 +115,21 @@ func (c *createEvidenceCustom) createDSSEEnvelope() ([]byte, error) {
 	}
 
 	return envelope, nil
+}
+
+func validateSubject(subject string) error {
+	// Pattern: must have at least one slash with non-empty sections
+	if matched, _ := regexp.MatchString(`^[^/]+(/[^/]+)+$`, subject); !matched {
+		return errorutils.CheckErrorf("Subject '%s' is invalid. Subject must be in format: <repo>/<path>/<name> or <repo>/<name>", subject)
+	}
+	return nil
+}
+
+func handleSubjectNotFound(err error, subject string) error {
+	errStr := err.Error()
+	if strings.Contains(errStr, "404 Not Found") {
+		clientLog.Debug("Server response error:", err.Error())
+		return errorutils.CheckErrorf("Subject '%s' is not found. Please ensure the subject exists.", subject)
+	}
+	return err
 }

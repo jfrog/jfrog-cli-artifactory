@@ -27,7 +27,7 @@ func TestEvidencePackageCommand_CreateEvidence_SigstoreBundle(t *testing.T) {
 				setDefaultValue(packageRepoName, "test-repo"),
 			},
 			expectError:   true,
-			errorContains: "--sigstore-bundle is currently not supported for package evidence. This feature may be supported in future releases.",
+			errorContains: "--sigstore-bundle is currently not supported for package evidence.",
 		},
 		{
 			name: "Valid_Without_SigstoreBundle",

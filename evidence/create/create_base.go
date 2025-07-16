@@ -18,7 +18,6 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	evidenceService "github.com/jfrog/jfrog-client-go/evidence/services"
-	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	clientlog "github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -155,18 +154,14 @@ func (c *createEvidenceBase) uploadEvidence(evidencePayload []byte, repoPath str
 	}
 
 	evidenceDetails := evidenceService.EvidenceDetails{
-		SubjectUri:  repoPath,
+		SubjectUri: repoPath,
+		// evidencePayload may contain not only a DSSE envelop.
 		DSSEFileRaw: evidencePayload,
 		ProviderId:  c.providerId,
 	}
 	clientlog.Debug("Uploading evidence for subject:", repoPath)
 	body, err := evidenceManager.UploadEvidence(evidenceDetails)
 	if err != nil {
-		errStr := err.Error()
-		if strings.Contains(errStr, "400") || strings.Contains(errStr, "404") {
-			clientlog.Debug("Server response error:", err.Error())
-			return errorutils.CheckErrorf("Subject '%s' is invalid or not found. Please ensure the subject exists and follows the correct format: <repo>/<path>/<name> or <repo>/<name>", repoPath)
-		}
 		return err
 	}
 
