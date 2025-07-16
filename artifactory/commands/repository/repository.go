@@ -39,7 +39,7 @@ func (rc *RepoCommand) TemplatePath() string {
 	return rc.templatePath
 }
 
-type repoCreateHandler interface {
+type repoCreateUpdateHandler interface {
 	Execute(repoConfigMaps []map[string]interface{}, servicesManager artifactory.ArtifactoryServicesManager, isUpdate bool) error
 }
 
@@ -70,19 +70,14 @@ func (rc *RepoCommand) PerformRepoCmd(isUpdate bool) (err error) {
 		return err
 	}
 
-	var strategy repoCreateHandler
+	var strategy repoCreateUpdateHandler
 	if len(repoConfigMaps) > singleRepoCreateEntity {
 		strategy = &MultipleRepositoryHandler{}
 	} else {
 		strategy = &SingleRepositoryHandler{}
 	}
 
-	err = strategy.Execute(repoConfigMaps, servicesManager, isUpdate)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return strategy.Execute(repoConfigMaps, servicesManager, isUpdate)
 }
 
 func (m *MultipleRepositoryHandler) Execute(repoConfigMaps []map[string]interface{}, servicesManager artifactory.ArtifactoryServicesManager, isUpdate bool) error {
@@ -153,18 +148,15 @@ func multipleRepoHandler(servicesManager artifactory.ArtifactoryServicesManager,
 		}
 	}
 
-	log.Info("creating/updating repositories in batch...")
+	log.Debug("creating/updating repositories in batch...")
 
 	err = servicesManager.CreateUpdateRepositoriesInBatch(jsonConfig, isUpdate)
 	if err != nil {
 		return err
 	}
 
-	if isUpdate {
-		log.Info("Successfully updated the repositories")
-	} else {
-		log.Info("Successfully created the repositories")
-	}
+	log.Info("Successfully created/updated the repositories")
+
 	return nil
 }
 
