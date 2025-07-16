@@ -82,7 +82,6 @@ func (c *createEvidenceCustom) processSigstoreBundle() ([]byte, error) {
 	}
 
 	if c.subjectRepoPath == "" {
-
 		extractedSubject, err := c.extractSubjectFromBundle(sigstoreBundle)
 		if err != nil {
 			return nil, err
