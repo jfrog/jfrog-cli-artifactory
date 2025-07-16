@@ -49,15 +49,31 @@ type (
 )
 
 func (rc *RepoCommand) PerformRepoCmd(isUpdate bool) (err error) {
-	repoConfigMaps, err := utils.ConvertTemplateToMaps(rc)
+	configs, err := utils.ConvertTemplateToMaps(rc)
 	if err != nil {
 		return err
 	}
 
+	var (
+		repoConfigMaps []map[string]interface{}
+		strategy       repoCreateUpdateHandler
+	)
+
+	switch configType := configs.(type) {
+	case []map[string]interface{}:
+		repoConfigMaps = configType
+		strategy = &MultipleRepositoryHandler{}
+	case map[string]interface{}:
+		repoConfigMaps = []map[string]interface{}{configType}
+		strategy = &SingleRepositoryHandler{}
+	default:
+		return fmt.Errorf("unexpected repository configuration type: %T", configType)
+	}
+
 	var missingKeys []string
-	for _, config := range repoConfigMaps {
-		if key, ok := config["key"]; !ok || key == "" {
-			missingKeys = append(missingKeys, fmt.Sprintf("%v\n", config))
+	for _, repoConfigMap := range repoConfigMaps {
+		if key, ok := repoConfigMap["key"]; !ok || key == "" {
+			missingKeys = append(missingKeys, fmt.Sprintf("%v\n", repoConfigMap))
 		}
 	}
 
@@ -68,13 +84,6 @@ func (rc *RepoCommand) PerformRepoCmd(isUpdate bool) (err error) {
 	servicesManager, err := rtUtils.CreateServiceManager(rc.serverDetails, -1, 0, false)
 	if err != nil {
 		return err
-	}
-
-	var strategy repoCreateUpdateHandler
-	if len(repoConfigMaps) > singleRepoCreateEntity {
-		strategy = &MultipleRepositoryHandler{}
-	} else {
-		strategy = &SingleRepositoryHandler{}
 	}
 
 	return strategy.Execute(repoConfigMaps, servicesManager, isUpdate)
