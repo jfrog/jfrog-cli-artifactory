@@ -51,10 +51,10 @@ func (c *createEvidenceCustom) Run() error {
 	var err error
 
 	if c.sigstoreBundlePath != "" {
-		clientLog.Debug("Reading sigstore bundle from path:", c.sigstoreBundlePath)
+		clientLog.Info("Reading sigstore bundle from path:", c.sigstoreBundlePath)
 		evidencePayload, err = c.processSigstoreBundle()
 	} else {
-		clientLog.Debug("Creating DSSE envelope for subject:", c.subjectRepoPath)
+		clientLog.Info("Creating DSSE envelope for subject:", c.subjectRepoPath)
 		evidencePayload, err = c.createDSSEEnvelope()
 	}
 
@@ -102,7 +102,7 @@ func (c *createEvidenceCustom) extractSubjectFromBundle(bundle *bundle.Bundle) (
 	if subject == "" {
 		return "", errorutils.CheckErrorf("Subject is not found in the sigstore bundle. Please ensure the bundle contains a valid subject.")
 	} else {
-		clientLog.Info("Subject '%s' is resolved from sigstore bundle:", subject)
+		clientLog.Info("Subject " + subject + " is resolved from sigstore bundle.")
 	}
 
 	return subject, nil

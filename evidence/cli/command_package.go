@@ -22,7 +22,7 @@ func NewEvidencePackageCommand(ctx *components.Context, execute execCommandFunc)
 
 func (epc *evidencePackageCommand) CreateEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
 	if epc.ctx.GetStringFlagValue(sigstoreBundle) != "" {
-		return errorutils.CheckErrorf("--%s is currently not supported for package evidence.", sigstoreBundle)
+		return errorutils.CheckErrorf("--%s is not supported for package evidence.", sigstoreBundle)
 	}
 
 	err := epc.validateEvidencePackageContext(ctx)

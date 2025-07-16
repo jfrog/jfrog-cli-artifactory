@@ -26,7 +26,7 @@ func TestEvidenceReleaseBundleCommand_CreateEvidence_SigstoreBundle(t *testing.T
 				setDefaultValue(releaseBundleVersion, "1.0.0"),
 			},
 			expectError:   true,
-			errorContains: "--sigstore-bundle is currently not supported for release bundle evidence.",
+			errorContains: "--sigstore-bundle is not supported for release bundle evidence.",
 		},
 		{
 			name: "Valid_Without_SigstoreBundle",
