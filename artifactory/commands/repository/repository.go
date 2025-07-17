@@ -21,8 +21,7 @@ import (
 const (
 	// The actual field in the repository configuration is an array (plural) but in practice only one environment is allowed.
 	// This is why the question differs from the repository configuration.
-	environmentsKey        = "environments"
-	singleRepoCreateEntity = 1
+	environmentsKey = "environments"
 )
 
 type RepoCommand struct {
