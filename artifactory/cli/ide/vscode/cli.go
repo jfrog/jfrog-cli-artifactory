@@ -2,7 +2,6 @@ package vscode
 
 import (
 	"fmt"
-	"net/url"
 	"strings"
 
 	"github.com/jfrog/gofrog/log"
@@ -75,7 +74,8 @@ func vscodeConfigCmd(c *components.Context) error {
 	vscodeCmd := vscode.NewVscodeCommand(repoKey, productPath, serviceURL)
 
 	// Determine if this is a direct URL (argument provided) vs constructed URL (server-id + repo-key)
-	isDirectURL := c.GetNumberOfArgs() > 0 && isValidUrl(c.GetArgumentAt(0))
+	isDirectURL := c.GetNumberOfArgs() > 0 && ide.IsValidUrl(c.GetArgumentAt(0))
+
 	vscodeCmd.SetDirectURL(isDirectURL)
 
 	if rtDetails != nil {
@@ -87,7 +87,7 @@ func vscodeConfigCmd(c *components.Context) error {
 
 // getVscodeRepoKeyAndURL determines the repo key and service URL from args/flags
 func getVscodeRepoKeyAndURL(c *components.Context) (repoKey, serviceURL string, err error) {
-	if c.GetNumberOfArgs() > 0 && isValidUrl(c.GetArgumentAt(0)) {
+	if c.GetNumberOfArgs() > 0 && ide.IsValidUrl(c.GetArgumentAt(0)) {
 		serviceURL = c.GetArgumentAt(0)
 		repoKey, err = ide.ExtractRepoKeyFromURL(serviceURL)
 		if err != nil {
@@ -143,9 +143,4 @@ func getVscodeServerDetails(c *components.Context) (*config.ServerDetails, error
 		return nil, nil //nolint:nilerr // Intentionally ignoring error to skip validation when no default server
 	}
 	return rtDetails, nil
-}
-
-func isValidUrl(s string) bool {
-	u, err := url.Parse(s)
-	return err == nil && u.Scheme != "" && u.Host != ""
 }

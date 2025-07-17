@@ -1060,7 +1060,7 @@ var flagsMap = map[string]components.Flag{
 	lcDryRun: components.NewBoolFlag(dryRun, "Set to true to only simulate the distribution of the release bundle.", components.WithBoolDefaultValueFalse()),
 	lcIncludeRepos: components.NewStringFlag(IncludeRepos, "List of semicolon-separated(;) repositories to include in the promotion. If this property is left undefined, all repositories (except those specifically excluded) are included in the promotion. "+
 		"If one or more repositories are specifically included, all other repositories are excluded.` `", components.SetMandatoryFalse()),
-	lcExcludeRepos:           components.NewStringFlag(ExcludeRepos, "List of semicolon-seperated(;) repositories to exclude from the promotion.` `", components.SetMandatoryFalse()),
+	lcExcludeRepos:           components.NewStringFlag(ExcludeRepos, "List of semicolon-separated(;) repositories to exclude from the promotion.` `", components.SetMandatoryFalse()),
 	platformUrl:              components.NewStringFlag(url, "JFrog platform URL. (example: https://acme.jfrog.io)` `", components.SetMandatoryFalse()),
 	PromotionType:            components.NewStringFlag(PromotionType, "The promotion type. Can be one of 'copy' or 'move'.", components.WithStrDefaultValue("copy")),
 	lcTag:                    components.NewStringFlag(Tag, "Tag to put on Release Bundle version.", components.SetMandatoryFalse()),

@@ -135,7 +135,7 @@ func (jc *JetbrainsCommand) Run() error {
 
 // validateRepository uses the established pattern for repository validation
 func (jc *JetbrainsCommand) validateRepository() error {
-	log.Info("Validating repository...")
+	log.Debug("Validating repository...")
 
 	if jc.serverDetails == nil {
 		return fmt.Errorf("server details not configured")

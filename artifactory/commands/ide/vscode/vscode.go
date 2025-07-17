@@ -88,7 +88,6 @@ func (vc *VscodeCommand) Run() error {
 	}
 
 	log.Info("VSCode configuration updated successfully. Repository URL:", vc.serviceURL, "- Please restart VSCode to apply changes")
-
 	return nil
 }
 

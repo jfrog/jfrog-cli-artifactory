@@ -2,7 +2,6 @@ package jetbrains
 
 import (
 	"fmt"
-	"net/url"
 	"strings"
 
 	"github.com/jfrog/gofrog/log"
@@ -71,7 +70,7 @@ func jetbrainsConfigCmd(c *components.Context) error {
 	jetbrainsCmd := jetbrains.NewJetbrainsCommand(repositoryURL, repoKey)
 
 	// Determine if this is a direct URL (argument provided) vs constructed URL (server-id + repo-key)
-	isDirectURL := c.GetNumberOfArgs() > 0 && isValidUrl(c.GetArgumentAt(0))
+	isDirectURL := c.GetNumberOfArgs() > 0 && ide.IsValidUrl(c.GetArgumentAt(0))
 	jetbrainsCmd.SetDirectURL(isDirectURL)
 
 	if rtDetails != nil {
@@ -83,7 +82,7 @@ func jetbrainsConfigCmd(c *components.Context) error {
 
 // getJetbrainsRepoKeyAndURL determines the repo key and repository URL from args/flags
 func getJetbrainsRepoKeyAndURL(c *components.Context) (repoKey, repositoryURL string, err error) {
-	if c.GetNumberOfArgs() > 0 && isValidUrl(c.GetArgumentAt(0)) {
+	if c.GetNumberOfArgs() > 0 && ide.IsValidUrl(c.GetArgumentAt(0)) {
 		repositoryURL = c.GetArgumentAt(0)
 		repoKey, err = ide.ExtractRepoKeyFromURL(repositoryURL)
 		if err != nil {
@@ -139,9 +138,4 @@ func getJetbrainsServerDetails(c *components.Context) (*config.ServerDetails, er
 		return nil, nil //nolint:nilerr // Intentionally ignoring error to skip validation when no default server
 	}
 	return rtDetails, nil
-}
-
-func isValidUrl(s string) bool {
-	u, err := url.Parse(s)
-	return err == nil && u.Scheme != "" && u.Host != ""
 }

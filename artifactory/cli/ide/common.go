@@ -2,6 +2,7 @@ package ide
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
@@ -65,4 +66,10 @@ func ExtractRepoKeyFromURL(repoURL string) (string, error) {
 	}
 
 	return "", fmt.Errorf("URL does not contain a supported API type (/api/jetbrainsplugins/ or /api/vscodeextensions/)")
+}
+
+// IsValidUrl checks if a string is a valid URL with scheme and host
+func IsValidUrl(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && u.Scheme != "" && u.Host != ""
 }
