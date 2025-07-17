@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -211,4 +212,113 @@ func TestCreateEvidenceCustom_SigstoreBundleWithSubjectPath(t *testing.T) {
 	assert.True(t, ok, "cmd should be of type *createEvidenceCustom")
 	assert.Equal(t, bundlePath, custom.sigstoreBundlePath)
 	assert.Equal(t, "provided-repo/provided-artifact", custom.subjectRepoPath)
+}
+
+func TestCreateEvidenceCustom_NewSubjectError_GitHubActions(t *testing.T) {
+	_ = os.Setenv("GITHUB_ACTIONS", "true")
+	defer func() {
+		_ = os.Unsetenv("GITHUB_ACTIONS")
+	}()
+
+	serverDetails := &config.ServerDetails{
+		Url:         "https://test.jfrog.io",
+		User:        "test-user",
+		AccessToken: "test-token",
+	}
+
+	cmd := NewCreateEvidenceCustom(
+		serverDetails,
+		"predicate.json",
+		"https://example.com/predicate/v1",
+		"markdown.md",
+		"key.pem",
+		"key-alias",
+		"test-repo/test-artifact",
+		"abcd1234",
+		"/path/to/sigstore-bundle.json",
+		"test-provider",
+	)
+
+	custom, ok := cmd.(*createEvidenceCustom)
+	assert.True(t, ok, "cmd should be of type *createEvidenceCustom")
+
+	testMessage := "Test error message"
+	err := custom.newSubjectError(testMessage)
+
+	assert.Error(t, err)
+	cliErr, ok := err.(coreutils.CliError)
+	assert.True(t, ok, "error should be of type CliError when running under GitHub Actions with sigstore bundle")
+	assert.Equal(t, coreutils.ExitCodeFailNoOp, cliErr.ExitCode, "should return exit code 2 (ExitCodeFailNoOp)")
+	assert.Equal(t, testMessage, cliErr.ErrorMsg, "error message should match")
+}
+
+func TestCreateEvidenceCustom_NewSubjectError_RegularExecution(t *testing.T) {
+	_ = os.Unsetenv("GITHUB_ACTIONS")
+
+	serverDetails := &config.ServerDetails{
+		Url:         "https://test.jfrog.io",
+		User:        "test-user",
+		AccessToken: "test-token",
+	}
+
+	cmd := NewCreateEvidenceCustom(
+		serverDetails,
+		"predicate.json",
+		"https://example.com/predicate/v1",
+		"markdown.md",
+		"key.pem",
+		"key-alias",
+		"test-repo/test-artifact",
+		"abcd1234",
+		"/path/to/sigstore-bundle.json",
+		"test-provider",
+	)
+
+	custom, ok := cmd.(*createEvidenceCustom)
+	assert.True(t, ok, "cmd should be of type *createEvidenceCustom")
+
+	testMessage := "Test error message"
+	err := custom.newSubjectError(testMessage)
+
+	assert.Error(t, err)
+	_, ok = err.(coreutils.CliError)
+	assert.False(t, ok, "error should not be of type CliError when not running under GitHub Actions")
+	assert.Contains(t, err.Error(), testMessage, "error message should contain the test message")
+}
+
+func TestCreateEvidenceCustom_NewSubjectError_GitHubActionsWithoutSigstoreBundle(t *testing.T) {
+	_ = os.Setenv("GITHUB_ACTIONS", "true")
+	defer func() {
+		_ = os.Unsetenv("GITHUB_ACTIONS")
+	}()
+
+	serverDetails := &config.ServerDetails{
+		Url:         "https://test.jfrog.io",
+		User:        "test-user",
+		AccessToken: "test-token",
+	}
+
+	cmd := NewCreateEvidenceCustom(
+		serverDetails,
+		"predicate.json",
+		"https://example.com/predicate/v1",
+		"markdown.md",
+		"key.pem",
+		"key-alias",
+		"test-repo/test-artifact",
+		"abcd1234",
+		"",
+		"test-provider",
+	)
+
+	custom, ok := cmd.(*createEvidenceCustom)
+	assert.True(t, ok, "cmd should be of type *createEvidenceCustom")
+
+	testMessage := "Test error message"
+	err := custom.newSubjectError(testMessage)
+
+	assert.Error(t, err)
+	_, ok = err.(coreutils.CliError)
+	assert.False(t, ok, "error should not be of type CliError when running under GitHub Actions but without sigstore bundle")
+	assert.Contains(t, err.Error(), testMessage, "error message should contain the test message")
 }
