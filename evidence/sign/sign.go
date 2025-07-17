@@ -1,8 +1,9 @@
-package dsse
+package sign
 
 import (
 	"encoding/base64"
 	"errors"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
@@ -11,15 +12,15 @@ var ErrNoSigners = errors.New("no signers provided")
 
 // EnvelopeSigner creates signed Envelopes.
 type EnvelopeSigner struct {
-	providers []Signer
+	providers []dsse.Signer
 }
 
 /*
 NewEnvelopeSigner creates an EnvelopeSigner that uses 1+ Signer algorithms to
 sign the data.
 */
-func NewEnvelopeSigner(singer ...Signer) (*EnvelopeSigner, error) {
-	var providers []Signer
+func NewEnvelopeSigner(singer ...dsse.Signer) (*EnvelopeSigner, error) {
+	var providers []dsse.Signer
 
 	for _, s := range singer {
 		if s != nil {
@@ -42,13 +43,13 @@ Returned is an envelope as defined here:
 https://github.com/secure-systems-lab/dsse/blob/master/envelope.md
 One signature will be added for each Signer in the EnvelopeSigner.
 */
-func (es *EnvelopeSigner) SignPayload(payloadType string, body []byte) (*Envelope, error) {
-	var e = Envelope{
+func (es *EnvelopeSigner) SignPayload(payloadType string, body []byte) (*dsse.Envelope, error) {
+	var e = dsse.Envelope{
 		Payload:     base64.StdEncoding.EncodeToString(body),
 		PayloadType: payloadType,
 	}
 
-	paeEnc := PAE(payloadType, body)
+	paeEnc := dsse.PAE(payloadType, body)
 
 	for _, signer := range es.providers {
 		sig, err := signer.Sign(paeEnc)
@@ -60,7 +61,7 @@ func (es *EnvelopeSigner) SignPayload(payloadType string, body []byte) (*Envelop
 			keyID = ""
 		}
 
-		e.Signatures = append(e.Signatures, Signature{
+		e.Signatures = append(e.Signatures, dsse.Signature{
 			KeyId: keyID,
 			Sig:   base64.StdEncoding.EncodeToString(sig),
 		})

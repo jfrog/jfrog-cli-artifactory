@@ -1,4 +1,4 @@
-package evidence
+package create
 
 import (
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
@@ -16,7 +16,7 @@ type mockArtifactoryServicesManagerBuild struct {
 	artifactory.EmptyArtifactoryServicesManager
 }
 
-func (m *mockArtifactoryServicesManagerBuild) FileInfo(relativePath string) (*utils.FileInfo, error) {
+func (m *mockArtifactoryServicesManagerBuild) FileInfo(_ string) (*utils.FileInfo, error) {
 	fi := &utils.FileInfo{
 		Checksums: struct {
 			Sha1   string `json:"sha1,omitempty"`

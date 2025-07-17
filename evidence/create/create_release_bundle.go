@@ -1,9 +1,10 @@
-package evidence
+package create
 
 import (
 	"fmt"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
@@ -15,8 +16,8 @@ type createEvidenceReleaseBundle struct {
 	releaseBundleVersion string
 }
 
-func NewCreateEvidenceReleaseBundle(serverDetails *coreConfig.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, project, releaseBundle,
-	releaseBundleVersion string) Command {
+func NewCreateEvidenceReleaseBundle(serverDetails *config.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, project, releaseBundle,
+	releaseBundleVersion string) evidence.Command {
 	return &createEvidenceReleaseBundle{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
@@ -63,7 +64,7 @@ func (c *createEvidenceReleaseBundle) Run() error {
 }
 
 func (c *createEvidenceReleaseBundle) buildReleaseBundleSubjectPath(artifactoryClient artifactory.ArtifactoryServicesManager) (string, string, error) {
-	repoKey := buildRepoKey(c.project)
+	repoKey := utils.BuildReleaseBundleRepoKey(c.project)
 	manifestPath := buildManifestPath(repoKey, c.releaseBundle, c.releaseBundleVersion)
 
 	manifestChecksum, err := c.getFileChecksum(manifestPath, artifactoryClient)
@@ -72,13 +73,6 @@ func (c *createEvidenceReleaseBundle) buildReleaseBundleSubjectPath(artifactoryC
 	}
 
 	return manifestPath, manifestChecksum, nil
-}
-
-func buildRepoKey(project string) string {
-	if project == "" || project == "default" {
-		return "release-bundles-v2"
-	}
-	return fmt.Sprintf("%s-release-bundles-v2", project)
 }
 
 func buildManifestPath(repoKey, name, version string) string {
