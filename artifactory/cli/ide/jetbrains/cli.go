@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/jfrog/gofrog/log"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/cli/ide"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ide/jetbrains"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
@@ -12,34 +13,95 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
 
+const (
+	repoKeyFlag   = "repo-key"
+	urlSuffixFlag = "url-suffix"
+)
+
 func GetCommands() []components.Command {
 	return []components.Command{
 		{
 			Name:        "jetbrains-config",
-			Aliases:     []string{"jetbrains"},
+			Aliases:     []string{"jb"},
+			Hidden:      true,
+			Flags:       getFlags(),
+			Arguments:   getArguments(),
 			Action:      jetbrainsConfigCmd,
 			Description: ide.JetbrainsConfigDescription,
 		},
 	}
 }
 
+func getFlags() []components.Flag {
+	return []components.Flag{
+		components.NewStringFlag(repoKeyFlag, "Repository key for the JetBrains plugins repo. [Required if no URL is given]", components.SetMandatoryFalse()),
+		components.NewStringFlag(urlSuffixFlag, "Suffix for the JetBrains plugins repository URL. Default: (empty)", components.SetMandatoryFalse()),
+		// Server configuration flags
+		components.NewStringFlag("url", "JFrog Artifactory URL. (example: https://acme.jfrog.io/artifactory)", components.SetMandatoryFalse()),
+		components.NewStringFlag("user", "JFrog username.", components.SetMandatoryFalse()),
+		components.NewStringFlag("password", "JFrog password.", components.SetMandatoryFalse()),
+		components.NewStringFlag("access-token", "JFrog access token.", components.SetMandatoryFalse()),
+		components.NewStringFlag("server-id", "Server ID configured using the 'jf config' command.", components.SetMandatoryFalse()),
+	}
+}
+
+func getArguments() []components.Argument {
+	return []components.Argument{
+		{
+			Name:        "repository-url",
+			Description: "The Artifactory JetBrains plugins repository URL (optional when using --repo-key)",
+			Optional:    true,
+		},
+	}
+}
+
 func jetbrainsConfigCmd(c *components.Context) error {
-	repositoryURL, err := ide.ValidateSingleNonEmptyArg(c, "jf jetbrains-config <repository-url>")
-	if err != nil {
-		return err
+	var repositoryURL, repoKey string
+	var err error
+
+	if c.GetNumberOfArgs() > 0 && isValidUrl(c.GetArgumentAt(0)) {
+		repositoryURL = c.GetArgumentAt(0)
+		repoKey = extractRepoKeyFromRepositoryURL(repositoryURL)
+	} else {
+		repoKey = c.GetStringFlagValue(repoKeyFlag)
+		if repoKey == "" {
+			return fmt.Errorf("You must provide either a repository URL as the first argument or --repo-key flag.")
+		}
+		// Get Artifactory URL from server details (flags or default)
+		var artDetails *config.ServerDetails
+		if ide.HasServerConfigFlags(c) {
+			artDetails, err = pluginsCommon.CreateArtifactoryDetailsByFlags(c)
+			if err != nil {
+				return fmt.Errorf("Failed to get Artifactory server details: %w", err)
+			}
+		} else {
+			artDetails, err = config.GetDefaultServerConf()
+			if err != nil {
+				return fmt.Errorf("Failed to get default Artifactory server details: %w", err)
+			}
+		}
+		baseUrl := strings.TrimRight(artDetails.Url, "/")
+		urlSuffix := c.GetStringFlagValue(urlSuffixFlag)
+		if urlSuffix != "" {
+			urlSuffix = "/" + strings.TrimLeft(urlSuffix, "/")
+		}
+		repositoryURL = baseUrl + "/artifactory/api/jetbrainsplugins/" + repoKey + urlSuffix
 	}
 
-	// Extract repo key from repository URL for potential validation
-	repoKey := extractRepoKeyFromRepositoryURL(repositoryURL)
-
-	// Create server details only if server configuration flags are provided
-	// This makes server configuration optional for basic JetBrains setup
+	// Create server details for validation
 	var rtDetails *config.ServerDetails
-
 	if ide.HasServerConfigFlags(c) {
+		// Use explicit server configuration flags
 		rtDetails, err = pluginsCommon.CreateArtifactoryDetailsByFlags(c)
 		if err != nil {
 			return fmt.Errorf("failed to create server configuration: %w", err)
+		}
+	} else {
+		// Use default server configuration for validation when no explicit flags provided
+		rtDetails, err = config.GetDefaultServerConf()
+		if err != nil {
+			// If no default server, that's okay - we'll just skip validation
+			log.Debug("No default server configuration found, skipping repository validation")
 		}
 	}
 
@@ -51,6 +113,11 @@ func jetbrainsConfigCmd(c *components.Context) error {
 	return jetbrainsCmd.Run()
 }
 
+func isValidUrl(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && u.Scheme != "" && u.Host != ""
+}
+
 // extractRepoKeyFromRepositoryURL extracts the repository key from a JetBrains repository URL
 // Expected format: https://<server>/artifactory/api/jetbrainsplugins/<repo-key>
 func extractRepoKeyFromRepositoryURL(repositoryURL string) string {
@@ -58,22 +125,16 @@ func extractRepoKeyFromRepositoryURL(repositoryURL string) string {
 		return ""
 	}
 
-	// Parse the URL to extract the repository key
 	parsedURL, err := url.Parse(repositoryURL)
 	if err != nil {
 		return ""
 	}
 
-	// Split the path to find the repository key
-	// Expected path: /artifactory/api/jetbrainsplugins/<repo-key>
 	pathParts := strings.Split(strings.TrimPrefix(parsedURL.Path, "/"), "/")
-
-	// Look for the jetbrainsplugins API path
 	for i, part := range pathParts {
 		if part == "api" && i+1 < len(pathParts) && pathParts[i+1] == "jetbrainsplugins" && i+2 < len(pathParts) {
 			return pathParts[i+2]
 		}
 	}
-
 	return ""
 }
