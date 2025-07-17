@@ -1,4 +1,4 @@
-package evidence
+package create
 
 import (
 	"context"
@@ -8,11 +8,12 @@ import (
 	"github.com/jfrog/froggit-go/vcsclient"
 	"github.com/jfrog/froggit-go/vcsutils"
 	artifactoryUtils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"os"
@@ -38,7 +39,7 @@ type createGitHubEvidence struct {
 	buildNumber string
 }
 
-func NewCreateGithub(serverDetails *coreConfig.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, project, buildName, buildNumber, typeFlag string) Command {
+func NewCreateGithub(serverDetails *config.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, project, buildName, buildNumber, typeFlag string) evidence.Command {
 	flagType := getFlagType(typeFlag)
 	return &createGitHubEvidence{
 		createEvidenceBase: createEvidenceBase{
@@ -70,7 +71,7 @@ func (c *createGitHubEvidence) CommandName() string {
 	return "create-github-evidence"
 }
 
-func (c *createGitHubEvidence) ServerDetails() (*coreConfig.ServerDetails, error) {
+func (c *createGitHubEvidence) ServerDetails() (*config.ServerDetails, error) {
 	return c.serverDetails, nil
 }
 
@@ -116,7 +117,7 @@ func (c *createGitHubEvidence) buildBuildInfoSubjectPath(artifactoryClient artif
 		return "", "", err
 	}
 
-	repoKey := buildBuildInfoRepoKey(c.project)
+	repoKey := utils.BuildBuildInfoRepoKey(c.project)
 	buildInfoPath := buildBuildInfoPath(repoKey, c.buildName, c.buildNumber, timestamp)
 	buildInfoChecksum, err := getBuildInfoPathChecksum(buildInfoPath, artifactoryClient)
 	if err != nil {
@@ -195,7 +196,7 @@ func (c *createGitHubEvidence) createBuildConfiguration() *build.BuildConfigurat
 	return buildConfiguration
 }
 
-func getGitCommitInfo(serverDetails *coreConfig.ServerDetails, createBuildConfiguration *build.BuildConfiguration, gitDetails artifactoryUtils.GitLogDetails) ([]byte, error) {
+func getGitCommitInfo(serverDetails *config.ServerDetails, createBuildConfiguration *build.BuildConfiguration, gitDetails artifactoryUtils.GitLogDetails) ([]byte, error) {
 	owner, repository, err := gitHubRepositoryDetails()
 	if err != nil {
 		return nil, err
@@ -247,7 +248,7 @@ func getGitCommitInfo(serverDetails *coreConfig.ServerDetails, createBuildConfig
 	return out, nil
 }
 
-func getGitCommitEntries(serverDetails *coreConfig.ServerDetails, createBuildConfiguration *build.BuildConfiguration, gitDetails artifactoryUtils.GitLogDetails) ([]model.GitLogEntry, error) {
+func getGitCommitEntries(serverDetails *config.ServerDetails, createBuildConfiguration *build.BuildConfiguration, gitDetails artifactoryUtils.GitLogDetails) ([]model.GitLogEntry, error) {
 	fullLog, err := artifactoryUtils.GetPlainGitLogFromPreviousBuild(serverDetails, createBuildConfiguration, gitDetails)
 	if err != nil {
 		return nil, err

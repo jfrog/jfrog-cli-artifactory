@@ -2,19 +2,22 @@ package cli
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"strings"
+
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/create"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/verify"
 	jfrogArtClient "github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	coreUtils "github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"golang.org/x/exp/slices"
-	"os"
-	"strings"
 )
 
 func GetCommands() []components.Command {
@@ -26,6 +29,14 @@ func GetCommands() []components.Command {
 			Description: create.GetDescription(),
 			Arguments:   create.GetArguments(),
 			Action:      createEvidence,
+		},
+		{
+			Name:        "verify-evidences",
+			Aliases:     []string{"verify"},
+			Flags:       GetCommandFlags(VerifyEvidence),
+			Description: verify.GetDescription(),
+			Arguments:   verify.GetArguments(),
+			Action:      verifyEvidences,
 		},
 	}
 }
@@ -66,6 +77,39 @@ func createEvidence(ctx *components.Context) error {
 	return errors.New("unsupported subject")
 }
 
+func verifyEvidences(ctx *components.Context) error {
+	// validate common context
+	serverDetails, err := evidenceDetailsByFlags(ctx)
+	if err != nil {
+		return err
+	}
+	subjectType, err := getAndValidateSubject(ctx)
+	if err != nil {
+		return err
+	}
+	err = validateKeys(ctx)
+	if err != nil {
+		return err
+	}
+	evidenceCommands := map[string]func(*components.Context, execCommandFunc) EvidenceCommands{
+		subjectRepoPath: NewEvidenceCustomCommand,
+		releaseBundle:   NewEvidenceReleaseBundleCommand,
+		buildName:       NewEvidenceBuildCommand,
+		packageName:     NewEvidencePackageCommand,
+	}
+	if commandFunc, exists := evidenceCommands[subjectType[0]]; exists {
+		err = commandFunc(ctx, execFunc).VerifyEvidences(ctx, serverDetails)
+		if err != nil {
+			if err.Error() != "" {
+				return fmt.Errorf("evidence verification failed: %w", err)
+			}
+			return err
+		}
+		return nil
+	}
+	return errors.New("unsupported subject")
+}
+
 func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 	if show, err := pluginsCommon.ShowCmdHelpIfNeeded(ctx, ctx.Arguments); show || err != nil {
 		return err
@@ -73,6 +117,13 @@ func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 
 	if len(ctx.Arguments) > 1 {
 		return pluginsCommon.WrongNumberOfArgumentsHandler(ctx)
+	}
+
+	if ctx.IsFlagSet(sigstoreBundle) && assertValueProvided(ctx, sigstoreBundle) == nil {
+		if err := validateSigstoreBundleArgsConflicts(ctx); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	if (!ctx.IsFlagSet(predicate) || assertValueProvided(ctx, predicate) != nil) && !ctx.IsFlagSet(typeFlag) {
@@ -90,6 +141,29 @@ func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 	if !ctx.IsFlagSet(keyAlias) {
 		setKeyAliasIfProvided(ctx, keyAlias)
 	}
+	return nil
+}
+
+func validateSigstoreBundleArgsConflicts(ctx *components.Context) error {
+	var conflictingParams []string
+
+	if ctx.IsFlagSet(key) && ctx.GetStringFlagValue(key) != "" {
+		conflictingParams = append(conflictingParams, "--"+key)
+	}
+	if ctx.IsFlagSet(keyAlias) && ctx.GetStringFlagValue(keyAlias) != "" {
+		conflictingParams = append(conflictingParams, "--"+keyAlias)
+	}
+	if ctx.IsFlagSet(predicate) && ctx.GetStringFlagValue(predicate) != "" {
+		conflictingParams = append(conflictingParams, "--"+predicate)
+	}
+	if ctx.IsFlagSet(predicateType) && ctx.GetStringFlagValue(predicateType) != "" {
+		conflictingParams = append(conflictingParams, "--"+predicateType)
+	}
+
+	if len(conflictingParams) > 0 {
+		return errorutils.CheckErrorf("The following parameters cannot be used with --%s: %s. These values are extracted from the bundle itself:", sigstoreBundle, strings.Join(conflictingParams, ", "))
+	}
+
 	return nil
 }
 
@@ -122,6 +196,9 @@ func getAndValidateSubject(ctx *components.Context) ([]string, error) {
 	}
 
 	if len(foundSubjects) == 0 {
+		if ctx.IsFlagSet(sigstoreBundle) && assertValueProvided(ctx, sigstoreBundle) == nil {
+			return []string{subjectRepoPath}, nil // Return subjectRepoPath as the type for routing
+		}
 		// If we have no subject - we will try to create EVD on build
 		if !attemptSetBuildNameAndNumber(ctx) {
 			return nil, errorutils.CheckErrorf("subject must be one of the fields: [%s]", strings.Join(subjectTypes, ", "))
@@ -156,6 +233,24 @@ func setBuildValue(ctx *components.Context, flag, envVar string) bool {
 	return false
 }
 
+func validateKeys(ctx *components.Context) error {
+	signingKeyValue, _ := jfrogArtClient.GetEnvVariable(coreUtils.SigningKey)
+	providedKeys := ctx.GetStringsArrFlagValue(publicKeys)
+	if signingKeyValue == "" {
+		if len(providedKeys) == 0 && !ctx.GetBoolFlagValue(useArtifactoryKeys) {
+			return errorutils.CheckErrorf("JFROG_CLI_SIGNING_KEY env variable or --%s flag or --%s must be provided when verifying evidence", publicKeys, useArtifactoryKeys)
+		}
+		return nil
+	}
+	if len(providedKeys) > 0 {
+		joinedKeys := strings.Join(append(providedKeys, signingKeyValue), ";")
+		ctx.SetStringFlagValue(publicKeys, joinedKeys)
+	} else {
+		ctx.AddStringFlag(publicKeys, signingKeyValue)
+	}
+	return nil
+}
+
 func validateFoundSubjects(ctx *components.Context, foundSubjects []string) error {
 	if slices.Contains(foundSubjects, typeFlag) && slices.Contains(foundSubjects, buildName) {
 		return nil
@@ -171,7 +266,7 @@ func validateFoundSubjects(ctx *components.Context, foundSubjects []string) erro
 	return nil
 }
 
-func evidenceDetailsByFlags(ctx *components.Context) (*coreConfig.ServerDetails, error) {
+func evidenceDetailsByFlags(ctx *components.Context) (*config.ServerDetails, error) {
 	serverDetails, err := pluginsCommon.CreateServerDetailsWithConfigOffer(ctx, true, commonCliUtils.Platform)
 	if err != nil {
 		return nil, err
@@ -188,15 +283,16 @@ func evidenceDetailsByFlags(ctx *components.Context) (*coreConfig.ServerDetails,
 	return serverDetails, nil
 }
 
-func platformToEvidenceUrls(rtDetails *coreConfig.ServerDetails) {
+func platformToEvidenceUrls(rtDetails *config.ServerDetails) {
 	rtDetails.ArtifactoryUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "artifactory/"
 	rtDetails.EvidenceUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "evidence/"
 	rtDetails.MetadataUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "metadata/"
+	rtDetails.OnemodelUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "onemodel/"
 }
 
 func assertValueProvided(c *components.Context, fieldName string) error {
 	if c.GetStringFlagValue(fieldName) == "" {
-		return errorutils.CheckErrorf("the --%s option is mandatory", fieldName)
+		return errorutils.CheckErrorf("the argument --%s can not be empty", fieldName)
 	}
 	return nil
 }

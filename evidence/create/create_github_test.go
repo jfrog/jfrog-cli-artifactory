@@ -1,4 +1,4 @@
-package evidence
+package create
 
 import (
 	gofrogcmd "github.com/jfrog/gofrog/io"
@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -22,18 +22,18 @@ func (m *MockBuildAndVcsDetails) ParseGitLogFromLastVcsRevision(gitDetails artif
 	return args.Error(0)
 }
 
-func (m *MockBuildAndVcsDetails) GetPlainGitLogFromPreviousBuild(serverDetails *coreConfig.ServerDetails, buildConfiguration *build.BuildConfiguration, gitDetails artifactoryUtils.GitLogDetails) (string, error) {
+func (m *MockBuildAndVcsDetails) GetPlainGitLogFromPreviousBuild(serverDetails *config.ServerDetails, buildConfiguration *build.BuildConfiguration, gitDetails artifactoryUtils.GitLogDetails) (string, error) {
 	args := m.Called(serverDetails, buildConfiguration, gitDetails)
 	return args.String(0), args.Error(1)
 }
 
-func (m *MockBuildAndVcsDetails) GetLastBuildLink(serverDetails *coreConfig.ServerDetails, buildConfiguration *build.BuildConfiguration) (string, error) {
+func (m *MockBuildAndVcsDetails) GetLastBuildLink(serverDetails *config.ServerDetails, buildConfiguration *build.BuildConfiguration) (string, error) {
 	args := m.Called(serverDetails, buildConfiguration)
 	return args.String(0), args.Error(1)
 }
 
 func TestNewCreateGithub(t *testing.T) {
-	serverDetails := &coreConfig.ServerDetails{}
+	serverDetails := &config.ServerDetails{}
 	command := NewCreateGithub(serverDetails, "path/to/predicate.json", "predicateType", "path/to/markdown.md", "key", "keyId", "myProject", "myBuild", "123", "gh-commiter")
 
 	assert.NotNil(t, command)

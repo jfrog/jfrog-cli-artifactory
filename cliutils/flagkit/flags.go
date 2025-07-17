@@ -902,7 +902,7 @@ var flagsMap = map[string]components.Flag{
 	propsRecursive:    components.NewBoolFlag(Recursive, "[Default: true] When false, artifacts inside sub-folders in Artifactory will not be affected.", components.WithBoolDefaultValueFalse()),
 	propsProps:        components.NewStringFlag(props, "[Optional] List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts with these properties are affected.", components.SetMandatoryFalse()),
 	propsExcludeProps: components.NewStringFlag(excludeProps, "[Optional] List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts without the specified properties are affected.", components.SetMandatoryFalse()),
-	repoOnly:          components.NewBoolFlag(repoOnly, "[Default: true] When false, artifacts inside sub-folders in Artifactory will be affected.", components.WithBoolDefaultValueFalse()),
+	repoOnly:          components.NewBoolFlag(repoOnly, "When true, properties will be applicable only on repository level.", components.WithBoolDefaultValueFalse()),
 
 	// Build Publish and Append specific commands flags
 	buildUrl:          components.NewStringFlag(buildUrl, "[Optional] Can be used for setting the CI server build URL in the build-info.", components.SetMandatoryFalse()),

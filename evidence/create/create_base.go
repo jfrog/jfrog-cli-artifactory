@@ -1,4 +1,4 @@
-package evidence
+package create
 
 import (
 	"encoding/json"
@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/sign"
 
 	"github.com/jfrog/gofrog/log"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cryptox"
@@ -145,17 +147,19 @@ func (c *createEvidenceBase) setMarkdown(statement *intoto.Statement) error {
 	return nil
 }
 
-func (c *createEvidenceBase) uploadEvidence(envelope []byte, repoPath string) error {
+func (c *createEvidenceBase) uploadEvidence(evidencePayload []byte, repoPath string) error {
 	evidenceManager, err := utils.CreateEvidenceServiceManager(c.serverDetails, false)
 	if err != nil {
 		return err
 	}
 
 	evidenceDetails := evidenceService.EvidenceDetails{
-		SubjectUri:  repoPath,
-		DSSEFileRaw: envelope,
+		SubjectUri: repoPath,
+		// evidencePayload may contain not only a DSSE envelop.
+		DSSEFileRaw: evidencePayload,
 		ProviderId:  c.providerId,
 	}
+	clientlog.Debug("Uploading evidence for subject:", repoPath)
 	body, err := evidenceManager.UploadEvidence(evidenceDetails)
 	if err != nil {
 		return err
@@ -214,7 +218,7 @@ func createAndSignEnvelope(payloadJson []byte, key string, keyId string) (*dsse.
 	}
 
 	// Use the signers to create an envelope signer
-	envelopeSigner, err := dsse.NewEnvelopeSigner(signers...)
+	envelopeSigner, err := sign.NewEnvelopeSigner(signers...)
 	if err != nil {
 		return nil, err
 	}

@@ -1,11 +1,11 @@
-package evidence
+package create
 
 import (
 	"errors"
 	"fmt"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -19,8 +19,8 @@ type createEvidenceBuild struct {
 	buildNumber string
 }
 
-func NewCreateEvidenceBuild(serverDetails *coreConfig.ServerDetails,
-	predicateFilePath, predicateType, markdownFilePath, key, keyId, project, buildName, buildNumber string) Command {
+func NewCreateEvidenceBuild(serverDetails *config.ServerDetails,
+	predicateFilePath, predicateType, markdownFilePath, key, keyId, project, buildName, buildNumber string) evidence.Command {
 	return &createEvidenceBuild{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
@@ -72,7 +72,7 @@ func (c *createEvidenceBuild) buildBuildInfoSubjectPath(artifactoryClient artifa
 		return "", "", err
 	}
 
-	repoKey := buildBuildInfoRepoKey(c.project)
+	repoKey := utils.BuildBuildInfoRepoKey(c.project)
 	buildInfoPath := buildBuildInfoPath(repoKey, c.buildName, c.buildNumber, timestamp)
 	buildInfoChecksum, err := getBuildInfoPathChecksum(buildInfoPath, artifactoryClient)
 	if err != nil {
@@ -100,13 +100,6 @@ func getBuildLatestTimestamp(name string, number string, project string, artifac
 		return "", err
 	}
 	return fmt.Sprintf("%d", timestamp.UnixMilli()), nil
-}
-
-func buildBuildInfoRepoKey(project string) string {
-	if project == "" || project == "default" {
-		return "artifactory-build-info"
-	}
-	return fmt.Sprintf("%s-build-info", project)
 }
 
 func buildBuildInfoPath(repoKey string, name string, number string, timestamp string) string {
