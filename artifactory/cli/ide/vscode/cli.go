@@ -116,12 +116,18 @@ func getVscodeRepoKeyAndURL(c *components.Context) (repoKey, serviceURL string, 
 			return
 		}
 	}
-	baseUrl := strings.TrimRight(artDetails.Url, "/")
+	// Use ArtifactoryUrl if available (when using flags), otherwise use Url (when using config)
+	baseUrl := artDetails.ArtifactoryUrl
+	if baseUrl == "" {
+		baseUrl = artDetails.Url
+	}
+	baseUrl = strings.TrimRight(baseUrl, "/")
+
 	urlSuffix := c.GetStringFlagValue(urlSuffixFlag)
 	if urlSuffix == "" {
 		urlSuffix = "_apis/public/gallery"
 	}
-	serviceURL = baseUrl + "/artifactory/api/vscodeextensions/" + repoKey + "/" + strings.TrimLeft(urlSuffix, "/")
+	serviceURL = baseUrl + "/api/vscodeextensions/" + repoKey + "/" + strings.TrimLeft(urlSuffix, "/")
 	return
 }
 

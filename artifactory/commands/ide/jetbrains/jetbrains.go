@@ -160,9 +160,21 @@ func (jc *JetbrainsCommand) detectJetBrainsIDEs() error {
 
 	switch runtime.GOOS {
 	case "darwin":
-		configBasePath = filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "JetBrains")
+		// Check for test override first, then use standard HOME location
+		testHome := os.Getenv("TEST_HOME")
+		if testHome != "" {
+			configBasePath = filepath.Join(testHome, "Library", "Application Support", "JetBrains")
+		} else {
+			configBasePath = filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "JetBrains")
+		}
 	case "windows":
-		configBasePath = filepath.Join(os.Getenv("APPDATA"), "JetBrains")
+		// Check for test override first, then use standard APPDATA location
+		testAppData := os.Getenv("TEST_APPDATA")
+		if testAppData != "" {
+			configBasePath = filepath.Join(testAppData, "JetBrains")
+		} else {
+			configBasePath = filepath.Join(os.Getenv("APPDATA"), "JetBrains")
+		}
 	case "linux":
 		// Respect XDG_CONFIG_HOME environment variable
 		xdgConfigHome := os.Getenv("XDG_CONFIG_HOME")

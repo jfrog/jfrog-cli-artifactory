@@ -460,3 +460,52 @@ func BenchmarkJetbrainsCommand_ParseIDEFromDirName(b *testing.B) {
 		}
 	}
 }
+
+func TestJetbrainsCommand_DetectJetBrainsIDEs_WithTestAppData(t *testing.T) {
+	// Test TEST_APPDATA support for Windows testing environments
+
+	// Create temporary directory for TEST_APPDATA
+	tempDir := t.TempDir()
+
+	// Create mock JetBrains configuration directory structure
+	jetbrainsDir := filepath.Join(tempDir, "JetBrains")
+	ideaDir := filepath.Join(jetbrainsDir, "IntelliJIdea2023.3")
+	err := os.MkdirAll(ideaDir, 0755)
+	require.NoError(t, err)
+
+	// Create mock idea.properties file
+	propertiesPath := filepath.Join(ideaDir, "idea.properties")
+	propertiesContent := "# Test properties\nide.system.path=${user.home}/.local/share/JetBrains/IntelliJIdea2023.3\n"
+	err = os.WriteFile(propertiesPath, []byte(propertiesContent), 0644)
+	require.NoError(t, err)
+
+	// Set TEST_APPDATA environment variable
+	originalTestAppData := os.Getenv("TEST_APPDATA")
+	defer func() {
+		if originalTestAppData != "" {
+			_ = os.Setenv("TEST_APPDATA", originalTestAppData)
+		} else {
+			_ = os.Unsetenv("TEST_APPDATA")
+		}
+	}()
+	err = os.Setenv("TEST_APPDATA", tempDir)
+	require.NoError(t, err)
+
+	// Create JetBrains command and test detection
+	cmd := &JetbrainsCommand{}
+
+	// For testing, temporarily modify runtime.GOOS to simulate Windows behavior
+	// Note: We can't actually change runtime.GOOS, so this test documents the intended behavior
+	if runtime.GOOS == "windows" {
+		// Run detection - should find our mock IDE
+		err = cmd.detectJetBrainsIDEs()
+		// Should succeed when TEST_APPDATA points to our mock directory
+		require.NoError(t, err)
+		require.Len(t, cmd.detectedIDEs, 1)
+		require.Equal(t, "IntelliJ IDEA", cmd.detectedIDEs[0].Name)
+		require.Equal(t, "2023.3", cmd.detectedIDEs[0].Version)
+	} else {
+		// On non-Windows, TEST_APPDATA should not affect detection
+		t.Logf("TEST_APPDATA test is primarily for Windows environments")
+	}
+}

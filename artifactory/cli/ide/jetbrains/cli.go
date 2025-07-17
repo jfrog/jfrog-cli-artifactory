@@ -111,12 +111,18 @@ func getJetbrainsRepoKeyAndURL(c *components.Context) (repoKey, repositoryURL st
 			return
 		}
 	}
-	baseUrl := strings.TrimRight(artDetails.Url, "/")
+	// Use ArtifactoryUrl if available (when using flags), otherwise use Url (when using config)
+	baseUrl := artDetails.ArtifactoryUrl
+	if baseUrl == "" {
+		baseUrl = artDetails.Url
+	}
+	baseUrl = strings.TrimRight(baseUrl, "/")
+
 	urlSuffix := c.GetStringFlagValue(urlSuffixFlag)
 	if urlSuffix != "" {
 		urlSuffix = "/" + strings.TrimLeft(urlSuffix, "/")
 	}
-	repositoryURL = baseUrl + "/artifactory/api/jetbrainsplugins/" + repoKey + urlSuffix
+	repositoryURL = baseUrl + "/api/jetbrainsplugins/" + repoKey + urlSuffix
 	return
 }
 
