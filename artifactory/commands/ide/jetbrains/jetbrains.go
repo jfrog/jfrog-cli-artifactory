@@ -164,8 +164,14 @@ func (jc *JetbrainsCommand) detectJetBrainsIDEs() error {
 	case "windows":
 		configBasePath = filepath.Join(os.Getenv("APPDATA"), "JetBrains")
 	case "linux":
-		configBasePath = filepath.Join(os.Getenv("HOME"), ".config", "JetBrains")
-		// Also check legacy location
+		// Respect XDG_CONFIG_HOME environment variable
+		xdgConfigHome := os.Getenv("XDG_CONFIG_HOME")
+		if xdgConfigHome != "" {
+			configBasePath = filepath.Join(xdgConfigHome, "JetBrains")
+		} else {
+			configBasePath = filepath.Join(os.Getenv("HOME"), ".config", "JetBrains")
+		}
+		// Also check legacy location if primary path doesn't exist
 		if _, err := os.Stat(configBasePath); os.IsNotExist(err) {
 			legacyPath := filepath.Join(os.Getenv("HOME"), ".JetBrains")
 			if _, err := os.Stat(legacyPath); err == nil {

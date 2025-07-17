@@ -113,6 +113,58 @@ func TestJetbrainsCommand_DetectJetBrainsIDEs(t *testing.T) {
 	}
 }
 
+func TestJetbrainsCommand_DetectJetBrainsIDEs_WithXDGConfigHome(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		// For testing purposes, we can't change runtime.GOOS, so skip on non-Linux
+		t.Skip("XDG_CONFIG_HOME test is only fully testable on Linux")
+	}
+
+	// Create temporary directory for XDG_CONFIG_HOME
+	tempDir := t.TempDir()
+	xdgConfigHome := filepath.Join(tempDir, "config")
+
+	// Create mock JetBrains configuration directory structure
+	jetbrainsDir := filepath.Join(xdgConfigHome, "JetBrains")
+	ideaDir := filepath.Join(jetbrainsDir, "IntelliJIdea2023.3")
+	err := os.MkdirAll(ideaDir, 0755)
+	require.NoError(t, err)
+
+	// Create mock idea.properties file
+	propertiesPath := filepath.Join(ideaDir, "idea.properties")
+	err = os.WriteFile(propertiesPath, []byte("# Test properties\n"), 0644)
+	require.NoError(t, err)
+
+	// Set XDG_CONFIG_HOME environment variable
+	originalXDG := os.Getenv("XDG_CONFIG_HOME")
+	defer func() {
+		if originalXDG != "" {
+			if err := os.Setenv("XDG_CONFIG_HOME", originalXDG); err != nil {
+				t.Logf("Warning: failed to restore XDG_CONFIG_HOME: %v", err)
+			}
+		} else {
+			if err := os.Unsetenv("XDG_CONFIG_HOME"); err != nil {
+				t.Logf("Warning: failed to unset XDG_CONFIG_HOME: %v", err)
+			}
+		}
+	}()
+	err = os.Setenv("XDG_CONFIG_HOME", xdgConfigHome)
+	require.NoError(t, err)
+
+	// Test detection
+	cmd := NewJetbrainsCommand("", "")
+	err = cmd.detectJetBrainsIDEs()
+	assert.NoError(t, err, "Detection should succeed when XDG_CONFIG_HOME is set")
+	assert.Len(t, cmd.detectedIDEs, 1, "Should detect one IDE")
+
+	if len(cmd.detectedIDEs) > 0 {
+		ide := cmd.detectedIDEs[0]
+		assert.Equal(t, "IntelliJ IDEA", ide.Name)
+		assert.Equal(t, "2023.3", ide.Version)
+		assert.Equal(t, propertiesPath, ide.PropertiesPath)
+		assert.Equal(t, ideaDir, ide.ConfigDir)
+	}
+}
+
 func TestJetbrainsCommand_CreateBackup(t *testing.T) {
 	// Create temporary idea.properties file
 	tempDir := t.TempDir()
