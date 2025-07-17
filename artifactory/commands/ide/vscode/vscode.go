@@ -28,11 +28,11 @@ type VscodeCommand struct {
 }
 
 // NewVscodeCommand creates a new VSCode configuration command
-func NewVscodeCommand(serviceURL, productPath, repoKey string) *VscodeCommand {
+func NewVscodeCommand(repoKey, productPath, serviceURL string) *VscodeCommand {
 	return &VscodeCommand{
-		serviceURL:  serviceURL,
-		productPath: productPath,
 		repoKey:     repoKey,
+		productPath: productPath,
+		serviceURL:  serviceURL,
 	}
 }
 

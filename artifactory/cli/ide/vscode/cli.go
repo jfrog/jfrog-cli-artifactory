@@ -8,7 +8,6 @@ import (
 	"github.com/jfrog/gofrog/log"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/cli/ide"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ide/vscode"
-	"github.com/jfrog/jfrog-cli-artifactory/cliutils"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -61,7 +60,7 @@ func getArguments() []components.Argument {
 
 // Main command action: orchestrates argument parsing, server config, and command execution
 func vscodeConfigCmd(c *components.Context) error {
-	serviceURL, repoKey, err := getVscodeRepoKeyAndURL(c)
+	repoKey, serviceURL, err := getVscodeRepoKeyAndURL(c)
 	if err != nil {
 		return err
 	}
@@ -73,7 +72,7 @@ func vscodeConfigCmd(c *components.Context) error {
 		return err
 	}
 
-	vscodeCmd := vscode.NewVscodeCommand(serviceURL, productPath, repoKey)
+	vscodeCmd := vscode.NewVscodeCommand(repoKey, productPath, serviceURL)
 	if rtDetails != nil {
 		vscodeCmd.SetServerDetails(rtDetails)
 	}
@@ -82,13 +81,15 @@ func vscodeConfigCmd(c *components.Context) error {
 }
 
 // getVscodeRepoKeyAndURL determines the repo key and service URL from args/flags
-func getVscodeRepoKeyAndURL(c *components.Context) (serviceURL, repoKey string, err error) {
+func getVscodeRepoKeyAndURL(c *components.Context) (repoKey, serviceURL string, err error) {
 	if c.GetNumberOfArgs() > 0 && isValidUrl(c.GetArgumentAt(0)) {
 		serviceURL = c.GetArgumentAt(0)
-		repoKey, err = cliutils.ExtractRepoNameFromURL(serviceURL)
+		repoKey, err = extractRepoKeyFromServiceURL(serviceURL)
 		if err != nil {
 			return
 		}
+		log.Info("[DEBUG] Extracted repoKey:", repoKey)
+		log.Info("[DEBUG] Service URL:", serviceURL)
 		return
 	}
 
@@ -119,6 +120,23 @@ func getVscodeRepoKeyAndURL(c *components.Context) (serviceURL, repoKey string, 
 	}
 	serviceURL = baseUrl + "/artifactory/api/vscodeextensions/" + repoKey + "/" + strings.TrimLeft(urlSuffix, "/")
 	return
+}
+
+// extractRepoKeyFromServiceURL extracts the repo key from a VSCode extensions service URL.
+func extractRepoKeyFromServiceURL(serviceURL string) (string, error) {
+	if serviceURL == "" {
+		return "", fmt.Errorf("service URL is empty")
+	}
+	trimmed := strings.TrimSuffix(serviceURL, "/")
+	parts := strings.Split(trimmed, "/api/vscodeextensions/")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("service URL does not contain /api/vscodeextensions/")
+	}
+	pathParts := strings.SplitN(parts[1], "/", 2)
+	if len(pathParts) == 0 || pathParts[0] == "" {
+		return "", fmt.Errorf("repository key not found in service URL")
+	}
+	return pathParts[0], nil
 }
 
 // getVscodeServerDetails returns server details for validation, or nil if not available

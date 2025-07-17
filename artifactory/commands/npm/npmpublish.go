@@ -7,7 +7,6 @@ import (
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	gofrogcmd "github.com/jfrog/gofrog/io"
-	"github.com/jfrog/jfrog-cli-artifactory/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
@@ -31,7 +30,7 @@ func (npu *npmPublish) upload() (err error) {
 		if err != nil {
 			return err
 		}
-		targetRepo, err = cliutils.ExtractRepoNameFromURL(repoConfig)
+		targetRepo, err = extractRepoName(repoConfig)
 		if err != nil {
 			return err
 		}
@@ -123,6 +122,21 @@ func (npu *NpmPublishCommand) getRepoConfig() (string, error) {
 		return "", err
 	}
 	return repoConfig, nil
+}
+
+func extractRepoName(configUrl string) (string, error) {
+	url := strings.TrimSpace(configUrl)
+	url = strings.TrimPrefix(url, "https://")
+	url = strings.TrimPrefix(url, "http://")
+	url = strings.TrimSuffix(url, "/")
+	if url == "" {
+		return "", errors.New("npm config URL is empty")
+	}
+	urlParts := strings.Split(url, "/")
+	if len(urlParts) < 2 {
+		return "", errors.New("npm config URL is not valid")
+	}
+	return urlParts[len(urlParts)-1], nil
 }
 
 func extractConfigServer(configUrl string) (*config.ServerDetails, error) {
