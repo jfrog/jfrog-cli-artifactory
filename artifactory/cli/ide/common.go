@@ -2,6 +2,7 @@ package ide
 
 import (
 	"fmt"
+	"strings"
 
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
@@ -27,4 +28,41 @@ func HasServerConfigFlags(c *components.Context) bool {
 		c.IsFlagSet("server-id") ||
 		// Only consider password if other required fields are also provided
 		(c.IsFlagSet("password") && (c.IsFlagSet("url") || c.IsFlagSet("server-id")))
+}
+
+// ExtractRepoKeyFromURL extracts the repository key from both JetBrains and VSCode extension URLs.
+// For JetBrains: https://mycompany.jfrog.io/artifactory/api/jetbrainsplugins/jetbrains-plugins
+// For VSCode: https://mycompany.jfrog.io/artifactory/api/vscodeextensions/vscode-extensions/_apis/public/gallery
+// Returns the repo key (e.g., "jetbrains-plugins" or "vscode-extensions")
+func ExtractRepoKeyFromURL(repoURL string) (string, error) {
+	if repoURL == "" {
+		return "", fmt.Errorf("URL is empty")
+	}
+
+	url := strings.TrimSpace(repoURL)
+	url = strings.TrimPrefix(url, "https://")
+	url = strings.TrimPrefix(url, "http://")
+	url = strings.TrimSuffix(url, "/")
+
+	// Check for JetBrains plugins API
+	if idx := strings.Index(url, "/api/jetbrainsplugins/"); idx != -1 {
+		rest := url[idx+len("/api/jetbrainsplugins/"):]
+		parts := strings.SplitN(rest, "/", 2)
+		if len(parts) == 0 || parts[0] == "" {
+			return "", fmt.Errorf("repository key not found in JetBrains URL")
+		}
+		return parts[0], nil
+	}
+
+	// Check for VSCode extensions API
+	if idx := strings.Index(url, "/api/vscodeextensions/"); idx != -1 {
+		rest := url[idx+len("/api/vscodeextensions/"):]
+		parts := strings.SplitN(rest, "/", 2)
+		if len(parts) == 0 || parts[0] == "" {
+			return "", fmt.Errorf("repository key not found in VSCode URL")
+		}
+		return parts[0], nil
+	}
+
+	return "", fmt.Errorf("URL does not contain a supported API type (/api/jetbrainsplugins/ or /api/vscodeextensions/)")
 }

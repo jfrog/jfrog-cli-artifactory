@@ -58,7 +58,7 @@ func getArguments() []components.Argument {
 
 // Main command action: orchestrates argument parsing, server config, and command execution
 func jetbrainsConfigCmd(c *components.Context) error {
-	repositoryURL, repoKey, err := getJetbrainsRepoKeyAndURL(c)
+	repoKey, repositoryURL, err := getJetbrainsRepoKeyAndURL(c)
 	if err != nil {
 		return err
 	}
@@ -69,6 +69,11 @@ func jetbrainsConfigCmd(c *components.Context) error {
 	}
 
 	jetbrainsCmd := jetbrains.NewJetbrainsCommand(repositoryURL, repoKey)
+
+	// Determine if this is a direct URL (argument provided) vs constructed URL (server-id + repo-key)
+	isDirectURL := c.GetNumberOfArgs() > 0 && isValidUrl(c.GetArgumentAt(0))
+	jetbrainsCmd.SetDirectURL(isDirectURL)
+
 	if rtDetails != nil {
 		jetbrainsCmd.SetServerDetails(rtDetails)
 	}
@@ -80,7 +85,7 @@ func jetbrainsConfigCmd(c *components.Context) error {
 func getJetbrainsRepoKeyAndURL(c *components.Context) (repoKey, repositoryURL string, err error) {
 	if c.GetNumberOfArgs() > 0 && isValidUrl(c.GetArgumentAt(0)) {
 		repositoryURL = c.GetArgumentAt(0)
-		repoKey, err = extractRepoKeyFromRepositoryURL(repositoryURL)
+		repoKey, err = ide.ExtractRepoKeyFromURL(repositoryURL)
 		if err != nil {
 			return
 		}
@@ -116,23 +121,6 @@ func getJetbrainsRepoKeyAndURL(c *components.Context) (repoKey, repositoryURL st
 	return
 }
 
-// extractRepoKeyFromRepositoryURL extracts the repo key from a JetBrains plugins repository URL.
-func extractRepoKeyFromRepositoryURL(repositoryURL string) (string, error) {
-	if repositoryURL == "" {
-		return "", fmt.Errorf("repository URL is empty")
-	}
-	trimmed := strings.TrimSuffix(repositoryURL, "/")
-	parts := strings.Split(trimmed, "/api/jetbrainsplugins/")
-	if len(parts) != 2 {
-		return "", fmt.Errorf("repository URL does not contain /api/jetbrainsplugins/")
-	}
-	pathParts := strings.SplitN(parts[1], "/", 2)
-	if len(pathParts) == 0 || pathParts[0] == "" {
-		return "", fmt.Errorf("repository key not found in repository URL")
-	}
-	return pathParts[0], nil
-}
-
 // getJetbrainsServerDetails returns server details for validation, or nil if not available
 func getJetbrainsServerDetails(c *components.Context) (*config.ServerDetails, error) {
 	if ide.HasServerConfigFlags(c) {
@@ -148,7 +136,7 @@ func getJetbrainsServerDetails(c *components.Context) (*config.ServerDetails, er
 	if err != nil {
 		// If no default server, that's okay - we'll just skip validation
 		log.Debug("No default server configuration found, skipping repository validation")
-		return nil, nil
+		return nil, nil //nolint:nilerr // Intentionally ignoring error to skip validation when no default server
 	}
 	return rtDetails, nil
 }

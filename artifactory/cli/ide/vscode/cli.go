@@ -73,6 +73,11 @@ func vscodeConfigCmd(c *components.Context) error {
 	}
 
 	vscodeCmd := vscode.NewVscodeCommand(repoKey, productPath, serviceURL)
+
+	// Determine if this is a direct URL (argument provided) vs constructed URL (server-id + repo-key)
+	isDirectURL := c.GetNumberOfArgs() > 0 && isValidUrl(c.GetArgumentAt(0))
+	vscodeCmd.SetDirectURL(isDirectURL)
+
 	if rtDetails != nil {
 		vscodeCmd.SetServerDetails(rtDetails)
 	}
@@ -84,12 +89,10 @@ func vscodeConfigCmd(c *components.Context) error {
 func getVscodeRepoKeyAndURL(c *components.Context) (repoKey, serviceURL string, err error) {
 	if c.GetNumberOfArgs() > 0 && isValidUrl(c.GetArgumentAt(0)) {
 		serviceURL = c.GetArgumentAt(0)
-		repoKey, err = extractRepoKeyFromServiceURL(serviceURL)
+		repoKey, err = ide.ExtractRepoKeyFromURL(serviceURL)
 		if err != nil {
 			return
 		}
-		log.Info("[DEBUG] Extracted repoKey:", repoKey)
-		log.Info("[DEBUG] Service URL:", serviceURL)
 		return
 	}
 
@@ -122,23 +125,6 @@ func getVscodeRepoKeyAndURL(c *components.Context) (repoKey, serviceURL string, 
 	return
 }
 
-// extractRepoKeyFromServiceURL extracts the repo key from a VSCode extensions service URL.
-func extractRepoKeyFromServiceURL(serviceURL string) (string, error) {
-	if serviceURL == "" {
-		return "", fmt.Errorf("service URL is empty")
-	}
-	trimmed := strings.TrimSuffix(serviceURL, "/")
-	parts := strings.Split(trimmed, "/api/vscodeextensions/")
-	if len(parts) != 2 {
-		return "", fmt.Errorf("service URL does not contain /api/vscodeextensions/")
-	}
-	pathParts := strings.SplitN(parts[1], "/", 2)
-	if len(pathParts) == 0 || pathParts[0] == "" {
-		return "", fmt.Errorf("repository key not found in service URL")
-	}
-	return pathParts[0], nil
-}
-
 // getVscodeServerDetails returns server details for validation, or nil if not available
 func getVscodeServerDetails(c *components.Context) (*config.ServerDetails, error) {
 	if ide.HasServerConfigFlags(c) {
@@ -154,7 +140,7 @@ func getVscodeServerDetails(c *components.Context) (*config.ServerDetails, error
 	if err != nil {
 		// If no default server, that's okay - we'll just skip validation
 		log.Debug("No default server configuration found, skipping repository validation")
-		return nil, nil
+		return nil, nil //nolint:nilerr // Intentionally ignoring error to skip validation when no default server
 	}
 	return rtDetails, nil
 }

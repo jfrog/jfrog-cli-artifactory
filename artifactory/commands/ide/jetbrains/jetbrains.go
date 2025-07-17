@@ -24,6 +24,7 @@ type JetbrainsCommand struct {
 	backupPaths   map[string]string
 	serverDetails *config.ServerDetails
 	repoKey       string
+	isDirectURL   bool // true if URL was provided directly, false if constructed from server-id + repo-key
 }
 
 // IDEInstallation represents a detected JetBrains IDE installation
@@ -57,6 +58,7 @@ func NewJetbrainsCommand(repositoryURL, repoKey string) *JetbrainsCommand {
 		repositoryURL: repositoryURL,
 		repoKey:       repoKey,
 		backupPaths:   make(map[string]string),
+		isDirectURL:   false, // default to false, will be set explicitly
 	}
 }
 
@@ -73,15 +75,24 @@ func (jc *JetbrainsCommand) CommandName() string {
 	return "rt_jetbrains_config"
 }
 
+// SetDirectURL marks this command as using a direct URL (skip validation)
+func (jc *JetbrainsCommand) SetDirectURL(isDirect bool) *JetbrainsCommand {
+	jc.isDirectURL = isDirect
+	return jc
+}
+
 // Run executes the JetBrains configuration command
 func (jc *JetbrainsCommand) Run() error {
 	log.Info("Configuring JetBrains IDEs plugin repository...")
 
-	// Validate repository if we have server details and repo key
-	if jc.serverDetails != nil && jc.repoKey != "" {
+	// Only validate repository if we have server details and repo key AND it's not a direct URL
+	// Skip validation when using direct repository URL since no server-id is involved
+	if jc.serverDetails != nil && jc.repoKey != "" && !jc.isDirectURL {
 		if err := jc.validateRepository(); err != nil {
 			return errorutils.CheckError(fmt.Errorf("repository validation failed: %w", err))
 		}
+	} else if jc.isDirectURL {
+		log.Debug("Direct repository URL provided, skipping repository validation")
 	}
 
 	if err := jc.detectJetBrainsIDEs(); err != nil {

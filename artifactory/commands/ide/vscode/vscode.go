@@ -25,6 +25,7 @@ type VscodeCommand struct {
 	backupPath    string
 	serverDetails *config.ServerDetails
 	repoKey       string
+	isDirectURL   bool // true if URL was provided directly, false if constructed from server-id + repo-key
 }
 
 // NewVscodeCommand creates a new VSCode configuration command
@@ -33,6 +34,7 @@ func NewVscodeCommand(repoKey, productPath, serviceURL string) *VscodeCommand {
 		repoKey:     repoKey,
 		productPath: productPath,
 		serviceURL:  serviceURL,
+		isDirectURL: false, // default to false, will be set explicitly
 	}
 }
 
@@ -49,15 +51,24 @@ func (vc *VscodeCommand) CommandName() string {
 	return "rt_vscode_config"
 }
 
+// SetDirectURL marks this command as using a direct URL (skip validation)
+func (vc *VscodeCommand) SetDirectURL(isDirect bool) *VscodeCommand {
+	vc.isDirectURL = isDirect
+	return vc
+}
+
 // Run executes the VSCode configuration command
 func (vc *VscodeCommand) Run() error {
 	log.Info("Configuring VSCode extensions repository...")
 
-	// Validate repository if we have server details and repo key
-	if vc.serverDetails != nil && vc.repoKey != "" {
+	// Only validate repository if we have server details and repo key AND it's not a direct URL
+	// Skip validation when using direct service URL since no server-id is involved
+	if vc.serverDetails != nil && vc.repoKey != "" && !vc.isDirectURL {
 		if err := vc.validateRepository(); err != nil {
 			return errorutils.CheckError(fmt.Errorf("repository validation failed: %w", err))
 		}
+	} else if vc.isDirectURL {
+		log.Debug("Direct service URL provided, skipping repository validation")
 	}
 
 	if vc.productPath == "" {

@@ -17,7 +17,7 @@ func TestNewVscodeCommand(t *testing.T) {
 	productPath := "/custom/path/product.json"
 	repoKey := "repo"
 
-	cmd := NewVscodeCommand(serviceURL, productPath, repoKey)
+	cmd := NewVscodeCommand(repoKey, productPath, serviceURL)
 
 	assert.Equal(t, serviceURL, cmd.serviceURL)
 	assert.Equal(t, productPath, cmd.productPath)
