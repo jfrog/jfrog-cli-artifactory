@@ -156,10 +156,12 @@ func Test_PerformRepoCmd_MultipleRepositories(t *testing.T) {
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path == "/api/system/version" {
+				switch r.URL.Path {
+				case "/api/system/version":
 					w.WriteHeader(http.StatusOK)
-					w.Write([]byte(`{"version":"7.104.2"}`))
-				} else if r.URL.Path == "/api/v2/repositories/batch" {
+					_, err := w.Write([]byte(`{"version":"7.104.2"}`))
+					require.NoError(t, err)
+				case "/api/v2/repositories/batch":
 					if r.Method == http.MethodPut {
 						w.WriteHeader(http.StatusCreated)
 					} else {
@@ -180,7 +182,7 @@ func Test_PerformRepoCmd_MultipleRepositories(t *testing.T) {
 						assert.Equal(t, expected.PackageType, actualRepos[i].PackageType)
 						assert.Equal(t, expected.Description, actualRepos[i].Description)
 					}
-				} else {
+				default:
 					w.WriteHeader(tt.expectedStatus)
 
 					content, err := io.ReadAll(r.Body)
