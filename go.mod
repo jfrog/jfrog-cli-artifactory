@@ -132,6 +132,6 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
-replace github.com/jfrog/jfrog-cli-core/v2 => github.com/reshmifrog/jfrog-cli-core/v2 v2.58.5-0.20250710104223-7dd1d10e9d23
+replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.59.2-0.20250717045550-6e019038f578
 
-replace github.com/jfrog/jfrog-client-go => github.com/reshmifrog/jfrog-client-go v1.28.1-0.20250710101657-612b8a1389d1
+replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20250717041744-d3ea4d99f4e7
