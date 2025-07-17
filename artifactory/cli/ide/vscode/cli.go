@@ -8,6 +8,7 @@ import (
 	"github.com/jfrog/gofrog/log"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/cli/ide"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ide/vscode"
+	"github.com/jfrog/jfrog-cli-artifactory/cliutils"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -17,6 +18,7 @@ const (
 	productJsonPath = "product-json-path"
 	repoKeyFlag     = "repo-key"
 	urlSuffixFlag   = "url-suffix"
+	apiType         = "vscodeextensions"
 )
 
 func GetCommands() []components.Command {
@@ -57,56 +59,18 @@ func getArguments() []components.Argument {
 	}
 }
 
+// Main command action: orchestrates argument parsing, server config, and command execution
 func vscodeConfigCmd(c *components.Context) error {
-	var serviceURL, repoKey string
-	var err error
-
-	if c.GetNumberOfArgs() > 0 && isValidUrl(c.GetArgumentAt(0)) {
-		serviceURL = c.GetArgumentAt(0)
-		repoKey = extractRepoKeyFromServiceURL(serviceURL)
-	} else {
-		repoKey = c.GetStringFlagValue(repoKeyFlag)
-		if repoKey == "" {
-			return fmt.Errorf("You must provide either a service URL as the first argument or --repo-key flag.")
-		}
-		// Get Artifactory URL from server details (flags or default)
-		var artDetails *config.ServerDetails
-		if ide.HasServerConfigFlags(c) {
-			artDetails, err = pluginsCommon.CreateArtifactoryDetailsByFlags(c)
-			if err != nil {
-				return fmt.Errorf("Failed to get Artifactory server details: %w", err)
-			}
-		} else {
-			artDetails, err = config.GetDefaultServerConf()
-			if err != nil {
-				return fmt.Errorf("Failed to get default Artifactory server details: %w", err)
-			}
-		}
-		baseUrl := strings.TrimRight(artDetails.Url, "/")
-		urlSuffix := c.GetStringFlagValue(urlSuffixFlag)
-		if urlSuffix == "" {
-			urlSuffix = "_apis/public/gallery"
-		}
-		serviceURL = baseUrl + "/artifactory/api/vscodeextensions/" + repoKey + "/" + strings.TrimLeft(urlSuffix, "/")
+	serviceURL, repoKey, err := getVscodeRepoKeyAndURL(c)
+	if err != nil {
+		return err
 	}
 
 	productPath := c.GetStringFlagValue(productJsonPath)
 
-	// Create server details for validation
-	var rtDetails *config.ServerDetails
-	if ide.HasServerConfigFlags(c) {
-		// Use explicit server configuration flags
-		rtDetails, err = pluginsCommon.CreateArtifactoryDetailsByFlags(c)
-		if err != nil {
-			return fmt.Errorf("failed to create server configuration: %w", err)
-		}
-	} else {
-		// Use default server configuration for validation when no explicit flags provided
-		rtDetails, err = config.GetDefaultServerConf()
-		if err != nil {
-			// If no default server, that's okay - we'll just skip validation
-			log.Debug("No default server configuration found, skipping repository validation")
-		}
+	rtDetails, err := getVscodeServerDetails(c)
+	if err != nil {
+		return err
 	}
 
 	vscodeCmd := vscode.NewVscodeCommand(serviceURL, productPath, repoKey)
@@ -117,28 +81,67 @@ func vscodeConfigCmd(c *components.Context) error {
 	return vscodeCmd.Run()
 }
 
+// getVscodeRepoKeyAndURL determines the repo key and service URL from args/flags
+func getVscodeRepoKeyAndURL(c *components.Context) (serviceURL, repoKey string, err error) {
+	if c.GetNumberOfArgs() > 0 && isValidUrl(c.GetArgumentAt(0)) {
+		serviceURL = c.GetArgumentAt(0)
+		repoKey, err = cliutils.ExtractRepoNameFromURL(serviceURL)
+		if err != nil {
+			return
+		}
+		return
+	}
+
+	repoKey = c.GetStringFlagValue(repoKeyFlag)
+	if repoKey == "" {
+		err = fmt.Errorf("You must provide either a service URL as the first argument or --repo-key flag.")
+		return
+	}
+	// Get Artifactory URL from server details (flags or default)
+	var artDetails *config.ServerDetails
+	if ide.HasServerConfigFlags(c) {
+		artDetails, err = pluginsCommon.CreateArtifactoryDetailsByFlags(c)
+		if err != nil {
+			err = fmt.Errorf("Failed to get Artifactory server details: %w", err)
+			return
+		}
+	} else {
+		artDetails, err = config.GetDefaultServerConf()
+		if err != nil {
+			err = fmt.Errorf("Failed to get default Artifactory server details: %w", err)
+			return
+		}
+	}
+	baseUrl := strings.TrimRight(artDetails.Url, "/")
+	urlSuffix := c.GetStringFlagValue(urlSuffixFlag)
+	if urlSuffix == "" {
+		urlSuffix = "_apis/public/gallery"
+	}
+	serviceURL = baseUrl + "/artifactory/api/vscodeextensions/" + repoKey + "/" + strings.TrimLeft(urlSuffix, "/")
+	return
+}
+
+// getVscodeServerDetails returns server details for validation, or nil if not available
+func getVscodeServerDetails(c *components.Context) (*config.ServerDetails, error) {
+	if ide.HasServerConfigFlags(c) {
+		// Use explicit server configuration flags
+		rtDetails, err := pluginsCommon.CreateArtifactoryDetailsByFlags(c)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create server configuration: %w", err)
+		}
+		return rtDetails, nil
+	}
+	// Use default server configuration for validation when no explicit flags provided
+	rtDetails, err := config.GetDefaultServerConf()
+	if err != nil {
+		// If no default server, that's okay - we'll just skip validation
+		log.Debug("No default server configuration found, skipping repository validation")
+		return nil, nil
+	}
+	return rtDetails, nil
+}
+
 func isValidUrl(s string) bool {
 	u, err := url.Parse(s)
 	return err == nil && u.Scheme != "" && u.Host != ""
-}
-
-// extractRepoKeyFromServiceURL extracts the repository key from a VSCode service URL
-// Expected format: https://<server>/artifactory/api/vscodeextensions/<repo-key>/_apis/public/gallery
-func extractRepoKeyFromServiceURL(serviceURL string) string {
-	if serviceURL == "" {
-		return ""
-	}
-
-	parsedURL, err := url.Parse(serviceURL)
-	if err != nil {
-		return ""
-	}
-
-	pathParts := strings.Split(strings.TrimPrefix(parsedURL.Path, "/"), "/")
-	for i, part := range pathParts {
-		if part == "api" && i+1 < len(pathParts) && pathParts[i+1] == "vscodeextensions" && i+2 < len(pathParts) {
-			return pathParts[i+2]
-		}
-	}
-	return ""
 }

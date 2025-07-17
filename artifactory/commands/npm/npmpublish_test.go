@@ -3,6 +3,8 @@ package npm
 
 import (
 	"testing"
+
+	"github.com/jfrog/jfrog-cli-artifactory/cliutils"
 )
 
 func TestExtractRepoName(t *testing.T) {
@@ -46,13 +48,13 @@ func TestExtractRepoName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := extractRepoName(tt.input)
+			result, err := cliutils.ExtractRepoNameFromURL(tt.input)
 			if (err != nil) != tt.expectError {
-				t.Errorf("extractRepoName(%q) error = %v, expectError %v", tt.input, err, tt.expectError)
+				t.Errorf("ExtractRepoNameFromURL(%q) error = %v, expectError %v", tt.input, err, tt.expectError)
 				return
 			}
 			if !tt.expectError && result != tt.expected {
-				t.Errorf("extractRepoName(%q) = %q; want %q", tt.input, result, tt.expected)
+				t.Errorf("ExtractRepoNameFromURL(%q) = %q; want %q", tt.input, result, tt.expected)
 			}
 		})
 	}
