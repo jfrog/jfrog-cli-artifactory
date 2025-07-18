@@ -2,6 +2,7 @@ package create
 
 import (
 	"encoding/json"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	clientLog "github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 	"regexp"
@@ -15,9 +16,10 @@ import (
 
 type createEvidenceCustom struct {
 	createEvidenceBase
-	subjectRepoPath    string
-	subjectSha256      string
-	sigstoreBundlePath string
+	subjectRepoPath       string
+	subjectSha256         string
+	sigstoreBundlePath    string
+	autoSubjectResolution bool
 }
 
 func NewCreateEvidenceCustom(serverDetails *config.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, subjectRepoPath,
@@ -62,13 +64,13 @@ func (c *createEvidenceCustom) Run() error {
 		return err
 	}
 
-	err = validateSubject(c.subjectRepoPath)
+	err = c.validateSubject()
 	if err != nil {
 		return err
 	}
 	err = c.uploadEvidence(evidencePayload, c.subjectRepoPath)
 	if err != nil {
-		err = handleSubjectNotFound(err, c.subjectRepoPath)
+		err = c.handleSubjectNotFound(err)
 		return err
 	}
 
@@ -82,6 +84,7 @@ func (c *createEvidenceCustom) processSigstoreBundle() ([]byte, error) {
 	}
 
 	if c.subjectRepoPath == "" {
+		c.autoSubjectResolution = true
 		extractedSubject, err := c.extractSubjectFromBundle(sigstoreBundle)
 		if err != nil {
 			return nil, err
@@ -99,7 +102,7 @@ func (c *createEvidenceCustom) extractSubjectFromBundle(bundle *bundle.Bundle) (
 	}
 
 	if subject == "" {
-		return "", errorutils.CheckErrorf("Subject is not found in the sigstore bundle. Please ensure the bundle contains a valid subject.")
+		return "", c.newSubjectError("Subject is not found in the sigstore bundle. Please ensure the bundle contains a valid subject.")
 	} else {
 		clientLog.Info("Subject " + subject + " is resolved from sigstore bundle.")
 	}
@@ -116,19 +119,32 @@ func (c *createEvidenceCustom) createDSSEEnvelope() ([]byte, error) {
 	return envelope, nil
 }
 
-func validateSubject(subject string) error {
+func (c *createEvidenceCustom) validateSubject() error {
 	// Pattern: must have at least one slash with non-empty sections
-	if matched, _ := regexp.MatchString(`^[^/]+(/[^/]+)+$`, subject); !matched {
-		return errorutils.CheckErrorf("Subject '%s' is invalid. Subject must be in format: <repo>/<path>/<name> or <repo>/<name>", subject)
+	if matched, _ := regexp.MatchString(`^[^/]+(/[^/]+)+$`, c.subjectRepoPath); !matched {
+		return c.newSubjectError("Subject '" + c.subjectRepoPath + "' is invalid. Subject must be in format: <repo>/<path>/<name> or <repo>/<name>")
 	}
 	return nil
 }
 
-func handleSubjectNotFound(err error, subject string) error {
+func (c *createEvidenceCustom) handleSubjectNotFound(err error) error {
 	errStr := err.Error()
 	if strings.Contains(errStr, "404 Not Found") {
 		clientLog.Debug("Server response error:", err.Error())
-		return errorutils.CheckErrorf("Subject '%s' is not found. Please ensure the subject exists.", subject)
+		return c.newSubjectError("Subject '" + c.subjectRepoPath + "' is not found. Please ensure the subject exists.")
 	}
 	return err
+}
+
+// newSubjectError creates an error with ExitCodeFailNoOp (2) for subject-related failures
+// When auto subject resolution is enabled, this allows pipeline calls with gh attestation
+// sigstore bundle generation to skip command execution without breaking a pipeline
+func (c *createEvidenceCustom) newSubjectError(message string) error {
+	if c.autoSubjectResolution {
+		return coreutils.CliError{
+			ExitCode: coreutils.ExitCodeFailNoOp,
+			ErrorMsg: message,
+		}
+	}
+	return errorutils.CheckErrorf(message)
 }

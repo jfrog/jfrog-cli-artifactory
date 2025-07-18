@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -211,4 +212,73 @@ func TestCreateEvidenceCustom_SigstoreBundleWithSubjectPath(t *testing.T) {
 	assert.True(t, ok, "cmd should be of type *createEvidenceCustom")
 	assert.Equal(t, bundlePath, custom.sigstoreBundlePath)
 	assert.Equal(t, "provided-repo/provided-artifact", custom.subjectRepoPath)
+}
+
+func TestCreateEvidenceCustom_NewSubjectError_AutoSubjectResolution(t *testing.T) {
+	serverDetails := &config.ServerDetails{
+		Url:         "https://test.jfrog.io",
+		User:        "test-user",
+		AccessToken: "test-token",
+	}
+
+	cmd := NewCreateEvidenceCustom(
+		serverDetails,
+		"predicate.json",
+		"https://example.com/predicate/v1",
+		"markdown.md",
+		"key.pem",
+		"key-alias",
+		"",
+		"abcd1234",
+		"/path/to/sigstore-bundle.json",
+		"test-provider",
+	)
+
+	custom, ok := cmd.(*createEvidenceCustom)
+	assert.True(t, ok, "cmd should be of type *createEvidenceCustom")
+
+	custom.autoSubjectResolution = true
+
+	testMessage := "Test error message"
+	err := custom.newSubjectError(testMessage)
+
+	assert.Error(t, err)
+	cliErr, ok := err.(coreutils.CliError)
+	assert.True(t, ok, "error should be of type CliError when autoSubjectResolution is enabled")
+	assert.Equal(t, coreutils.ExitCodeFailNoOp, cliErr.ExitCode, "should return exit code 2 (ExitCodeFailNoOp)")
+	assert.Equal(t, testMessage, cliErr.ErrorMsg, "error message should match")
+}
+
+func TestCreateEvidenceCustom_NewSubjectError_RegularExecution(t *testing.T) {
+	serverDetails := &config.ServerDetails{
+		Url:         "https://test.jfrog.io",
+		User:        "test-user",
+		AccessToken: "test-token",
+	}
+
+	cmd := NewCreateEvidenceCustom(
+		serverDetails,
+		"predicate.json",
+		"https://example.com/predicate/v1",
+		"markdown.md",
+		"key.pem",
+		"key-alias",
+		"test-repo/test-artifact",
+		"abcd1234",
+		"",
+		"test-provider",
+	)
+
+	custom, ok := cmd.(*createEvidenceCustom)
+	assert.True(t, ok, "cmd should be of type *createEvidenceCustom")
+
+	custom.autoSubjectResolution = false
+
+	testMessage := "Test error message"
+	err := custom.newSubjectError(testMessage)
+
+	assert.Error(t, err)
+	_, ok = err.(coreutils.CliError)
+	assert.False(t, ok, "error should not be of type CliError when autoSubjectResolution is disabled")
+	assert.Contains(t, err.Error(), testMessage, "error message should contain the test message")
 }
