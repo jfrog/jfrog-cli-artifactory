@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"strconv"
+
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/create"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/get"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -43,6 +46,25 @@ func (erc *evidenceReleaseBundleCommand) CreateEvidence(ctx *components.Context,
 	return erc.execute(createCmd)
 }
 
+func (erc *evidenceReleaseBundleCommand) GetEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
+	err := erc.validateEvidenceReleaseBundleContext(ctx)
+	if err != nil {
+		return err
+	}
+
+	getCmd := get.NewGetEvidenceReleaseBundle(
+		serverDetails,
+		erc.ctx.GetStringFlagValue(releaseBundle),
+		erc.ctx.GetStringFlagValue(releaseBundleVersion),
+		erc.ctx.GetStringFlagValue(project),
+		erc.ctx.GetStringFlagValue(format),
+		erc.ctx.GetStringFlagValue(output),
+		erc.ctx.GetStringFlagValue(artifactsLimit),
+		erc.ctx.GetBoolFlagValue(includePredicate),
+	)
+	return erc.execute(getCmd)
+}
+
 func (erc *evidenceReleaseBundleCommand) VerifyEvidences(ctx *components.Context, serverDetails *config.ServerDetails) error {
 	err := erc.validateEvidenceReleaseBundleContext(ctx)
 	if err != nil {
@@ -65,5 +87,17 @@ func (erc *evidenceReleaseBundleCommand) validateEvidenceReleaseBundleContext(ct
 	if !ctx.IsFlagSet(releaseBundleVersion) || assertValueProvided(ctx, releaseBundleVersion) != nil {
 		return errorutils.CheckErrorf("--%s is a mandatory field for creating a Release Bundle evidence", releaseBundleVersion)
 	}
+	if ctx.IsFlagSet(artifactsLimit) && !isPositiveNumber(ctx.GetStringFlagValue(artifactsLimit)) {
+		return errorutils.CheckErrorf("--%s must be a number", artifactsLimit)
+	}
 	return nil
+}
+
+func isPositiveNumber(artifactsLimit string) bool {
+	// Validate that the artifactsLimit is a positive number
+	num, err := strconv.Atoi(artifactsLimit)
+	if err != nil {
+		return false
+	}
+	return num > 0
 }

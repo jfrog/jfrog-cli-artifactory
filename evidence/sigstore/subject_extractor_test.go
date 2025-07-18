@@ -22,18 +22,18 @@ func TestExtractSubjectFromRealBundle(t *testing.T) {
 }
 
 func TestExtractSubjectFromEnvelopeWithValidStatement(t *testing.T) {
-	statement := map[string]interface{}{
+	statement := map[string]any{
 		"_type": "https://in-toto.io/Statement/v1",
-		"subject": []interface{}{
-			map[string]interface{}{
+		"subject": []any{
+			map[string]any{
 				"name": "test-repo/test-artifact",
-				"digest": map[string]interface{}{
+				"digest": map[string]any{
 					"sha256": "abcd1234567890",
 				},
 			},
 		},
 		"predicateType": "https://slsa.dev/provenance/v0.2",
-		"predicate":     map[string]interface{}{},
+		"predicate":     map[string]any{},
 	}
 
 	payload := createTestPayload(t, statement)
@@ -48,11 +48,11 @@ func TestExtractSubjectFromEnvelopeWithValidStatement(t *testing.T) {
 }
 
 func TestExtractSubjectFromEnvelopeNoSubjects(t *testing.T) {
-	statement := map[string]interface{}{
+	statement := map[string]any{
 		"_type":         "https://in-toto.io/Statement/v1",
-		"subject":       []interface{}{},
+		"subject":       []any{},
 		"predicateType": "https://slsa.dev/provenance/v0.2",
-		"predicate":     map[string]interface{}{},
+		"predicate":     map[string]any{},
 	}
 
 	payload := createTestPayload(t, statement)
@@ -67,17 +67,17 @@ func TestExtractSubjectFromEnvelopeNoSubjects(t *testing.T) {
 }
 
 func TestExtractSubjectFromEnvelopeNoName(t *testing.T) {
-	statement := map[string]interface{}{
+	statement := map[string]any{
 		"_type": "https://in-toto.io/Statement/v1",
-		"subject": []interface{}{
-			map[string]interface{}{
-				"digest": map[string]interface{}{
+		"subject": []any{
+			map[string]any{
+				"digest": map[string]any{
 					"sha256": "abcd1234567890",
 				},
 			},
 		},
 		"predicateType": "https://slsa.dev/provenance/v0.2",
-		"predicate":     map[string]interface{}{},
+		"predicate":     map[string]any{},
 	}
 
 	payload := createTestPayload(t, statement)
@@ -113,14 +113,14 @@ func TestExtractSubjectFromEnvelopeInvalidJSON(t *testing.T) {
 func TestExtractRepoPathFromStatement(t *testing.T) {
 	tests := []struct {
 		name      string
-		statement map[string]interface{}
+		statement map[string]any
 		expected  string
 	}{
 		{
 			name: "valid subject with name",
-			statement: map[string]interface{}{
-				"subject": []interface{}{
-					map[string]interface{}{
+			statement: map[string]any{
+				"subject": []any{
+					map[string]any{
 						"name": "repo/artifact",
 					},
 				},
@@ -129,17 +129,17 @@ func TestExtractRepoPathFromStatement(t *testing.T) {
 		},
 		{
 			name: "no subjects",
-			statement: map[string]interface{}{
-				"subject": []interface{}{},
+			statement: map[string]any{
+				"subject": []any{},
 			},
 			expected: "",
 		},
 		{
 			name: "subject without name",
-			statement: map[string]interface{}{
-				"subject": []interface{}{
-					map[string]interface{}{
-						"digest": map[string]interface{}{"sha256": "abc123"},
+			statement: map[string]any{
+				"subject": []any{
+					map[string]any{
+						"digest": map[string]any{"sha256": "abc123"},
 					},
 				},
 			},
@@ -147,9 +147,9 @@ func TestExtractRepoPathFromStatement(t *testing.T) {
 		},
 		{
 			name: "empty name",
-			statement: map[string]interface{}{
-				"subject": []interface{}{
-					map[string]interface{}{
+			statement: map[string]any{
+				"subject": []any{
+					map[string]any{
 						"name": "",
 					},
 				},
@@ -158,7 +158,7 @@ func TestExtractRepoPathFromStatement(t *testing.T) {
 		},
 		{
 			name: "no subject field",
-			statement: map[string]interface{}{
+			statement: map[string]any{
 				"predicateType": "test",
 			},
 			expected: "",
@@ -173,7 +173,7 @@ func TestExtractRepoPathFromStatement(t *testing.T) {
 	}
 }
 
-func createTestPayload(t *testing.T, statement interface{}) []byte {
+func createTestPayload(t *testing.T, statement any) []byte {
 	statementBytes, err := json.Marshal(statement)
 	assert.NoError(t, err)
 	return statementBytes

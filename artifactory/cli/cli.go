@@ -63,7 +63,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	buildinfocmd "github.com/jfrog/jfrog-client-go/artifactory/buildinfo"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
@@ -730,7 +730,7 @@ func checkRbExistenceInV2(c *components.Context) (bool, error) {
 	return lcServicesManager.IsReleaseBundleExist(rbName, rbVersion, c.GetStringFlagValue("project"))
 }
 
-func createLifecycleDetailsByFlags(c *components.Context) (*coreConfig.ServerDetails, error) {
+func createLifecycleDetailsByFlags(c *components.Context) (*config.ServerDetails, error) {
 	lcDetails, err := common.CreateServerDetailsWithConfigOffer(c, true, commonCliUtils.Platform)
 	if err != nil {
 		return nil, err
@@ -742,7 +742,7 @@ func createLifecycleDetailsByFlags(c *components.Context) (*coreConfig.ServerDet
 	return lcDetails, nil
 }
 
-func PlatformToLifecycleUrls(lcDetails *coreConfig.ServerDetails) {
+func PlatformToLifecycleUrls(lcDetails *config.ServerDetails) {
 	// For tests only. in prod - this "if" will always return false
 	if strings.Contains(lcDetails.Url, "artifactory/") {
 		lcDetails.ArtifactoryUrl = clientutils.AddTrailingSlashIfNeeded(lcDetails.Url)
@@ -1170,7 +1170,7 @@ func buildAddDependenciesCmd(c *components.Context) error {
 	}
 
 	var dependenciesSpec *spec.SpecFiles
-	var rtDetails *coreConfig.ServerDetails
+	var rtDetails *config.ServerDetails
 	var err error
 	if c.IsFlagSet("spec") {
 		dependenciesSpec, err = commonCliUtils.GetSpec(c, true, true)

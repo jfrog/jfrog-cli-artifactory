@@ -3,6 +3,10 @@ package lifecycle
 import (
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
+
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/cmddefs"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/distribution"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
@@ -16,22 +20,17 @@ import (
 	rbImport "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/importbundle"
 	rbPromote "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/promote"
 	artifactoryUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
-	"github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
-	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	speccore "github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	artClientUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/lifecycle/services"
 	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
-	"os"
-	"strconv"
-	"strings"
 )
 
 const (
@@ -244,7 +243,7 @@ func multipleSourcesSupported(c *components.Context) error {
 	return lifecycle.ValidateFeatureSupportedVersion(lcDetails, minArtifactoryVersionForMultiSourceSupport)
 }
 
-func getReleaseBundleCreationSpec(c *components.Context) (*spec.SpecFiles, error) {
+func getReleaseBundleCreationSpec(c *components.Context) (*speccore.SpecFiles, error) {
 	// Checking if the "builds" or "release-bundles" flags are set - if so, the spec flag should be ignored
 	if c.IsFlagSet(flagkit.Builds) || c.IsFlagSet(flagkit.ReleaseBundles) {
 		return nil, nil
@@ -256,7 +255,7 @@ func getReleaseBundleCreationSpec(c *components.Context) (*spec.SpecFiles, error
 
 	// Check if the "spec" flag is set - if so, return the spec
 	if c.IsFlagSet("spec") {
-		return cliutils.GetSpec(c, true, false)
+		return commonCliUtils.GetSpec(c, true, false)
 	}
 
 	// Else - create a spec from the buildName and buildnumber flags or env vars
@@ -495,7 +494,7 @@ func validateDistributeCommand(c *components.Context) error {
 	return nil
 }
 
-func createLifecycleDetailsByFlags(c *components.Context) (*coreConfig.ServerDetails, error) {
+func createLifecycleDetailsByFlags(c *components.Context) (*config.ServerDetails, error) {
 	lcDetails, err := pluginsCommon.CreateServerDetailsWithConfigOffer(c, true, commonCliUtils.Platform)
 	if err != nil {
 		return nil, err
@@ -586,7 +585,7 @@ func getDocumentationMessage() string {
 	return "You can read the documentation at " + coreutils.JFrogHelpUrl + "jfrog-cli"
 }
 
-func PlatformToLifecycleUrls(lcDetails *coreConfig.ServerDetails) {
+func PlatformToLifecycleUrls(lcDetails *config.ServerDetails) {
 	lcDetails.ArtifactoryUrl = utils.AddTrailingSlashIfNeeded(lcDetails.Url) + "artifactory/"
 	lcDetails.LifecycleUrl = utils.AddTrailingSlashIfNeeded(lcDetails.Url) + "lifecycle/"
 	lcDetails.Url = ""

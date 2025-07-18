@@ -390,7 +390,7 @@ func TestVerifyEvidenceBase_SearchEvidenceQueryExactMatch(t *testing.T) {
 	assert.Contains(t, formattedQuery, "test-file.txt")
 
 	// Verify the formatted query is valid JSON structure
-	var jsonCheck interface{}
+	var jsonCheck any
 	err := json.Unmarshal([]byte(formattedQuery), &jsonCheck)
 	assert.NoError(t, err, "Formatted query should be valid JSON")
 }
