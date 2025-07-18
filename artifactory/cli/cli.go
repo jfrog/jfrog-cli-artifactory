@@ -83,7 +83,7 @@ const (
 )
 
 func GetCommands() []components.Command {
-	return []components.Command{
+	commands := []components.Command{
 		{
 			Name:        "upload",
 			Flags:       flagkit.GetCommandFlags(flagkit.Upload),
@@ -404,6 +404,8 @@ func GetCommands() []components.Command {
 			Category:    replicCategory,
 		},
 	}
+
+	return commands
 }
 
 func getRetries(c *components.Context) (retries int, err error) {

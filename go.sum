@@ -312,10 +312,10 @@ github.com/jfrog/froggit-go v1.17.0 h1:20Ie787WO27SwB2MOHDvsR6yN7fA5WfRnuAbmUqz1
 github.com/jfrog/froggit-go v1.17.0/go.mod h1:HvDkfFfJwIdsXFdqaB+utvD2cLDRmaC3kF8otYb6Chw=
 github.com/jfrog/gofrog v1.7.6 h1:QmfAiRzVyaI7JYGsB7cxfAJePAZTzFz0gRWZSE27c6s=
 github.com/jfrog/gofrog v1.7.6/go.mod h1:ntr1txqNOZtHplmaNd7rS4f8jpA5Apx8em70oYEe7+4=
-github.com/jfrog/jfrog-cli-core/v2 v2.59.2-0.20250709124419-1e5e14be13da h1:uDMQ6tdKI7nk3Z4fwYv0xcdQZVGnrt58+Wk5970c6Zk=
-github.com/jfrog/jfrog-cli-core/v2 v2.59.2-0.20250709124419-1e5e14be13da/go.mod h1:pcAx7PFOLiw82c6fBDJw3BfIfUQdoHsxWd5u/XH9XEM=
-github.com/jfrog/jfrog-client-go v1.28.1-0.20250715065402-dc14f9e5e0c3 h1:JQlErVjnsfENbPcBWDfp3EJscDnlQ+yJUMuNC7pbR7M=
-github.com/jfrog/jfrog-client-go v1.28.1-0.20250715065402-dc14f9e5e0c3/go.mod h1:1v0eih4thdPA4clBo9TuvAMT25sGDr1IQJ81DXQ/lBY=
+github.com/jfrog/jfrog-cli-core/v2 v2.59.2-0.20250717045550-6e019038f578 h1:xYM1jGiUQYotokFRtLqoKwxtI0+XisXrP5rrBFVU2FM=
+github.com/jfrog/jfrog-cli-core/v2 v2.59.2-0.20250717045550-6e019038f578/go.mod h1:Jz0ZQqrarcryOo+v1IvVujPCtNZH/UHiDjb/FJkPjmA=
+github.com/jfrog/jfrog-client-go v1.28.1-0.20250717041744-d3ea4d99f4e7 h1:IHClKKEHPZMR1UWTTVYjqf3asYrCuEq1wd4lI/ASHRQ=
+github.com/jfrog/jfrog-client-go v1.28.1-0.20250717041744-d3ea4d99f4e7/go.mod h1:1v0eih4thdPA4clBo9TuvAMT25sGDr1IQJ81DXQ/lBY=
 github.com/jmespath/go-jmespath v0.4.1-0.20220621161143-b0104c826a24 h1:liMMTbpW34dhU4az1GN0pTPADwNmvoRSeoZ6PItiqnY=
 github.com/jmespath/go-jmespath v0.4.1-0.20220621161143-b0104c826a24/go.mod h1:T8mJZnbsbmF+m6zOOFylbeCJqk5+pHWvzYPziyZiYoo=
 github.com/jmhodges/clock v1.2.0 h1:eq4kys+NI0PLngzaHEe7AmPT90XMGIEySD1JfV1PDIs=

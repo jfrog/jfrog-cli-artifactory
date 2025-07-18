@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/jfrog/gofrog/version"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"strconv"
 	"strings"
 
@@ -36,51 +38,134 @@ func (rc *RepoCommand) TemplatePath() string {
 	return rc.templatePath
 }
 
+type repoCreateUpdateHandler interface {
+	Execute(repoConfigMaps []map[string]interface{}, servicesManager artifactory.ArtifactoryServicesManager, isUpdate bool) error
+}
+
+type (
+	MultipleRepositoryHandler struct{}
+	SingleRepositoryHandler   struct{}
+)
+
 func (rc *RepoCommand) PerformRepoCmd(isUpdate bool) (err error) {
-	repoConfigMap, err := utils.ConvertTemplateToMap(rc)
+	configs, err := utils.ConvertTemplateToMaps(rc)
 	if err != nil {
 		return err
 	}
-	// All the values in the template are strings
-	// Go over the confMap and write the values with the correct type using the writersMap
-	for key, value := range repoConfigMap {
-		if err = utils.ValidateMapEntry(key, value, writersMap); err != nil {
-			return
-		}
-		if err = writersMap[key](&repoConfigMap, key, fmt.Sprint(value)); err != nil {
-			return
+
+	var (
+		repoConfigMaps []map[string]interface{}
+		strategy       repoCreateUpdateHandler
+	)
+
+	switch configType := configs.(type) {
+	case []map[string]interface{}:
+		repoConfigMaps = configType
+		strategy = &MultipleRepositoryHandler{}
+	case map[string]interface{}:
+		repoConfigMaps = []map[string]interface{}{configType}
+		strategy = &SingleRepositoryHandler{}
+	default:
+		return fmt.Errorf("unexpected repository configuration type: %T", configType)
+	}
+
+	var missingKeys []string
+	for _, repoConfigMap := range repoConfigMaps {
+		if key, ok := repoConfigMap["key"]; !ok || key == "" {
+			missingKeys = append(missingKeys, fmt.Sprintf("%v\n", repoConfigMap))
 		}
 	}
-	// Write a JSON with the correct values
-	content, err := json.Marshal(repoConfigMap)
-	if err != nil {
-		return err
+
+	if len(missingKeys) > 0 {
+		return fmt.Errorf("'key' is missing in the following configs\n: %v", missingKeys)
 	}
 
 	servicesManager, err := rtUtils.CreateServiceManager(rc.serverDetails, -1, 0, false)
 	if err != nil {
 		return err
 	}
-	// Rclass and packageType are mandatory keys in our templates
-	// Using their values we'll pick the suitable handler from one of the handler maps to create/update a repository
-	var handlerFunc func(servicesManager artifactory.ArtifactoryServicesManager, jsonConfig []byte, isUpdate bool) error
-	packageType := fmt.Sprint(repoConfigMap[PackageType])
-	switch repoConfigMap[Rclass] {
-	case Local:
-		handlerFunc = localRepoHandlers[packageType]
-	case Remote:
-		handlerFunc = remoteRepoHandlers[packageType]
-	case Virtual:
-		handlerFunc = virtualRepoHandlers[packageType]
-	case Federated:
-		handlerFunc = federatedRepoHandlers[packageType]
-	default:
-		return errorutils.CheckErrorf("unsupported rclass: %s", repoConfigMap[Rclass])
+
+	return strategy.Execute(repoConfigMaps, servicesManager, isUpdate)
+}
+
+func (m *MultipleRepositoryHandler) Execute(repoConfigMaps []map[string]interface{}, servicesManager artifactory.ArtifactoryServicesManager, isUpdate bool) error {
+	content, err := json.Marshal(repoConfigMaps)
+	if err != nil {
+		return err
 	}
-	if handlerFunc == nil {
-		return errors.New("unsupported package type: " + packageType)
+	return multipleRepoHandler(servicesManager, content, isUpdate)
+}
+
+func (s *SingleRepositoryHandler) Execute(repoConfigMaps []map[string]interface{}, servicesManager artifactory.ArtifactoryServicesManager, isUpdate bool) error {
+	// Go over the confMap and write the values with the correct type using the writersMap
+	for _, repoConfigMap := range repoConfigMaps {
+		for key, value := range repoConfigMap {
+			if err := utils.ValidateMapEntry(key, value, writersMap); err != nil {
+				return err
+			}
+			if err := writersMap[key](&repoConfigMap, key, fmt.Sprint(value)); err != nil {
+				return err
+			}
+		}
+
+		content, err := json.Marshal(repoConfigMap)
+		if err != nil {
+			return err
+		}
+
+		// Rclass and packageType are mandatory keys in our templates
+		// Using their values we'll pick the suitable handler from one of the handler maps to create/update a repository
+		var handlerFunc func(servicesManager artifactory.ArtifactoryServicesManager, jsonConfig []byte, isUpdate bool) error
+		packageType := fmt.Sprint(repoConfigMap[PackageType])
+		switch repoConfigMap[Rclass] {
+		case Local:
+			handlerFunc = localRepoHandlers[packageType]
+		case Remote:
+			handlerFunc = remoteRepoHandlers[packageType]
+		case Virtual:
+			handlerFunc = virtualRepoHandlers[packageType]
+		case Federated:
+			handlerFunc = federatedRepoHandlers[packageType]
+		default:
+			return errorutils.CheckErrorf("unsupported rclass: %s", repoConfigMap[Rclass])
+		}
+		if handlerFunc == nil {
+			return errors.New("unsupported package type: " + packageType)
+		}
+
+		if err := handlerFunc(servicesManager, content, isUpdate); err != nil {
+			return err
+		}
 	}
-	return handlerFunc(servicesManager, content, isUpdate)
+	return nil
+}
+
+func multipleRepoHandler(servicesManager artifactory.ArtifactoryServicesManager, jsonConfig []byte, isUpdate bool) (err error) {
+	artifactoryVersion, err := servicesManager.GetVersion()
+	if err != nil {
+		return errorutils.CheckErrorf("failed to get Artifactory rtVersion: %s", err.Error())
+	}
+	rtVersion := version.NewVersion(artifactoryVersion)
+	if isUpdate {
+		if !rtVersion.AtLeast("7.104.2") {
+			return errorutils.CheckErrorf("bulk repository updation is supported from Artifactory rtVersion 7.104.2, current rtVersion: %v", artifactoryVersion)
+		}
+	} else {
+		if !rtVersion.AtLeast("7.84.3") {
+			return errorutils.CheckErrorf("bulk repository creation is supported from Artifactory rtVersion 7.84.3, current rtVersion: %v", artifactoryVersion)
+		}
+	}
+
+	log.Debug("creating/updating repositories in batch...")
+
+	err = servicesManager.CreateUpdateRepositoriesInBatch(jsonConfig, isUpdate)
+	if err != nil {
+		return err
+	}
+
+	log.Info("Successfully created/updated the repositories")
+
+	return nil
 }
 
 var writersMap = map[string]ioutils.AnswerWriter{
