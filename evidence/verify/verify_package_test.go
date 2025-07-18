@@ -35,7 +35,7 @@ func (m *MockArtifactoryServicesManagerPackage) Aql(_ string) (io.ReadCloser, er
 	return io.NopCloser(bytes.NewBufferString(m.AqlResponse)), nil
 }
 
-func (m *MockArtifactoryServicesManagerPackage) GetRepository(_ string, repoDetails interface{}) error {
+func (m *MockArtifactoryServicesManagerPackage) GetRepository(_ string, repoDetails any) error {
 	if m.GetRepositoryError != nil {
 		return m.GetRepositoryError
 	}

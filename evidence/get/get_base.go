@@ -19,38 +19,34 @@ type getEvidenceBase struct {
 }
 
 type JsonlLine struct {
-	SchemaVersion string      `json:"schemaVersion"`
-	Type          string      `json:"type"`
-	Result        interface{} `json:"result"`
+	SchemaVersion string `json:"schemaVersion"`
+	Type          string `json:"type"`
+	Result        any    `json:"result"`
 }
 
-// EvidenceEntry represents a single evidence entry with ordered fields
 type EvidenceEntry struct {
-	PredicateSlug string                 `json:"predicateSlug"`
-	PredicateType *string                `json:"predicateType,omitempty"`
-	DownloadPath  string                 `json:"downloadPath"`
-	Verified      bool                   `json:"verified"`
-	SigningKey    map[string]interface{} `json:"signingKey"`
-	Subject       map[string]interface{} `json:"subject"`
-	CreatedBy     string                 `json:"createdBy"`
-	CreatedAt     string                 `json:"createdAt"`
-	Predicate     *string                `json:"predicate,omitempty"`
+	PredicateSlug string         `json:"predicateSlug"`
+	PredicateType *string        `json:"predicateType,omitempty"`
+	DownloadPath  string         `json:"downloadPath"`
+	Verified      bool           `json:"verified"`
+	SigningKey    map[string]any `json:"signingKey"`
+	Subject       map[string]any `json:"subject"`
+	CreatedBy     string         `json:"createdBy"`
+	CreatedAt     string         `json:"createdAt"`
+	Predicate     *string        `json:"predicate,omitempty"`
 }
 
-// CustomEvidenceResult represents the result structure for custom evidence
 type CustomEvidenceResult struct {
-	RepoPath  string          `json:"repoPath"`
-	Evidence  []EvidenceEntry `json:"evidence"`
+	RepoPath string          `json:"repoPath"`
+	Evidence []EvidenceEntry `json:"evidence"`
 }
 
-// ArtifactEvidence represents evidence with artifact metadata
 type ArtifactEvidence struct {
 	Evidence    EvidenceEntry `json:"evidence"`
 	PackageType string        `json:"package-type"`
 	RepoPath    string        `json:"repo-path"`
 }
 
-// BuildEvidence represents evidence with build metadata
 type BuildEvidence struct {
 	Evidence    EvidenceEntry `json:"evidence"`
 	BuildName   string        `json:"build-name"`
@@ -58,7 +54,6 @@ type BuildEvidence struct {
 	StartedAt   string        `json:"started-at"`
 }
 
-// ReleaseBundleResult represents the result structure for release bundle evidence
 type ReleaseBundleResult struct {
 	ReleaseBundle        string             `json:"release-bundle"`
 	ReleaseBundleVersion string             `json:"release-bundle-version"`
@@ -87,7 +82,6 @@ func exportEvidenceToJsonFile(evidence []byte, outputFileName string) error {
 	if outputFileName == "" {
 		// Stream to console
 		fmt.Println(string(evidence))
-		log.Info("Evidence successfully exported to console")
 		return nil
 	}
 
@@ -109,7 +103,6 @@ func exportEvidenceToJsonFile(evidence []byte, outputFileName string) error {
 
 func exportEvidenceToJsonlFile(data []byte, outputFileName string) error {
 	if outputFileName == "" {
-		// Stream to console
 		return writeEvidenceJsonl(data, os.Stdout)
 	}
 
@@ -129,21 +122,18 @@ func writeEvidenceJsonl(data []byte, file *os.File) error {
 		return fmt.Errorf("failed to parse evidence output: %w", err)
 	}
 
-	// Assume schemaVersion, type, and result are always present
 	schemaVersion, _ := evidenceOutput["schemaVersion"].(string)
 	typeField, _ := evidenceOutput["type"].(string)
 
 	log.Debug("Processing evidence with type:", typeField)
 
 	if typeField == "release-bundle" {
-		// Parse as ReleaseBundleOutput
 		var releaseBundleOutput ReleaseBundleOutput
 		if err := json.Unmarshal(data, &releaseBundleOutput); err != nil {
 			return fmt.Errorf("failed to parse release bundle output: %w", err)
 		}
 		return writeReleaseBundleJsonlFromStruct(schemaVersion, typeField, releaseBundleOutput.Result, file)
 	} else {
-		// Parse as CustomEvidenceOutput
 		var customEvidenceOutput CustomEvidenceOutput
 		if err := json.Unmarshal(data, &customEvidenceOutput); err != nil {
 			return fmt.Errorf("failed to parse custom evidence output: %w", err)
@@ -177,12 +167,7 @@ func writeCustomEvidenceJsonl(schemaVersion, typeField string, result CustomEvid
 	return nil
 }
 
-
-
-
-
 func writeReleaseBundleJsonlFromStruct(schemaVersion, typeField string, result ReleaseBundleResult, file *os.File) error {
-	// Write release bundle evidence
 	for _, evidence := range result.Evidence {
 		lineWithMetadata := JsonlLine{
 			SchemaVersion: schemaVersion,
@@ -198,7 +183,6 @@ func writeReleaseBundleJsonlFromStruct(schemaVersion, typeField string, result R
 		}
 	}
 
-	// Write artifact evidence
 	for _, artifact := range result.Artifacts {
 		lineWithMetadata := JsonlLine{
 			SchemaVersion: schemaVersion,
@@ -214,7 +198,6 @@ func writeReleaseBundleJsonlFromStruct(schemaVersion, typeField string, result R
 		}
 	}
 
-	// Write build evidence
 	for _, build := range result.Builds {
 		lineWithMetadata := JsonlLine{
 			SchemaVersion: schemaVersion,
@@ -238,9 +221,6 @@ func writeReleaseBundleJsonlFromStruct(schemaVersion, typeField string, result R
 	return nil
 }
 
-
-
-// createOrderedEvidenceEntry creates an EvidenceEntry with properly ordered fields
 func createOrderedEvidenceEntry(node map[string]interface{}, includePredicate bool) EvidenceEntry {
 	entry := EvidenceEntry{}
 

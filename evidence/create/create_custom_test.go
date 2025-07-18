@@ -41,22 +41,22 @@ func TestNewCreateEvidenceCustom(t *testing.T) {
 
 func TestCreateEvidenceCustom_WithSigstoreBundle(t *testing.T) {
 	// Create a test bundle file using generic map
-	statement := map[string]interface{}{
+	statement := map[string]any{
 		"_type": "https://in-toto.io/Statement/v1",
-		"subject": []interface{}{
-			map[string]interface{}{
-				"digest": map[string]interface{}{
+		"subject": []any{
+			map[string]any{
+				"digest": map[string]any{
 					"sha256": "test-sha256",
 				},
 				"name": "test-repo/test-artifact",
 			},
 		},
 		"predicateType": "https://slsa.dev/provenance/v0.2",
-		"predicate": map[string]interface{}{
-			"builder": map[string]interface{}{
+		"predicate": map[string]any{
+			"builder": map[string]any{
 				"id": "https://github.com/actions/runner/v2.311.0",
 			},
-			"artifact": map[string]interface{}{
+			"artifact": map[string]any{
 				"path": "test-repo/test-artifact",
 			},
 		},
@@ -144,17 +144,17 @@ func TestCreateEvidenceCustom_MissingSigstoreBundle(t *testing.T) {
 
 func TestCreateEvidenceCustom_SigstoreBundleWithSubjectPath(t *testing.T) {
 	// Create a test bundle without artifact path in predicate
-	statement := map[string]interface{}{
+	statement := map[string]any{
 		"_type": "https://in-toto.io/Statement/v1",
-		"subject": []interface{}{
-			map[string]interface{}{
-				"digest": map[string]interface{}{
+		"subject": []any{
+			map[string]any{
+				"digest": map[string]any{
 					"sha256": "extracted-sha256",
 				},
 			},
 		},
 		"predicateType": "https://slsa.dev/provenance/v0.2",
-		"predicate":     map[string]interface{}{},
+		"predicate":     map[string]any{},
 	}
 
 	statementBytes, err := json.Marshal(statement)

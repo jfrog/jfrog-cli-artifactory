@@ -97,23 +97,18 @@ func TestExportEvidenceToJsonlFileWithMetadata(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Marshal the test data to JSON
 			inputJSON, err := json.Marshal(tt.input)
 			assert.NoError(t, err)
 
-			// Create a temporary file for testing
 			tempDir := t.TempDir()
 			outputFile := path.Join(tempDir, "test_metadata.jsonl")
 
-			// Test the JSONL export function
 			err = exportEvidenceToJsonlFile(inputJSON, outputFile)
 			assert.NoError(t, err)
 
-			// Read the output file
 			outputData, err := os.ReadFile(outputFile)
 			assert.NoError(t, err)
 
-			// Split the output into lines
 			lines := strings.Split(strings.TrimSpace(string(outputData)), "\n")
 			if tt.expectedLines == 0 {
 				assert.True(t, len(lines) == 0 || (len(lines) == 1 && lines[0] == ""), "No lines should be written for empty evidence")
@@ -121,18 +116,15 @@ func TestExportEvidenceToJsonlFileWithMetadata(t *testing.T) {
 			}
 			assert.Len(t, lines, tt.expectedLines)
 
-			// Verify each line is valid JSON and contains metadata fields
 			for i, line := range lines {
 				var item map[string]interface{}
 				err := json.Unmarshal([]byte(line), &item)
 				assert.NoError(t, err, "Line %d should be valid JSON", i+1)
 
-				// Check that each line contains the metadata fields
 				assert.Contains(t, item, "schemaVersion", "Line %d should contain schemaVersion", i+1)
 				assert.Contains(t, item, "type", "Line %d should contain type", i+1)
 				assert.Contains(t, item, "result", "Line %d should contain result", i+1)
 
-				// Check the specific values
 				assert.Equal(t, tt.expectedSchema, item["schemaVersion"], "Line %d should have correct schemaVersion", i+1)
 
 				// For release bundle with flattened evidence, check that types are correct
@@ -164,7 +156,6 @@ func TestExportEvidenceToJsonlFileWithMetadata(t *testing.T) {
 }
 
 func TestExportEvidenceToConsole(t *testing.T) {
-	// Test JSON output to console
 	testData := CustomEvidenceOutput{
 		SchemaVersion: "1.0",
 		Type:          "artifact",

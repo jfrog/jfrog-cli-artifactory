@@ -22,7 +22,7 @@ func extractSubjectFromEnvelope(envelope *protodsse.Envelope) (repoPath string, 
 		return "", errorutils.CheckErrorf("envelope is nil")
 	}
 
-	var statement map[string]interface{}
+	var statement map[string]any
 	if err := json.Unmarshal(envelope.Payload, &statement); err != nil {
 		return "", errorutils.CheckErrorf("failed to parse statement from DSSE payload: %s", err.Error())
 	}
@@ -32,9 +32,9 @@ func extractSubjectFromEnvelope(envelope *protodsse.Envelope) (repoPath string, 
 	return repoPath, nil
 }
 
-func extractRepoPathFromStatement(statement map[string]interface{}) string {
-	if subjects, ok := statement["subject"].([]interface{}); ok && len(subjects) > 0 {
-		if subject, ok := subjects[0].(map[string]interface{}); ok {
+func extractRepoPathFromStatement(statement map[string]any) string {
+	if subjects, ok := statement["subject"].([]any); ok && len(subjects) > 0 {
+		if subject, ok := subjects[0].(map[string]any); ok {
 			if name, ok := subject["name"].(string); ok && name != "" {
 				return name
 			}

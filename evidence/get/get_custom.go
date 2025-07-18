@@ -23,9 +23,9 @@ type getEvidenceCustom struct {
 
 // CustomEvidenceOutput represents the structured output format for custom evidence
 type CustomEvidenceOutput struct {
-	SchemaVersion string                `json:"schemaVersion"`
-	Type          string                `json:"type"`
-	Result        CustomEvidenceResult  `json:"result"`
+	SchemaVersion string               `json:"schemaVersion"`
+	Type          string               `json:"type"`
+	Result        CustomEvidenceResult `json:"result"`
 }
 
 func NewGetEvidenceCustom(serverDetails *config.ServerDetails, subjectRepoPath, format, outputFileName string, includePredicate bool) evidence.Command {
@@ -85,35 +85,35 @@ func (g *getEvidenceCustom) getEvidence(onemodelClient onemodel.Manager) ([]byte
 }
 
 func (g *getEvidenceCustom) transformGraphQLOutput(rawEvidence []byte) ([]byte, error) {
-	var graphqlResponse map[string]interface{}
+	var graphqlResponse map[string]any
 	if err := json.Unmarshal(rawEvidence, &graphqlResponse); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal GraphQL response: %w", err)
 	}
 
-	evidenceData, ok := graphqlResponse["data"].(map[string]interface{})
+	evidenceData, ok := graphqlResponse["data"].(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("invalid GraphQL response structure: missing data field")
 	}
 
-	searchEvidence, ok := evidenceData["evidence"].(map[string]interface{})
+	searchEvidence, ok := evidenceData["evidence"].(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("invalid GraphQL response structure: missing evidence field")
 	}
 
-	searchEvidenceData, ok := searchEvidence["searchEvidence"].(map[string]interface{})
+	searchEvidenceData, ok := searchEvidence["searchEvidence"].(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("invalid GraphQL response structure: missing searchEvidence field")
 	}
 
-	edges, ok := searchEvidenceData["edges"].([]interface{})
+	edges, ok := searchEvidenceData["edges"].([]any)
 	if !ok {
 		return nil, fmt.Errorf("invalid GraphQL response structure: missing edges field")
 	}
 
 	evidenceArray := make([]EvidenceEntry, 0, len(edges))
 	for _, edge := range edges {
-		if edgeMap, ok := edge.(map[string]interface{}); ok {
-			if node, ok := edgeMap["node"].(map[string]interface{}); ok {
+		if edgeMap, ok := edge.(map[string]any); ok {
+			if node, ok := edgeMap["node"].(map[string]any); ok {
 				evidenceEntry := createOrderedEvidenceEntry(node, g.includePredicate)
 				evidenceArray = append(evidenceArray, evidenceEntry)
 			}

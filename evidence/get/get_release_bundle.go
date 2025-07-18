@@ -126,22 +126,22 @@ func (g *getEvidenceReleaseBundle) getArtifactLimit(artifactsLimit string) strin
 }
 
 func (g *getEvidenceReleaseBundle) transformReleaseBundleGraphQLOutput(rawEvidence []byte) ([]byte, error) {
-	var graphqlResponse map[string]interface{}
+	var graphqlResponse map[string]any
 	if err := json.Unmarshal(rawEvidence, &graphqlResponse); err != nil {
 		return nil, fmt.Errorf("failed to parse GraphQL response: %w", err)
 	}
 
-	data, ok := graphqlResponse["data"].(map[string]interface{})
+	data, ok := graphqlResponse["data"].(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("missing data field in GraphQL response")
 	}
 
-	releaseBundleVersion, ok := data["releaseBundleVersion"].(map[string]interface{})
+	releaseBundleVersion, ok := data["releaseBundleVersion"].(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("missing releaseBundleVersion field in GraphQL response")
 	}
 
-	getVersion, ok := releaseBundleVersion["getVersion"].(map[string]interface{})
+	getVersion, ok := releaseBundleVersion["getVersion"].(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("missing getVersion field in GraphQL response")
 	}
@@ -176,25 +176,25 @@ func (g *getEvidenceReleaseBundle) transformReleaseBundleGraphQLOutput(rawEviden
 	return transformed, nil
 }
 
-func (g *getEvidenceReleaseBundle) extractEvidenceFromConnection(data map[string]interface{}, connectionName string) []EvidenceEntry {
-	connection, ok := data[connectionName].(map[string]interface{})
+func (g *getEvidenceReleaseBundle) extractEvidenceFromConnection(data map[string]any, connectionName string) []EvidenceEntry {
+	connection, ok := data[connectionName].(map[string]any)
 	if !ok {
 		return []EvidenceEntry{}
 	}
 
-	edges, ok := connection["edges"].([]interface{})
+	edges, ok := connection["edges"].([]any)
 	if !ok {
 		return []EvidenceEntry{}
 	}
 
 	evidence := make([]EvidenceEntry, 0, len(edges))
 	for _, edge := range edges {
-		edgeMap, ok := edge.(map[string]interface{})
+		edgeMap, ok := edge.(map[string]any)
 		if !ok {
 			continue
 		}
 
-		node, ok := edgeMap["node"].(map[string]interface{})
+		node, ok := edgeMap["node"].(map[string]any)
 		if !ok {
 			continue
 		}
@@ -206,25 +206,25 @@ func (g *getEvidenceReleaseBundle) extractEvidenceFromConnection(data map[string
 	return evidence
 }
 
-func (g *getEvidenceReleaseBundle) extractArtifactsEvidence(data map[string]interface{}) []ArtifactEvidence {
-	artifactsConnection, ok := data["artifactsConnection"].(map[string]interface{})
+func (g *getEvidenceReleaseBundle) extractArtifactsEvidence(data map[string]any) []ArtifactEvidence {
+	artifactsConnection, ok := data["artifactsConnection"].(map[string]any)
 	if !ok {
 		return []ArtifactEvidence{}
 	}
 
-	edges, ok := artifactsConnection["edges"].([]interface{})
+	edges, ok := artifactsConnection["edges"].([]any)
 	if !ok {
 		return []ArtifactEvidence{}
 	}
 
 	artifacts := make([]ArtifactEvidence, 0, len(edges))
 	for _, edge := range edges {
-		edgeMap, ok := edge.(map[string]interface{})
+		edgeMap, ok := edge.(map[string]any)
 		if !ok {
 			continue
 		}
 
-		node, ok := edgeMap["node"].(map[string]interface{})
+		node, ok := edgeMap["node"].(map[string]any)
 		if !ok {
 			continue
 		}
@@ -247,15 +247,15 @@ func (g *getEvidenceReleaseBundle) extractArtifactsEvidence(data map[string]inte
 	return artifacts
 }
 
-func (g *getEvidenceReleaseBundle) extractBuildsEvidence(data map[string]interface{}) []BuildEvidence {
-	fromBuilds, ok := data["fromBuilds"].([]interface{})
+func (g *getEvidenceReleaseBundle) extractBuildsEvidence(data map[string]any) []BuildEvidence {
+	fromBuilds, ok := data["fromBuilds"].([]any)
 	if !ok {
 		return []BuildEvidence{}
 	}
 
 	builds := make([]BuildEvidence, 0, len(fromBuilds))
 	for _, build := range fromBuilds {
-		buildMap, ok := build.(map[string]interface{})
+		buildMap, ok := build.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -279,5 +279,3 @@ func (g *getEvidenceReleaseBundle) extractBuildsEvidence(data map[string]interfa
 
 	return builds
 }
-
-

@@ -115,10 +115,10 @@ func TestGetCustomEvidence(t *testing.T) {
 				assert.NotEmpty(t, evidence)
 
 				// Additional check on the number of edges in the result
-				var data map[string]interface{}
+				var data map[string]any
 				if err := json.Unmarshal(evidence, &data); err == nil {
-					if evidenceData, ok := data["data"].(map[string]interface{}); ok {
-						if evidenceNode, ok := evidenceData["evidence"].(map[string]interface{}); ok {
+					if evidenceData, ok := data["data"].(map[string]any); ok {
+						if evidenceNode, ok := evidenceData["evidence"].(map[string]any); ok {
 							if searchEvidence, ok := evidenceNode["searchEvidence"].(map[string]any); ok {
 								edgesInterface, ok := searchEvidence["edges"].([]any)
 								if !ok {
@@ -201,54 +201,54 @@ func TestGetRepoKeyAndPath(t *testing.T) {
 
 func TestTransformGraphQLOutput(t *testing.T) {
 	tests := []struct {
-		name           string
+		name            string
 		subjectRepoPath string
-		inputFile      string
-		expectedFile   string
-		expectedError  bool
-		errorContains  string
-		validateFunc   func(t *testing.T, result []byte)
+		inputFile       string
+		expectedFile    string
+		expectedError   bool
+		errorContains   string
+		validateFunc    func(t *testing.T, result []byte)
 	}{
 		{
-			name:           "Multiple evidence entries",
+			name:            "Multiple evidence entries",
 			subjectRepoPath: "dort-generic/test/path/file.txt",
-			inputFile:      "multiple_evidence_input.json",
-			expectedFile:   "multiple_evidence_expected.json",
-			expectedError:  false,
+			inputFile:       "multiple_evidence_input.json",
+			expectedFile:    "multiple_evidence_expected.json",
+			expectedError:   false,
 		},
 		{
-			name:           "Evidence with predicate field",
+			name:            "Evidence with predicate field",
 			subjectRepoPath: "test-repo/path/file.json",
-			inputFile:      "predicate_evidence_input.json",
-			expectedError:  false,
-			validateFunc:   validatePredicateEvidence,
+			inputFile:       "predicate_evidence_input.json",
+			expectedError:   false,
+			validateFunc:    validatePredicateEvidence,
 		},
 		{
-			name:           "Empty evidence response",
+			name:            "Empty evidence response",
 			subjectRepoPath: "test-repo/path/file.txt",
-			inputFile:      "empty_evidence_input.json",
-			expectedError:  false,
-			validateFunc:   validateEmptyEvidence,
+			inputFile:       "empty_evidence_input.json",
+			expectedError:   false,
+			validateFunc:    validateEmptyEvidence,
 		},
 		{
-			name:           "Invalid JSON",
+			name:            "Invalid JSON",
 			subjectRepoPath: "test-repo/path/file.txt",
-			inputFile:      "",
-			expectedError:  true,
+			inputFile:       "",
+			expectedError:   true,
 		},
 		{
-			name:           "Missing data field",
+			name:            "Missing data field",
 			subjectRepoPath: "test-repo/path/file.txt",
-			inputFile:      "",
-			expectedError:  true,
-			errorContains:  "missing data field",
+			inputFile:       "",
+			expectedError:   true,
+			errorContains:   "missing data field",
 		},
 		{
-			name:           "Missing evidence field",
+			name:            "Missing evidence field",
 			subjectRepoPath: "test-repo/path/file.txt",
-			inputFile:      "",
-			expectedError:  true,
-			errorContains:  "missing evidence field",
+			inputFile:       "",
+			expectedError:   true,
+			errorContains:   "missing evidence field",
 		},
 	}
 
@@ -292,13 +292,13 @@ func TestTransformGraphQLOutput(t *testing.T) {
 				}
 			} else {
 				assert.NoError(t, err)
-				
+
 				if tt.expectedFile != "" {
 					expectedStr, err := ReadTestDataFile(tt.expectedFile)
 					if err != nil {
 						t.Fatalf("Failed to read expected output file: %v", err)
 					}
-					var expected, actual map[string]interface{}
+					var expected, actual map[string]any
 					err = json.Unmarshal([]byte(expectedStr), &expected)
 					assert.NoError(t, err)
 					err = json.Unmarshal(result, &actual)
