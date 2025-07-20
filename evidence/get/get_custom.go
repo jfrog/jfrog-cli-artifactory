@@ -24,7 +24,7 @@ type getEvidenceCustom struct {
 // CustomEvidenceOutput represents the structured output format for custom evidence
 type CustomEvidenceOutput struct {
 	SchemaVersion string               `json:"schemaVersion"`
-	Type          string               `json:"type"`
+	Type          SubjectType          `json:"type"`
 	Result        CustomEvidenceResult `json:"result"`
 }
 

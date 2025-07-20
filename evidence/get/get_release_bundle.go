@@ -28,7 +28,7 @@ type getEvidenceReleaseBundle struct {
 
 type ReleaseBundleOutput struct {
 	SchemaVersion string              `json:"schemaVersion"`
-	Type          string              `json:"type"`
+	Type          SubjectType         `json:"type"`
 	Result        ReleaseBundleResult `json:"result"`
 }
 
@@ -147,8 +147,8 @@ func (g *getEvidenceReleaseBundle) transformReleaseBundleGraphQLOutput(rawEviden
 	}
 
 	output := ReleaseBundleOutput{
-		SchemaVersion: "1.0",
-		Type:          "release-bundle",
+		SchemaVersion: SCHEMA_VERSION,
+		Type:          RELEASE_BUNDLE_TYPE,
 		Result: ReleaseBundleResult{
 			ReleaseBundle:        g.releaseBundle,
 			ReleaseBundleVersion: g.releaseBundleVersion,

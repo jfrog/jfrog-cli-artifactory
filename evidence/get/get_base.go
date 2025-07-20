@@ -11,6 +11,14 @@ import (
 
 const SCHEMA_VERSION = "1.0"
 
+type SubjectType string // Types in GetEvidence output
+
+const (
+	ARTIFACT_TYPE       SubjectType = "artifact"
+	BUILD_TYPE          SubjectType = "build"
+	RELEASE_BUNDLE_TYPE SubjectType = "release-bundle"
+)
+
 type getEvidenceBase struct {
 	serverDetails    *config.ServerDetails
 	outputFileName   string
@@ -19,9 +27,9 @@ type getEvidenceBase struct {
 }
 
 type JsonlLine struct {
-	SchemaVersion string `json:"schemaVersion"`
-	Type          string `json:"type"`
-	Result        any    `json:"result"`
+	SchemaVersion string      `json:"schemaVersion"`
+	Type          SubjectType `json:"type"`
+	Result        any         `json:"result"`
 }
 
 type EvidenceEntry struct {
@@ -123,11 +131,11 @@ func writeEvidenceJsonl(data []byte, file *os.File) error {
 	}
 
 	schemaVersion, _ := evidenceOutput["schemaVersion"].(string)
-	typeField, _ := evidenceOutput["type"].(string)
+	typeField, _ := evidenceOutput["type"].(SubjectType)
 
 	log.Debug("Processing evidence with type:", typeField)
 
-	if typeField == "release-bundle" {
+	if typeField == RELEASE_BUNDLE_TYPE {
 		var releaseBundleOutput ReleaseBundleOutput
 		if err := json.Unmarshal(data, &releaseBundleOutput); err != nil {
 			return fmt.Errorf("failed to parse release bundle output: %w", err)
@@ -142,7 +150,7 @@ func writeEvidenceJsonl(data []byte, file *os.File) error {
 	}
 }
 
-func writeCustomEvidenceJsonl(schemaVersion, typeField string, result CustomEvidenceResult, file *os.File) error {
+func writeCustomEvidenceJsonl(schemaVersion string, typeField SubjectType, result CustomEvidenceResult, file *os.File) error {
 	// Write each evidence entry as a separate line
 	for _, evidence := range result.Evidence {
 		lineWithMetadata := JsonlLine{
@@ -166,7 +174,7 @@ func writeCustomEvidenceJsonl(schemaVersion, typeField string, result CustomEvid
 	return nil
 }
 
-func writeReleaseBundleJsonlFromStruct(schemaVersion, typeField string, result ReleaseBundleResult, file *os.File) error {
+func writeReleaseBundleJsonlFromStruct(schemaVersion string, typeField SubjectType, result ReleaseBundleResult, file *os.File) error {
 	for _, evidence := range result.Evidence {
 		lineWithMetadata := JsonlLine{
 			SchemaVersion: schemaVersion,
@@ -185,7 +193,7 @@ func writeReleaseBundleJsonlFromStruct(schemaVersion, typeField string, result R
 	for _, artifact := range result.Artifacts {
 		lineWithMetadata := JsonlLine{
 			SchemaVersion: schemaVersion,
-			Type:          "artifact",
+			Type:          ARTIFACT_TYPE,
 			Result:        artifact,
 		}
 		jsonLine, err := json.Marshal(lineWithMetadata)
@@ -200,7 +208,7 @@ func writeReleaseBundleJsonlFromStruct(schemaVersion, typeField string, result R
 	for _, build := range result.Builds {
 		lineWithMetadata := JsonlLine{
 			SchemaVersion: schemaVersion,
-			Type:          "build",
+			Type:          BUILD_TYPE,
 			Result:        build,
 		}
 		jsonLine, err := json.Marshal(lineWithMetadata)
