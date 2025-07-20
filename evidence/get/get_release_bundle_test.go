@@ -215,7 +215,7 @@ func TestTransformReleaseBundleGraphQLOutputWithPredicate(t *testing.T) {
 	assert.Len(t, output.Result.Evidence, 1)
 
 	firstEvidence := output.Result.Evidence[0]
-	assert.Equal(t, "base64(json)", *firstEvidence.Predicate)
+	assert.Equal(t, map[string]any{"analysis": "sbom"}, firstEvidence.Predicate)
 }
 
 func TestTransformReleaseBundleGraphQLOutputEmptyResponse(t *testing.T) {

@@ -10,7 +10,9 @@
 							"createdBy": "user@example.com",
 							"downloadPath": "some-repo-key/.evidence/some-evidence-path/some-evidence-name.json",
 							"predicateSlug": "distribution-v1",
-							"predicate": "base64(json)",
+							"predicate": {
+								"analysis": "sbom"
+							},
 							"subject": {
 								"sha256": "test-digest-sha256"
 							},

@@ -1,8 +1,7 @@
 package cli
 
 import (
-	"strconv"
-
+	"github.com/jfrog/jfrog-cli-artifactory/commonutils"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/create"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/get"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify"
@@ -87,17 +86,8 @@ func (erc *evidenceReleaseBundleCommand) validateEvidenceReleaseBundleContext(ct
 	if !ctx.IsFlagSet(releaseBundleVersion) || assertValueProvided(ctx, releaseBundleVersion) != nil {
 		return errorutils.CheckErrorf("--%s is a mandatory field for creating a Release Bundle evidence", releaseBundleVersion)
 	}
-	if ctx.IsFlagSet(artifactsLimit) && !isPositiveNumber(ctx.GetStringFlagValue(artifactsLimit)) {
-		return errorutils.CheckErrorf("--%s must be a number", artifactsLimit)
+	if ctx.IsFlagSet(artifactsLimit) && !commonutils.IsFlagPositiveNumber(ctx.GetStringFlagValue(artifactsLimit)) {
+		return errorutils.CheckErrorf("--%s must be a positive number", artifactsLimit)
 	}
 	return nil
-}
-
-func isPositiveNumber(artifactsLimit string) bool {
-	// Validate that the artifactsLimit is a positive number
-	num, err := strconv.Atoi(artifactsLimit)
-	if err != nil {
-		return false
-	}
-	return num > 0
 }

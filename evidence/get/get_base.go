@@ -26,14 +26,14 @@ type JsonlLine struct {
 
 type EvidenceEntry struct {
 	PredicateSlug string         `json:"predicateSlug"`
-	PredicateType *string        `json:"predicateType,omitempty"`
+	PredicateType string         `json:"predicateType,omitempty"`
 	DownloadPath  string         `json:"downloadPath"`
 	Verified      bool           `json:"verified"`
 	SigningKey    map[string]any `json:"signingKey"`
 	Subject       map[string]any `json:"subject"`
 	CreatedBy     string         `json:"createdBy"`
 	CreatedAt     string         `json:"createdAt"`
-	Predicate     *string        `json:"predicate,omitempty"`
+	Predicate     map[string]any `json:"predicate,omitempty"`
 }
 
 type CustomEvidenceResult struct {
@@ -117,7 +117,7 @@ func exportEvidenceToJsonlFile(data []byte, outputFileName string) error {
 
 // writeEvidenceJsonl handles evidence output structures that have schemaVersion, type, and result fields
 func writeEvidenceJsonl(data []byte, file *os.File) error {
-	var evidenceOutput map[string]interface{}
+	var evidenceOutput map[string]any
 	if err := json.Unmarshal(data, &evidenceOutput); err != nil {
 		return fmt.Errorf("failed to parse evidence output: %w", err)
 	}
@@ -159,11 +159,10 @@ func writeCustomEvidenceJsonl(schemaVersion, typeField string, result CustomEvid
 		}
 	}
 
-	if file == os.Stdout {
-		log.Info("Evidence successfully exported to console")
-	} else {
+	if file != os.Stdout {
 		log.Info("Evidence successfully exported to file name: ", file.Name())
 	}
+
 	return nil
 }
 
@@ -213,15 +212,14 @@ func writeReleaseBundleJsonlFromStruct(schemaVersion, typeField string, result R
 		}
 	}
 
-	if file == os.Stdout {
-		log.Info("Evidence successfully exported to console")
-	} else {
+	if file != os.Stdout {
 		log.Info("Evidence successfully exported to file name: ", file.Name())
 	}
+
 	return nil
 }
 
-func createOrderedEvidenceEntry(node map[string]interface{}, includePredicate bool) EvidenceEntry {
+func createOrderedEvidenceEntry(node map[string]any, includePredicate bool) EvidenceEntry {
 	entry := EvidenceEntry{}
 
 	if predicateSlug, ok := node["predicateSlug"].(string); ok {
@@ -229,7 +227,7 @@ func createOrderedEvidenceEntry(node map[string]interface{}, includePredicate bo
 	}
 
 	if predicateType, ok := node["predicateType"].(string); ok && predicateType != "" {
-		entry.PredicateType = &predicateType
+		entry.PredicateType = predicateType
 	}
 
 	if downloadPath, ok := node["downloadPath"].(string); ok {
@@ -240,11 +238,11 @@ func createOrderedEvidenceEntry(node map[string]interface{}, includePredicate bo
 		entry.Verified = verified
 	}
 
-	if signingKey, ok := node["signingKey"].(map[string]interface{}); ok {
+	if signingKey, ok := node["signingKey"].(map[string]any); ok {
 		entry.SigningKey = signingKey
 	}
 
-	if subject, ok := node["subject"].(map[string]interface{}); ok {
+	if subject, ok := node["subject"].(map[string]any); ok {
 		entry.Subject = subject
 	}
 
@@ -257,8 +255,8 @@ func createOrderedEvidenceEntry(node map[string]interface{}, includePredicate bo
 	}
 
 	if includePredicate {
-		if predicate, ok := node["predicate"].(string); ok {
-			entry.Predicate = &predicate
+		if predicate, ok := node["predicate"].(map[string]any); ok {
+			entry.Predicate = predicate
 		}
 	}
 

@@ -13,7 +13,7 @@ import (
 func TestExportEvidenceToJsonlFileWithMetadata(t *testing.T) {
 	tests := []struct {
 		name           string
-		input          interface{}
+		input          any
 		expectedLines  int
 		expectedSchema string
 		expectedType   string
@@ -117,7 +117,7 @@ func TestExportEvidenceToJsonlFileWithMetadata(t *testing.T) {
 			assert.Len(t, lines, tt.expectedLines)
 
 			for i, line := range lines {
-				var item map[string]interface{}
+				var item map[string]any
 				err := json.Unmarshal([]byte(line), &item)
 				assert.NoError(t, err, "Line %d should be valid JSON", i+1)
 
@@ -129,7 +129,7 @@ func TestExportEvidenceToJsonlFileWithMetadata(t *testing.T) {
 
 				// For release bundle with flattened evidence, check that types are correct
 				if tt.name == "Release bundle with flattened evidence" {
-					if result, ok := item["result"].(map[string]interface{}); ok {
+					if result, ok := item["result"].(map[string]any); ok {
 						switch {
 						case i < 2:
 							// First two lines should be release-bundle type

@@ -10,7 +10,9 @@
 								"createdAt": "2024-12-02T08:26:40.726Z",
 								"downloadPath": "release-bundles-v2/.evidence/hash1/hash2/evidence.json",
 								"predicateSlug": "distribution-v1",
-								"predicate": "base64(json)",
+								"predicate": {
+									"analysis": "sbom"
+								},
 								"verified": true,
 								"signingKey": {
 									"alias": "test-key"
