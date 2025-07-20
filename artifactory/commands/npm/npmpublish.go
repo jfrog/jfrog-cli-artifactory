@@ -3,6 +3,8 @@ package npm
 import (
 	"errors"
 	"fmt"
+	"strings"
+
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	gofrogcmd "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -11,7 +13,6 @@ import (
 	specutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"strings"
 )
 
 type npmPublish struct {

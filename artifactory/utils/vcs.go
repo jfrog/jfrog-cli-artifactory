@@ -179,7 +179,7 @@ func getLatestBuildInfo(serverDetails *utilsconfig.ServerDetails, buildConfigura
 	if err != nil {
 		return nil, err
 	}
-	buildInfoParams := services.BuildInfoParams{BuildName: buildName, BuildNumber: artclientutils.LatestBuildNumberKey}
+	buildInfoParams := services.BuildInfoParams{BuildName: buildName, BuildNumber: artclientutils.LatestBuildNumberKey, ProjectKey: buildConfiguration.GetProject()}
 	publishedBuildInfo, found, err := sm.GetBuildInfo(buildInfoParams)
 	if err != nil {
 		return nil, err
