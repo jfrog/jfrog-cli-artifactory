@@ -121,8 +121,8 @@ func (g *getEvidenceCustom) transformGraphQLOutput(rawEvidence []byte) ([]byte, 
 	}
 
 	output := CustomEvidenceOutput{
-		SchemaVersion: SCHEMA_VERSION,
-		Type:          "artifact",
+		SchemaVersion: SchemaVersion,
+		Type:          ArtifactType,
 		Result: CustomEvidenceResult{
 			RepoPath: g.subjectRepoPath,
 			Evidence: evidenceArray,

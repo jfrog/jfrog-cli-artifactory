@@ -147,8 +147,8 @@ func (g *getEvidenceReleaseBundle) transformReleaseBundleGraphQLOutput(rawEviden
 	}
 
 	output := ReleaseBundleOutput{
-		SchemaVersion: SCHEMA_VERSION,
-		Type:          RELEASE_BUNDLE_TYPE,
+		SchemaVersion: SchemaVersion,
+		Type:          ReleaseBundleType,
 		Result: ReleaseBundleResult{
 			ReleaseBundle:        g.releaseBundle,
 			ReleaseBundleVersion: g.releaseBundleVersion,

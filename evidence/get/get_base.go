@@ -9,14 +9,14 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-const SCHEMA_VERSION = "1.0"
+const SchemaVersion = "1.0"
 
 type SubjectType string // Types in GetEvidence output
 
 const (
-	ARTIFACT_TYPE       SubjectType = "artifact"
-	BUILD_TYPE          SubjectType = "build"
-	RELEASE_BUNDLE_TYPE SubjectType = "release-bundle"
+	ArtifactType      SubjectType = "artifact"
+	BuildType         SubjectType = "build"
+	ReleaseBundleType SubjectType = "release-bundle"
 )
 
 type getEvidenceBase struct {
@@ -131,11 +131,13 @@ func writeEvidenceJsonl(data []byte, file *os.File) error {
 	}
 
 	schemaVersion, _ := evidenceOutput["schemaVersion"].(string)
-	typeField, _ := evidenceOutput["type"].(SubjectType)
+	typeString, _ := evidenceOutput["type"].(string)
+
+	typeField := SubjectType(typeString)
 
 	log.Debug("Processing evidence with type:", typeField)
 
-	if typeField == RELEASE_BUNDLE_TYPE {
+	if typeField == ReleaseBundleType {
 		var releaseBundleOutput ReleaseBundleOutput
 		if err := json.Unmarshal(data, &releaseBundleOutput); err != nil {
 			return fmt.Errorf("failed to parse release bundle output: %w", err)
@@ -193,7 +195,7 @@ func writeReleaseBundleJsonlFromStruct(schemaVersion string, typeField SubjectTy
 	for _, artifact := range result.Artifacts {
 		lineWithMetadata := JsonlLine{
 			SchemaVersion: schemaVersion,
-			Type:          ARTIFACT_TYPE,
+			Type:          ArtifactType,
 			Result:        artifact,
 		}
 		jsonLine, err := json.Marshal(lineWithMetadata)
@@ -208,7 +210,7 @@ func writeReleaseBundleJsonlFromStruct(schemaVersion string, typeField SubjectTy
 	for _, build := range result.Builds {
 		lineWithMetadata := JsonlLine{
 			SchemaVersion: schemaVersion,
-			Type:          BUILD_TYPE,
+			Type:          BuildType,
 			Result:        build,
 		}
 		jsonLine, err := json.Marshal(lineWithMetadata)

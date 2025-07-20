@@ -28,7 +28,7 @@ func (m *mockOnemodelManagerError) GraphqlQuery(_ []byte) ([]byte, error) {
 
 func TestNewGetEvidenceReleaseBundle(t *testing.T) {
 	serverDetails := &config.ServerDetails{}
-	cmd := NewGetEvidenceReleaseBundle(serverDetails, "myBundle", SCHEMA_VERSION, "myProject", "json", "output.json", "1000", true)
+	cmd := NewGetEvidenceReleaseBundle(serverDetails, "myBundle", SchemaVersion, "myProject", "json", "output.json", "1000", true)
 
 	bundle, ok := cmd.(*getEvidenceReleaseBundle)
 
@@ -36,7 +36,7 @@ func TestNewGetEvidenceReleaseBundle(t *testing.T) {
 	assert.IsType(t, &getEvidenceReleaseBundle{}, bundle)
 	assert.Equal(t, serverDetails, bundle.serverDetails)
 	assert.Equal(t, "myBundle", bundle.releaseBundle)
-	assert.Equal(t, SCHEMA_VERSION, bundle.releaseBundleVersion)
+	assert.Equal(t, SchemaVersion, bundle.releaseBundleVersion)
 	assert.Equal(t, "myProject", bundle.project)
 	assert.Equal(t, "json", bundle.format)
 	assert.Equal(t, "output.json", bundle.outputFileName)
@@ -66,7 +66,7 @@ func TestGetEvidence(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := &getEvidenceReleaseBundle{
 				releaseBundle:        "myBundle",
-				releaseBundleVersion: SCHEMA_VERSION,
+				releaseBundleVersion: SchemaVersion,
 				project:              "myProject",
 				getEvidenceBase: getEvidenceBase{
 					serverDetails:    &config.ServerDetails{},
@@ -103,7 +103,7 @@ func TestCreateReleaseBundleGetEvidenceQuery(t *testing.T) {
 			name:                 "Test with default project",
 			project:              "",
 			releaseBundle:        "bundle-1",
-			releaseBundleVersion: SCHEMA_VERSION,
+			releaseBundleVersion: SchemaVersion,
 			artifactsLimit:       "5",
 			expectedSubstring:    "evidenceConnection",
 		},
@@ -143,7 +143,7 @@ func TestCreateReleaseBundleGetEvidenceQuery(t *testing.T) {
 func TestTransformReleaseBundleGraphQLOutput(t *testing.T) {
 	g := &getEvidenceReleaseBundle{
 		releaseBundle:        "test-bundle",
-		releaseBundleVersion: SCHEMA_VERSION,
+		releaseBundleVersion: SchemaVersion,
 		getEvidenceBase: getEvidenceBase{
 			includePredicate: false,
 		},
@@ -161,12 +161,12 @@ func TestTransformReleaseBundleGraphQLOutput(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Check top-level fields
-	assert.Equal(t, SCHEMA_VERSION, output.SchemaVersion)
-	assert.Equal(t, "release-bundle", output.Type)
+	assert.Equal(t, SchemaVersion, output.SchemaVersion)
+	assert.Equal(t, ReleaseBundleType, output.Type)
 
 	// Check result structure
 	assert.Equal(t, "test-bundle", output.Result.ReleaseBundle)
-	assert.Equal(t, SCHEMA_VERSION, output.Result.ReleaseBundleVersion)
+	assert.Equal(t, SchemaVersion, output.Result.ReleaseBundleVersion)
 
 	// Check release bundle evidence
 	assert.Len(t, output.Result.Evidence, 1)
@@ -196,7 +196,7 @@ func TestTransformReleaseBundleGraphQLOutput(t *testing.T) {
 func TestTransformReleaseBundleGraphQLOutputWithPredicate(t *testing.T) {
 	g := &getEvidenceReleaseBundle{
 		releaseBundle:        "test-bundle",
-		releaseBundleVersion: SCHEMA_VERSION,
+		releaseBundleVersion: SchemaVersion,
 		getEvidenceBase: getEvidenceBase{
 			includePredicate: true,
 		},
@@ -221,7 +221,7 @@ func TestTransformReleaseBundleGraphQLOutputWithPredicate(t *testing.T) {
 func TestTransformReleaseBundleGraphQLOutputEmptyResponse(t *testing.T) {
 	g := &getEvidenceReleaseBundle{
 		releaseBundle:        "test-bundle",
-		releaseBundleVersion: SCHEMA_VERSION,
+		releaseBundleVersion: SchemaVersion,
 		getEvidenceBase: getEvidenceBase{
 			includePredicate: false,
 		},
@@ -247,7 +247,7 @@ func TestTransformReleaseBundleGraphQLOutputEmptyResponse(t *testing.T) {
 func TestTransformReleaseBundleGraphQLOutputInvalidStructure(t *testing.T) {
 	g := &getEvidenceReleaseBundle{
 		releaseBundle:        "test-bundle",
-		releaseBundleVersion: SCHEMA_VERSION,
+		releaseBundleVersion: SchemaVersion,
 		getEvidenceBase: getEvidenceBase{
 			includePredicate: false,
 		},

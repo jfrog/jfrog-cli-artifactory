@@ -16,13 +16,13 @@ func TestExportEvidenceToJsonlFileWithMetadata(t *testing.T) {
 		input          any
 		expectedLines  int
 		expectedSchema string
-		expectedType   SubjectType
+		expectedType   string
 	}{
 		{
 			name: "Custom evidence output with evidence array",
 			input: CustomEvidenceOutput{
-				SchemaVersion: SCHEMA_VERSION,
-				Type:          ARTIFACT_TYPE,
+				SchemaVersion: SchemaVersion,
+				Type:          ArtifactType,
 				Result: CustomEvidenceResult{
 					RepoPath: "test-repo/path/file.txt",
 					Evidence: []EvidenceEntry{
@@ -32,28 +32,28 @@ func TestExportEvidenceToJsonlFileWithMetadata(t *testing.T) {
 				},
 			},
 			expectedLines:  2,
-			expectedSchema: SCHEMA_VERSION,
-			expectedType:   ARTIFACT_TYPE,
+			expectedSchema: SchemaVersion,
+			expectedType:   "artifact",
 		},
 		{
 			name: "Evidence output with no arrays",
 			input: CustomEvidenceOutput{
-				SchemaVersion: SCHEMA_VERSION,
-				Type:          ARTIFACT_TYPE,
+				SchemaVersion: SchemaVersion,
+				Type:          ArtifactType,
 				Result: CustomEvidenceResult{
 					RepoPath: "test-repo/path/file.txt",
 					Evidence: []EvidenceEntry{},
 				},
 			},
 			expectedLines:  0, // No evidence entries, so expect 0 lines
-			expectedSchema: SCHEMA_VERSION,
-			expectedType:   ARTIFACT_TYPE,
+			expectedSchema: SchemaVersion,
+			expectedType:   "artifact",
 		},
 		{
 			name: "Release bundle with flattened evidence",
 			input: ReleaseBundleOutput{
-				SchemaVersion: SCHEMA_VERSION,
-				Type:          RELEASE_BUNDLE_TYPE,
+				SchemaVersion: SchemaVersion,
+				Type:          ReleaseBundleType,
 				Result: ReleaseBundleResult{
 					ReleaseBundle:        "test-bundle",
 					ReleaseBundleVersion: "1.0.0",
@@ -90,8 +90,8 @@ func TestExportEvidenceToJsonlFileWithMetadata(t *testing.T) {
 				},
 			},
 			expectedLines:  6, // 2 release-bundle + 2 artifact + 2 build evidence entries
-			expectedSchema: SCHEMA_VERSION,
-			expectedType:   RELEASE_BUNDLE_TYPE,
+			expectedSchema: SchemaVersion,
+			expectedType:   "release-bundle",
 		},
 	}
 
@@ -157,8 +157,8 @@ func TestExportEvidenceToJsonlFileWithMetadata(t *testing.T) {
 
 func TestExportEvidenceToConsole(t *testing.T) {
 	testData := CustomEvidenceOutput{
-		SchemaVersion: SCHEMA_VERSION,
-		Type:          ARTIFACT_TYPE,
+		SchemaVersion: SchemaVersion,
+		Type:          ArtifactType,
 		Result: CustomEvidenceResult{
 			RepoPath: "test-repo/path/file.txt",
 			Evidence: []EvidenceEntry{

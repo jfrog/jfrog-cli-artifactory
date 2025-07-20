@@ -32,8 +32,8 @@ func validatePredicateEvidence(t *testing.T, result []byte) {
 	err := json.Unmarshal(result, &output)
 	assert.NoError(t, err)
 
-	assert.Equal(t, "1.0", output.SchemaVersion)
-	assert.Equal(t, "artifact", output.Type)
+	assert.Equal(t, SchemaVersion, output.SchemaVersion)
+	assert.Equal(t, ArtifactType, output.Type)
 	assert.Equal(t, "test-repo/path/file.json", output.Result.RepoPath)
 	assert.Len(t, output.Result.Evidence, 1)
 
@@ -49,8 +49,8 @@ func validateEmptyEvidence(t *testing.T, result []byte) {
 	err := json.Unmarshal(result, &output)
 	assert.NoError(t, err)
 
-	assert.Equal(t, "1.0", output.SchemaVersion)
-	assert.Equal(t, "artifact", output.Type)
+	assert.Equal(t, SchemaVersion, output.SchemaVersion)
+	assert.Equal(t, ArtifactType, output.Type)
 	assert.Equal(t, "test-repo/path/file.txt", output.Result.RepoPath)
 	assert.Len(t, output.Result.Evidence, 0)
 }
