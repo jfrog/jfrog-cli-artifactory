@@ -42,8 +42,11 @@ func (v *evidenceVerifier) Verify(subjectSha256 string, evidenceMetadata *[]mode
 		return nil, fmt.Errorf("no evidence metadata provided")
 	}
 	result := &model.VerificationResponse{
-		SubjectPath:               subjectPath,
-		SubjectChecksum:           subjectSha256,
+		SchemaVersion: model.SchemaVersion,
+		Subject: model.Subject{
+			Path:   subjectPath,
+			Sha256: subjectSha256,
+		},
 		OverallVerificationStatus: model.Success,
 	}
 	results := make([]model.EvidenceVerification, 0, len(*evidenceMetadata))
@@ -54,7 +57,7 @@ func (v *evidenceVerifier) Verify(subjectSha256 string, evidenceMetadata *[]mode
 			return nil, err
 		}
 		results = append(results, *verification)
-		if verification.VerificationResult.SignaturesVerificationStatus == model.Failed || verification.VerificationResult.ChecksumVerificationStatus == model.Failed {
+		if verification.VerificationResult.SignaturesVerificationStatus == model.Failed || verification.VerificationResult.Sha256VerificationStatus == model.Failed {
 			result.OverallVerificationStatus = model.Failed
 		}
 	}
@@ -80,13 +83,13 @@ func (v *evidenceVerifier) verifyEvidence(evidence *model.SearchEvidenceEdge, su
 	}
 	result := &model.EvidenceVerification{
 		DsseEnvelope:    envelope,
-		EvidencePath:    evidence.Node.DownloadPath,
+		DownloadPath:    evidence.Node.DownloadPath,
 		SubjectChecksum: evidenceChecksum,
 		PredicateType:   evidence.Node.PredicateType,
 		CreatedBy:       evidence.Node.CreatedBy,
-		Time:            evidence.Node.CreatedAt,
+		CreatedAt:       evidence.Node.CreatedAt, // change to CreatedAt
 		VerificationResult: model.EvidenceVerificationResult{
-			ChecksumVerificationStatus:   checksumStatus,
+			Sha256VerificationStatus:     checksumStatus,
 			SignaturesVerificationStatus: model.Failed,
 		},
 	}

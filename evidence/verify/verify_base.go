@@ -117,8 +117,8 @@ func printText(result *model.VerificationResponse) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Subject digest sha256: %s\n", result.SubjectChecksum)
-	fmt.Printf("Subject:               %s\n", result.SubjectPath)
+	fmt.Printf("Subject sha256:        %s\n", result.Subject.Sha256)
+	fmt.Printf("Subject:               %s\n", result.Subject.Path)
 	evidenceNumber := len(*result.EvidenceVerifications)
 	var evidenceText string
 	if evidenceNumber == 1 {
@@ -129,7 +129,7 @@ func printText(result *model.VerificationResponse) error {
 	fmt.Printf("Loaded %d %s\n", evidenceNumber, evidenceText)
 	successfulVerifications := 0
 	for _, v := range *result.EvidenceVerifications {
-		if v.VerificationResult.ChecksumVerificationStatus == model.Success && v.VerificationResult.SignaturesVerificationStatus == model.Success {
+		if v.VerificationResult.Sha256VerificationStatus == model.Success && v.VerificationResult.SignaturesVerificationStatus == model.Success {
 			successfulVerifications++
 		}
 	}
@@ -156,12 +156,12 @@ func printText(result *model.VerificationResponse) error {
 func printVerificationResult(verification *model.EvidenceVerification, index int) {
 	fmt.Printf("- Evidence: %d\n", index+1)
 	fmt.Printf("    - Predicate type:                 %s\n", verification.PredicateType)
-	fmt.Printf("    - Evidence subject digest sha256: %s\n", verification.SubjectChecksum)
+	fmt.Printf("    - Evidence subject sha256:        %s\n", verification.SubjectChecksum)
 	if verification.VerificationResult.KeySource != "" {
 		fmt.Printf("    - Key source:                     %s\n", verification.VerificationResult.KeySource)
 		fmt.Printf("    - Key fingerprint:                %s\n", verification.VerificationResult.KeyFingerprint)
 	}
-	fmt.Printf("    - Digest verification status:     %s\n", getColoredStatus(verification.VerificationResult.ChecksumVerificationStatus))
+	fmt.Printf("    - Sha256 verification status:     %s\n", getColoredStatus(verification.VerificationResult.Sha256VerificationStatus))
 	fmt.Printf("    - Signatures verification status: %s\n", getColoredStatus(verification.VerificationResult.SignaturesVerificationStatus))
 }
 

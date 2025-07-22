@@ -80,7 +80,9 @@ func captureOutput(f func()) string {
 func TestVerifyEvidenceBase_PrintVerifyResult_JSON(t *testing.T) {
 	v := &verifyEvidenceBase{format: "json"}
 	resp := &model.VerificationResponse{
-		SubjectChecksum:           "test-checksum",
+		Subject: model.Subject{
+			Sha256: "test-checksum",
+		},
 		OverallVerificationStatus: model.Success,
 	}
 
@@ -93,15 +95,17 @@ func TestVerifyEvidenceBase_PrintVerifyResult_JSON(t *testing.T) {
 func TestVerifyEvidenceBase_PrintVerifyResult_Failed(t *testing.T) {
 	v := &verifyEvidenceBase{format: "full"}
 	resp := &model.VerificationResponse{
-		SubjectChecksum:           "test-checksum",
+		Subject: model.Subject{
+			Sha256: "test-checksum",
+		},
 		OverallVerificationStatus: model.Failed,
 		EvidenceVerifications: &[]model.EvidenceVerification{{
 			SubjectChecksum: "test-checksum",
 			PredicateType:   "test-type",
 			CreatedBy:       "test-user",
-			Time:            "2024-01-01T00:00:00Z",
+			CreatedAt:       "2024-01-01T00:00:00Z",
 			VerificationResult: model.EvidenceVerificationResult{
-				ChecksumVerificationStatus:   model.Failed,
+				Sha256VerificationStatus:     model.Failed,
 				SignaturesVerificationStatus: model.Success,
 			},
 		}},
@@ -120,9 +124,9 @@ func TestVerifyEvidenceBase_PrintVerifyResult_Text_Success(t *testing.T) {
 		EvidenceVerifications: &[]model.EvidenceVerification{{
 			PredicateType: "test-type",
 			CreatedBy:     "test-user",
-			Time:          "2024-01-01T00:00:00Z",
+			CreatedAt:     "2024-01-01T00:00:00Z",
 			VerificationResult: model.EvidenceVerificationResult{
-				ChecksumVerificationStatus:   model.Success,
+				Sha256VerificationStatus:     model.Success,
 				SignaturesVerificationStatus: model.Success,
 			},
 		}},
@@ -140,9 +144,9 @@ func TestVerifyEvidenceBase_PrintVerifyResult_Text_Failed(t *testing.T) {
 		EvidenceVerifications: &[]model.EvidenceVerification{{
 			PredicateType: "test-type",
 			CreatedBy:     "test-user",
-			Time:          "2024-01-01T00:00:00Z",
+			CreatedAt:     "2024-01-01T00:00:00Z",
 			VerificationResult: model.EvidenceVerificationResult{
-				ChecksumVerificationStatus:   model.Failed,
+				Sha256VerificationStatus:     model.Failed,
 				SignaturesVerificationStatus: model.Failed,
 			},
 		}},
@@ -160,9 +164,9 @@ func TestVerifyEvidenceBase_PrintVerifyResult_UnknownFormat(t *testing.T) {
 		EvidenceVerifications: &[]model.EvidenceVerification{{
 			PredicateType: "test-type",
 			CreatedBy:     "test-user",
-			Time:          "2024-01-01T00:00:00Z",
+			CreatedAt:     "2024-01-01T00:00:00Z",
 			VerificationResult: model.EvidenceVerificationResult{
-				ChecksumVerificationStatus:   model.Success,
+				Sha256VerificationStatus:     model.Success,
 				SignaturesVerificationStatus: model.Success,
 			},
 		}},
@@ -289,10 +293,10 @@ func TestPrintText_Success(t *testing.T) {
 		EvidenceVerifications: &[]model.EvidenceVerification{{
 			PredicateType: "test-type",
 			CreatedBy:     "test-user",
-			Time:          "2024-01-01T00:00:00Z",
+			CreatedAt:     "2024-01-01T00:00:00Z",
 			VerificationResult: model.EvidenceVerificationResult{
 				SignaturesVerificationStatus: model.Success,
-				ChecksumVerificationStatus:   model.Success,
+				Sha256VerificationStatus:     model.Success,
 			},
 		}},
 	}
@@ -312,16 +316,18 @@ func TestPrintText_NilResponse(t *testing.T) {
 
 func TestPrintText_WithFullDetails(t *testing.T) {
 	resp := &model.VerificationResponse{
-		SubjectChecksum:           "test-checksum",
-		SubjectPath:               "test/path",
+		Subject: model.Subject{
+			Sha256: "test-checksum",
+			Path:   "test/path",
+		},
 		OverallVerificationStatus: model.Success,
 		EvidenceVerifications: &[]model.EvidenceVerification{{
 			SubjectChecksum: "test-checksum",
 			PredicateType:   "test-type",
 			CreatedBy:       "test-user",
-			Time:            "2024-01-01T00:00:00Z",
+			CreatedAt:       "2024-01-01T00:00:00Z",
 			VerificationResult: model.EvidenceVerificationResult{
-				ChecksumVerificationStatus:   model.Success,
+				Sha256VerificationStatus:     model.Success,
 				SignaturesVerificationStatus: model.Success,
 				KeySource:                    "test-key-source",
 				KeyFingerprint:               "test-fingerprint",
@@ -333,7 +339,7 @@ func TestPrintText_WithFullDetails(t *testing.T) {
 		err := printText(resp)
 		assert.NoError(t, err)
 	})
-	assert.Contains(t, out, "Subject digest sha256: test-checksum")
+	assert.Contains(t, out, "Subject sha256:        test-checksum")
 	assert.Contains(t, out, "Subject:               test/path")
 	assert.Contains(t, out, "Key source:                     test-key-source")
 	assert.Contains(t, out, "Key fingerprint:                test-fingerprint")
@@ -341,7 +347,9 @@ func TestPrintText_WithFullDetails(t *testing.T) {
 
 func TestPrintJson_Success(t *testing.T) {
 	resp := &model.VerificationResponse{
-		SubjectChecksum:           "test-checksum",
+		Subject: model.Subject{
+			Sha256: "test-checksum",
+		},
 		OverallVerificationStatus: model.Success,
 	}
 
@@ -435,7 +443,7 @@ func TestVerifyEvidenceBase_MultipleFormats(t *testing.T) {
 				EvidenceVerifications: &[]model.EvidenceVerification{{
 					PredicateType: "test-type",
 					CreatedBy:     "test-user",
-					Time:          "2024-01-01T00:00:00Z",
+					CreatedAt:     "2024-01-01T00:00:00Z",
 					VerificationResult: model.EvidenceVerificationResult{
 						SignaturesVerificationStatus: model.Success,
 					},
