@@ -308,8 +308,10 @@ func TestVerifyEvidenceCustom_Run_Success(t *testing.T) {
 	mockVerifier := &MockVerifierCustom{}
 	expectedResponse := &model.VerificationResponse{
 		OverallVerificationStatus: model.Success,
-		SubjectPath:               "test-repo/path/to/subject.txt",
-		SubjectChecksum:           "test-sha256",
+		Subject: model.Subject{
+			Path:   "test-repo/path/to/subject.txt",
+			Sha256: "test-sha256",
+		},
 	}
 
 	// Set up the mock expectations - use mock.Anything for the subjectPath since it gets formatted

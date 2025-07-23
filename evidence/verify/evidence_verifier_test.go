@@ -147,7 +147,7 @@ func TestVerifier_Verify_InvalidEvidenceMetadata(t *testing.T) {
 	assert.Equal(t, model.VerificationStatus(model.Failed), result.OverallVerificationStatus)
 	assert.Len(t, *result.EvidenceVerifications, 1)
 	// The checksum verification should fail due to mismatch
-	assert.Equal(t, model.VerificationStatus(model.Failed), (*result.EvidenceVerifications)[0].VerificationResult.ChecksumVerificationStatus)
+	assert.Equal(t, model.VerificationStatus(model.Failed), (*result.EvidenceVerifications)[0].VerificationResult.Sha256VerificationStatus)
 }
 
 // Test readEnvelopeFromRemote function directly (tests envelope reading without triggering remote key fetching)
@@ -288,7 +288,7 @@ func TestVerifyEnvelop_NilInputs(t *testing.T) {
 
 	assert.False(t, success)
 	// When inputs are nil, verifyEnvelope doesn't set the status (returns early)
-	assert.Equal(t, model.VerificationStatus(""), result.VerificationResult.SignaturesVerificationStatus)
+	assert.Equal(t, model.VerificationStatus("failed"), result.VerificationResult.SignaturesVerificationStatus)
 }
 
 // Test verifyEnvelope with empty verifiers
@@ -384,8 +384,8 @@ func TestVerifier_Verify_Success(t *testing.T) {
 	// Assertions
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
-	assert.Equal(t, "/test/subject/path", result.SubjectPath)
-	assert.Equal(t, "test-sha256", result.SubjectChecksum)
+	assert.Equal(t, "/test/subject/path", result.Subject.Path)
+	assert.Equal(t, "test-sha256", result.Subject.Sha256)
 	assert.Equal(t, model.VerificationStatus(model.Success), result.OverallVerificationStatus)
 
 	// Check evidence verifications
@@ -393,12 +393,12 @@ func TestVerifier_Verify_Success(t *testing.T) {
 	assert.Len(t, *result.EvidenceVerifications, 1)
 
 	evidence := (*result.EvidenceVerifications)[0]
-	assert.Equal(t, "/evidence/path", evidence.EvidencePath)
+	assert.Equal(t, "/evidence/path", evidence.DownloadPath)
 	assert.Equal(t, "test-sha256", evidence.SubjectChecksum)
 	assert.Equal(t, "test-predicate", evidence.PredicateType)
 	assert.Equal(t, "test-user", evidence.CreatedBy)
-	assert.Equal(t, "2023-01-01T00:00:00Z", evidence.Time)
-	assert.Equal(t, model.VerificationStatus(model.Success), evidence.VerificationResult.ChecksumVerificationStatus)
+	assert.Equal(t, "2023-01-01T00:00:00Z", evidence.CreatedAt)
+	assert.Equal(t, model.VerificationStatus(model.Success), evidence.VerificationResult.Sha256VerificationStatus)
 	assert.Equal(t, model.VerificationStatus(model.Success), evidence.VerificationResult.SignaturesVerificationStatus)
 	assert.Equal(t, localKeySource, evidence.VerificationResult.KeySource)
 
@@ -451,8 +451,8 @@ func TestVerifier_Verify_VerificationFailed(t *testing.T) {
 	// Assertions - should succeed but with failed verification status
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
-	assert.Equal(t, "/test/subject/path", result.SubjectPath)
-	assert.Equal(t, "test-sha256", result.SubjectChecksum)
+	assert.Equal(t, "/test/subject/path", result.Subject.Path)
+	assert.Equal(t, "test-sha256", result.Subject.Sha256)
 	assert.Equal(t, model.VerificationStatus(model.Failed), result.OverallVerificationStatus)
 
 	// Check evidence verifications
@@ -460,9 +460,9 @@ func TestVerifier_Verify_VerificationFailed(t *testing.T) {
 	assert.Len(t, *result.EvidenceVerifications, 1)
 
 	evidence := (*result.EvidenceVerifications)[0]
-	assert.Equal(t, "/evidence/path", evidence.EvidencePath)
+	assert.Equal(t, "/evidence/path", evidence.DownloadPath)
 	assert.Equal(t, "test-sha256", evidence.SubjectChecksum)
-	assert.Equal(t, model.VerificationStatus(model.Success), evidence.VerificationResult.ChecksumVerificationStatus)
+	assert.Equal(t, model.VerificationStatus(model.Success), evidence.VerificationResult.Sha256VerificationStatus)
 	assert.Equal(t, model.VerificationStatus(model.Failed), evidence.VerificationResult.SignaturesVerificationStatus)
 
 	// Verify mock was called

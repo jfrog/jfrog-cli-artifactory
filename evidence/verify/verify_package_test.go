@@ -351,8 +351,10 @@ func TestVerifyEvidencePackage_Run_Success(t *testing.T) {
 
 	// Set up expectations for the mock verifier
 	expectedResponse := &model.VerificationResponse{
-		SubjectPath:               "maven-local/test-package/1.0.0/test-package-1.0.0.jar",
-		SubjectChecksum:           "test-sha256",
+		Subject: model.Subject{
+			Path:   "maven-local/test-package/1.0.0/test-package-1.0.0.jar",
+			Sha256: "test-sha256",
+		},
 		EvidenceVerifications:     &[]model.EvidenceVerification{},
 		OverallVerificationStatus: model.Success,
 	}
@@ -408,8 +410,10 @@ func TestVerifyEvidencePackage_Run_VerificationFailed(t *testing.T) {
 
 	// Set up expectations for the mock verifier to return FAILED status
 	expectedResponse := &model.VerificationResponse{
-		SubjectPath:               "maven-local/test-package/1.0.0/test-package-1.0.0.jar",
-		SubjectChecksum:           "test-sha256",
+		Subject: model.Subject{
+			Path:   "maven-local/test-package/1.0.0/test-package-1.0.0.jar",
+			Sha256: "test-sha256",
+		},
 		EvidenceVerifications:     &[]model.EvidenceVerification{},
 		OverallVerificationStatus: model.Failed,
 	}
