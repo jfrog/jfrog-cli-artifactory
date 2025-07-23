@@ -288,7 +288,7 @@ func TestVerifyEnvelop_NilInputs(t *testing.T) {
 
 	assert.False(t, success)
 	// When inputs are nil, verifyEnvelope doesn't set the status (returns early)
-	assert.Equal(t, model.VerificationStatus(""), result.VerificationResult.SignaturesVerificationStatus)
+	assert.Equal(t, model.VerificationStatus("failed"), result.VerificationResult.SignaturesVerificationStatus)
 }
 
 // Test verifyEnvelope with empty verifiers

@@ -87,7 +87,7 @@ func (v *evidenceVerifier) verifyEvidence(evidence *model.SearchEvidenceEdge, su
 		SubjectChecksum: evidenceChecksum,
 		PredicateType:   evidence.Node.PredicateType,
 		CreatedBy:       evidence.Node.CreatedBy,
-		CreatedAt:       evidence.Node.CreatedAt, // change to CreatedAt
+		CreatedAt:       evidence.Node.CreatedAt,
 		VerificationResult: model.EvidenceVerificationResult{
 			Sha256VerificationStatus:     checksumStatus,
 			SignaturesVerificationStatus: model.Failed,
@@ -110,7 +110,7 @@ func (v *evidenceVerifier) verifyEvidence(evidence *model.SearchEvidenceEdge, su
 	if err != nil {
 		return nil, err
 	}
-	if verifyEnvelope(*artifactoryVerifiers, &envelope, result) {
+	if verifyEnvelope(artifactoryVerifiers, &envelope, result) {
 		result.VerificationResult.KeySource = artifactoryKeySource
 		return result, nil
 	}
@@ -120,6 +120,7 @@ func (v *evidenceVerifier) verifyEvidence(evidence *model.SearchEvidenceEdge, su
 // verifyEnvelope returns true if verification succeeded, false otherwise. Uses pointer for result.
 func verifyEnvelope(verifiers []dsse.Verifier, envelope *dsse.Envelope, result *model.EvidenceVerification) bool {
 	if verifiers == nil || result == nil || envelope == nil {
+		result.VerificationResult.SignaturesVerificationStatus = model.Failed
 		return false
 	}
 	for _, verifier := range verifiers {
@@ -144,6 +145,9 @@ func (v *evidenceVerifier) getLocalVerifiers() ([]dsse.Verifier, error) {
 	}
 	var keys []dsse.Verifier
 	for _, keyPath := range v.keys {
+		if keyPath == "" {
+			continue
+		}
 		keyFile, err := os.ReadFile(keyPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read key %s: %w", keyPath, err)
@@ -185,10 +189,10 @@ func (v *evidenceVerifier) readEnvelope(evidence model.SearchEvidenceEdge) (dsse
 	return envelope, nil
 }
 
-func getArtifactoryVerifiers(evidence *model.SearchEvidenceEdge) (*[]dsse.Verifier, error) {
+func getArtifactoryVerifiers(evidence *model.SearchEvidenceEdge) ([]dsse.Verifier, error) {
 	evidenceSigningKey := evidence.Node.SigningKey
 	if evidenceSigningKey.PublicKey == "" {
-		return nil, fmt.Errorf("evidence artifactory key is missing for evidence predicate type: %s", evidence.Node.PredicateType)
+		return []dsse.Verifier{}, nil
 	}
 	key, err := cryptox.LoadKey([]byte(evidenceSigningKey.PublicKey))
 	if err != nil {
@@ -198,5 +202,5 @@ func getArtifactoryVerifiers(evidence *model.SearchEvidenceEdge) (*[]dsse.Verifi
 	if err != nil {
 		return nil, fmt.Errorf("failed to create verifier for evidence predicate type: %s", evidence.Node.PredicateType)
 	}
-	return &verifier, nil
+	return verifier, nil
 }

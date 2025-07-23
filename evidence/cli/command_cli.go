@@ -282,12 +282,6 @@ func setBuildValue(ctx *components.Context, flag, envVar string) bool {
 func validateKeys(ctx *components.Context) error {
 	signingKeyValue, _ := jfrogArtClient.GetEnvVariable(coreUtils.SigningKey)
 	providedKeys := ctx.GetStringsArrFlagValue(publicKeys)
-	if signingKeyValue == "" {
-		if len(providedKeys) == 0 && !ctx.GetBoolFlagValue(useArtifactoryKeys) {
-			return errorutils.CheckErrorf("JFROG_CLI_SIGNING_KEY env variable or --%s flag or --%s must be provided when verifying evidence", publicKeys, useArtifactoryKeys)
-		}
-		return nil
-	}
 	if len(providedKeys) > 0 {
 		joinedKeys := strings.Join(append(providedKeys, signingKeyValue), ";")
 		ctx.SetStringFlagValue(publicKeys, joinedKeys)

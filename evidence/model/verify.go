@@ -2,7 +2,7 @@ package model
 
 import "github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
 
-const SchemaVersion = "1.0.0"
+const SchemaVersion = "1.0"
 
 type VerificationResponse struct {
 	// Update the schemaVersion value when this structure is updated.
