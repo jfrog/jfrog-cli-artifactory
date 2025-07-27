@@ -84,7 +84,7 @@ func TestCreateEvidencePackage_RecordSummary(t *testing.T) {
 	packageVersion := "1.0.0"
 	repoName := "maven-local"
 
-	c := NewCreateEvidencePackage(
+	evidence := NewCreateEvidencePackage(
 		serverDetails,
 		"",
 		"test-predicate-type",
@@ -94,7 +94,11 @@ func TestCreateEvidencePackage_RecordSummary(t *testing.T) {
 		packageName,
 		packageVersion,
 		repoName,
-	).(*createEvidencePackage)
+	)
+	c, ok := evidence.(*createEvidencePackage)
+	if !ok {
+		t.Fatal("Failed to create createEvidencePackage instance")
+	}
 
 	expectedResponse := &model.CreateResponse{
 		PredicateSlug: "test-slug",

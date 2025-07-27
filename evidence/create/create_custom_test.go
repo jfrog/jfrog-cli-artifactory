@@ -310,7 +310,7 @@ func TestCreateEvidenceCustom_RecordSummary(t *testing.T) {
 	subjectRepoPath := "test-repo/path/to/artifact.jar"
 	subjectSha256 := "custom-sha256"
 
-	c := NewCreateEvidenceCustom(
+	evidence := NewCreateEvidenceCustom(
 		serverDetails,
 		"",
 		"custom-predicate-type",
@@ -321,7 +321,11 @@ func TestCreateEvidenceCustom_RecordSummary(t *testing.T) {
 		subjectSha256,
 		"",
 		"test-provider",
-	).(*createEvidenceCustom)
+	)
+	c, ok := evidence.(*createEvidenceCustom)
+	if !ok {
+		t.Fatal("Failed to create createEvidenceCustom instance")
+	}
 
 	expectedResponse := &model.CreateResponse{
 		PredicateSlug: "custom-slug",

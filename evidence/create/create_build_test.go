@@ -78,7 +78,10 @@ func TestBuildInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := NewCreateEvidenceBuild(nil, "", "", "", "", "", tt.project, tt.buildName, tt.buildNumber).(*createEvidenceBuild)
+			c, ok := NewCreateEvidenceBuild(nil, "", "", "", "", "", tt.project, tt.buildName, tt.buildNumber).(*createEvidenceBuild)
+			if !ok {
+				t.Fatal("Failed to create createEvidenceBuild instance")
+			}
 			aa := &mockArtifactoryServicesManagerBuild{}
 			timestamp, err := getBuildLatestTimestamp(tt.buildName, tt.buildNumber, tt.project, aa)
 			assert.NoError(t, err)
@@ -120,7 +123,7 @@ func TestCreateEvidenceBuild_RecordSummary(t *testing.T) {
 		Password: "testpass",
 	}
 
-	c := NewCreateEvidenceBuild(
+	evidence := NewCreateEvidenceBuild(
 		serverDetails,
 		predicateFile,
 		"test-predicate-type",
@@ -130,7 +133,11 @@ func TestCreateEvidenceBuild_RecordSummary(t *testing.T) {
 		"myProject",
 		"testBuild",
 		"123",
-	).(*createEvidenceBuild)
+	)
+	c, ok := evidence.(*createEvidenceBuild)
+	if !ok {
+		t.Fatal("Failed to create createEvidenceBuild instance")
+	}
 
 	expectedResponse := &model.CreateResponse{
 		PredicateSlug: "test-slug",

@@ -308,7 +308,7 @@ func TestCreateEvidenceReleaseBundle_RecordSummary(t *testing.T) {
 		Password: "testpass",
 	}
 
-	c := NewCreateEvidenceReleaseBundle(
+	evidence := NewCreateEvidenceReleaseBundle(
 		serverDetails,
 		"",
 		"test-predicate-type",
@@ -318,7 +318,11 @@ func TestCreateEvidenceReleaseBundle_RecordSummary(t *testing.T) {
 		"myProject",
 		"testBundle",
 		"2.0.0",
-	).(*createEvidenceReleaseBundle)
+	)
+	c, ok := evidence.(*createEvidenceReleaseBundle)
+	if !ok {
+		t.Fatal("Failed to create createEvidenceReleaseBundle instance")
+	}
 
 	expectedResponse := &model.CreateResponse{
 		PredicateSlug: "test-rb-slug",
