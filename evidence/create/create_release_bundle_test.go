@@ -78,7 +78,11 @@ func TestReleaseBundle(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := NewCreateEvidenceReleaseBundle(nil, "", "", "", "", "", tt.project, tt.releaseBundle, tt.releaseBundleVersion).(*createEvidenceReleaseBundle)
+			evidence := NewCreateEvidenceReleaseBundle(nil, "", "", "", "", "", tt.project, tt.releaseBundle, tt.releaseBundleVersion)
+			c, ok := evidence.(*createEvidenceReleaseBundle)
+			if !ok {
+				t.Fatal("Failed to create createEvidenceReleaseBundle instance")
+			}
 			aa := &mockReleaseBundleArtifactoryServicesManager{}
 			path, sha256, err := c.buildReleaseBundleSubjectPath(aa)
 			if tt.expectError {
@@ -115,7 +119,7 @@ func TestCreateEvidenceReleaseBundle_RecordSummary(t *testing.T) {
 		Password: "testpass",
 	}
 
-	c := NewCreateEvidenceReleaseBundle(
+	evidence := NewCreateEvidenceReleaseBundle(
 		serverDetails,
 		"",
 		"test-predicate-type",
@@ -125,7 +129,11 @@ func TestCreateEvidenceReleaseBundle_RecordSummary(t *testing.T) {
 		"myProject",
 		"testBundle",
 		"2.0.0",
-	).(*createEvidenceReleaseBundle)
+	)
+	c, ok := evidence.(*createEvidenceReleaseBundle)
+	if !ok {
+		t.Fatal("Failed to create createEvidenceReleaseBundle instance")
+	}
 
 	expectedResponse := &model.CreateResponse{
 		PredicateSlug: "test-rb-slug",
