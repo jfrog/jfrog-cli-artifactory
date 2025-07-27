@@ -11,7 +11,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-// A graphql query to get evidence for a release bundle including evidences on artifacts and builds inside the release bundle.
+// A graphql query to get evidence for a release bundle including evidence on artifacts and builds inside the release bundle.
 // Artifacts in release bundle will be given from the first artifact YXJ0aWZhY3Q6MA== which is base64 of artifact:0
 const getReleaseBundleEvidenceWithoutPredicateGraphqlQuery = "{\"query\":\"{ releaseBundleVersion { getVersion(repositoryKey: \\\"%s\\\", name: \\\"%s\\\", version: \\\"%s\\\") { evidenceConnection { edges { node { predicateSlug predicateType downloadPath verified signingKey { alias } createdBy createdAt } } } artifactsConnection(first: %s, after: \\\"YXJ0aWZhY3Q6MA==\\\", where: { hasEvidence: true }) { totalCount edges { node { sourceRepositoryPath packageType evidenceConnection(first: 0) { totalCount edges { node { createdBy createdAt downloadPath predicateSlug verified signingKey { alias }} } } } } } fromBuilds { name number startedAt evidenceConnection { edges { node { predicateSlug predicateType downloadPath verified signingKey { alias } createdBy createdAt } } } } } } }\"}"
 
@@ -63,12 +63,12 @@ func (g *getEvidenceReleaseBundle) Run() error {
 		return err
 	}
 
-	evidences, err := g.getEvidence(onemodelClient)
+	evidenceRecords, err := g.getEvidence(onemodelClient)
 	if err != nil {
 		return err
 	}
 
-	err = g.exportEvidenceToFile(evidences, g.outputFileName, g.format)
+	err = g.exportEvidenceToFile(evidenceRecords, g.outputFileName, g.format)
 	if err != nil {
 		return err
 	}
