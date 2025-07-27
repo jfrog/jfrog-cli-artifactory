@@ -308,6 +308,42 @@ func TestPrintText_Success(t *testing.T) {
 	assert.Contains(t, out, "Verification passed for 1 out of 1 evidence")
 }
 
+func TestPrintText_severalEvidence_Success(t *testing.T) {
+	resp := &model.VerificationResponse{
+		Subject: model.Subject{
+			Sha256: "test-checksum",
+			Path:   "test-file.txt",
+		},
+		OverallVerificationStatus: model.Success,
+		EvidenceVerifications: &[]model.EvidenceVerification{{
+			PredicateType: "test-type",
+			CreatedBy:     "test-user",
+			CreatedAt:     "2024-01-01T00:00:00Z",
+			VerificationResult: model.EvidenceVerificationResult{
+				SignaturesVerificationStatus: model.Success,
+				Sha256VerificationStatus:     model.Success,
+			},
+		}, {
+			PredicateType: "test-type-2",
+			CreatedBy:     "test-user-2",
+			CreatedAt:     "2024-01-02T00:00:00Z",
+			VerificationResult: model.EvidenceVerificationResult{
+				SignaturesVerificationStatus: model.Success,
+				Sha256VerificationStatus:     model.Success,
+			},
+		}},
+	}
+
+	out := captureOutput(func() {
+		err := printText(resp)
+		assert.NoError(t, err)
+	})
+	assert.Contains(t, out, "Subject sha256:        test-checksum")
+	assert.Contains(t, out, "Subject:               test-file.txt")
+	assert.Contains(t, out, "Loaded 2 evidence")
+	assert.Contains(t, out, "Verification passed for 2 out of 2 evidence")
+}
+
 func TestPrintText_NilResponse(t *testing.T) {
 	err := printText(nil)
 	assert.Error(t, err)

@@ -120,7 +120,7 @@ func printText(result *model.VerificationResponse) error {
 	fmt.Printf("Subject sha256:        %s\n", result.Subject.Sha256)
 	fmt.Printf("Subject:               %s\n", result.Subject.Path)
 	evidenceNumber := len(*result.EvidenceVerifications)
-	fmt.Printf("Loaded %d evidence items\n", evidenceNumber)
+	fmt.Printf("Loaded %d evidence\n", evidenceNumber)
 	successfulVerifications := 0
 	for _, v := range *result.EvidenceVerifications {
 		if v.VerificationResult.Sha256VerificationStatus == model.Success && v.VerificationResult.SignaturesVerificationStatus == model.Success {
@@ -128,7 +128,7 @@ func printText(result *model.VerificationResponse) error {
 		}
 	}
 	fmt.Println()
-	verificationStatusMessage := fmt.Sprintf("Verification passed for %d out of %d evidence items", successfulVerifications, evidenceNumber)
+	verificationStatusMessage := fmt.Sprintf("Verification passed for %d out of %d evidence", successfulVerifications, evidenceNumber)
 	switch {
 	case successfulVerifications == 0:
 		fmt.Println(color.Red.Render(verificationStatusMessage))
@@ -148,7 +148,7 @@ func printText(result *model.VerificationResponse) error {
 }
 
 func printVerificationResult(verification *model.EvidenceVerification, index int) {
-	fmt.Printf("- Evidence: %d\n", index+1)
+	fmt.Printf("- Evidence %d:\n", index+1)
 	fmt.Printf("    - Predicate type:                 %s\n", verification.PredicateType)
 	fmt.Printf("    - Evidence subject sha256:        %s\n", verification.SubjectChecksum)
 	if verification.VerificationResult.KeySource != "" {
