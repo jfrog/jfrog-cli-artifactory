@@ -10,9 +10,12 @@ import (
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/intoto"
+	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/evidence/services"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	clientlog "github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
 )
@@ -165,4 +168,158 @@ func TestCreateAndSignEnvelope(t *testing.T) {
 			}
 		})
 	}
+}
+func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_NotInGitHub(t *testing.T) {
+	assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
+
+	base := &createEvidenceBase{
+		predicateType: "https://slsa.dev/provenance/v1",
+		providerId:    "test-provider",
+	}
+
+	summaryData := commandsummary.EvidenceSummaryData{
+		Subject:       "/test/subject",
+		Verified:      true,
+		PredicateType: base.predicateType,
+	}
+	err := base.recordEvidenceSummary(summaryData)
+	assert.NoError(t, err)
+}
+
+func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_GitHubCommiter(t *testing.T) {
+	tempDir, err := fileutils.CreateTempDir()
+	assert.NoError(t, err)
+	defer func() {
+		assert.NoError(t, fileutils.RemoveTempDir(tempDir))
+	}()
+
+	assert.NoError(t, os.Setenv("GITHUB_ACTIONS", "true"))
+	assert.NoError(t, os.Setenv(coreutils.SummaryOutputDirPathEnv, tempDir))
+	defer func() {
+		assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
+		assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
+	}()
+
+	base := &createEvidenceBase{
+		predicateType: "https://slsa.dev/provenance/v1",
+		providerId:    "test-provider",
+		flagType:      "gh-commiter",
+	}
+
+	summaryData := commandsummary.EvidenceSummaryData{
+		Subject:       "/test/subject",
+		Verified:      true,
+		PredicateType: base.predicateType,
+	}
+	err = base.recordEvidenceSummary(summaryData)
+	assert.NoError(t, err)
+}
+
+func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_Success(t *testing.T) {
+	tempDir, err := fileutils.CreateTempDir()
+	assert.NoError(t, err)
+	defer func() {
+		assert.NoError(t, fileutils.RemoveTempDir(tempDir))
+	}()
+
+	assert.NoError(t, os.Setenv("GITHUB_ACTIONS", "true"))
+	assert.NoError(t, os.Setenv(coreutils.SummaryOutputDirPathEnv, tempDir))
+	defer func() {
+		assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
+		assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
+	}()
+
+	base := &createEvidenceBase{
+		predicateType: "https://slsa.dev/provenance/v1",
+		providerId:    "test-provider",
+		flagType:      "other",
+	}
+
+	summaryData := commandsummary.EvidenceSummaryData{
+		Subject:       "/docker-cosign-test/hello-world",
+		Verified:      true,
+		PredicateType: base.predicateType,
+	}
+	err = base.recordEvidenceSummary(summaryData)
+	assert.NoError(t, err)
+}
+
+func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_NoSummaryEnv(t *testing.T) {
+	assert.NoError(t, os.Setenv("GITHUB_ACTIONS", "true"))
+	assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
+	defer func() {
+		assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
+	}()
+
+	base := &createEvidenceBase{
+		predicateType: "https://slsa.dev/provenance/v1",
+		providerId:    "test-provider",
+		flagType:      "other",
+	}
+
+	summaryData := commandsummary.EvidenceSummaryData{
+		Subject:       "/test/subject",
+		Verified:      true,
+		PredicateType: base.predicateType,
+	}
+	err := base.recordEvidenceSummary(summaryData)
+	assert.Error(t, err)
+}
+
+func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_Verified(t *testing.T) {
+	tempDir, err := fileutils.CreateTempDir()
+	assert.NoError(t, err)
+	defer func() {
+		assert.NoError(t, fileutils.RemoveTempDir(tempDir))
+	}()
+
+	assert.NoError(t, os.Setenv("GITHUB_ACTIONS", "true"))
+	assert.NoError(t, os.Setenv(coreutils.SummaryOutputDirPathEnv, tempDir))
+	defer func() {
+		assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
+		assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
+	}()
+
+	base := &createEvidenceBase{
+		predicateType: "https://slsa.dev/provenance/v1",
+		providerId:    "test-provider",
+		flagType:      "other",
+	}
+
+	summaryData := commandsummary.EvidenceSummaryData{
+		Subject:       "/docker-cosign-test/hello-world",
+		Verified:      true,
+		PredicateType: base.predicateType,
+	}
+	err = base.recordEvidenceSummary(summaryData)
+	assert.NoError(t, err)
+}
+
+func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_NotVerified(t *testing.T) {
+	tempDir, err := fileutils.CreateTempDir()
+	assert.NoError(t, err)
+	defer func() {
+		assert.NoError(t, fileutils.RemoveTempDir(tempDir))
+	}()
+
+	assert.NoError(t, os.Setenv("GITHUB_ACTIONS", "true"))
+	assert.NoError(t, os.Setenv(coreutils.SummaryOutputDirPathEnv, tempDir))
+	defer func() {
+		assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
+		assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
+	}()
+
+	base := &createEvidenceBase{
+		predicateType: "",
+		providerId:    "test-provider",
+		flagType:      "other",
+	}
+
+	summaryData := commandsummary.EvidenceSummaryData{
+		Subject:       "/test-repo/artifact",
+		Verified:      false,
+		PredicateType: base.predicateType,
+	}
+	err = base.recordEvidenceSummary(summaryData)
+	assert.NoError(t, err)
 }

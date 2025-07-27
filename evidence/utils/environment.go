@@ -11,3 +11,7 @@ func GetEnvVariable(envVarName string) (string, error) {
 	}
 	return "", fmt.Errorf("'%s'  field wasn't provided.", envVarName)
 }
+
+func IsRunningUnderGitHubAction() bool {
+	return os.Getenv("GITHUB_ACTIONS") == "true"
+}

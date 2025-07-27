@@ -3,7 +3,10 @@ package create
 import (
 	"fmt"
 
+	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
+
 	"github.com/jfrog/jfrog-cli-artifactory/evidence"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	artifactoryUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -21,6 +24,7 @@ type createEvidenceReleaseBundle struct {
 
 func NewCreateEvidenceReleaseBundle(serverDetails *config.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, project, releaseBundle,
 	releaseBundleVersion string) evidence.Command {
+	displayName := fmt.Sprintf("%s %s", releaseBundle, releaseBundleVersion)
 	return &createEvidenceReleaseBundle{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
@@ -30,6 +34,8 @@ func NewCreateEvidenceReleaseBundle(serverDetails *config.ServerDetails, predica
 			key:               key,
 			keyId:             keyId,
 			stage:             getReleaseBundleStage(serverDetails, releaseBundle, releaseBundleVersion, project),
+			displayName:       displayName,
+			subjectType:       commandsummary.SubjectTypeReleaseBundle,
 		},
 		project:              project,
 		releaseBundle:        releaseBundle,
@@ -59,7 +65,8 @@ func (c *createEvidenceReleaseBundle) Run() error {
 	if err != nil {
 		return err
 	}
-	err = c.uploadEvidence(envelope, subject)
+	response, err := c.uploadEvidence(envelope, subject)
+	c.recordSummary(response, subject, sha256)
 	if err != nil {
 		return err
 	}
@@ -79,6 +86,25 @@ func (c *createEvidenceReleaseBundle) buildReleaseBundleSubjectPath(artifactoryC
 	return manifestPath, manifestChecksum, nil
 }
 
+func (c *createEvidenceReleaseBundle) recordSummary(response *model.CreateResponse, subject string, sha256 string) {
+	displayName := fmt.Sprintf("%s %s", c.releaseBundle, c.releaseBundleVersion)
+	commandSummary := commandsummary.EvidenceSummaryData{
+		Subject:              subject,
+		SubjectSha256:        sha256,
+		PredicateType:        c.predicateType,
+		PredicateSlug:        response.PredicateSlug,
+		Verified:             response.Verified,
+		DisplayName:          displayName,
+		SubjectType:          commandsummary.SubjectTypeReleaseBundle,
+		ReleaseBundleName:    c.releaseBundle,
+		ReleaseBundleVersion: c.releaseBundleVersion,
+		RepoKey:              utils.BuildReleaseBundleRepoKey(c.project),
+	}
+	err := c.recordEvidenceSummary(commandSummary)
+	if err != nil {
+		log.Warn("Failed to record evidence summary:", err.Error())
+	}
+}
 func buildManifestPath(repoKey, name, version string) string {
 	return fmt.Sprintf("%s/%s/%s/release-bundle.json.evd", repoKey, name, version)
 }
