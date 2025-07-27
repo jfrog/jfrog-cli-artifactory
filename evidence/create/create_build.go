@@ -3,6 +3,9 @@ package create
 import (
 	"errors"
 	"fmt"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
+
+	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
@@ -51,7 +54,13 @@ func (c *createEvidenceBuild) Run() error {
 		log.Error("failed to create Artifactory client", err)
 		return err
 	}
-	subject, sha256, err := c.buildBuildInfoSubjectPath(artifactoryClient)
+
+	timestamp, err := getBuildLatestTimestamp(c.buildName, c.buildNumber, c.project, artifactoryClient)
+	if err != nil {
+		return err
+	}
+
+	subject, sha256, err := c.buildBuildInfoSubjectPath(artifactoryClient, timestamp)
 	if err != nil {
 		return err
 	}
@@ -59,20 +68,17 @@ func (c *createEvidenceBuild) Run() error {
 	if err != nil {
 		return err
 	}
-	err = c.uploadEvidence(envelope, subject)
+
+	response, err := c.uploadEvidence(envelope, subject)
 	if err != nil {
 		return err
 	}
+	c.recordSummary(subject, sha256, response, timestamp)
 
 	return nil
 }
 
-func (c *createEvidenceBuild) buildBuildInfoSubjectPath(artifactoryClient artifactory.ArtifactoryServicesManager) (string, string, error) {
-	timestamp, err := getBuildLatestTimestamp(c.buildName, c.buildNumber, c.project, artifactoryClient)
-	if err != nil {
-		return "", "", err
-	}
-
+func (c *createEvidenceBuild) buildBuildInfoSubjectPath(artifactoryClient artifactory.ArtifactoryServicesManager, timestamp string) (string, string, error) {
 	repoKey := utils.BuildBuildInfoRepoKey(c.project)
 	buildInfoPath := buildBuildInfoPath(repoKey, c.buildName, c.buildNumber, timestamp)
 	buildInfoChecksum, err := getBuildInfoPathChecksum(buildInfoPath, artifactoryClient)
@@ -80,6 +86,28 @@ func (c *createEvidenceBuild) buildBuildInfoSubjectPath(artifactoryClient artifa
 		return "", "", err
 	}
 	return buildInfoPath, buildInfoChecksum, nil
+}
+
+func (c *createEvidenceBuild) recordSummary(subject string, sha256 string, response *model.CreateResponse, timestamp string) {
+	displayName := fmt.Sprintf("%s %s", c.buildName, c.buildNumber)
+	commandSummary := commandsummary.EvidenceSummaryData{
+		Subject:        subject,
+		SubjectSha256:  sha256,
+		PredicateType:  c.predicateType,
+		PredicateSlug:  response.PredicateSlug,
+		Verified:       response.Verified,
+		DisplayName:    displayName,
+		SubjectType:    commandsummary.SubjectTypeBuild,
+		BuildName:      c.buildName,
+		BuildNumber:    c.buildNumber,
+		BuildTimestamp: timestamp,
+		RepoKey:        utils.BuildBuildInfoRepoKey(c.project),
+	}
+
+	err := c.recordEvidenceSummary(commandSummary)
+	if err != nil {
+		log.Warn("Failed to record evidence summary:", err.Error())
+	}
 }
 
 func getBuildLatestTimestamp(name string, number string, project string, artifactoryClient artifactory.ArtifactoryServicesManager) (string, error) {
