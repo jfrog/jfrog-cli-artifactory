@@ -10,5 +10,5 @@ import (
 type EvidenceCommands interface {
 	CreateEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error
 	GetEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error
-	VerifyEvidences(ctx *components.Context, serverDetails *config.ServerDetails) error
+	VerifyEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error
 }

@@ -67,5 +67,5 @@ func (c *verifyEvidenceReleaseBundle) Run() error {
 	}
 	subjectPath := fmt.Sprintf("%s/%s/%s", repoKey, path, "release-bundle.json.evd")
 	releaseBundleSha256 := result.Results[0].Sha256
-	return c.verifyEvidences(artifactoryClient, metadata, releaseBundleSha256, subjectPath)
+	return c.verifyEvidence(artifactoryClient, metadata, releaseBundleSha256, subjectPath)
 }

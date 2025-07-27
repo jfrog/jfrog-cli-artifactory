@@ -340,7 +340,7 @@ func TestVerifyEvidence_Context(t *testing.T) {
 			// Replace execFunc with the mockExec function
 			defer func() { execFunc = exec }() // Restore original execFunc after test
 
-			err := verifyEvidences(context)
+			err := verifyEvidence(context)
 			if tt.expectErr {
 				assert.Error(t, err)
 			} else {
