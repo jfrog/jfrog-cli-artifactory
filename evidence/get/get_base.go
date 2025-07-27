@@ -45,26 +45,26 @@ type EvidenceEntry struct {
 }
 
 type CustomEvidenceResult struct {
-	RepoPath string          `json:"repoPath"`
+	RepoPath string          `json:"subjectRepoPath"`
 	Evidence []EvidenceEntry `json:"evidence"`
 }
 
 type ArtifactEvidence struct {
 	Evidence    EvidenceEntry `json:"evidence"`
-	PackageType string        `json:"package-type"`
-	RepoPath    string        `json:"repo-path"`
+	PackageType string        `json:"packageType"`
+	RepoPath    string        `json:"subjectRepoPath"`
 }
 
 type BuildEvidence struct {
 	Evidence    EvidenceEntry `json:"evidence"`
-	BuildName   string        `json:"build-name"`
-	BuildNumber string        `json:"build-number"`
-	StartedAt   string        `json:"started-at"`
+	BuildName   string        `json:"buildName"`
+	BuildNumber string        `json:"buildNumber"`
+	StartedAt   string        `json:"startedAt"`
 }
 
 type ReleaseBundleResult struct {
-	ReleaseBundle        string             `json:"release-bundle"`
-	ReleaseBundleVersion string             `json:"release-bundle-version"`
+	ReleaseBundle        string             `json:"releaseBundle"`
+	ReleaseBundleVersion string             `json:"releaseBundleVersion"`
 	Evidence             []EvidenceEntry    `json:"evidence"`
 	Artifacts            []ArtifactEvidence `json:"artifacts,omitempty"`
 	Builds               []BuildEvidence    `json:"builds,omitempty"`

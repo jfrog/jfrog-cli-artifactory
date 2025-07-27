@@ -128,8 +128,10 @@ func TestVerifyEvidenceReleaseBundle_Run_Success(t *testing.T) {
 
 	// Set up expectations for the mock verifier
 	expectedResponse := &model.VerificationResponse{
-		SubjectPath:               "/test/subject/path",
-		SubjectChecksum:           "test-sha256",
+		Subject: model.Subject{
+			Path:   "/test/subject/path",
+			Sha256: "test-sha256",
+		},
 		EvidenceVerifications:     &[]model.EvidenceVerification{},
 		OverallVerificationStatus: model.Success,
 	}
@@ -183,8 +185,10 @@ func TestVerifyEvidenceReleaseBundle_Run_VerificationFailed(t *testing.T) {
 
 	// Set up expectations for the mock verifier to return FAILED status
 	expectedResponse := &model.VerificationResponse{
-		SubjectPath:               "/test/subject/path",
-		SubjectChecksum:           "test-sha256",
+		Subject: model.Subject{
+			Path:   "/test/subject/path",
+			Sha256: "test-sha256",
+		},
 		EvidenceVerifications:     &[]model.EvidenceVerification{},
 		OverallVerificationStatus: model.Failed,
 	}

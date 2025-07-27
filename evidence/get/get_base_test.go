@@ -137,14 +137,14 @@ func TestExportEvidenceToJsonlFileWithMetadata(t *testing.T) {
 						case i < 4:
 							// Next two lines should be artifact type
 							assert.Equal(t, "artifact", item["type"], "Line %d should be artifact type", i+1)
-							assert.Contains(t, result, "package-type", "Line %d should contain package-type", i+1)
-							assert.Contains(t, result, "repo-path", "Line %d should contain repo-path", i+1)
+							assert.Contains(t, result, "packageType", "Line %d should contain packagType", i+1)
+							assert.Contains(t, result, "subjectRepoPath", "Line %d should contain subjectRepoPath", i+1)
 						default:
 							// Last two lines should be build type
 							assert.Equal(t, "build", item["type"], "Line %d should be build type", i+1)
-							assert.Contains(t, result, "build-name", "Line %d should contain build-name", i+1)
-							assert.Contains(t, result, "build-number", "Line %d should contain build-number", i+1)
-							assert.Contains(t, result, "started-at", "Line %d should contain started-at", i+1)
+							assert.Contains(t, result, "buildName", "Line %d should contain buildName", i+1)
+							assert.Contains(t, result, "buildNumber", "Line %d should contain buildNumber", i+1)
+							assert.Contains(t, result, "startedAt", "Line %d should contain startedAt", i+1)
 						}
 					}
 				} else {

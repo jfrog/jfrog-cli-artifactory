@@ -2,7 +2,7 @@
   "schemaVersion": "1.0",
   "type": "artifact",
   "result": {
-    "repoPath": "dort-generic/test/path/file.txt",
+    "subjectRepoPath": "dort-generic/test/path/file.txt",
     "evidence": [
       {
         "createdAt": "2025-07-03T18:54:59.108Z",

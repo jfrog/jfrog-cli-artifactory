@@ -42,8 +42,11 @@ func (v *evidenceVerifier) Verify(subjectSha256 string, evidenceMetadata *[]mode
 		return nil, fmt.Errorf("no evidence metadata provided")
 	}
 	result := &model.VerificationResponse{
-		SubjectPath:               subjectPath,
-		SubjectChecksum:           subjectSha256,
+		SchemaVersion: model.SchemaVersion,
+		Subject: model.Subject{
+			Path:   subjectPath,
+			Sha256: subjectSha256,
+		},
 		OverallVerificationStatus: model.Success,
 	}
 	results := make([]model.EvidenceVerification, 0, len(*evidenceMetadata))
@@ -54,7 +57,7 @@ func (v *evidenceVerifier) Verify(subjectSha256 string, evidenceMetadata *[]mode
 			return nil, err
 		}
 		results = append(results, *verification)
-		if verification.VerificationResult.SignaturesVerificationStatus == model.Failed || verification.VerificationResult.ChecksumVerificationStatus == model.Failed {
+		if verification.VerificationResult.SignaturesVerificationStatus == model.Failed || verification.VerificationResult.Sha256VerificationStatus == model.Failed {
 			result.OverallVerificationStatus = model.Failed
 		}
 	}
@@ -80,13 +83,13 @@ func (v *evidenceVerifier) verifyEvidence(evidence *model.SearchEvidenceEdge, su
 	}
 	result := &model.EvidenceVerification{
 		DsseEnvelope:    envelope,
-		EvidencePath:    evidence.Node.DownloadPath,
+		DownloadPath:    evidence.Node.DownloadPath,
 		SubjectChecksum: evidenceChecksum,
 		PredicateType:   evidence.Node.PredicateType,
 		CreatedBy:       evidence.Node.CreatedBy,
-		Time:            evidence.Node.CreatedAt,
+		CreatedAt:       evidence.Node.CreatedAt,
 		VerificationResult: model.EvidenceVerificationResult{
-			ChecksumVerificationStatus:   checksumStatus,
+			Sha256VerificationStatus:     checksumStatus,
 			SignaturesVerificationStatus: model.Failed,
 		},
 	}
@@ -107,7 +110,7 @@ func (v *evidenceVerifier) verifyEvidence(evidence *model.SearchEvidenceEdge, su
 	if err != nil {
 		return nil, err
 	}
-	if verifyEnvelope(*artifactoryVerifiers, &envelope, result) {
+	if verifyEnvelope(artifactoryVerifiers, &envelope, result) {
 		result.VerificationResult.KeySource = artifactoryKeySource
 		return result, nil
 	}
@@ -117,6 +120,7 @@ func (v *evidenceVerifier) verifyEvidence(evidence *model.SearchEvidenceEdge, su
 // verifyEnvelope returns true if verification succeeded, false otherwise. Uses pointer for result.
 func verifyEnvelope(verifiers []dsse.Verifier, envelope *dsse.Envelope, result *model.EvidenceVerification) bool {
 	if verifiers == nil || result == nil || envelope == nil {
+		result.VerificationResult.SignaturesVerificationStatus = model.Failed
 		return false
 	}
 	for _, verifier := range verifiers {
@@ -141,6 +145,9 @@ func (v *evidenceVerifier) getLocalVerifiers() ([]dsse.Verifier, error) {
 	}
 	var keys []dsse.Verifier
 	for _, keyPath := range v.keys {
+		if keyPath == "" {
+			continue
+		}
 		keyFile, err := os.ReadFile(keyPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read key %s: %w", keyPath, err)
@@ -182,10 +189,10 @@ func (v *evidenceVerifier) readEnvelope(evidence model.SearchEvidenceEdge) (dsse
 	return envelope, nil
 }
 
-func getArtifactoryVerifiers(evidence *model.SearchEvidenceEdge) (*[]dsse.Verifier, error) {
+func getArtifactoryVerifiers(evidence *model.SearchEvidenceEdge) ([]dsse.Verifier, error) {
 	evidenceSigningKey := evidence.Node.SigningKey
 	if evidenceSigningKey.PublicKey == "" {
-		return nil, fmt.Errorf("evidence artifactory key is missing for evidence predicate type: %s", evidence.Node.PredicateType)
+		return []dsse.Verifier{}, nil
 	}
 	key, err := cryptox.LoadKey([]byte(evidenceSigningKey.PublicKey))
 	if err != nil {
@@ -195,5 +202,5 @@ func getArtifactoryVerifiers(evidence *model.SearchEvidenceEdge) (*[]dsse.Verifi
 	if err != nil {
 		return nil, fmt.Errorf("failed to create verifier for evidence predicate type: %s", evidence.Node.PredicateType)
 	}
-	return &verifier, nil
+	return verifier, nil
 }
