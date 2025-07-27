@@ -37,7 +37,7 @@ type EvidenceEntry struct {
 	PredicateType string         `json:"predicateType,omitempty"`
 	DownloadPath  string         `json:"downloadPath"`
 	Verified      bool           `json:"verified"`
-	SigningKey    map[string]any `json:"signingKey"`
+	SigningKey    map[string]any `json:"signingKey,omitempty"`
 	Subject       map[string]any `json:"subject"`
 	CreatedBy     string         `json:"createdBy"`
 	CreatedAt     string         `json:"createdAt"`
@@ -248,8 +248,10 @@ func createOrderedEvidenceEntry(node map[string]any, includePredicate bool) Evid
 		entry.Verified = verified
 	}
 
-	if signingKey, ok := node["signingKey"].(map[string]any); ok {
-		entry.SigningKey = signingKey
+	if signingKeyRaw, exists := node["signingKey"]; exists && signingKeyRaw != nil {
+		if signingKey, ok := signingKeyRaw.(map[string]any); ok && len(signingKey) > 0 {
+			entry.SigningKey = signingKey
+		}
 	}
 
 	if subject, ok := node["subject"].(map[string]any); ok {
