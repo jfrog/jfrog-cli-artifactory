@@ -47,7 +47,7 @@ type MockVerifyEvidenceBaseReleaseBundle struct {
 	verifyEvidenceBase
 }
 
-func (m *MockVerifyEvidenceBaseReleaseBundle) verifyEvidences(client *artifactory.ArtifactoryServicesManager, metadata *[]model.SearchEvidenceEdge, sha256 string) error {
+func (m *MockVerifyEvidenceBaseReleaseBundle) verifyEvidence(client *artifactory.ArtifactoryServicesManager, metadata *[]model.SearchEvidenceEdge, sha256 string) error {
 	args := m.Called(client, metadata, sha256)
 	return args.Error(0)
 }
@@ -363,7 +363,7 @@ func TestVerifyEvidenceReleaseBundle_Run_QueryEvidenceMetadataError(t *testing.T
 	assert.Contains(t, err.Error(), "graphql query failed")
 }
 
-func TestVerifyEvidenceReleaseBundle_Run_VerifyEvidencesError(t *testing.T) {
+func TestVerifyEvidenceReleaseBundle_Run_VerifyEvidenceError(t *testing.T) {
 	// Mock AQL response with release bundle manifest
 	aqlResult := `{"results":[{"sha256":"test-sha256","name":"release-bundle.json.evd"}]}`
 
@@ -388,10 +388,10 @@ func TestVerifyEvidenceReleaseBundle_Run_VerifyEvidencesError(t *testing.T) {
 		oneModelClient: mockOneModel,
 	}
 	mockBase.verifyEvidenceBase = *base
-	mockBase.On("verifyEvidences", mock.Anything, mock.Anything, "test-sha256").Return(errors.New("verification failed"))
+	mockBase.On("verifyEvidence", mock.Anything, mock.Anything, "test-sha256").Return(errors.New("verification failed"))
 
 	// Test direct method call
-	err := mockBase.verifyEvidences(nil, &[]model.SearchEvidenceEdge{{}}, "test-sha256")
+	err := mockBase.verifyEvidence(nil, &[]model.SearchEvidenceEdge{{}}, "test-sha256")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "verification failed")
 	mockBase.AssertExpectations(t)
@@ -460,10 +460,10 @@ func TestVerifyEvidenceReleaseBundle_ProjectBuildRepoKey(t *testing.T) {
 				oneModelClient: mockOneModel,
 			}
 			mockBase.verifyEvidenceBase = *base
-			mockBase.On("verifyEvidences", mock.Anything, mock.Anything, "test-sha256").Return(nil)
+			mockBase.On("verifyEvidence", mock.Anything, mock.Anything, "test-sha256").Return(nil)
 
 			// Test direct method call
-			err := mockBase.verifyEvidences(nil, &[]model.SearchEvidenceEdge{{}}, "test-sha256")
+			err := mockBase.verifyEvidence(nil, &[]model.SearchEvidenceEdge{{}}, "test-sha256")
 			assert.NoError(t, err)
 			mockBase.AssertExpectations(t)
 		})

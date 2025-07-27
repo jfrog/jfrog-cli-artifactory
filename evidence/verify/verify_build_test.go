@@ -55,13 +55,13 @@ func (m *MockOneModelManagerBuild) GraphqlQuery(_ []byte) ([]byte, error) {
 	return m.GraphqlResponse, nil
 }
 
-// MockVerifyEvidenceBaseBuild for testing verifyEvidences method
+// MockVerifyEvidenceBaseBuild for testing verifyEvidence method
 type MockVerifyEvidenceBaseBuild struct {
 	mock.Mock
 	verifyEvidenceBase
 }
 
-func (m *MockVerifyEvidenceBaseBuild) verifyEvidences(client *artifactory.ArtifactoryServicesManager, metadata *[]model.SearchEvidenceEdge, sha256, subjectPath string) error {
+func (m *MockVerifyEvidenceBaseBuild) verifyEvidence(client *artifactory.ArtifactoryServicesManager, metadata *[]model.SearchEvidenceEdge, sha256, subjectPath string) error {
 	args := m.Called(client, metadata, sha256, subjectPath)
 	return args.Error(0)
 }
@@ -84,7 +84,7 @@ func (m *MockVerifier) Verify(subjectSha256 string, evidenceMetadata *[]model.Se
 	return resp, args.Error(1)
 }
 
-func TestNewVerifyEvidencesBuild(t *testing.T) {
+func TestNewVerifyEvidenceBuild(t *testing.T) {
 	serverDetails := &config.ServerDetails{}
 	project := "test-project"
 	buildName := "test-build"
@@ -92,7 +92,7 @@ func TestNewVerifyEvidencesBuild(t *testing.T) {
 	format := "json"
 	keys := []string{"key1", "key2"}
 
-	cmd := NewVerifyEvidencesBuild(serverDetails, project, buildName, buildNumber, format, keys, true)
+	cmd := NewVerifyEvidenceBuild(serverDetails, project, buildName, buildNumber, format, keys, true)
 	verifyCmd, ok := cmd.(*verifyEvidenceBuild)
 	assert.True(t, ok)
 
@@ -211,7 +211,7 @@ func TestVerifyEvidenceBuild_Run_QueryEvidenceMetadataError(t *testing.T) {
 	assert.Contains(t, err.Error(), "graphql query failed")
 }
 
-func TestVerifyEvidenceBuild_Run_VerifyEvidencesError(t *testing.T) {
+func TestVerifyEvidenceBuild_Run_VerifyEvidenceError(t *testing.T) {
 	// Mock AQL response with build info file
 	aqlResult := `{"results":[{"sha256":"test-sha256","name":"1-1234567890.json"}]}`
 
@@ -236,10 +236,10 @@ func TestVerifyEvidenceBuild_Run_VerifyEvidencesError(t *testing.T) {
 		oneModelClient: mockOneModel,
 	}
 	mockBase.verifyEvidenceBase = *base
-	mockBase.On("verifyEvidences", mock.Anything, mock.Anything, "test-sha256", mock.Anything).Return(errors.New("verification failed"))
+	mockBase.On("verifyEvidence", mock.Anything, mock.Anything, "test-sha256", mock.Anything).Return(errors.New("verification failed"))
 
 	// Test direct method call
-	err := mockBase.verifyEvidences(nil, &[]model.SearchEvidenceEdge{{}}, "test-sha256", "/test/path")
+	err := mockBase.verifyEvidence(nil, &[]model.SearchEvidenceEdge{{}}, "test-sha256", "/test/path")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "verification failed")
 	mockBase.AssertExpectations(t)

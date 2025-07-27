@@ -40,8 +40,8 @@ func (v *verifyEvidenceBase) printVerifyResult(result *model.VerificationRespons
 	return printText(result)
 }
 
-// verifyEvidences runs the verification process for the given evidence metadata and subject sha256.
-func (v *verifyEvidenceBase) verifyEvidences(client *artifactory.ArtifactoryServicesManager, evidenceMetadata *[]model.SearchEvidenceEdge, sha256, subjectPath string) error {
+// verifyEvidence runs the verification process for the given evidence metadata and subject sha256.
+func (v *verifyEvidenceBase) verifyEvidence(client *artifactory.ArtifactoryServicesManager, evidenceMetadata *[]model.SearchEvidenceEdge, sha256, subjectPath string) error {
 	if v.verifier == nil {
 		v.verifier = NewEvidenceVerifier(v.keys, v.useArtifactoryKeys, client)
 	}
@@ -87,12 +87,12 @@ func (v *verifyEvidenceBase) queryEvidenceMetadata(repo string, path string, nam
 		}
 		return nil, fmt.Errorf("error querying evidence from One-Model service: %w", err)
 	}
-	evidences := model.ResponseSearchEvidence{}
-	err = json.Unmarshal(response, &evidences)
+	evidence := model.ResponseSearchEvidence{}
+	err = json.Unmarshal(response, &evidence)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal evidence metadata: %w", err)
 	}
-	edges := evidences.Data.Evidence.SearchEvidence.Edges
+	edges := evidence.Data.Evidence.SearchEvidence.Edges
 	if len(edges) == 0 {
 		return nil, fmt.Errorf("no evidence found for the given subject")
 	}
@@ -120,13 +120,7 @@ func printText(result *model.VerificationResponse) error {
 	fmt.Printf("Subject sha256:        %s\n", result.Subject.Sha256)
 	fmt.Printf("Subject:               %s\n", result.Subject.Path)
 	evidenceNumber := len(*result.EvidenceVerifications)
-	var evidenceText string
-	if evidenceNumber == 1 {
-		evidenceText = "evidence"
-	} else {
-		evidenceText = "evidences"
-	}
-	fmt.Printf("Loaded %d %s\n", evidenceNumber, evidenceText)
+	fmt.Printf("Loaded %d evidence\n", evidenceNumber)
 	successfulVerifications := 0
 	for _, v := range *result.EvidenceVerifications {
 		if v.VerificationResult.Sha256VerificationStatus == model.Success && v.VerificationResult.SignaturesVerificationStatus == model.Success {
@@ -134,7 +128,7 @@ func printText(result *model.VerificationResponse) error {
 		}
 	}
 	fmt.Println()
-	verificationStatusMessage := fmt.Sprintf("Verification passed for %d out of %d %s", successfulVerifications, evidenceNumber, evidenceText)
+	verificationStatusMessage := fmt.Sprintf("Verification passed for %d out of %d evidence", successfulVerifications, evidenceNumber)
 	switch {
 	case successfulVerifications == 0:
 		fmt.Println(color.Red.Render(verificationStatusMessage))
@@ -154,7 +148,7 @@ func printText(result *model.VerificationResponse) error {
 }
 
 func printVerificationResult(verification *model.EvidenceVerification, index int) {
-	fmt.Printf("- Evidence: %d\n", index+1)
+	fmt.Printf("- Evidence %d:\n", index+1)
 	fmt.Printf("    - Predicate type:                 %s\n", verification.PredicateType)
 	fmt.Printf("    - Evidence subject sha256:        %s\n", verification.SubjectChecksum)
 	if verification.VerificationResult.KeySource != "" {
