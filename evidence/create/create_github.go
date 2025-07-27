@@ -76,7 +76,7 @@ func (c *createGitHubEvidence) ServerDetails() (*config.ServerDetails, error) {
 }
 
 func (c *createGitHubEvidence) Run() error {
-	if !isRunningUnderGitHubAction() {
+	if !utils.IsRunningUnderGitHubAction() {
 		return errors.New("this command is intended to be run under GitHub Actions")
 	}
 	evidencePredicate, err := c.committerReviewerEvidence()
@@ -98,7 +98,7 @@ func (c *createGitHubEvidence) Run() error {
 	if err != nil {
 		return err
 	}
-	err = c.uploadEvidence(envelope, subject)
+	_, err = c.uploadEvidence(envelope, subject)
 	if err != nil {
 		return err
 	}
@@ -124,10 +124,6 @@ func (c *createGitHubEvidence) buildBuildInfoSubjectPath(artifactoryClient artif
 		return "", "", err
 	}
 	return buildInfoPath, buildInfoChecksum, nil
-}
-
-func isRunningUnderGitHubAction() bool {
-	return os.Getenv("GITHUB_ACTIONS") == "true"
 }
 
 // This function will print the markdown to GH
