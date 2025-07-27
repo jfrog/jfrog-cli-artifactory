@@ -149,6 +149,10 @@ func (jc *JetbrainsCommand) validateRepository() error {
 	if err := utils.ValidateRepoExists(jc.repoKey, artDetails); err != nil {
 		return fmt.Errorf("repository validation failed: %w", err)
 	}
+	// Validate repository type is 'jetbrains'
+	if err := utils.ValidateRepoType(jc.repoKey, artDetails, "jetbrains"); err != nil {
+		return fmt.Errorf("repository type validation failed: %w", err)
+	}
 
 	log.Info("Repository validation successful")
 	return nil
