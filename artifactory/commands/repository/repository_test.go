@@ -27,13 +27,14 @@ func Test_PerformRepoCmd_SingleRepository(t *testing.T) {
 		{
 			name:         "Create single Maven local repository",
 			templatePath: createTempTemplate(t, singleRepoTemplate),
-			vars:         "REPO_KEY=test-maven-local;RCLASS=local;PACKAGE_TYPE=maven;DESCRIPTION=Test Maven repo",
+			vars:         `REPO_KEY=test-maven-local;RCLASS=local;PACKAGE_TYPE=maven;DESCRIPTION=Test Maven repo;ENVIRONMENTS=PROD,DEV`,
 			isUpdate:     false,
 			expectedRepo: services.RepositoryBaseParams{
-				Key:         "test-maven-local",
-				Rclass:      "local",
-				PackageType: "maven",
-				Description: "Test Maven repo",
+				Key:          "test-maven-local",
+				Rclass:       "local",
+				PackageType:  "maven",
+				Description:  "Test Maven repo",
+				Environments: []string{"PROD", "DEV"},
 			},
 			expectedStatus: http.StatusOK,
 			expErr:         nil,
@@ -41,13 +42,14 @@ func Test_PerformRepoCmd_SingleRepository(t *testing.T) {
 		{
 			name:         "Update single Maven local repository",
 			templatePath: createTempTemplate(t, singleRepoTemplate),
-			vars:         "REPO_KEY=test-maven-local;RCLASS=local;PACKAGE_TYPE=maven;DESCRIPTION=Updated Maven repo",
+			vars:         `REPO_KEY=test-maven-local;RCLASS=local;PACKAGE_TYPE=maven;DESCRIPTION=Updated Maven repo;ENVIRONMENTS=PROD,DEV`,
 			isUpdate:     true,
 			expectedRepo: services.RepositoryBaseParams{
-				Key:         "test-maven-local",
-				Rclass:      "local",
-				PackageType: "maven",
-				Description: "Updated Maven repo",
+				Key:          "test-maven-local",
+				Rclass:       "local",
+				PackageType:  "maven",
+				Description:  "Updated Maven repo",
+				Environments: []string{"PROD", "DEV"},
 			},
 			expectedStatus: http.StatusOK,
 			expErr:         nil,
@@ -273,7 +275,8 @@ const singleRepoTemplate = `{
   "key": "${REPO_KEY}",
   "rclass": "${RCLASS}",
   "packageType": "${PACKAGE_TYPE}",
-  "description": "${DESCRIPTION}"
+  "description": "${DESCRIPTION}",
+  "environments": "${ENVIRONMENTS}"
 }`
 
 const multipleReposTemplate = `[
