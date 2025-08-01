@@ -70,7 +70,7 @@ func TestVerify_MultipleEvidence(t *testing.T) {
 
 	mockClient := &MockArtifactoryServicesManagerVerifier{
 		ReadRemoteFileFunc: func() io.ReadCloser {
-			return io.NopCloser(bytes.NewReader(createMockDsseEnvelopeBytes()))
+			return io.NopCloser(bytes.NewReader(createMockDsseEnvelopeBytes(t)))
 		},
 	}
 	var clientInterface artifactory.ArtifactoryServicesManager = mockClient
@@ -136,7 +136,7 @@ func TestVerify_OverallStatus(t *testing.T) {
 	// Mock client that returns DSSE envelopes for parsing
 	mockClient := &MockArtifactoryServicesManagerVerifier{
 		ReadRemoteFileFunc: func() io.ReadCloser {
-			return io.NopCloser(bytes.NewReader(createMockDsseEnvelopeBytes()))
+			return io.NopCloser(bytes.NewReader(createMockDsseEnvelopeBytes(t)))
 		},
 	}
 	var clientInterface artifactory.ArtifactoryServicesManager = mockClient
