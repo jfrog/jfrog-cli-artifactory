@@ -14,4 +14,4 @@ func ReadTestDataFile(filename string) (string, error) {
 		return "", fmt.Errorf("failed to read test data file %s: %w", filename, err)
 	}
 	return string(data), nil
-} 
+}
