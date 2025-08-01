@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"crypto"
 	"encoding/json"
+	"github.com/stretchr/testify/assert"
 	"io"
+	"testing"
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
@@ -49,13 +51,16 @@ func createMockDsseEnvelope() dsse.Envelope {
 	}
 }
 
-func createMockDsseEnvelopeBytes() []byte {
+func createMockDsseEnvelopeBytes(t *testing.T) []byte {
 	envelope := createMockDsseEnvelope()
-	data, _ := json.Marshal(envelope)
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		assert.Fail(t, "Failed to marshal DSSE envelope", err)
+	}
 	return data
 }
 
-func createMockSigstoreBundleBytes() []byte {
+func createMockSigstoreBundleBytes(t *testing.T) []byte {
 	sigstoreBundle := map[string]interface{}{
 		"mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.2",
 		"verificationMaterial": map[string]interface{}{
@@ -75,7 +80,10 @@ func createMockSigstoreBundleBytes() []byte {
 		},
 	}
 
-	data, _ := json.Marshal(sigstoreBundle)
+	data, err := json.Marshal(sigstoreBundle)
+	if err != nil {
+		assert.Fail(t, "Failed to marshal Sigstore bundle", err)
+	}
 	return data
 }
 
@@ -140,7 +148,10 @@ func (m *MockTUFRootCertificateProvider) LoadTUFRootCertificate() (root.TrustedM
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(root.TrustedMaterial), args.Error(1)
+	if trustedMaterial, ok := args.Get(0).(root.TrustedMaterial); ok {
+		return trustedMaterial, args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
 // Helper to create mock artifactory client

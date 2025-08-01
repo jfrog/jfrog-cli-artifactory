@@ -29,7 +29,7 @@ func TestParseEvidence_ReadError(t *testing.T) {
 }
 
 func TestParseEvidence_DsseEnvelope(t *testing.T) {
-	dsseContent := createMockDsseEnvelopeBytes()
+	dsseContent := createMockDsseEnvelopeBytes(t)
 	mockClient := createMockArtifactoryClient(dsseContent)
 	parser := NewEvidenceParser(mockClient)
 
@@ -49,7 +49,7 @@ func TestParseEvidence_DsseEnvelope(t *testing.T) {
 }
 
 func TestParseEvidence_SigstoreBundle(t *testing.T) {
-	sigstoreContent := createMockSigstoreBundleBytes()
+	sigstoreContent := createMockSigstoreBundleBytes(t)
 	mockClient := createMockArtifactoryClient(sigstoreContent)
 	parser := NewEvidenceParser(mockClient)
 

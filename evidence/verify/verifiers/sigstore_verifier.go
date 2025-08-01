@@ -71,7 +71,7 @@ func (v *sigstoreVerifier) Verify(subjectSha256 string, result *model.EvidenceVe
 		result.VerificationResult.SignaturesVerificationStatus = model.Failed
 		result.VerificationResult.TimestampVerificationStatus = model.Failed
 		result.VerificationResult.FailureReason = err.Error()
-		return nil
+		return nil //nolint:nilerr
 	}
 	result.VerificationResult.KeySource = sigstoreKeySource
 	result.VerificationResult.Sha256VerificationStatus = model.Success
