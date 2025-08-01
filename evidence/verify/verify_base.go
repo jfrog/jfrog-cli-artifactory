@@ -7,6 +7,7 @@ import (
 
 	"github.com/gookit/color"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify/verifiers"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
@@ -29,7 +30,7 @@ type verifyEvidenceBase struct {
 	useArtifactoryKeys bool
 	artifactoryClient  *artifactory.ArtifactoryServicesManager
 	oneModelClient     onemodel.Manager
-	verifier           EvidenceVerifierInterface
+	verifier           verifiers.EvidenceVerifierInterface
 }
 
 // printVerifyResult prints the verification result in the requested format.
@@ -43,7 +44,7 @@ func (v *verifyEvidenceBase) printVerifyResult(result *model.VerificationRespons
 // verifyEvidence runs the verification process for the given evidence metadata and subject sha256.
 func (v *verifyEvidenceBase) verifyEvidence(client *artifactory.ArtifactoryServicesManager, evidenceMetadata *[]model.SearchEvidenceEdge, sha256, subjectPath string) error {
 	if v.verifier == nil {
-		v.verifier = NewEvidenceVerifier(v.keys, v.useArtifactoryKeys, client)
+		v.verifier = verifiers.NewEvidenceVerifier(v.keys, v.useArtifactoryKeys, client)
 	}
 	verify, err := v.verifier.Verify(sha256, evidenceMetadata, subjectPath)
 	if err != nil {
@@ -149,14 +150,23 @@ func printText(result *model.VerificationResponse) error {
 
 func printVerificationResult(verification *model.EvidenceVerification, index int) {
 	fmt.Printf("- Evidence %d:\n", index+1)
+	fmt.Printf("    - Media type:                     %s\n", verification.MediaType)
 	fmt.Printf("    - Predicate type:                 %s\n", verification.PredicateType)
 	fmt.Printf("    - Evidence subject sha256:        %s\n", verification.SubjectChecksum)
 	if verification.VerificationResult.KeySource != "" {
 		fmt.Printf("    - Key source:                     %s\n", verification.VerificationResult.KeySource)
+	}
+	if verification.VerificationResult.KeyFingerprint != "" {
 		fmt.Printf("    - Key fingerprint:                %s\n", verification.VerificationResult.KeyFingerprint)
 	}
 	fmt.Printf("    - Sha256 verification status:     %s\n", getColoredStatus(verification.VerificationResult.Sha256VerificationStatus))
 	fmt.Printf("    - Signatures verification status: %s\n", getColoredStatus(verification.VerificationResult.SignaturesVerificationStatus))
+	if verification.MediaType == model.SigstoreBundle {
+		fmt.Printf("    - Timestamp verification status:  %s\n", getColoredStatus(verification.VerificationResult.TimestampVerificationStatus))
+	}
+	if verification.VerificationResult.FailureReason != "" {
+		fmt.Printf("    - Failure reason:                 %s\n", verification.VerificationResult.FailureReason)
+	}
 }
 
 func validateResponse(result *model.VerificationResponse) error {
