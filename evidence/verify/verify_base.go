@@ -159,10 +159,12 @@ func printVerificationResult(verification *model.EvidenceVerification, index int
 	if verification.VerificationResult.KeyFingerprint != "" {
 		fmt.Printf("    - Key fingerprint:                %s\n", verification.VerificationResult.KeyFingerprint)
 	}
-	fmt.Printf("    - Sha256 verification status:     %s\n", getColoredStatus(verification.VerificationResult.Sha256VerificationStatus))
-	fmt.Printf("    - Signatures verification status: %s\n", getColoredStatus(verification.VerificationResult.SignaturesVerificationStatus))
+	if verification.MediaType == model.SimpleDSSE {
+		fmt.Printf("    - Sha256 verification status:     %s\n", getColoredStatus(verification.VerificationResult.Sha256VerificationStatus))
+		fmt.Printf("    - Signatures verification status: %s\n", getColoredStatus(verification.VerificationResult.SignaturesVerificationStatus))
+	}
 	if verification.MediaType == model.SigstoreBundle {
-		fmt.Printf("    - Timestamp verification status:  %s\n", getColoredStatus(verification.VerificationResult.TimestampVerificationStatus))
+		fmt.Printf("    - Sigstore verification status:   %s\n", getColoredStatus(verification.VerificationResult.SigstoreBundleVerificationStatus))
 	}
 	if verification.VerificationResult.FailureReason != "" {
 		fmt.Printf("    - Failure reason:                 %s\n", verification.VerificationResult.FailureReason)

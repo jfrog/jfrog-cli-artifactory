@@ -66,16 +66,14 @@ func (v *sigstoreVerifier) Verify(subjectSha256 string, result *model.EvidenceVe
 		verify.WithoutIdentitiesUnsafe(),                 // Skip identity verification for now
 	)
 
-	if _, err = sigstoreVerifier.Verify(bundleToVerify, policy); err != nil {
-		result.VerificationResult.Sha256VerificationStatus = model.Failed
-		result.VerificationResult.SignaturesVerificationStatus = model.Failed
-		result.VerificationResult.TimestampVerificationStatus = model.Failed
+	verificationResult, err := sigstoreVerifier.Verify(bundleToVerify, policy)
+	if err != nil {
+		result.VerificationResult.SigstoreBundleVerificationStatus = model.Failed
 		result.VerificationResult.FailureReason = err.Error()
 		return nil //nolint:nilerr
 	}
 	result.VerificationResult.KeySource = sigstoreKeySource
-	result.VerificationResult.Sha256VerificationStatus = model.Success
-	result.VerificationResult.SignaturesVerificationStatus = model.Success
-	result.VerificationResult.TimestampVerificationStatus = model.Success
+	result.VerificationResult.SigstoreBundleVerificationStatus = model.Success
+	result.VerificationResult.SigstoreBundleVerificationResult = verificationResult
 	return nil
 }

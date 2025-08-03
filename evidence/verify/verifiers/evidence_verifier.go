@@ -96,5 +96,5 @@ func (v *evidenceVerifier) performVerification(evidence *model.SearchEvidenceEdg
 func shouldFailOverall(verification *model.EvidenceVerification) bool {
 	return verification.VerificationResult.SignaturesVerificationStatus == model.Failed ||
 		verification.VerificationResult.Sha256VerificationStatus == model.Failed ||
-		(verification.MediaType == model.SigstoreBundle && verification.VerificationResult.TimestampVerificationStatus == model.Failed)
+		(verification.MediaType == model.SigstoreBundle && verification.VerificationResult.SigstoreBundleVerificationStatus == model.Failed)
 }
