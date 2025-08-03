@@ -2,6 +2,7 @@ package verifiers
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
@@ -26,6 +27,9 @@ func newEvidenceParser(client *artifactory.ArtifactoryServicesManager) evidenceP
 }
 
 func (p *evidenceParser) parseEvidence(evidence *model.SearchEvidenceEdge, evidenceResult *model.EvidenceVerification) error {
+	if evidence == nil || evidenceResult == nil {
+		return fmt.Errorf("empty evidence or result provided for parsing")
+	}
 	file, err := p.artifactoryClient.ReadRemoteFile(evidence.Node.DownloadPath)
 	if err != nil {
 		return errors.Wrap(err, "failed to read remote file")
@@ -48,10 +52,13 @@ func (p *evidenceParser) parseEvidence(evidence *model.SearchEvidenceEdge, evide
 		return nil
 	}
 
-	return errors.New("failed to parse evidence as either Sigstore bundle or DSSE envelope")
+	return fmt.Errorf("unsupported evidence file for client-side verification: " + evidence.Node.DownloadPath)
 }
 
 func (p *evidenceParser) tryParseSigstoreBundle(content []byte, result *model.EvidenceVerification) error {
+	if result == nil {
+		return fmt.Errorf("empty result provided for Sigstore bundle parsing")
+	}
 	var sigstoreBundle bundle.Bundle
 	if err := sigstoreBundle.UnmarshalJSON(content); err != nil {
 		return err
@@ -62,6 +69,9 @@ func (p *evidenceParser) tryParseSigstoreBundle(content []byte, result *model.Ev
 }
 
 func (p *evidenceParser) tryParseDsseEnvelope(content []byte, result *model.EvidenceVerification) error {
+	if result == nil {
+		return fmt.Errorf("empty result provided for DSSE envelope parsing")
+	}
 	var envelope dsse.Envelope
 	if err := json.Unmarshal(content, &envelope); err != nil {
 		return err

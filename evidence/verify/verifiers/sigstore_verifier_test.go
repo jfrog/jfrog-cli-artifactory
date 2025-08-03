@@ -10,6 +10,49 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestSigstoreVerifier_VerifyNilResult(t *testing.T) {
+	verifier := &sigstoreVerifier{}
+
+	err := verifier.verify(createTestSHA256(), nil)
+	assert.Error(t, err)
+	assert.Equal(t, "empty evidence verification or Sigstore bundle provided for verification", err.Error())
+}
+
+func TestSigstoreVerifier_VerifyResultWithNilSigstoreBundle(t *testing.T) {
+	verifier := &sigstoreVerifier{}
+
+	result := &model.EvidenceVerification{
+		SigstoreBundle:     nil,
+		VerificationResult: model.EvidenceVerificationResult{},
+	}
+
+	err := verifier.verify(createTestSHA256(), result)
+	assert.Error(t, err)
+	assert.Equal(t, "empty evidence verification or Sigstore bundle provided for verification", err.Error())
+}
+
+func TestSigstoreVerifier_VerifyNilProtobufBundle(t *testing.T) {
+	mockProvider := &MockTUFRootCertificateProvider{}
+	mockProvider.On("LoadTUFRootCertificate").Return(nil, nil)
+
+	verifier := &sigstoreVerifier{
+		rootCertificateProvider: mockProvider,
+	}
+
+	result := &model.EvidenceVerification{
+		SigstoreBundle: &bundle.Bundle{
+			Bundle: nil,
+		},
+		VerificationResult: model.EvidenceVerificationResult{},
+	}
+
+	err := verifier.verify(createTestSHA256(), result)
+	assert.Error(t, err)
+	assert.Equal(t, "invalid bundle: missing protobuf bundle", err.Error())
+
+	mockProvider.AssertExpectations(t)
+}
+
 func TestSigstoreVerifier_VerifyNilBundle(t *testing.T) {
 	mockProvider := &MockTUFRootCertificateProvider{}
 	// Even for nil bundle, the TUF provider gets called first, so we need to mock it

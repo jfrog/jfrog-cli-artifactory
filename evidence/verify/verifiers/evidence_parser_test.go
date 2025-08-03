@@ -9,6 +9,59 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestParseEvidence_NilEvidence(t *testing.T) {
+	mockClient := createMockArtifactoryClient([]byte{})
+	parser := newEvidenceParser(mockClient)
+
+	result := &model.EvidenceVerification{}
+
+	err := parser.parseEvidence(nil, result)
+	assert.Error(t, err)
+	assert.Equal(t, "empty evidence or result provided for parsing", err.Error())
+}
+
+func TestParseEvidence_NilResult(t *testing.T) {
+	mockClient := createMockArtifactoryClient([]byte{})
+	parser := newEvidenceParser(mockClient)
+
+	edge := &model.SearchEvidenceEdge{
+		Node: model.EvidenceMetadata{
+			DownloadPath: "/path/to/evidence",
+		},
+	}
+
+	err := parser.parseEvidence(edge, nil)
+	assert.Error(t, err)
+	assert.Equal(t, "empty evidence or result provided for parsing", err.Error())
+}
+
+func TestParseEvidence_BothNil(t *testing.T) {
+	mockClient := createMockArtifactoryClient([]byte{})
+	parser := newEvidenceParser(mockClient)
+
+	err := parser.parseEvidence(nil, nil)
+	assert.Error(t, err)
+	assert.Equal(t, "empty evidence or result provided for parsing", err.Error())
+}
+
+func TestTryParseSigstoreBundle_NilResult(t *testing.T) {
+	parser := &evidenceParser{}
+	content := createMockSigstoreBundleBytes(t)
+
+	err := parser.tryParseSigstoreBundle(content, nil)
+	assert.Error(t, err)
+	assert.Equal(t, "empty result provided for Sigstore bundle parsing", err.Error())
+}
+
+func TestTryParseDsseEnvelope_NilResult(t *testing.T) {
+	parser := &evidenceParser{}
+	content := createMockDsseEnvelopeBytes(t)
+
+	err := parser.tryParseDsseEnvelope(content, nil)
+	assert.Error(t, err)
+	assert.Equal(t, "empty result provided for DSSE envelope parsing", err.Error())
+}
+
 func TestParseEvidence_ReadError(t *testing.T) {
 	mockClient := &MockArtifactoryServicesManagerVerifier{
 		ReadRemoteFileError: errors.New("failed to read remote file"),
@@ -80,7 +133,7 @@ func TestParseEvidence_InvalidJSON(t *testing.T) {
 
 	err := parser.parseEvidence(&edge, result)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to parse evidence as either Sigstore bundle or DSSE envelope")
+	assert.Contains(t, err.Error(), "unsupported evidence file for client-side verification: "+edge.Node.DownloadPath)
 }
 
 func TestParseEvidence_EmptyFile(t *testing.T) {
@@ -96,7 +149,7 @@ func TestParseEvidence_EmptyFile(t *testing.T) {
 
 	err := parser.parseEvidence(&edge, result)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to parse evidence as either Sigstore bundle or DSSE envelope")
+	assert.Contains(t, err.Error(), "unsupported evidence file for client-side verification: "+edge.Node.DownloadPath)
 }
 
 func TestParseEvidence_ReadAllError(t *testing.T) {

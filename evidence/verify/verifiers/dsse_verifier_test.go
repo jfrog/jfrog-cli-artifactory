@@ -18,6 +18,51 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
+func TestDsseVerifier_Verify_NilEvidence(t *testing.T) {
+	verifier := &dsseVerifier{
+		keys:               []string{},
+		useArtifactoryKeys: false,
+	}
+
+	result := &model.EvidenceVerification{
+		VerificationResult: model.EvidenceVerificationResult{},
+	}
+
+	err := verifier.verify(createTestSHA256(), nil, result)
+	assert.Error(t, err)
+	assert.Equal(t, "empty evidence or result provided for DSSE verification", err.Error())
+}
+
+func TestDsseVerifier_Verify_NilResult(t *testing.T) {
+	verifier := &dsseVerifier{
+		keys:               []string{},
+		useArtifactoryKeys: false,
+	}
+
+	evidence := &model.SearchEvidenceEdge{
+		Node: model.EvidenceMetadata{
+			Subject: model.EvidenceSubject{
+				Sha256: createTestSHA256(),
+			},
+		},
+	}
+
+	err := verifier.verify(createTestSHA256(), evidence, nil)
+	assert.Error(t, err)
+	assert.Equal(t, "empty evidence or result provided for DSSE verification", err.Error())
+}
+
+func TestDsseVerifier_Verify_BothNil(t *testing.T) {
+	verifier := &dsseVerifier{
+		keys:               []string{},
+		useArtifactoryKeys: false,
+	}
+
+	err := verifier.verify(createTestSHA256(), nil, nil)
+	assert.Error(t, err)
+	assert.Equal(t, "empty evidence or result provided for DSSE verification", err.Error())
+}
+
 func TestDsseVerifier_VerifyWithLocalKeys_Success(t *testing.T) {
 	mockVerifier := &MockDSSEVerifier{
 		KeyIDValue: "test-key-id",
@@ -279,6 +324,23 @@ func TestVerifyEnvelope_NilInputs(t *testing.T) {
 	success := verifyEnvelope(nil, nil, result)
 	assert.False(t, success)
 	assert.Equal(t, model.VerificationStatus(model.Failed), result.VerificationResult.SignaturesVerificationStatus)
+}
+
+func TestVerifyEnvelope_NilResult(t *testing.T) {
+	mockVerifier := &MockDSSEVerifier{}
+	mockVerifier.On("Verify", mock.Anything, mock.Anything).Return(nil)
+
+	envelope := createMockDsseEnvelope()
+
+	success := verifyEnvelope([]dsse.Verifier{mockVerifier}, &envelope, nil)
+	assert.False(t, success)
+}
+
+func TestGetArtifactoryVerifiers_NilEvidence(t *testing.T) {
+	verifiers, err := getArtifactoryVerifiers(nil)
+	assert.Error(t, err)
+	assert.Equal(t, "empty evidence provided for artifactory verifier retrieval", err.Error())
+	assert.Nil(t, verifiers)
 }
 
 func TestGetArtifactoryVerifiers_Success(t *testing.T) {

@@ -31,6 +31,9 @@ func newDsseVerifier(keys []string, useArtifactoryKeys bool) dsseVerifierInterfa
 }
 
 func (v *dsseVerifier) verify(subjectSha256 string, evidence *model.SearchEvidenceEdge, result *model.EvidenceVerification) error {
+	if evidence == nil || result == nil {
+		return fmt.Errorf("empty evidence or result provided for DSSE verification")
+	}
 	result.VerificationResult.Sha256VerificationStatus = verifyChecksum(subjectSha256, evidence.Node.Subject.Sha256)
 	localVerifiers, err := v.getLocalVerifiers()
 	if err != nil && v.keys != nil && len(v.keys) > 0 {
@@ -88,6 +91,10 @@ func (v *dsseVerifier) getLocalVerifiers() ([]dsse.Verifier, error) {
 
 // verifyEnvelope returns true if verification succeeded, false otherwise. Uses pointer for result.
 func verifyEnvelope(verifiers []dsse.Verifier, envelope *dsse.Envelope, result *model.EvidenceVerification) bool {
+	// formal check for empty result
+	if result == nil {
+		return false
+	}
 	if verifiers == nil || envelope == nil {
 		result.VerificationResult.SignaturesVerificationStatus = model.Failed
 		return false
@@ -109,6 +116,9 @@ func verifyEnvelope(verifiers []dsse.Verifier, envelope *dsse.Envelope, result *
 }
 
 func getArtifactoryVerifiers(evidence *model.SearchEvidenceEdge) ([]dsse.Verifier, error) {
+	if evidence == nil {
+		return nil, fmt.Errorf("empty evidence provided for artifactory verifier retrieval")
+	}
 	evidenceSigningKey := evidence.Node.SigningKey
 	if evidenceSigningKey.PublicKey == "" {
 		return []dsse.Verifier{}, nil

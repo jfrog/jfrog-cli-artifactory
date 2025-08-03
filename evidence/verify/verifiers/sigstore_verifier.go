@@ -27,6 +27,10 @@ func newSigstoreVerifier() sigstoreVerifierInterface {
 }
 
 func (v *sigstoreVerifier) verify(subjectSha256 string, result *model.EvidenceVerification) error {
+	if result == nil || result.SigstoreBundle == nil {
+		return fmt.Errorf("empty evidence verification or Sigstore bundle provided for verification")
+	}
+
 	if v.rootCertificateProvider == nil {
 		v.rootCertificateProvider = ca.NewTUFRootCertificateProvider()
 	}
