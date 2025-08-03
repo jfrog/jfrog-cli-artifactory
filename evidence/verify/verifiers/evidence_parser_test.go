@@ -14,7 +14,7 @@ func TestParseEvidence_ReadError(t *testing.T) {
 		ReadRemoteFileError: errors.New("failed to read remote file"),
 	}
 	var client artifactory.ArtifactoryServicesManager = mockClient
-	parser := NewEvidenceParser(&client)
+	parser := newEvidenceParser(&client)
 
 	edge := model.SearchEvidenceEdge{
 		Node: model.EvidenceMetadata{
@@ -23,7 +23,7 @@ func TestParseEvidence_ReadError(t *testing.T) {
 	}
 	result := &model.EvidenceVerification{}
 
-	err := parser.ParseEvidence(&edge, result)
+	err := parser.parseEvidence(&edge, result)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to read remote file")
 }
@@ -31,7 +31,7 @@ func TestParseEvidence_ReadError(t *testing.T) {
 func TestParseEvidence_DsseEnvelope(t *testing.T) {
 	dsseContent := createMockDsseEnvelopeBytes(t)
 	mockClient := createMockArtifactoryClient(dsseContent)
-	parser := NewEvidenceParser(mockClient)
+	parser := newEvidenceParser(mockClient)
 
 	edge := model.SearchEvidenceEdge{
 		Node: model.EvidenceMetadata{
@@ -40,7 +40,7 @@ func TestParseEvidence_DsseEnvelope(t *testing.T) {
 	}
 	result := &model.EvidenceVerification{}
 
-	err := parser.ParseEvidence(&edge, result)
+	err := parser.parseEvidence(&edge, result)
 	assert.NoError(t, err)
 	assert.NotNil(t, result.DsseEnvelope)
 	assert.Nil(t, result.SigstoreBundle)
@@ -51,7 +51,7 @@ func TestParseEvidence_DsseEnvelope(t *testing.T) {
 func TestParseEvidence_SigstoreBundle(t *testing.T) {
 	sigstoreContent := createMockSigstoreBundleBytes(t)
 	mockClient := createMockArtifactoryClient(sigstoreContent)
-	parser := NewEvidenceParser(mockClient)
+	parser := newEvidenceParser(mockClient)
 
 	edge := model.SearchEvidenceEdge{
 		Node: model.EvidenceMetadata{
@@ -60,7 +60,7 @@ func TestParseEvidence_SigstoreBundle(t *testing.T) {
 	}
 	result := &model.EvidenceVerification{}
 
-	err := parser.ParseEvidence(&edge, result)
+	err := parser.parseEvidence(&edge, result)
 	assert.NoError(t, err)
 	assert.NotNil(t, result.SigstoreBundle)
 	assert.Nil(t, result.DsseEnvelope)
@@ -69,7 +69,7 @@ func TestParseEvidence_SigstoreBundle(t *testing.T) {
 
 func TestParseEvidence_InvalidJSON(t *testing.T) {
 	mockClient := createMockArtifactoryClient([]byte("invalid json"))
-	parser := NewEvidenceParser(mockClient)
+	parser := newEvidenceParser(mockClient)
 
 	edge := model.SearchEvidenceEdge{
 		Node: model.EvidenceMetadata{
@@ -78,14 +78,14 @@ func TestParseEvidence_InvalidJSON(t *testing.T) {
 	}
 	result := &model.EvidenceVerification{}
 
-	err := parser.ParseEvidence(&edge, result)
+	err := parser.parseEvidence(&edge, result)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse evidence as either Sigstore bundle or DSSE envelope")
 }
 
 func TestParseEvidence_EmptyFile(t *testing.T) {
 	mockClient := createMockArtifactoryClient([]byte{})
-	parser := NewEvidenceParser(mockClient)
+	parser := newEvidenceParser(mockClient)
 
 	edge := model.SearchEvidenceEdge{
 		Node: model.EvidenceMetadata{
@@ -94,7 +94,7 @@ func TestParseEvidence_EmptyFile(t *testing.T) {
 	}
 	result := &model.EvidenceVerification{}
 
-	err := parser.ParseEvidence(&edge, result)
+	err := parser.parseEvidence(&edge, result)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse evidence as either Sigstore bundle or DSSE envelope")
 }
@@ -108,7 +108,7 @@ func TestParseEvidence_ReadAllError(t *testing.T) {
 		ReadRemoteFileResponse: failingReader,
 	}
 	var client artifactory.ArtifactoryServicesManager = mockClient
-	parser := NewEvidenceParser(&client)
+	parser := newEvidenceParser(&client)
 
 	edge := model.SearchEvidenceEdge{
 		Node: model.EvidenceMetadata{
@@ -117,7 +117,7 @@ func TestParseEvidence_ReadAllError(t *testing.T) {
 	}
 	result := &model.EvidenceVerification{}
 
-	err := parser.ParseEvidence(&edge, result)
+	err := parser.parseEvidence(&edge, result)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to read file content")
 }

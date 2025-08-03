@@ -14,9 +14,9 @@ type evidenceVerifier struct {
 	keys               []string
 	useArtifactoryKeys bool
 	artifactoryClient  artifactory.ArtifactoryServicesManager
-	parser             EvidenceParserInterface
-	dsseVerifier       DsseVerifierInterface
-	sigstoreVerifier   SigstoreVerifierInterface
+	parser             evidenceParserInterface
+	dsseVerifier       dsseVerifierInterface
+	sigstoreVerifier   sigstoreVerifierInterface
 }
 
 func NewEvidenceVerifier(keys []string, useArtifactoryKeys bool, client *artifactory.ArtifactoryServicesManager) EvidenceVerifierInterface {
@@ -24,9 +24,9 @@ func NewEvidenceVerifier(keys []string, useArtifactoryKeys bool, client *artifac
 		keys:               keys,
 		artifactoryClient:  *client,
 		useArtifactoryKeys: useArtifactoryKeys,
-		parser:             NewEvidenceParser(client),
-		dsseVerifier:       NewDsseVerifier(keys, useArtifactoryKeys),
-		sigstoreVerifier:   NewSigstoreVerifier(),
+		parser:             newEvidenceParser(client),
+		dsseVerifier:       newDsseVerifier(keys, useArtifactoryKeys),
+		sigstoreVerifier:   newSigstoreVerifier(),
 	}
 }
 
@@ -58,22 +58,19 @@ func (v *evidenceVerifier) Verify(subjectSha256 string, evidenceMetadata *[]mode
 	return verificationResponse, nil
 }
 
-// verifyEvidence verifies a single evidence using local and remote keys, avoiding unnecessary copies.
 func (v *evidenceVerifier) verifyEvidence(evidence *model.SearchEvidenceEdge, subjectSha256 string) (*model.EvidenceVerification, error) {
 	if evidence == nil {
 		return nil, fmt.Errorf("nil evidence provided")
 	}
 	evidenceVerification := &model.EvidenceVerification{
-		DownloadPath:    evidence.Node.DownloadPath,
-		SubjectChecksum: evidence.Node.Subject.Sha256,
-		PredicateType:   evidence.Node.PredicateType,
-		CreatedBy:       evidence.Node.CreatedBy,
-		CreatedAt:       evidence.Node.CreatedAt,
-		VerificationResult: model.EvidenceVerificationResult{
-			SignaturesVerificationStatus: model.Failed,
-		},
+		DownloadPath:       evidence.Node.DownloadPath,
+		SubjectChecksum:    evidence.Node.Subject.Sha256,
+		PredicateType:      evidence.Node.PredicateType,
+		CreatedBy:          evidence.Node.CreatedBy,
+		CreatedAt:          evidence.Node.CreatedAt,
+		VerificationResult: model.EvidenceVerificationResult{},
 	}
-	if err := v.parser.ParseEvidence(evidence, evidenceVerification); err != nil {
+	if err := v.parser.parseEvidence(evidence, evidenceVerification); err != nil {
 		return nil, fmt.Errorf("failed to read envelope: %w", err)
 	}
 	if err := v.performVerification(evidence, evidenceVerification, subjectSha256); err != nil {
@@ -85,9 +82,9 @@ func (v *evidenceVerifier) verifyEvidence(evidence *model.SearchEvidenceEdge, su
 func (v *evidenceVerifier) performVerification(evidence *model.SearchEvidenceEdge, result *model.EvidenceVerification, subjectSha256 string) error {
 	switch result.MediaType {
 	case model.SigstoreBundle:
-		return v.sigstoreVerifier.Verify(subjectSha256, result)
+		return v.sigstoreVerifier.verify(subjectSha256, result)
 	case model.SimpleDSSE:
-		return v.dsseVerifier.Verify(subjectSha256, evidence, result)
+		return v.dsseVerifier.verify(subjectSha256, evidence, result)
 	default:
 		return fmt.Errorf("unsupported verification mode: %v", result.MediaType)
 	}

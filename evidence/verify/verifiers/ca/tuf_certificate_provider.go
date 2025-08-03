@@ -22,7 +22,7 @@ func NewTUFRootCertificateProvider() TUFRootCertificateProvider {
 }
 
 func (t *tufRootCertificateProvider) LoadTUFRootCertificate() (root.TrustedMaterial, error) {
-	opts := tuf.DefaultOptions().WithCachePath(filepath.Join(common.JfrogCliHomeDir, "keys"))
+	opts := tuf.DefaultOptions().WithCachePath(filepath.Join(common.JfrogCliHomeDir, "evidence/security/certs"))
 	trustedRoot, err := root.FetchTrustedRootWithOptions(opts)
 	if err == nil {
 		return trustedRoot, nil

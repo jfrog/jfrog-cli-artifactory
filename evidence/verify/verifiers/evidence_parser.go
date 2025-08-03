@@ -11,22 +11,21 @@ import (
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 )
 
-// EvidenceParserInterface defines the interface for parsing evidence
-type EvidenceParserInterface interface {
-	ParseEvidence(evidence *model.SearchEvidenceEdge, evidenceResult *model.EvidenceVerification) error
+type evidenceParserInterface interface {
+	parseEvidence(evidence *model.SearchEvidenceEdge, evidenceResult *model.EvidenceVerification) error
 }
 
 type evidenceParser struct {
 	artifactoryClient artifactory.ArtifactoryServicesManager
 }
 
-func NewEvidenceParser(client *artifactory.ArtifactoryServicesManager) EvidenceParserInterface {
+func newEvidenceParser(client *artifactory.ArtifactoryServicesManager) evidenceParserInterface {
 	return &evidenceParser{
 		artifactoryClient: *client,
 	}
 }
 
-func (p *evidenceParser) ParseEvidence(evidence *model.SearchEvidenceEdge, evidenceResult *model.EvidenceVerification) error {
+func (p *evidenceParser) parseEvidence(evidence *model.SearchEvidenceEdge, evidenceResult *model.EvidenceVerification) error {
 	file, err := p.artifactoryClient.ReadRemoteFile(evidence.Node.DownloadPath)
 	if err != nil {
 		return errors.Wrap(err, "failed to read remote file")
@@ -37,7 +36,7 @@ func (p *evidenceParser) ParseEvidence(evidence *model.SearchEvidenceEdge, evide
 
 	fileContent, err := io.ReadAll(file)
 	if err != nil {
-		return errors.Wrap(err, "failed to read file content")
+		return errors.Wrap(err, "failed to read file content: "+evidence.Node.DownloadPath)
 	}
 	// Try Sigstore bundle first
 	if err := p.tryParseSigstoreBundle(fileContent, evidenceResult); err == nil {

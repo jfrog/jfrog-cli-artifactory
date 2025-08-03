@@ -14,20 +14,19 @@ import (
 
 const sigstoreKeySource = "Sigstore Bundle Key"
 
-// SigstoreVerifierInterface defines the interface for Sigstore verification
-type SigstoreVerifierInterface interface {
-	Verify(subjectSha256 string, result *model.EvidenceVerification) error
+type sigstoreVerifierInterface interface {
+	verify(subjectSha256 string, result *model.EvidenceVerification) error
 }
 
 type sigstoreVerifier struct {
 	rootCertificateProvider ca.TUFRootCertificateProvider
 }
 
-func NewSigstoreVerifier() SigstoreVerifierInterface {
+func newSigstoreVerifier() sigstoreVerifierInterface {
 	return &sigstoreVerifier{}
 }
 
-func (v *sigstoreVerifier) Verify(subjectSha256 string, result *model.EvidenceVerification) error {
+func (v *sigstoreVerifier) verify(subjectSha256 string, result *model.EvidenceVerification) error {
 	if v.rootCertificateProvider == nil {
 		v.rootCertificateProvider = ca.NewTUFRootCertificateProvider()
 	}
@@ -42,7 +41,7 @@ func (v *sigstoreVerifier) Verify(subjectSha256 string, result *model.EvidenceVe
 		verify.WithTransparencyLog(1),
 	}
 
-	sigstoreVerifier, err := verify.NewVerifier(certificate, verifierConfig...)
+	verifier, err := verify.NewVerifier(certificate, verifierConfig...)
 	if err != nil {
 		return fmt.Errorf("failed to create signature verifier: %v", err)
 	}
@@ -66,7 +65,7 @@ func (v *sigstoreVerifier) Verify(subjectSha256 string, result *model.EvidenceVe
 		verify.WithoutIdentitiesUnsafe(),                 // Skip identity verification for now
 	)
 
-	verificationResult, err := sigstoreVerifier.Verify(bundleToVerify, policy)
+	verificationResult, err := verifier.Verify(bundleToVerify, policy)
 	if err != nil {
 		result.VerificationResult.SigstoreBundleVerificationStatus = model.Failed
 		result.VerificationResult.FailureReason = err.Error()

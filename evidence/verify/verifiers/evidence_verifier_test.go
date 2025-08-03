@@ -96,9 +96,9 @@ func TestVerify_NilEvidence(t *testing.T) {
 	mockClient := createMockArtifactoryClient([]byte{})
 	verifier := &evidenceVerifier{
 		artifactoryClient: *mockClient,
-		parser:            NewEvidenceParser(mockClient),
-		dsseVerifier:      NewDsseVerifier(nil, false),
-		sigstoreVerifier:  NewSigstoreVerifier(),
+		parser:            newEvidenceParser(mockClient),
+		dsseVerifier:      newDsseVerifier(nil, false),
+		sigstoreVerifier:  newSigstoreVerifier(),
 	}
 
 	result, err := verifier.verifyEvidence(nil, createTestSHA256())

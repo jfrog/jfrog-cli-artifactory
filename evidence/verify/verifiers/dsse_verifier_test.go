@@ -56,7 +56,7 @@ func TestDsseVerifier_VerifyWithLocalKeys_Success(t *testing.T) {
 		localKeys:          []dsse.Verifier{mockVerifier},
 	}
 
-	err := verifier.Verify(createTestSHA256(), evidence, result)
+	err := verifier.verify(createTestSHA256(), evidence, result)
 	assert.NoError(t, err)
 	assert.Equal(t, model.VerificationStatus(model.Success), result.VerificationResult.Sha256VerificationStatus)
 	assert.Equal(t, model.VerificationStatus(model.Success), result.VerificationResult.SignaturesVerificationStatus)
@@ -93,7 +93,7 @@ func TestDsseVerifier_VerifyWithLocalKeys_Failed(t *testing.T) {
 		localKeys:          []dsse.Verifier{mockVerifier},
 	}
 
-	err := verifier.Verify(createTestSHA256(), evidence, result)
+	err := verifier.verify(createTestSHA256(), evidence, result)
 	assert.NoError(t, err)
 	assert.Equal(t, model.VerificationStatus(model.Success), result.VerificationResult.Sha256VerificationStatus)
 	assert.Equal(t, model.VerificationStatus(model.Failed), result.VerificationResult.SignaturesVerificationStatus)
@@ -143,7 +143,7 @@ func TestDsseVerifier_VerifyWithMultipleLocalKeys(t *testing.T) {
 		localKeys:          []dsse.Verifier{mockVerifier1, mockVerifier2},
 	}
 
-	err := verifier.Verify(createTestSHA256(), evidence, result)
+	err := verifier.verify(createTestSHA256(), evidence, result)
 	assert.NoError(t, err)
 	assert.Equal(t, model.VerificationStatus(model.Success), result.VerificationResult.Sha256VerificationStatus)
 	assert.Equal(t, model.VerificationStatus(model.Success), result.VerificationResult.SignaturesVerificationStatus)
@@ -169,7 +169,7 @@ func TestDsseVerifier_VerifyWithLocalKeys(t *testing.T) {
 		localKeys:          []dsse.Verifier{mockVerifier},
 	}
 
-	err := verifier.Verify("", evidence, result)
+	err := verifier.verify("", evidence, result)
 	assert.NoError(t, err)
 	assert.Equal(t, model.VerificationStatus(model.Success), result.VerificationResult.SignaturesVerificationStatus)
 	assert.Equal(t, localKeySource, result.VerificationResult.KeySource)
@@ -192,7 +192,7 @@ func TestDsseVerifier_VerifyNoKeysAvailable(t *testing.T) {
 		localKeys:          []dsse.Verifier{}, // No local keys
 	}
 
-	err := verifier.Verify("", evidence, result)
+	err := verifier.verify("", evidence, result)
 	assert.NoError(t, err)
 	assert.Equal(t, model.VerificationStatus(model.Failed), result.VerificationResult.SignaturesVerificationStatus)
 }
@@ -349,7 +349,7 @@ func TestDsseVerifier_ChecksumMismatch(t *testing.T) {
 	// Use different SHA256 for subject to trigger checksum mismatch
 	subjectSha256 := createTestSHA256()
 
-	err := verifier.Verify(subjectSha256, evidence, result)
+	err := verifier.verify(subjectSha256, evidence, result)
 	assert.NoError(t, err)
 	assert.Equal(t, model.VerificationStatus(model.Failed), result.VerificationResult.Sha256VerificationStatus)
 }
@@ -377,7 +377,7 @@ func TestDsseVerifier_ChecksumMatch(t *testing.T) {
 		localKeys:          []dsse.Verifier{}, // No local keys
 	}
 
-	err := verifier.Verify(sha256, evidence, result)
+	err := verifier.verify(sha256, evidence, result)
 	assert.NoError(t, err)
 	assert.Equal(t, model.VerificationStatus(model.Success), result.VerificationResult.Sha256VerificationStatus)
 }

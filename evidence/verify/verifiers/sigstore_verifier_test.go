@@ -26,7 +26,7 @@ func TestSigstoreVerifier_VerifyNilBundle(t *testing.T) {
 		VerificationResult: model.EvidenceVerificationResult{},
 	}
 
-	err := verifier.Verify(createTestSHA256(), result)
+	err := verifier.verify(createTestSHA256(), result)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to load TUF root certificate")
 
@@ -51,7 +51,7 @@ func TestSigstoreVerifier_VerifyInvalidDigest(t *testing.T) {
 	}
 
 	// Use invalid hex string
-	err := verifier.Verify("invalid-hex", result)
+	err := verifier.verify("invalid-hex", result)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to load TUF root certificate")
 
@@ -74,7 +74,7 @@ func TestSigstoreVerifier_VerifyTUFProviderError(t *testing.T) {
 		VerificationResult: model.EvidenceVerificationResult{},
 	}
 
-	err := verifier.Verify(createTestSHA256(), result)
+	err := verifier.verify(createTestSHA256(), result)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to load TUF root certificate")
 	assert.Contains(t, err.Error(), "TUF load failed")
@@ -84,11 +84,11 @@ func TestSigstoreVerifier_VerifyTUFProviderError(t *testing.T) {
 }
 
 func TestSigstoreVerifier_Creation(t *testing.T) {
-	verifier := NewSigstoreVerifier()
+	verifier := newSigstoreVerifier()
 	assert.NotNil(t, verifier)
 
 	// Verify it implements the interface
-	var _ SigstoreVerifierInterface = verifier
+	var _ sigstoreVerifierInterface = verifier
 }
 
 func TestSigstoreVerifier_VerifyNilBundleAfterTUFSuccess(t *testing.T) {
@@ -107,7 +107,7 @@ func TestSigstoreVerifier_VerifyNilBundleAfterTUFSuccess(t *testing.T) {
 		VerificationResult: model.EvidenceVerificationResult{},
 	}
 
-	err := verifier.Verify(createTestSHA256(), result)
+	err := verifier.verify(createTestSHA256(), result)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid bundle: missing protobuf bundle")
 
@@ -134,7 +134,7 @@ func TestSigstoreVerifier_InvalidBundleCreation(t *testing.T) {
 		VerificationResult: model.EvidenceVerificationResult{},
 	}
 
-	err := verifier.Verify(createTestSHA256(), result)
+	err := verifier.verify(createTestSHA256(), result)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create bundle for verification")
 

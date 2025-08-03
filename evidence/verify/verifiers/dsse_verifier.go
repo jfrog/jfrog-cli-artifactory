@@ -13,9 +13,8 @@ import (
 const localKeySource = "User Provided Key"
 const artifactoryKeySource = "Artifactory Key"
 
-// DsseVerifierInterface defines the interface for DSSE verification
-type DsseVerifierInterface interface {
-	Verify(subjectSha256 string, evidence *model.SearchEvidenceEdge, result *model.EvidenceVerification) error
+type dsseVerifierInterface interface {
+	verify(subjectSha256 string, evidence *model.SearchEvidenceEdge, result *model.EvidenceVerification) error
 }
 
 type dsseVerifier struct {
@@ -24,14 +23,14 @@ type dsseVerifier struct {
 	localKeys          []dsse.Verifier
 }
 
-func NewDsseVerifier(keys []string, useArtifactoryKeys bool) DsseVerifierInterface {
+func newDsseVerifier(keys []string, useArtifactoryKeys bool) dsseVerifierInterface {
 	return &dsseVerifier{
 		keys:               keys,
 		useArtifactoryKeys: useArtifactoryKeys,
 	}
 }
 
-func (v *dsseVerifier) Verify(subjectSha256 string, evidence *model.SearchEvidenceEdge, result *model.EvidenceVerification) error {
+func (v *dsseVerifier) verify(subjectSha256 string, evidence *model.SearchEvidenceEdge, result *model.EvidenceVerification) error {
 	result.VerificationResult.Sha256VerificationStatus = verifyChecksum(subjectSha256, evidence.Node.Subject.Sha256)
 	localVerifiers, err := v.getLocalVerifiers()
 	if err != nil && v.keys != nil && len(v.keys) > 0 {
@@ -89,7 +88,7 @@ func (v *dsseVerifier) getLocalVerifiers() ([]dsse.Verifier, error) {
 
 // verifyEnvelope returns true if verification succeeded, false otherwise. Uses pointer for result.
 func verifyEnvelope(verifiers []dsse.Verifier, envelope *dsse.Envelope, result *model.EvidenceVerification) bool {
-	if verifiers == nil || result == nil || envelope == nil {
+	if verifiers == nil || envelope == nil {
 		result.VerificationResult.SignaturesVerificationStatus = model.Failed
 		return false
 	}
