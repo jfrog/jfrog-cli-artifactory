@@ -143,7 +143,7 @@ func TestInitReleasebundlePromotionDetails(t *testing.T) {
 		releaseBundleVersion := "1.0.0"
 		project := "test-project"
 
-		rbDetails, queryParams := initReleasebundlePromotionDetails(releaseBundle, releaseBundleVersion, project)
+		rbDetails, queryParams := initReleaseBundlePromotionDetails(releaseBundle, releaseBundleVersion, project)
 
 		// Verify the returned structures have the expected field values
 		assert.Equal(t, releaseBundle, rbDetails.ReleaseBundleName)
@@ -153,7 +153,7 @@ func TestInitReleasebundlePromotionDetails(t *testing.T) {
 
 	t.Run("Empty_Parameters", func(t *testing.T) {
 		// Test with empty parameters
-		rbDetails, queryParams := initReleasebundlePromotionDetails("", "", "")
+		rbDetails, queryParams := initReleaseBundlePromotionDetails("", "", "")
 
 		assert.Equal(t, "", rbDetails.ReleaseBundleName)
 		assert.Equal(t, "", rbDetails.ReleaseBundleVersion)

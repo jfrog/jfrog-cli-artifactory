@@ -34,7 +34,6 @@ type createEvidenceBase struct {
 }
 
 const EvdDefaultUser = "JFrog CLI"
-const EvdStagesSupportedVersion = "7.141.0"
 
 func (c *createEvidenceBase) createEnvelope(subject, subjectSha256 string) ([]byte, error) {
 	statementJson, err := c.buildIntotoStatementJson(subject, subjectSha256)

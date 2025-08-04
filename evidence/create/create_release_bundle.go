@@ -91,7 +91,7 @@ func getReleaseBundleStage(serverDetails *config.ServerDetails, releaseBundle, r
 		return ""
 	}
 
-	rbDetails, queryParams := initReleasebundlePromotionDetails(releaseBundle, releaseBundleVersion, project)
+	rbDetails, queryParams := initReleaseBundlePromotionDetails(releaseBundle, releaseBundleVersion, project)
 
 	promotionDetails, err := lifecycleServiceManager.GetReleaseBundleVersionPromotions(rbDetails, queryParams)
 	if err != nil {
@@ -99,10 +99,10 @@ func getReleaseBundleStage(serverDetails *config.ServerDetails, releaseBundle, r
 		return ""
 	}
 
-	return fetchCurrentStage(promotionDetails)
+	return getReleaseBundleCurrentStage(promotionDetails)
 }
 
-func initReleasebundlePromotionDetails(releaseBundle, releaseBundleVersion, project string) (lifecycleServices.ReleaseBundleDetails, lifecycleServices.GetPromotionsOptionalQueryParams) {
+func initReleaseBundlePromotionDetails(releaseBundle, releaseBundleVersion, project string) (lifecycleServices.ReleaseBundleDetails, lifecycleServices.GetPromotionsOptionalQueryParams) {
 	rbDetails := lifecycleServices.ReleaseBundleDetails{
 		ReleaseBundleName:    releaseBundle,
 		ReleaseBundleVersion: releaseBundleVersion,
@@ -114,7 +114,7 @@ func initReleasebundlePromotionDetails(releaseBundle, releaseBundleVersion, proj
 	return rbDetails, queryParams
 }
 
-func fetchCurrentStage(promotionDetails lifecycleServices.RbPromotionsResponse) string {
+func getReleaseBundleCurrentStage(promotionDetails lifecycleServices.RbPromotionsResponse) string {
 	for _, promotion := range promotionDetails.Promotions {
 		if promotion.Status != "COMPLETED" { // If promotion is not completed, than its not the current stage
 			continue
