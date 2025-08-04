@@ -27,8 +27,6 @@ func NewCreateEvidencePackage(serverDetails *config.ServerDetails, predicateFile
 			markdownFilePath:  markdownFilePath,
 			key:               key,
 			keyId:             keyId,
-			displayName:       fmt.Sprintf("%s %s", packageName, packageVersion),
-			subjectType:       commandsummary.SubjectTypePackage,
 		},
 		packageService: evidence.NewPackageService(packageName, packageVersion, packageRepoName),
 	}

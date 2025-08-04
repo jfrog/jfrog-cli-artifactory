@@ -24,7 +24,6 @@ type createEvidenceReleaseBundle struct {
 
 func NewCreateEvidenceReleaseBundle(serverDetails *config.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, project, releaseBundle,
 	releaseBundleVersion string) evidence.Command {
-	displayName := fmt.Sprintf("%s %s", releaseBundle, releaseBundleVersion)
 	return &createEvidenceReleaseBundle{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,

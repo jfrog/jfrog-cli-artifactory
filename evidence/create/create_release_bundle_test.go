@@ -282,7 +282,6 @@ func TestReleaseBundle(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expectedPath, path)
 				assert.Equal(t, tt.expectedCheckSum, sha256)
-				assert.Equal(t, tt.expectedName, c.displayName)
 			}
 		})
 	}

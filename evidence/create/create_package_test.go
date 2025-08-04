@@ -36,7 +36,6 @@ func TestNewCreateEvidencePackage(t *testing.T) {
 	assert.Equal(t, markdownFilePath, createCmd.markdownFilePath)
 	assert.Equal(t, key, createCmd.key)
 	assert.Equal(t, keyId, createCmd.keyId)
-	assert.Equal(t, "test-package 1.0.0", createCmd.displayName)
 
 	// Test packageService fields
 	assert.Equal(t, packageName, createCmd.packageService.GetPackageName())

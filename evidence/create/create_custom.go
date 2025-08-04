@@ -163,7 +163,6 @@ func (c *createEvidenceCustom) recordSummary(response *model.CreateResponse) {
 		Verified:      response.Verified,
 		DisplayName:   c.subjectRepoPath,
 		SubjectType:   commandsummary.SubjectTypeArtifact,
-		RepoKey:       c.subjectRepoPath,
 	}
 	err := c.recordEvidenceSummary(commandSummary)
 	if err != nil {

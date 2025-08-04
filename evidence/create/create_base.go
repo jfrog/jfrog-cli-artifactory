@@ -33,8 +33,6 @@ type createEvidenceBase struct {
 	providerId        string
 	stage             string
 	flagType          FlagType
-	displayName       string
-	subjectType       commandsummary.SubjectType
 }
 
 const EvdDefaultUser = "JFrog CLI"
