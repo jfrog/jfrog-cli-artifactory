@@ -37,7 +37,7 @@ func (eac *evidenceApplicationCommand) CreateEvidence(ctx *components.Context, s
 		eac.ctx.GetStringFlagValue(key),
 		eac.ctx.GetStringFlagValue(keyAlias),
 		eac.ctx.GetStringFlagValue(project),
-		eac.ctx.GetStringFlagValue(application),
+		eac.ctx.GetStringFlagValue(applicationKey),
 		eac.ctx.GetStringFlagValue(applicationVersion))
 	return eac.execute(createCmd)
 }
@@ -51,7 +51,7 @@ func (eac *evidenceApplicationCommand) VerifyEvidence(ctx *components.Context, s
 }
 
 func (eac *evidenceApplicationCommand) validateEvidenceApplicationContext(ctx *components.Context) error {
-	if !ctx.IsFlagSet(application) || assertValueProvided(ctx, applicationVersion) != nil {
+	if !ctx.IsFlagSet(applicationKey) || assertValueProvided(ctx, applicationVersion) != nil {
 		return errorutils.CheckErrorf("--%s is a mandatory field for creating a Application evidence", releaseBundleVersion)
 	}
 	return nil
