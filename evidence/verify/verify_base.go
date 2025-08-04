@@ -124,7 +124,7 @@ func printText(result *model.VerificationResponse) error {
 	fmt.Printf("Loaded %d evidence\n", evidenceNumber)
 	successfulVerifications := 0
 	for _, v := range *result.EvidenceVerifications {
-		if v.VerificationResult.Sha256VerificationStatus == model.Success && v.VerificationResult.SignaturesVerificationStatus == model.Success {
+		if isVerificationSucceed(v) {
 			successfulVerifications++
 		}
 	}
@@ -206,4 +206,10 @@ func getColoredStatus(status model.VerificationStatus) string {
 
 func isPublicKeyFieldNotFound(errStr string) bool {
 	return strings.Contains(errStr, "publicKey")
+}
+
+func isVerificationSucceed(v model.EvidenceVerification) bool {
+	return v.VerificationResult.Sha256VerificationStatus == model.Success &&
+		v.VerificationResult.SignaturesVerificationStatus == model.Success ||
+		v.VerificationResult.SigstoreBundleVerificationStatus == model.Success
 }
