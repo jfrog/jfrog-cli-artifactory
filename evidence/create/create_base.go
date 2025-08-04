@@ -29,10 +29,12 @@ type createEvidenceBase struct {
 	key               string
 	keyId             string
 	providerId        string
+	stage             string
 	flagType          FlagType
 }
 
 const EvdDefaultUser = "JFrog CLI"
+const EvdStagesSupportedVersion = "7.141.0"
 
 func (c *createEvidenceBase) createEnvelope(subject, subjectSha256 string) ([]byte, error) {
 	statementJson, err := c.buildIntotoStatementJson(subject, subjectSha256)
@@ -100,6 +102,7 @@ func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 str
 	if err != nil {
 		return nil, err
 	}
+	statement.SetStage(c.stage)
 	statementJson, err := statement.Marshal()
 	if err != nil {
 		log.Error("failed marshaling statement json file", err)
