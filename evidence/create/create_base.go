@@ -29,6 +29,7 @@ type createEvidenceBase struct {
 	key               string
 	keyId             string
 	providerId        string
+	stage             string
 	flagType          FlagType
 }
 
@@ -100,6 +101,7 @@ func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 str
 	if err != nil {
 		return nil, err
 	}
+	statement.SetStage(c.stage)
 	statementJson, err := statement.Marshal()
 	if err != nil {
 		log.Error("failed marshaling statement json file", err)

@@ -5,8 +5,10 @@ import (
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
+	artifactoryUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
+	lifecycleServices "github.com/jfrog/jfrog-client-go/lifecycle/services"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -27,6 +29,7 @@ func NewCreateEvidenceReleaseBundle(serverDetails *config.ServerDetails, predica
 			markdownFilePath:  markdownFilePath,
 			key:               key,
 			keyId:             keyId,
+			stage:             getReleaseBundleStage(serverDetails, releaseBundle, releaseBundleVersion, project),
 		},
 		project:              project,
 		releaseBundle:        releaseBundle,
@@ -78,4 +81,46 @@ func (c *createEvidenceReleaseBundle) buildReleaseBundleSubjectPath(artifactoryC
 
 func buildManifestPath(repoKey, name, version string) string {
 	return fmt.Sprintf("%s/%s/%s/release-bundle.json.evd", repoKey, name, version)
+}
+
+func getReleaseBundleStage(serverDetails *config.ServerDetails, releaseBundle, releaseBundleVersion, project string) string {
+	log.Debug("fetching release bundle %s:%s stage", releaseBundle, releaseBundleVersion)
+	lifecycleServiceManager, err := artifactoryUtils.CreateLifecycleServiceManager(serverDetails, false)
+	if err != nil {
+		log.Warn("Failed to create lifecycle service manager:", err)
+		return ""
+	}
+
+	rbDetails, queryParams := initReleaseBundlePromotionDetails(releaseBundle, releaseBundleVersion, project)
+
+	promotionDetails, err := lifecycleServiceManager.GetReleaseBundleVersionPromotions(rbDetails, queryParams)
+	if err != nil {
+		log.Warn("Failed to get release bundle promotions:", err)
+		return ""
+	}
+
+	return getReleaseBundleCurrentStage(promotionDetails)
+}
+
+func initReleaseBundlePromotionDetails(releaseBundle, releaseBundleVersion, project string) (lifecycleServices.ReleaseBundleDetails, lifecycleServices.GetPromotionsOptionalQueryParams) {
+	rbDetails := lifecycleServices.ReleaseBundleDetails{
+		ReleaseBundleName:    releaseBundle,
+		ReleaseBundleVersion: releaseBundleVersion,
+	}
+	queryParams := lifecycleServices.GetPromotionsOptionalQueryParams{
+		ProjectKey: project,
+	}
+
+	return rbDetails, queryParams
+}
+
+func getReleaseBundleCurrentStage(promotionDetails lifecycleServices.RbPromotionsResponse) string {
+	for _, promotion := range promotionDetails.Promotions {
+		if promotion.Status != "COMPLETED" { // If promotion is not completed, than its not the current stage
+			continue
+		}
+		return promotion.Environment
+	}
+
+	return ""
 }
