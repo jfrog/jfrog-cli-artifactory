@@ -808,7 +808,8 @@ var questionMap = map[string]ioutils.QuestionInfo{
 		Callback:  projectKeyCallback,
 	},
 	Environment: {
-		PromptPrefix: "Insert a comma separated list of the environments to assign to >",
+		PromptPrefix: "Insert the environment(s) to assign to >",
+		Msg:          ioutils.CommaSeparatedListMsg,
 		AllowVars:    true,
 		MapKey:       environmentsKey,
 		Writer:       ioutils.WriteStringArrayAnswer,

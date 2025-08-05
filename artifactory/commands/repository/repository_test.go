@@ -25,7 +25,7 @@ func Test_PerformRepoCmd_SingleRepository(t *testing.T) {
 		expErr         error
 	}{
 		{
-			name:         "Create single Maven local repository",
+			name:         "Create Maven local repository with multiple environments",
 			templatePath: createTempTemplate(t, singleRepoTemplate),
 			vars:         `REPO_KEY=test-maven-local;RCLASS=local;PACKAGE_TYPE=maven;DESCRIPTION=Test Maven repo;ENVIRONMENTS=PROD,DEV`,
 			isUpdate:     false,
@@ -35,6 +35,21 @@ func Test_PerformRepoCmd_SingleRepository(t *testing.T) {
 				PackageType:  "maven",
 				Description:  "Test Maven repo",
 				Environments: []string{"PROD", "DEV"},
+			},
+			expectedStatus: http.StatusOK,
+			expErr:         nil,
+		},
+		{
+			name:         "Create Maven local repository with single environment",
+			templatePath: createTempTemplate(t, singleRepoTemplate),
+			vars:         `REPO_KEY=test-maven-local-single;RCLASS=local;PACKAGE_TYPE=maven;DESCRIPTION=Test Maven repo;ENVIRONMENTS=PROD`,
+			isUpdate:     false,
+			expectedRepo: services.RepositoryBaseParams{
+				Key:          "test-maven-local-single",
+				Rclass:       "local",
+				PackageType:  "maven",
+				Description:  "Test Maven repo",
+				Environments: []string{"PROD"},
 			},
 			expectedStatus: http.StatusOK,
 			expErr:         nil,
