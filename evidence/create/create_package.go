@@ -1,7 +1,12 @@
 package create
 
 import (
+	"fmt"
+
+	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
+
 	"github.com/jfrog/jfrog-cli-artifactory/evidence"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -64,10 +69,29 @@ func (c *createEvidencePackage) Run() error {
 	if err != nil {
 		return err
 	}
-	err = c.uploadEvidence(envelope, leadArtifactPath)
+	response, err := c.uploadEvidence(envelope, leadArtifactPath)
+	c.recordSummary(response, leadArtifactPath, leadArtifactChecksum)
 	if err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func (c *createEvidencePackage) recordSummary(response *model.CreateResponse, leadArtifactPath string, leadArtifactChecksum string) {
+	displayName := fmt.Sprintf("%s %s", c.packageService.GetPackageName(), c.packageService.GetPackageVersion())
+	commandSummary := commandsummary.EvidenceSummaryData{
+		Subject:       leadArtifactPath,
+		SubjectSha256: leadArtifactChecksum,
+		PredicateType: c.predicateType,
+		PredicateSlug: response.PredicateSlug,
+		Verified:      response.Verified,
+		DisplayName:   displayName,
+		SubjectType:   commandsummary.SubjectTypePackage,
+		RepoKey:       c.packageService.GetPackageRepoName(),
+	}
+	err := c.recordEvidenceSummary(commandSummary)
+	if err != nil {
+		log.Warn("Failed to record evidence summary:", err.Error())
+	}
 }

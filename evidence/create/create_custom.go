@@ -5,10 +5,13 @@ import (
 	"regexp"
 	"strings"
 
-	clientLog "github.com/jfrog/jfrog-client-go/utils/log"
+	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
+
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/sigstore"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
@@ -54,10 +57,10 @@ func (c *createEvidenceCustom) Run() error {
 	var err error
 
 	if c.sigstoreBundlePath != "" {
-		clientLog.Info("Reading sigstore bundle from path:", c.sigstoreBundlePath)
+		log.Info("Reading sigstore bundle from path:", c.sigstoreBundlePath)
 		evidencePayload, err = c.processSigstoreBundle()
 	} else {
-		clientLog.Info("Creating DSSE envelope for subject:", c.subjectRepoPath)
+		log.Info("Creating DSSE envelope for subject:", c.subjectRepoPath)
 		evidencePayload, err = c.createDSSEEnvelope()
 	}
 
@@ -69,7 +72,8 @@ func (c *createEvidenceCustom) Run() error {
 	if err != nil {
 		return err
 	}
-	err = c.uploadEvidence(evidencePayload, c.subjectRepoPath)
+	response, err := c.uploadEvidence(evidencePayload, c.subjectRepoPath)
+	c.recordSummary(response)
 	if err != nil {
 		err = c.handleSubjectNotFound(err)
 		return err
@@ -105,7 +109,7 @@ func (c *createEvidenceCustom) extractSubjectFromBundle(bundle *bundle.Bundle) (
 	if subject == "" {
 		return "", c.newSubjectError("Subject is not found in the sigstore bundle. Please ensure the bundle contains a valid subject.")
 	} else {
-		clientLog.Info("Subject " + subject + " is resolved from sigstore bundle.")
+		log.Info("Subject " + subject + " is resolved from sigstore bundle.")
 	}
 
 	return subject, nil
@@ -131,7 +135,7 @@ func (c *createEvidenceCustom) validateSubject() error {
 func (c *createEvidenceCustom) handleSubjectNotFound(err error) error {
 	errStr := err.Error()
 	if strings.Contains(errStr, "404 Not Found") {
-		clientLog.Debug("Server response error:", err.Error())
+		log.Debug("Server response error:", err.Error())
 		return c.newSubjectError("Subject '" + c.subjectRepoPath + "' is not found. Please ensure the subject exists.")
 	}
 	return err
@@ -148,4 +152,20 @@ func (c *createEvidenceCustom) newSubjectError(message string) error {
 		}
 	}
 	return errorutils.CheckErrorf(message)
+}
+
+func (c *createEvidenceCustom) recordSummary(response *model.CreateResponse) {
+	commandSummary := commandsummary.EvidenceSummaryData{
+		Subject:       c.subjectRepoPath,
+		SubjectSha256: c.subjectSha256,
+		PredicateType: response.PredicateType,
+		PredicateSlug: response.PredicateSlug,
+		Verified:      response.Verified,
+		DisplayName:   c.subjectRepoPath,
+		SubjectType:   commandsummary.SubjectTypeArtifact,
+	}
+	err := c.recordEvidenceSummary(commandSummary)
+	if err != nil {
+		log.Warn("Failed to record evidence summary:", err.Error())
+	}
 }

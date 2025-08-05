@@ -1,11 +1,18 @@
 package create
 
 import (
+	"encoding/json"
+	"os"
+	"strings"
 	"testing"
 
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
+	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -223,6 +230,7 @@ func TestReleaseBundle(t *testing.T) {
 		releaseBundleVersion string
 		expectedPath         string
 		expectedCheckSum     string
+		expectedName         string
 		expectError          bool
 	}{
 		{
@@ -232,6 +240,7 @@ func TestReleaseBundle(t *testing.T) {
 			releaseBundleVersion: "1.0.0",
 			expectedPath:         "myProject-release-bundles-v2/bundleName/1.0.0/release-bundle.json.evd",
 			expectedCheckSum:     "dummy_sha256",
+			expectedName:         "bundleName 1.0.0",
 			expectError:          false,
 		},
 		{
@@ -241,6 +250,7 @@ func TestReleaseBundle(t *testing.T) {
 			releaseBundleVersion: "1.0.0",
 			expectedPath:         "release-bundles-v2/bundleName/1.0.0/release-bundle.json.evd",
 			expectedCheckSum:     "dummy_sha256",
+			expectedName:         "bundleName 1.0.0",
 			expectError:          false,
 		},
 		{
@@ -250,6 +260,7 @@ func TestReleaseBundle(t *testing.T) {
 			releaseBundleVersion: "1.0.0",
 			expectedPath:         "release-bundles-v2/bundleName/1.0.0/release-bundle.json.evd",
 			expectedCheckSum:     "dummy_sha256",
+			expectedName:         "bundleName 1.0.0",
 			expectError:          false,
 		},
 	}
@@ -273,5 +284,78 @@ func TestReleaseBundle(t *testing.T) {
 				assert.Equal(t, tt.expectedCheckSum, sha256)
 			}
 		})
+	}
+}
+
+func TestCreateEvidenceReleaseBundle_RecordSummary(t *testing.T) {
+	tempDir, err := fileutils.CreateTempDir()
+	assert.NoError(t, err)
+	defer func() {
+		assert.NoError(t, fileutils.RemoveTempDir(tempDir))
+	}()
+
+	assert.NoError(t, os.Setenv("GITHUB_ACTIONS", "true"))
+	assert.NoError(t, os.Setenv(coreutils.SummaryOutputDirPathEnv, tempDir))
+	defer func() {
+		assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
+		assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
+	}()
+
+	serverDetails := &config.ServerDetails{
+		Url:      "http://test.com",
+		User:     "testuser",
+		Password: "testpass",
+	}
+
+	evidence := NewCreateEvidenceReleaseBundle(
+		serverDetails,
+		"",
+		"test-predicate-type",
+		"",
+		"test-key",
+		"test-key-id",
+		"myProject",
+		"testBundle",
+		"2.0.0",
+	)
+	c, ok := evidence.(*createEvidenceReleaseBundle)
+	if !ok {
+		t.Fatal("Failed to create createEvidenceReleaseBundle instance")
+	}
+
+	expectedResponse := &model.CreateResponse{
+		PredicateSlug: "test-rb-slug",
+		Verified:      true,
+	}
+	expectedSubject := "myProject-release-bundles-v2/testBundle/2.0.0/release-bundle.json.evd"
+	expectedSha256 := "rb-sha256"
+
+	c.recordSummary(expectedResponse, expectedSubject, expectedSha256)
+
+	summaryFiles, err := fileutils.ListFiles(tempDir, true)
+	assert.NoError(t, err)
+	assert.True(t, len(summaryFiles) > 0, "Summary file should be created")
+
+	for _, file := range summaryFiles {
+		if strings.HasSuffix(file, "-data") {
+			content, err := os.ReadFile(file)
+			assert.NoError(t, err)
+
+			var summaryData commandsummary.EvidenceSummaryData
+			err = json.Unmarshal(content, &summaryData)
+			assert.NoError(t, err)
+
+			assert.Equal(t, expectedSubject, summaryData.Subject)
+			assert.Equal(t, expectedSha256, summaryData.SubjectSha256)
+			assert.Equal(t, "test-predicate-type", summaryData.PredicateType)
+			assert.Equal(t, "test-rb-slug", summaryData.PredicateSlug)
+			assert.True(t, summaryData.Verified)
+			assert.Equal(t, "testBundle 2.0.0", summaryData.DisplayName)
+			assert.Equal(t, commandsummary.SubjectTypeReleaseBundle, summaryData.SubjectType)
+			assert.Equal(t, "testBundle", summaryData.ReleaseBundleName)
+			assert.Equal(t, "2.0.0", summaryData.ReleaseBundleVersion)
+			assert.Equal(t, "myProject-release-bundles-v2", summaryData.RepoKey)
+			break
+		}
 	}
 }

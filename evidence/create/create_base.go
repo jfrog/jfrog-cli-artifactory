@@ -4,21 +4,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	evidenceUtils "github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	"os"
 	"strings"
 
-	"github.com/jfrog/jfrog-cli-artifactory/evidence/sign"
+	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
 
-	"github.com/jfrog/gofrog/log"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cryptox"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/intoto"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/sign"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	evidenceService "github.com/jfrog/jfrog-client-go/evidence/services"
-	clientlog "github.com/jfrog/jfrog-client-go/utils/log"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 type createEvidenceBase struct {
@@ -149,10 +150,10 @@ func (c *createEvidenceBase) setMarkdown(statement *intoto.Statement) error {
 	return nil
 }
 
-func (c *createEvidenceBase) uploadEvidence(evidencePayload []byte, repoPath string) error {
+func (c *createEvidenceBase) uploadEvidence(evidencePayload []byte, repoPath string) (*model.CreateResponse, error) {
 	evidenceManager, err := utils.CreateEvidenceServiceManager(c.serverDetails, false)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	evidenceDetails := evidenceService.EvidenceDetails{
@@ -161,23 +162,36 @@ func (c *createEvidenceBase) uploadEvidence(evidencePayload []byte, repoPath str
 		DSSEFileRaw: evidencePayload,
 		ProviderId:  c.providerId,
 	}
-	clientlog.Debug("Uploading evidence for subject:", repoPath)
+	log.Debug("Uploading evidence for subject:", repoPath)
 	body, err := evidenceManager.UploadEvidence(evidenceDetails)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	createResponse := &model.CreateResponse{}
 	err = json.Unmarshal(body, createResponse)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if createResponse.Verified {
-		clientlog.Info("Evidence successfully created and verified")
+		log.Info("Evidence successfully created and verified")
+	} else {
+		log.Info("Evidence successfully created but not verified due to missing/invalid public key")
+	}
+	return createResponse, nil
+}
+
+func (c *createEvidenceBase) recordEvidenceSummary(summaryData commandsummary.EvidenceSummaryData) error {
+	if !evidenceUtils.IsRunningUnderGitHubAction() {
 		return nil
 	}
-	clientlog.Info("Evidence successfully created but not verified due to missing/invalid public key")
-	return nil
+
+	evidenceSummary, err := commandsummary.NewEvidenceSummary()
+	if err != nil {
+		return err
+	}
+
+	return evidenceSummary.Record(summaryData)
 }
 
 func (c *createEvidenceBase) createArtifactoryClient() (artifactory.ArtifactoryServicesManager, error) {
