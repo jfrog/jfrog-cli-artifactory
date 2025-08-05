@@ -2,7 +2,6 @@ package create
 
 import (
 	"fmt"
-
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence"

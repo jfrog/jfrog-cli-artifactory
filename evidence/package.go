@@ -10,7 +10,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/metadata"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
-	clientLog "github.com/jfrog/jfrog-client-go/utils/log"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 const leadArtifactQueryTemplate = `{
@@ -126,7 +126,7 @@ func (b *basePackage) getPackageVersionLeadArtifactFromMetaData(packageType stri
 func (c *basePackage) createQuery(packageType string) []byte {
 	packageId := packageType + "://" + c.PackageName
 	query := fmt.Sprintf(leadArtifactQueryTemplate, packageId, c.PackageVersion, c.PackageRepoName)
-	clientLog.Debug("Fetch lead artifact using graphql query:", query)
+	log.Debug("Fetch lead artifact using graphql query:", query)
 	return []byte(query)
 }
 

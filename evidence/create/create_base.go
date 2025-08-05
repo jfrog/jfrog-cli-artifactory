@@ -10,7 +10,6 @@ import (
 
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
 
-	"github.com/jfrog/gofrog/log"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cryptox"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/intoto"
@@ -20,7 +19,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	evidenceService "github.com/jfrog/jfrog-client-go/evidence/services"
-	clientlog "github.com/jfrog/jfrog-client-go/utils/log"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 type createEvidenceBase struct {
@@ -163,7 +162,7 @@ func (c *createEvidenceBase) uploadEvidence(evidencePayload []byte, repoPath str
 		DSSEFileRaw: evidencePayload,
 		ProviderId:  c.providerId,
 	}
-	clientlog.Debug("Uploading evidence for subject:", repoPath)
+	log.Debug("Uploading evidence for subject:", repoPath)
 	body, err := evidenceManager.UploadEvidence(evidenceDetails)
 	if err != nil {
 		return nil, err
@@ -175,9 +174,9 @@ func (c *createEvidenceBase) uploadEvidence(evidencePayload []byte, repoPath str
 		return nil, err
 	}
 	if createResponse.Verified {
-		clientlog.Info("Evidence successfully created and verified")
+		log.Info("Evidence successfully created and verified")
 	} else {
-		clientlog.Info("Evidence successfully created but not verified due to missing/invalid public key")
+		log.Info("Evidence successfully created but not verified due to missing/invalid public key")
 	}
 	return createResponse, nil
 }

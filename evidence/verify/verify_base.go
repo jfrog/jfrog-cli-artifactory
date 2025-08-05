@@ -13,7 +13,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/onemodel"
-	clientLog "github.com/jfrog/jfrog-client-go/utils/log"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 var success = color.Green.Render("success")
@@ -78,7 +78,7 @@ func (v *verifyEvidenceBase) queryEvidenceMetadata(repo string, path string, nam
 	} else {
 		query = fmt.Sprintf(searchEvidenceQueryWithoutPublicKey, repo, path, name)
 	}
-	clientLog.Debug("Fetch evidence metadata using query:", query)
+	log.Debug("Fetch evidence metadata using query:", query)
 	queryByteArray := []byte(query)
 	response, err := v.oneModelClient.GraphqlQuery(queryByteArray)
 	if err != nil {

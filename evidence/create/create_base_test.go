@@ -16,7 +16,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/evidence/services"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
-	clientlog "github.com/jfrog/jfrog-client-go/utils/log"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -35,9 +35,9 @@ func (m *MockEvidenceServiceManager) UploadEvidence(details services.EvidenceDet
 
 func TestUploadEvidence_ErrorHandling(t *testing.T) {
 	// Save the current log level and set it to DEBUG for testing
-	originalLogLevel := clientlog.GetLogger().GetLogLevel()
-	clientlog.SetLogger(clientlog.NewLogger(clientlog.DEBUG, nil))
-	defer clientlog.SetLogger(clientlog.NewLogger(originalLogLevel, nil))
+	originalLogLevel := log.GetLogger().GetLogLevel()
+	log.SetLogger(log.NewLogger(log.DEBUG, nil))
+	defer log.SetLogger(log.NewLogger(originalLogLevel, nil))
 
 	tests := []struct {
 		name          string
@@ -102,7 +102,7 @@ func TestUploadEvidence_ErrorHandling(t *testing.T) {
 func (c *createEvidenceBase) handleUploadError(err error, repoPath string) error {
 	errStr := err.Error()
 	if strings.Contains(errStr, "400") || strings.Contains(errStr, "404") {
-		clientlog.Debug("Server response error:", err.Error())
+		log.Debug("Server response error:", err.Error())
 		return errorutils.CheckErrorf("Subject '%s' is invalid or not found. Please ensure the subject exists and follows the correct format: <repo>/<path>/<name> or <repo>/<name>", repoPath)
 	}
 	return err
