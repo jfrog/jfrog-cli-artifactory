@@ -32,8 +32,6 @@ func NewCreateEvidenceReleaseBundle(serverDetails *config.ServerDetails, predica
 			key:               key,
 			keyId:             keyId,
 			stage:             getReleaseBundleStage(serverDetails, releaseBundle, releaseBundleVersion, project),
-			displayName:       displayName,
-			subjectType:       commandsummary.SubjectTypeReleaseBundle,
 		},
 		project:              project,
 		releaseBundle:        releaseBundle,
