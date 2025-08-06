@@ -2,8 +2,6 @@ module github.com/jfrog/jfrog-cli-artifactory
 
 go 1.24.4
 
-toolchain go1.24.5
-
 require (
 	github.com/c-bata/go-prompt v0.2.5
 	github.com/forPelevin/gomoji v1.3.0
