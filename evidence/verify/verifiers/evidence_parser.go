@@ -52,7 +52,7 @@ func (p *evidenceParser) parseEvidence(evidence *model.SearchEvidenceEdge, evide
 		return nil
 	}
 
-	return fmt.Errorf("unsupported evidence file for client-side verification: " + evidence.Node.DownloadPath)
+	return fmt.Errorf("unsupported evidence file for client-side verification: %s", evidence.Node.DownloadPath)
 }
 
 func (p *evidenceParser) tryParseSigstoreBundle(content []byte, result *model.EvidenceVerification) error {
