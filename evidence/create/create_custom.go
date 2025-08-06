@@ -151,7 +151,7 @@ func (c *createEvidenceCustom) newSubjectError(message string) error {
 			ErrorMsg: message,
 		}
 	}
-	return errorutils.CheckErrorf(message)
+	return errorutils.CheckErrorf("%s", message)
 }
 
 func (c *createEvidenceCustom) recordSummary(response *model.CreateResponse) {
