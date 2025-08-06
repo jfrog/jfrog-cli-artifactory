@@ -1,16 +1,18 @@
 module github.com/jfrog/jfrog-cli-artifactory
 
-go 1.23.7
+go 1.24.4
+
+toolchain go1.24.5
 
 require (
 	github.com/c-bata/go-prompt v0.2.5
 	github.com/forPelevin/gomoji v1.3.0
 	github.com/gookit/color v1.5.4
-	github.com/jfrog/build-info-go v1.10.14
-	github.com/jfrog/froggit-go v1.17.0
+	github.com/jfrog/build-info-go v1.10.15
+	github.com/jfrog/froggit-go v1.20.1
 	github.com/jfrog/gofrog v1.7.6
-	github.com/jfrog/jfrog-cli-core/v2 v2.59.3
-	github.com/jfrog/jfrog-client-go v1.54.3
+	github.com/jfrog/jfrog-cli-core/v2 v2.59.4
+	github.com/jfrog/jfrog-client-go v1.54.4
 	github.com/pkg/errors v0.9.1
 	github.com/secure-systems-lab/go-securesystemslib v0.9.0
 	github.com/sigstore/protobuf-specs v0.5.0
@@ -56,7 +58,7 @@ require (
 	github.com/go-chi/chi v4.1.2+incompatible // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-git/go-billy/v5 v5.6.2 // indirect
-	github.com/go-git/go-git/v5 v5.14.0 // indirect
+	github.com/go-git/go-git/v5 v5.16.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.0.5 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -79,7 +81,7 @@ require (
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/certificate-transparency-go v1.3.1 // indirect
 	github.com/google/go-containerregistry v0.20.3 // indirect
-	github.com/google/go-github/v56 v56.0.0 // indirect
+	github.com/google/go-github/v62 v62.0.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
