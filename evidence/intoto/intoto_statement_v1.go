@@ -2,8 +2,9 @@ package intoto
 
 import (
 	"encoding/json"
-	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"time"
+
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 
 	"github.com/jfrog/jfrog-client-go/artifactory"
 )
@@ -22,6 +23,7 @@ type Statement struct {
 	CreatedAt     string               `json:"createdAt"`
 	CreatedBy     string               `json:"createdBy"`
 	Markdown      string               `json:"markdown,omitempty"`
+	Stage         string               `json:"stage,omitempty"`
 }
 
 type ResourceDescriptor struct {
@@ -32,7 +34,7 @@ type Digest struct {
 	Sha256 string `json:"sha256"`
 }
 
-func NewStatement(predicate []byte, predicateType string, user string) *Statement {
+func NewStatement(predicate []byte, predicateType, user string) *Statement {
 	return &Statement{
 		Type:          StatementType,
 		PredicateType: predicateType,
@@ -57,6 +59,10 @@ func (s *Statement) SetSubject(servicesManager artifactory.ArtifactoryServicesMa
 
 func (s *Statement) SetMarkdown(markdown []byte) {
 	s.Markdown = string(markdown)
+}
+
+func (s *Statement) SetStage(stage string) {
+	s.Stage = stage
 }
 
 func (s *Statement) Marshal() ([]byte, error) {

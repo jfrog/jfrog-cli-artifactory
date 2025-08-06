@@ -47,7 +47,7 @@ func (epc *evidencePackageCommand) GetEvidence(ctx *components.Context, serverDe
 	return errorutils.CheckErrorf("Get evidence is not supported with packages")
 }
 
-func (epc *evidencePackageCommand) VerifyEvidences(ctx *components.Context, serverDetails *config.ServerDetails) error {
+func (epc *evidencePackageCommand) VerifyEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
 	err := epc.validateEvidencePackageContext(ctx)
 	if err != nil {
 		return err

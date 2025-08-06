@@ -16,7 +16,7 @@ import (
 type mockOnemodelManagerCustomSuccess struct{}
 
 func (m *mockOnemodelManagerCustomSuccess) GraphqlQuery(_ []byte) ([]byte, error) {
-	response := `{"data":{"evidence":{"searchEvidence":{"totalCount":1,"edges":[{"cursor":"1","node":{"path":"path/to/evidence","name":"evidenceName","predicateSlug":"slug"}}]}}}}}`
+	response := `{"data":{"evidence":{"searchEvidence":{"totalCount":1,"edges":[{"cursor":"1","node":{"predicateSlug":"test-slug","downloadPath":"test/path","verified":true,"signingKey":{"alias":"test-alias"},"subject":{"sha256":"test-digest"},"createdBy":"test-user","createdAt":"2024-01-01T00:00:00Z"}}]}}}}`
 	return []byte(response), nil
 }
 

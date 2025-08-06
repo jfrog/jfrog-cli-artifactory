@@ -86,5 +86,5 @@ func (c *verifyEvidencePackage) Run() error {
 		return err
 	}
 	subjectPath := fmt.Sprintf("%s/%s/%s", c.packageService.GetPackageRepoName(), path, fileName)
-	return c.verifyEvidences(artifactoryClient, metadata, packageSha256, subjectPath)
+	return c.verifyEvidence(artifactoryClient, metadata, packageSha256, subjectPath)
 }

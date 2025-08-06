@@ -47,13 +47,13 @@ func (ebc *evidenceBuildCommand) GetEvidence(ctx *components.Context, serverDeta
 	return errorutils.CheckErrorf("Get evidence is not supported with builds")
 }
 
-func (ebc *evidenceBuildCommand) VerifyEvidences(ctx *components.Context, serverDetails *config.ServerDetails) error {
+func (ebc *evidenceBuildCommand) VerifyEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
 	err := ebc.validateEvidenceBuildContext(ctx)
 	if err != nil {
 		return err
 	}
 
-	verifyCmd := verify.NewVerifyEvidencesBuild(
+	verifyCmd := verify.NewVerifyEvidenceBuild(
 		serverDetails,
 		ebc.ctx.GetStringFlagValue(project),
 		ebc.ctx.GetStringFlagValue(buildName),

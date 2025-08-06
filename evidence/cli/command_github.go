@@ -47,8 +47,8 @@ func (ebc *evidenceGitHubCommand) CreateEvidence(ctx *components.Context, server
 	return ebc.execute(createCmd)
 }
 
-func (ebc *evidenceGitHubCommand) VerifyEvidences(_ *components.Context, _ *config.ServerDetails) error {
-	return errorutils.CheckErrorf("Verify evidences is not supported with github")
+func (ebc *evidenceGitHubCommand) VerifyEvidence(_ *components.Context, _ *config.ServerDetails) error {
+	return errorutils.CheckErrorf("Verify evidence is not supported with github")
 
 }
 

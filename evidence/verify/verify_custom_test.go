@@ -40,13 +40,13 @@ func (m *MockOneModelManagerCustom) GraphqlQuery(_ []byte) ([]byte, error) {
 	return m.GraphqlResponse, nil
 }
 
-// MockVerifyEvidenceBaseCustom for testing verifyEvidences method
+// MockVerifyEvidenceBaseCustom for testing verifyEvidence method
 type MockVerifyEvidenceBaseCustom struct {
 	mock.Mock
 	verifyEvidenceBase
 }
 
-func (m *MockVerifyEvidenceBaseCustom) verifyEvidences(client *artifactory.ArtifactoryServicesManager, metadata *[]model.SearchEvidenceEdge, sha256, subjectPath string) error {
+func (m *MockVerifyEvidenceBaseCustom) verifyEvidence(client *artifactory.ArtifactoryServicesManager, metadata *[]model.SearchEvidenceEdge, sha256, subjectPath string) error {
 	args := m.Called(client, metadata, sha256, subjectPath)
 	return args.Error(0)
 }
@@ -68,7 +68,7 @@ func (m *MockVerifierCustom) Verify(subjectSha256 string, evidenceMetadata *[]mo
 	return resp, args.Error(1)
 }
 
-func TestNewVerifyEvidencesCustom(t *testing.T) {
+func TestNewVerifyEvidenceCustom(t *testing.T) {
 	serverDetails := &config.ServerDetails{}
 	subjectRepoPath := "test-repo/path/to/subject.txt"
 	format := "json"
@@ -185,7 +185,7 @@ func TestVerifyEvidenceCustom_Run_QueryEvidenceMetadataError(t *testing.T) {
 	assert.Contains(t, err.Error(), "graphql query failed")
 }
 
-func TestVerifyEvidenceCustom_Run_VerifyEvidencesError(t *testing.T) {
+func TestVerifyEvidenceCustom_Run_VerifyEvidenceError(t *testing.T) {
 	// Mock AQL response with subject file
 	aqlResult := `{"results":[{"sha256":"test-sha256","name":"subject.txt","repo":"test-repo","path":"path/to"}]}`
 
@@ -210,10 +210,10 @@ func TestVerifyEvidenceCustom_Run_VerifyEvidencesError(t *testing.T) {
 		oneModelClient: mockOneModel,
 	}
 	mockBase.verifyEvidenceBase = *base
-	mockBase.On("verifyEvidences", mock.Anything, mock.Anything, "test-sha256", mock.Anything).Return(errors.New("verification failed"))
+	mockBase.On("verifyEvidence", mock.Anything, mock.Anything, "test-sha256", mock.Anything).Return(errors.New("verification failed"))
 
 	// Test direct method call
-	err := mockBase.verifyEvidences(nil, &[]model.SearchEvidenceEdge{{}}, "test-sha256", "test-path")
+	err := mockBase.verifyEvidence(nil, &[]model.SearchEvidenceEdge{{}}, "test-sha256", "test-path")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "verification failed")
 	mockBase.AssertExpectations(t)

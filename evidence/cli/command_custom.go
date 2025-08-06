@@ -53,7 +53,7 @@ func (ecc *evidenceCustomCommand) GetEvidence(_ *components.Context, serverDetai
 	return ecc.execute(getCmd)
 }
 
-func (ecc *evidenceCustomCommand) VerifyEvidences(_ *components.Context, serverDetails *config.ServerDetails) error {
+func (ecc *evidenceCustomCommand) VerifyEvidence(_ *components.Context, serverDetails *config.ServerDetails) error {
 	verifyCmd := verify.NewVerifyEvidenceCustom(
 		serverDetails,
 		ecc.ctx.GetStringFlagValue(subjectRepoPath),

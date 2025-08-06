@@ -5,10 +5,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
+	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -281,4 +285,78 @@ func TestCreateEvidenceCustom_NewSubjectError_RegularExecution(t *testing.T) {
 	_, ok = err.(coreutils.CliError)
 	assert.False(t, ok, "error should not be of type CliError when autoSubjectResolution is disabled")
 	assert.Contains(t, err.Error(), testMessage, "error message should contain the test message")
+}
+
+func TestCreateEvidenceCustom_RecordSummary(t *testing.T) {
+	tempDir, err := fileutils.CreateTempDir()
+	assert.NoError(t, err)
+	defer func() {
+		assert.NoError(t, fileutils.RemoveTempDir(tempDir))
+	}()
+
+	assert.NoError(t, os.Setenv("GITHUB_ACTIONS", "true"))
+	assert.NoError(t, os.Setenv(coreutils.SummaryOutputDirPathEnv, tempDir))
+	defer func() {
+		assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
+		assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
+	}()
+
+	serverDetails := &config.ServerDetails{
+		Url:      "http://test.com",
+		User:     "testuser",
+		Password: "testpass",
+	}
+
+	subjectRepoPath := "test-repo/path/to/artifact.jar"
+	subjectSha256 := "custom-sha256"
+
+	evidence := NewCreateEvidenceCustom(
+		serverDetails,
+		"",
+		"custom-predicate-type",
+		"",
+		"test-key",
+		"test-key-id",
+		subjectRepoPath,
+		subjectSha256,
+		"",
+		"test-provider",
+	)
+	c, ok := evidence.(*createEvidenceCustom)
+	if !ok {
+		t.Fatal("Failed to create createEvidenceCustom instance")
+	}
+
+	expectedResponse := &model.CreateResponse{
+		PredicateSlug: "custom-slug",
+		Verified:      false,
+		PredicateType: "custom-predicate-type",
+	}
+
+	c.recordSummary(expectedResponse)
+
+	summaryFiles, err := fileutils.ListFiles(tempDir, true)
+	assert.NoError(t, err)
+	assert.True(t, len(summaryFiles) > 0, "Summary file should be created")
+
+	for _, file := range summaryFiles {
+		if strings.HasSuffix(file, "-data") {
+			content, err := os.ReadFile(file)
+			assert.NoError(t, err)
+
+			var summaryData commandsummary.EvidenceSummaryData
+			err = json.Unmarshal(content, &summaryData)
+			assert.NoError(t, err)
+
+			assert.Equal(t, subjectRepoPath, summaryData.Subject)
+			assert.Equal(t, subjectSha256, summaryData.SubjectSha256)
+			assert.Equal(t, "custom-predicate-type", summaryData.PredicateType)
+			assert.Equal(t, "custom-slug", summaryData.PredicateSlug)
+			assert.False(t, summaryData.Verified)
+			assert.Equal(t, subjectRepoPath, summaryData.DisplayName)
+			assert.Equal(t, commandsummary.SubjectTypeArtifact, summaryData.SubjectType)
+			assert.Equal(t, subjectRepoPath, summaryData.RepoKey)
+			break
+		}
+	}
 }
