@@ -77,8 +77,7 @@ func (g *getEvidenceCustom) getEvidence(onemodelClient onemodel.Manager) ([]byte
 
 	transformedEvidence, err := g.transformGraphQLOutput(evidence)
 	if err != nil {
-		log.Error("Failed to transform GraphQL output:", err)
-		return evidence, nil
+		return nil, err
 	}
 
 	return transformedEvidence, nil
@@ -102,12 +101,12 @@ func (g *getEvidenceCustom) transformGraphQLOutput(rawEvidence []byte) ([]byte, 
 
 	searchEvidenceData, ok := searchEvidence["searchEvidence"].(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("invalid GraphQL response structure: missing searchEvidence field")
+		return nil, fmt.Errorf("repository does not exist for subject repository path: %s", g.subjectRepoPath)
 	}
 
 	edges, ok := searchEvidenceData["edges"].([]any)
 	if !ok {
-		return nil, fmt.Errorf("invalid GraphQL response structure: missing edges field")
+		return nil, fmt.Errorf("artifact was not found in subject repository path: %s", g.subjectRepoPath)
 	}
 
 	evidenceArray := make([]EvidenceEntry, 0, len(edges))

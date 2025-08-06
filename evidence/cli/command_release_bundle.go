@@ -64,7 +64,7 @@ func (erc *evidenceReleaseBundleCommand) GetEvidence(ctx *components.Context, se
 	return erc.execute(getCmd)
 }
 
-func (erc *evidenceReleaseBundleCommand) VerifyEvidences(ctx *components.Context, serverDetails *config.ServerDetails) error {
+func (erc *evidenceReleaseBundleCommand) VerifyEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
 	err := erc.validateEvidenceReleaseBundleContext(ctx)
 	if err != nil {
 		return err

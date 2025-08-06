@@ -65,13 +65,13 @@ func (m *MockOneModelManagerPackage) GraphqlQuery(_ []byte) ([]byte, error) {
 	return m.GraphqlResponse, nil
 }
 
-// MockVerifyEvidenceBasePackage for testing verifyEvidences method
+// MockVerifyEvidenceBasePackage for testing verifyEvidence method
 type MockVerifyEvidenceBasePackage struct {
 	mock.Mock
 	verifyEvidenceBase
 }
 
-func (m *MockVerifyEvidenceBasePackage) verifyEvidences(client *artifactory.ArtifactoryServicesManager, metadata *[]model.SearchEvidenceEdge, sha256 string) error {
+func (m *MockVerifyEvidenceBasePackage) verifyEvidence(client *artifactory.ArtifactoryServicesManager, metadata *[]model.SearchEvidenceEdge, sha256 string) error {
 	args := m.Called(client, metadata, sha256)
 	return args.Error(0)
 }
@@ -273,7 +273,7 @@ func TestVerifyEvidencePackage_Run_QueryEvidenceMetadataError(t *testing.T) {
 	assert.Contains(t, err.Error(), "error querying evidence from One-Model service: graphql query failed")
 }
 
-func TestVerifyEvidencePackage_Run_VerifyEvidencesError(t *testing.T) {
+func TestVerifyEvidencePackage_Run_VerifyEvidenceError(t *testing.T) {
 	// Mock AQL response with package file
 	aqlResult := `{"results":[{"sha256":"test-sha256","name":"test-package-1.0.0.jar"}]}`
 
@@ -302,10 +302,10 @@ func TestVerifyEvidencePackage_Run_VerifyEvidencesError(t *testing.T) {
 		oneModelClient: mockOneModel,
 	}
 	mockBase.verifyEvidenceBase = *base
-	mockBase.On("verifyEvidences", mock.Anything, mock.Anything, "test-sha256").Return(errors.New("verification failed"))
+	mockBase.On("verifyEvidence", mock.Anything, mock.Anything, "test-sha256").Return(errors.New("verification failed"))
 
 	// Test direct method call
-	err := mockBase.verifyEvidences(nil, &[]model.SearchEvidenceEdge{{}}, "test-sha256")
+	err := mockBase.verifyEvidence(nil, &[]model.SearchEvidenceEdge{{}}, "test-sha256")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "verification failed")
 	mockBase.AssertExpectations(t)

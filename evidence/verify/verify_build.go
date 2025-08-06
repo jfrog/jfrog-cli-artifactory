@@ -19,8 +19,8 @@ type verifyEvidenceBuild struct {
 	buildNumber string
 }
 
-// NewVerifyEvidencesBuild creates a new command for verifying evidence for a build.
-func NewVerifyEvidencesBuild(serverDetails *config.ServerDetails, project, buildName, buildNumber, format string, keys []string, useArtifactoryKeys bool) evidence.Command {
+// NewVerifyEvidenceBuild creates a new command for verifying evidence for a build.
+func NewVerifyEvidenceBuild(serverDetails *config.ServerDetails, project, buildName, buildNumber, format string, keys []string, useArtifactoryKeys bool) evidence.Command {
 	return &verifyEvidenceBuild{
 		verifyEvidenceBase: verifyEvidenceBase{
 			serverDetails:      serverDetails,
@@ -59,7 +59,7 @@ func (v *verifyEvidenceBuild) Run() error {
 	}
 
 	subjectPath := fmt.Sprintf("%s/%s/%s", repoKey, v.buildName, subjectFileName)
-	return v.verifyEvidences(client, metadata, buildInfoSha256, subjectPath)
+	return v.verifyEvidence(client, metadata, buildInfoSha256, subjectPath)
 }
 
 // ServerDetails returns the server details for the command.

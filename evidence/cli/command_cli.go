@@ -40,12 +40,12 @@ func GetCommands() []components.Command {
 			Action:      getEvidence,
 		},
 		{
-			Name:        "verify-evidences",
+			Name:        "verify-evidence",
 			Aliases:     []string{"verify"},
 			Flags:       GetCommandFlags(VerifyEvidence),
 			Description: verify.GetDescription(),
 			Arguments:   verify.GetArguments(),
-			Action:      verifyEvidences,
+			Action:      verifyEvidence,
 		},
 	}
 }
@@ -123,7 +123,7 @@ func validateGetEvidenceCommonContext(ctx *components.Context) error {
 	return nil
 }
 
-func verifyEvidences(ctx *components.Context) error {
+func verifyEvidence(ctx *components.Context) error {
 	// validate common context
 	serverDetails, err := evidenceDetailsByFlags(ctx)
 	if err != nil {
@@ -144,7 +144,7 @@ func verifyEvidences(ctx *components.Context) error {
 		packageName:     NewEvidencePackageCommand,
 	}
 	if commandFunc, exists := evidenceCommands[subjectType[0]]; exists {
-		err = commandFunc(ctx, execFunc).VerifyEvidences(ctx, serverDetails)
+		err = commandFunc(ctx, execFunc).VerifyEvidence(ctx, serverDetails)
 		if err != nil {
 			if err.Error() != "" {
 				return fmt.Errorf("evidence verification failed: %w", err)
@@ -328,6 +328,7 @@ func platformToEvidenceUrls(rtDetails *config.ServerDetails) {
 	rtDetails.EvidenceUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "evidence/"
 	rtDetails.MetadataUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "metadata/"
 	rtDetails.OnemodelUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "onemodel/"
+	rtDetails.LifecycleUrl = utils.AddTrailingSlashIfNeeded(rtDetails.Url) + "lifecycle/"
 }
 
 func assertValueProvided(c *components.Context, fieldName string) error {

@@ -54,7 +54,7 @@ func (v *verifyEvidenceCustom) Run() error {
 		return err
 	}
 	subjectSha256 := result.Results[0].Sha256
-	return v.verifyEvidences(client, metadata, subjectSha256, v.subjectRepoPath)
+	return v.verifyEvidence(client, metadata, subjectSha256, v.subjectRepoPath)
 }
 
 func extractSubjectRepoPathName(v *verifyEvidenceCustom) (string, string, string, error) {

@@ -9,7 +9,7 @@ const (
 	// Evidence commands keys
 	CreateEvidence = "create-evidence"
 	GetEvidence    = "get-evidence"
-	VerifyEvidence = "verify-evidences"
+	VerifyEvidence = "verify-evidence"
 )
 
 const (
