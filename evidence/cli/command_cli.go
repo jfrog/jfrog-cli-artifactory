@@ -73,6 +73,7 @@ func createEvidence(ctx *components.Context) error {
 	evidenceCommands := map[string]func(*components.Context, execCommandFunc) EvidenceCommands{
 		subjectRepoPath: NewEvidenceCustomCommand,
 		releaseBundle:   NewEvidenceReleaseBundleCommand,
+		applicationKey:  NewEvidenceApplicationCommand,
 		buildName:       NewEvidenceBuildCommand,
 		packageName:     NewEvidencePackageCommand,
 	}
