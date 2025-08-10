@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"flag"
 	"os"
 	"testing"
@@ -12,6 +13,41 @@ import (
 	"github.com/urfave/cli"
 	"go.uber.org/mock/gomock"
 )
+
+func TestDeleteEvidence_RoutesToSubjectHandlers(t *testing.T) {
+	cases := []struct {
+		name  string
+		flags []components.Flag
+	}{
+		{name: "custom", flags: []components.Flag{setDefaultValue(subjectRepoPath, "repo/a"), setDefaultValue(evidenceName, "evd")}},
+		{name: "release bundle", flags: []components.Flag{setDefaultValue(project, "p"), setDefaultValue(releaseBundle, "rb"), setDefaultValue(releaseBundleVersion, "1"), setDefaultValue(evidenceName, "evd")}},
+		{name: "build", flags: []components.Flag{setDefaultValue(project, "p"), setDefaultValue(buildName, "b"), setDefaultValue(buildNumber, "1"), setDefaultValue(evidenceName, "evd")}},
+		{name: "package", flags: []components.Flag{setDefaultValue(packageName, "n"), setDefaultValue(packageVersion, "1"), setDefaultValue(packageRepoName, "r"), setDefaultValue(evidenceName, "evd")}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := cli.NewApp()
+			app.Flags = []cli.Flag{}
+			app.Commands = []cli.Command{{Name: "delete-evidence"}}
+			set := flag.NewFlagSet("test", 0)
+			cliCtx := cli.NewContext(app, set, nil)
+
+			ctx, err := components.ConvertContext(cliCtx, tc.flags...)
+			assert.NoError(t, err)
+
+			// Ensure required URL exists to pass validation
+			ctx.AddStringFlag(url, "https://example.com/")
+
+			old := execFunc
+			execFunc = func(command commands.Command) error { return errors.New("stub") }
+			defer func() { execFunc = old }()
+
+			err = deleteEvidence(ctx)
+			assert.Error(t, err)
+		})
+	}
+}
 
 func TestCreateEvidence_Context(t *testing.T) {
 	ctrl := gomock.NewController(t)

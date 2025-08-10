@@ -80,3 +80,30 @@ func TestEvidenceCustomCommand_CreateEvidence_SigstoreBundle(t *testing.T) {
 		})
 	}
 }
+
+func TestEvidenceCustomCommand_DeleteEvidence(t *testing.T) {
+	app := cli.NewApp()
+	app.Commands = []cli.Command{{Name: "delete"}}
+	set := flag.NewFlagSet("test", 0)
+	cliCtx := cli.NewContext(app, set, nil)
+
+	flags := []components.Flag{
+		setDefaultValue(subjectRepoPath, "repo/path/artifact"),
+		setDefaultValue(evidenceName, "evd"),
+	}
+
+	ctx, err := components.ConvertContext(cliCtx, flags...)
+	assert.NoError(t, err)
+
+	called := false
+	mockExec := func(cmd commands.Command) error {
+		called = true
+		return nil
+	}
+	cmd := NewEvidenceCustomCommand(ctx, mockExec)
+	serverDetails := &config.ServerDetails{Url: "http://x"}
+
+	err = cmd.DeleteEvidence(ctx, serverDetails)
+	assert.NoError(t, err)
+	assert.True(t, called)
+}

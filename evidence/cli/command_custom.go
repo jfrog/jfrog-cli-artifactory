@@ -2,7 +2,9 @@ package cli
 
 import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/create"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/delete"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/get"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/resolver"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -62,4 +64,14 @@ func (ecc *evidenceCustomCommand) VerifyEvidence(_ *components.Context, serverDe
 		ecc.ctx.GetBoolFlagValue(useArtifactoryKeys),
 	)
 	return ecc.execute(verifyCmd)
+}
+
+func (ecc *evidenceCustomCommand) DeleteEvidence(_ *components.Context, serverDetails *config.ServerDetails) error {
+	deleteCmd := delete.NewDeleteEvidenceBase(
+		serverDetails,
+		ecc.ctx.GetStringFlagValue(evidenceName),
+		resolver.NewCustomPathResolver(ecc.ctx.GetStringFlagValue(subjectRepoPath)),
+	)
+
+	return ecc.execute(deleteCmd)
 }

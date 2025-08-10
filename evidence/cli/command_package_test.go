@@ -74,3 +74,32 @@ func TestEvidencePackageCommand_CreateEvidence_SigstoreBundle(t *testing.T) {
 		})
 	}
 }
+
+func TestEvidencePackageCommand_DeleteEvidence(t *testing.T) {
+	app := cli.NewApp()
+	app.Commands = []cli.Command{{Name: "delete"}}
+	set := flag.NewFlagSet("test", 0)
+	cliCtx := cli.NewContext(app, set, nil)
+
+	flags := []components.Flag{
+		setDefaultValue(packageName, "pkg"),
+		setDefaultValue(packageVersion, "1.2.3"),
+		setDefaultValue(packageRepoName, "repo"),
+		setDefaultValue(evidenceName, "evd"),
+	}
+
+	ctx, err := components.ConvertContext(cliCtx, flags...)
+	assert.NoError(t, err)
+
+	called := false
+	mockExec := func(cmd commands.Command) error {
+		called = true
+		return nil
+	}
+	cmd := NewEvidencePackageCommand(ctx, mockExec)
+	serverDetails := &config.ServerDetails{Url: "http://x"}
+
+	err = cmd.DeleteEvidence(ctx, serverDetails)
+	assert.NoError(t, err)
+	assert.True(t, called)
+}

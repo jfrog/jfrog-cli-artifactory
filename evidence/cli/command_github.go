@@ -52,6 +52,10 @@ func (ebc *evidenceGitHubCommand) VerifyEvidence(_ *components.Context, _ *confi
 
 }
 
+func (ebc *evidenceGitHubCommand) DeleteEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
+	return errorutils.CheckErrorf("Delete evidence is not supported with github")
+}
+
 func (ebc *evidenceGitHubCommand) validateEvidenceBuildContext(ctx *components.Context) error {
 	if !ctx.IsFlagSet(buildNumber) || assertValueProvided(ctx, buildNumber) != nil {
 		return errorutils.CheckErrorf("--%s is a mandatory field for creating a Release Bundle evidence", buildNumber)

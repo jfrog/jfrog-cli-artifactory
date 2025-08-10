@@ -11,4 +11,5 @@ type EvidenceCommands interface {
 	CreateEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error
 	GetEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error
 	VerifyEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error
+	DeleteEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error
 }
