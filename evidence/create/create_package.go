@@ -70,10 +70,10 @@ func (c *createEvidencePackage) Run() error {
 		return err
 	}
 	response, err := c.uploadEvidence(envelope, leadArtifactPath)
-	c.recordSummary(response, leadArtifactPath, leadArtifactChecksum)
 	if err != nil {
 		return err
 	}
+	c.recordSummary(response, leadArtifactPath, leadArtifactChecksum)
 
 	return nil
 }

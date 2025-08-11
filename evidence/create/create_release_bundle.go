@@ -2,6 +2,7 @@ package create
 
 import (
 	"fmt"
+
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence"
@@ -62,10 +63,10 @@ func (c *createEvidenceReleaseBundle) Run() error {
 		return err
 	}
 	response, err := c.uploadEvidence(envelope, subject)
-	c.recordSummary(response, subject, sha256)
 	if err != nil {
 		return err
 	}
+	c.recordSummary(response, subject, sha256)
 
 	return nil
 }
