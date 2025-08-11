@@ -22,7 +22,7 @@ func (m *mockArtifactoryServicesManagerAql) Aql(_ string) (io.ReadCloser, error)
 }
 
 func TestBuildPathResolver_Success(t *testing.T) {
-	sd := &config.ServerDetails{Url: "http://x"}
+	sd := &config.ServerDetails{Url: "url"}
 	r, err := NewBuildPathResolver("proj", "bname", "bnum", sd)
 	assert.NoError(t, err)
 
@@ -37,7 +37,7 @@ func TestBuildPathResolver_Success(t *testing.T) {
 }
 
 func TestBuildPathResolver_EmptyResults(t *testing.T) {
-	sd := &config.ServerDetails{Url: "http://x"}
+	sd := &config.ServerDetails{Url: "url"}
 	r, err := NewBuildPathResolver("proj", "bname", "bnum", sd)
 	assert.NoError(t, err)
 

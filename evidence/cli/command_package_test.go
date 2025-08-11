@@ -97,7 +97,7 @@ func TestEvidencePackageCommand_DeleteEvidence(t *testing.T) {
 		return nil
 	}
 	cmd := NewEvidencePackageCommand(ctx, mockExec)
-	serverDetails := &config.ServerDetails{Url: "http://x"}
+	serverDetails := &config.ServerDetails{Url: "url"}
 
 	err = cmd.DeleteEvidence(ctx, serverDetails)
 	assert.NoError(t, err)

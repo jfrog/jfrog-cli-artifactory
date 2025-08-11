@@ -37,7 +37,7 @@ type mockMetadataManager struct {
 func (m *mockMetadataManager) GraphqlQuery(_ []byte) ([]byte, error) { return m.body, m.err }
 
 func TestPackagePathResolver(t *testing.T) {
-	sd := &config.ServerDetails{Url: "http://x"}
+	sd := &config.ServerDetails{Url: "url"}
 	r, err := NewPackagePathResolver("pkg", "1.0.0", "repo", sd)
 	assert.NoError(t, err)
 
