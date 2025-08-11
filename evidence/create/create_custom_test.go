@@ -147,6 +147,54 @@ func TestCreateEvidenceCustom_MissingSigstoreBundle(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to read sigstore bundle")
 }
 
+func TestCreateEvidenceCustom_UploadError(t *testing.T) {
+	// Create a test predicate file
+	predicateContent := `{"key": "value"}`
+	tmpDir := t.TempDir()
+	predicatePath := filepath.Join(tmpDir, "predicate.json")
+	err := os.WriteFile(predicatePath, []byte(predicateContent), 0644)
+	assert.NoError(t, err)
+
+	// Set up a temporary directory for the summary
+	summaryDir, err := fileutils.CreateTempDir()
+	assert.NoError(t, err)
+	defer func() {
+		assert.NoError(t, fileutils.RemoveTempDir(summaryDir))
+	}()
+	assert.NoError(t, os.Setenv(coreutils.SummaryOutputDirPathEnv, summaryDir))
+	defer func() {
+		assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
+	}()
+
+	// Create command
+	serverDetails := &config.ServerDetails{
+		Url:         "http://localhost:8080", // Use a non-existent server to cause an upload error
+		User:        "test-user",
+		AccessToken: "test-token",
+	}
+	cmd := NewCreateEvidenceCustom(
+		serverDetails,
+		predicatePath,
+		"custom-predicate",
+		"", // No markdown
+		"", // No key
+		"", // No key alias
+		"test-repo/test-artifact",
+		"sha256:12345",
+		"", // No sigstore bundle
+		"test-provider",
+	)
+
+	// Run should fail during upload
+	runErr := cmd.Run()
+	assert.Error(t, runErr)
+
+	// Verify that no summary was created
+	summaryFiles, err := fileutils.ListFiles(summaryDir, true)
+	assert.NoError(t, err)
+	assert.Empty(t, summaryFiles, "no summary files should be created when upload fails")
+}
+
 func TestCreateEvidenceCustom_SigstoreBundleWithSubjectPath(t *testing.T) {
 	// Create a test bundle without artifact path in predicate
 	statement := map[string]any{

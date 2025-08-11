@@ -73,11 +73,11 @@ func (c *createEvidenceCustom) Run() error {
 		return err
 	}
 	response, err := c.uploadEvidence(evidencePayload, c.subjectRepoPath)
-	c.recordSummary(response)
 	if err != nil {
 		err = c.handleSubjectNotFound(err)
 		return err
 	}
+	c.recordSummary(response)
 
 	return nil
 }
