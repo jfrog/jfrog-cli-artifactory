@@ -104,6 +104,8 @@ func IsSupportedPackageManager(packageManager project.ProjectType) bool {
 	return exists
 }
 
+// GetRepositoryPackageType gets the package type and returns the corresponding repository package type.
+// For example, for pip or poetry the repository package type is "pypi".
 func GetRepositoryPackageType(packageManager project.ProjectType) (string, error) {
 	packageType, exists := packageManagerToRepositoryPackageType[packageManager]
 	if !exists {
