@@ -104,6 +104,14 @@ func IsSupportedPackageManager(packageManager project.ProjectType) bool {
 	return exists
 }
 
+func GetRepositoryPackageType(packageManager project.ProjectType) (string, error) {
+	packageType, exists := packageManagerToRepositoryPackageType[packageManager]
+	if !exists {
+		return "", errorutils.CheckErrorf("unsupported package manager: %s", packageManager)
+	}
+	return packageType, nil
+}
+
 // CommandName returns the name of the login command.
 func (sc *SetupCommand) CommandName() string {
 	return sc.commandName

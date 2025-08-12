@@ -342,16 +342,16 @@ func TestConfigureGo_UnsetEnv(t *testing.T) {
 
 // Test that configureGo unsets any existing multi-entry GOPROXY env var before configuring.
 func TestConfigureGo_UnsetEnv_MultiEntry(t *testing.T) {
-    testCmd := createTestSetupCommand(project.Go)
-    // Simulate existing multi-entry GOPROXY in environment
-    t.Setenv("GOPROXY", "user:pass@dummy,goproxy2")
-    // Ensure server details have credentials so configureGo proceeds
-    testCmd.serverDetails.SetAccessToken(dummyToken)
+	testCmd := createTestSetupCommand(project.Go)
+	// Simulate existing multi-entry GOPROXY in environment
+	t.Setenv("GOPROXY", "user:pass@dummy,goproxy2")
+	// Ensure server details have credentials so configureGo proceeds
+	testCmd.serverDetails.SetAccessToken(dummyToken)
 
-    // Invoke configureGo directly
-    require.NoError(t, testCmd.configureGo())
-    // After calling, the GOPROXY env var should be cleared
-    assert.Empty(t, os.Getenv("GOPROXY"), "GOPROXY should be unset by configureGo to avoid env override for multi-entry lists")
+	// Invoke configureGo directly
+	require.NoError(t, testCmd.configureGo())
+	// After calling, the GOPROXY env var should be cleared
+	assert.Empty(t, os.Getenv("GOPROXY"), "GOPROXY should be unset by configureGo to avoid env override for multi-entry lists")
 }
 
 func TestSetupCommand_Gradle(t *testing.T) {
@@ -466,6 +466,24 @@ func TestIsSupportedPackageManager(t *testing.T) {
 
 	// Test unsupported package manager
 	assert.False(t, IsSupportedPackageManager(project.Cocoapods), "Package manager Cocoapods should not be supported")
+}
+
+func TestGetRepositoryPackageType(t *testing.T) {
+	// Test supported package managers
+	for projectType, packageType := range packageManagerToRepositoryPackageType {
+		t.Run("Supported - "+projectType.String(), func(t *testing.T) {
+			actualType, err := GetRepositoryPackageType(projectType)
+			require.NoError(t, err)
+			assert.Equal(t, packageType, actualType)
+		})
+	}
+
+	// Test unsupported package manager
+	t.Run("Unsupported", func(t *testing.T) {
+		_, err := GetRepositoryPackageType(project.Cocoapods)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported package manager")
+	})
 }
 
 func TestSetupCommand_Maven(t *testing.T) {
