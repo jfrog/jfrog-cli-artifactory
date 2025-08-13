@@ -181,5 +181,5 @@ require (
 )
 
 // replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.59.2-0.20250804083101-9cf424ecc926
-
-// replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20250717041744-d3ea4d99f4e7
+// should be replaced after merging jfrog-client-go PR with delete evidence api call support
+replace github.com/jfrog/jfrog-client-go => github.com/mnsboev/jfrog-client-go v0.0.0-20250810114616-0227b5a7ff44

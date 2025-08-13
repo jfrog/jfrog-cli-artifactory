@@ -82,13 +82,13 @@ func TestBuildAndVcsDetailsMock(t *testing.T) {
 	mockBuildVcs := new(MockBuildAndVcsDetails)
 
 	// Define expected return values
-	mockBuildVcs.On("GetLastBuildLink", mock.Anything, mock.Anything).Return("http://mocked-url.com", nil)
+	mockBuildVcs.On("GetLastBuildLink", mock.Anything, mock.Anything).Return("url", nil)
 	mockBuildVcs.On("GetPlainGitLogFromPreviousBuild", mock.Anything, mock.Anything, mock.Anything).Return("mocked git log", nil)
 
 	// Call the method under test
 	url, err := mockBuildVcs.GetLastBuildLink(nil, nil)
 	assert.NoError(t, err)
-	assert.Equal(t, "http://mocked-url.com", url)
+	assert.Equal(t, "url", url)
 
 	gitLog, err := mockBuildVcs.GetPlainGitLogFromPreviousBuild(nil, nil, artifactoryUtils.GitLogDetails{})
 	assert.NoError(t, err)

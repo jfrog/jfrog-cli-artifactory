@@ -3,7 +3,9 @@ package cli
 import (
 	"github.com/jfrog/jfrog-cli-artifactory/commonutils"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/create"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/delete"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/get"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/resolver"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -80,6 +82,25 @@ func (erc *evidenceReleaseBundleCommand) VerifyEvidence(ctx *components.Context,
 		erc.ctx.GetBoolFlagValue(useArtifactoryKeys),
 	)
 	return erc.execute(verifyCmd)
+}
+
+func (erc *evidenceReleaseBundleCommand) DeleteEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
+	err := erc.validateEvidenceReleaseBundleContext(ctx)
+	if err != nil {
+		return err
+	}
+
+	deleteCmd := delete.NewDeleteEvidenceBase(
+		serverDetails,
+		erc.ctx.GetStringFlagValue(evidenceName),
+		resolver.NewReleaseBundlePathResolver(
+			erc.ctx.GetStringFlagValue(project),
+			erc.ctx.GetStringFlagValue(releaseBundle),
+			erc.ctx.GetStringFlagValue(releaseBundleVersion),
+		),
+	)
+
+	return erc.execute(deleteCmd)
 }
 
 func (erc *evidenceReleaseBundleCommand) validateEvidenceReleaseBundleContext(ctx *components.Context) error {

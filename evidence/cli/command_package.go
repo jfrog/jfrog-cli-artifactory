@@ -2,6 +2,8 @@ package cli
 
 import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/create"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/delete"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/resolver"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -63,6 +65,31 @@ func (epc *evidencePackageCommand) VerifyEvidence(ctx *components.Context, serve
 		epc.ctx.GetBoolFlagValue(useArtifactoryKeys),
 	)
 	return epc.execute(verifyCmd)
+}
+
+func (epc *evidencePackageCommand) DeleteEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
+	err := epc.validateEvidencePackageContext(ctx)
+	if err != nil {
+		return err
+	}
+
+	pathResolver, err := resolver.NewPackagePathResolver(
+		epc.ctx.GetStringFlagValue(packageName),
+		epc.ctx.GetStringFlagValue(packageVersion),
+		epc.ctx.GetStringFlagValue(packageRepoName),
+		serverDetails,
+	)
+	if err != nil {
+		return err
+	}
+
+	deleteCmd := delete.NewDeleteEvidenceBase(
+		serverDetails,
+		epc.ctx.GetStringFlagValue(evidenceName),
+		pathResolver,
+	)
+
+	return epc.execute(deleteCmd)
 }
 
 func (epc *evidencePackageCommand) validateEvidencePackageContext(ctx *components.Context) error {

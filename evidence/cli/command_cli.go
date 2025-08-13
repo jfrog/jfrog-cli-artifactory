@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/create"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/delete"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/get"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/verify"
 	jfrogArtClient "github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
@@ -46,6 +47,14 @@ func GetCommands() []components.Command {
 			Description: verify.GetDescription(),
 			Arguments:   verify.GetArguments(),
 			Action:      verifyEvidence,
+		},
+		{
+			Name:        "delete-evidence",
+			Aliases:     []string{"delete"},
+			Flags:       GetCommandFlags(DeleteEvidence),
+			Description: delete.GetDescription(),
+			Arguments:   delete.GetArguments(),
+			Action:      deleteEvidence,
 		},
 	}
 }
@@ -146,10 +155,36 @@ func verifyEvidence(ctx *components.Context) error {
 	if commandFunc, exists := evidenceCommands[subjectType[0]]; exists {
 		err = commandFunc(ctx, execFunc).VerifyEvidence(ctx, serverDetails)
 		if err != nil {
-			if err.Error() != "" {
-				return fmt.Errorf("evidence verification failed: %w", err)
-			}
-			return err
+			return fmt.Errorf("evidence verification failed: %w", err)
+		}
+		return nil
+	}
+	return errors.New("unsupported subject")
+}
+
+func deleteEvidence(ctx *components.Context) error {
+	// validate common context
+	serverDetails, err := evidenceDetailsByFlags(ctx)
+	if err != nil {
+		return err
+	}
+	subjectType, err := getAndValidateSubject(ctx)
+	if err != nil {
+		return err
+	}
+	if !ctx.IsFlagSet(evidenceName) || assertValueProvided(ctx, evidenceName) != nil {
+		return errorutils.CheckErrorf("--%s is a mandatory field for deleting evidence", evidenceName)
+	}
+	evidenceCommands := map[string]func(*components.Context, execCommandFunc) EvidenceCommands{
+		subjectRepoPath: NewEvidenceCustomCommand,
+		releaseBundle:   NewEvidenceReleaseBundleCommand,
+		buildName:       NewEvidenceBuildCommand,
+		packageName:     NewEvidencePackageCommand,
+	}
+	if commandFunc, exists := evidenceCommands[subjectType[0]]; exists {
+		err = commandFunc(ctx, execFunc).DeleteEvidence(ctx, serverDetails)
+		if err != nil {
+			return fmt.Errorf("evidence delete failed: %w", err)
 		}
 		return nil
 	}

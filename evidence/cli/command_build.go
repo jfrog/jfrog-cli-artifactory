@@ -2,6 +2,8 @@ package cli
 
 import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/create"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/delete"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/resolver"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -63,6 +65,29 @@ func (ebc *evidenceBuildCommand) VerifyEvidence(ctx *components.Context, serverD
 		ebc.ctx.GetBoolFlagValue(useArtifactoryKeys),
 	)
 	return ebc.execute(verifyCmd)
+}
+
+func (ebc *evidenceBuildCommand) DeleteEvidence(ctx *components.Context, serverDetails *config.ServerDetails) error {
+	err := ebc.validateEvidenceBuildContext(ctx)
+	if err != nil {
+		return err
+	}
+
+	buildResolver, err := resolver.NewBuildPathResolver(
+		ebc.ctx.GetStringFlagValue(project),
+		ebc.ctx.GetStringFlagValue(buildName),
+		ebc.ctx.GetStringFlagValue(buildNumber),
+		serverDetails,
+	)
+	if err != nil {
+		return err
+	}
+	deleteCmd := delete.NewDeleteEvidenceBase(
+		serverDetails,
+		ebc.ctx.GetStringFlagValue(evidenceName),
+		buildResolver,
+	)
+	return ebc.execute(deleteCmd)
 }
 
 func (ebc *evidenceBuildCommand) validateEvidenceBuildContext(ctx *components.Context) error {
