@@ -109,10 +109,7 @@ func buildContainerUrl(domain, path, checksum string, serviceDetails auth.Servic
 		}
 	}
 
-	normalized := checksum
-	if strings.HasPrefix(normalized, shaPrefix) {
-		normalized = strings.TrimPrefix(normalized, shaPrefix)
-	}
+	normalized := strings.TrimPrefix(checksum, shaPrefix)
 
 	manifestURL := fmt.Sprintf(registryUrlMask, protocol, registry, path, normalized)
 	return manifestURL, nil
