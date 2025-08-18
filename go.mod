@@ -4,6 +4,7 @@ go 1.24.6
 
 require (
 	github.com/c-bata/go-prompt v0.2.5
+	github.com/distribution/reference v0.6.0
 	github.com/forPelevin/gomoji v1.3.0
 	github.com/gookit/color v1.5.4
 	github.com/jfrog/build-info-go v1.10.16

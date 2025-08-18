@@ -9,9 +9,11 @@ import (
 	"testing"
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/sigstore"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/stretchr/testify/assert"
 )
@@ -263,7 +265,7 @@ func TestCreateEvidenceCustom_SigstoreBundleWithSubjectPath(t *testing.T) {
 	custom, ok := cmd.(*createEvidenceCustom)
 	assert.True(t, ok, "cmd should be of type *createEvidenceCustom")
 	assert.Equal(t, bundlePath, custom.sigstoreBundlePath)
-	assert.Equal(t, "provided-repo/provided-artifact", custom.subjectRepoPath)
+	assert.Equal(t, []string{"provided-repo/provided-artifact"}, custom.subjectRepoPaths)
 }
 
 func TestCreateEvidenceCustom_NewSubjectError_AutoSubjectResolution(t *testing.T) {
@@ -381,7 +383,7 @@ func TestCreateEvidenceCustom_RecordSummary(t *testing.T) {
 		PredicateType: "custom-predicate-type",
 	}
 
-	c.recordSummary(expectedResponse)
+	c.recordSummary(subjectRepoPath, expectedResponse)
 
 	summaryFiles, err := fileutils.ListFiles(tempDir, true)
 	assert.NoError(t, err)
@@ -407,4 +409,245 @@ func TestCreateEvidenceCustom_RecordSummary(t *testing.T) {
 			break
 		}
 	}
+}
+
+func TestCreateEvidenceCustom_DetermineFinalError_AutoResolution_AllSuccess(t *testing.T) {
+	serverDetails := &config.ServerDetails{
+		Url:         "https://test.jfrog.io",
+		User:        "test-user",
+		AccessToken: "test-token",
+	}
+
+	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "")
+	custom, ok := cmd.(*createEvidenceCustom)
+	assert.True(t, ok)
+
+	custom.autoSubjectResolution = true
+
+	// Test with no errors (all subjects succeeded)
+	err := custom.determineFinalError([]error{}, []string{"repo1/artifact1", "repo2/artifact2"}, []string{})
+	assert.NoError(t, err)
+}
+
+func TestCreateEvidenceCustom_DetermineFinalError_AutoResolution_PartialSuccess(t *testing.T) {
+	serverDetails := &config.ServerDetails{
+		Url:         "https://test.jfrog.io",
+		User:        "test-user",
+		AccessToken: "test-token",
+	}
+
+	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "")
+	custom, ok := cmd.(*createEvidenceCustom)
+	assert.True(t, ok)
+
+	custom.autoSubjectResolution = true
+
+	// Test with partial success (some subjects succeeded, some failed)
+	errors := []error{
+		errorutils.CheckErrorf("validation failed for subject 'repo2/invalid': invalid format"),
+		errorutils.CheckErrorf("upload failed for subject 'repo3/missing': 404 Not Found"),
+	}
+	successfulSubjects := []string{"repo1/artifact1", "repo4/artifact4"}
+	failedSubjects := []string{"repo2/invalid", "repo3/missing"}
+
+	err := custom.determineFinalError(errors, successfulSubjects, failedSubjects)
+	assert.Error(t, err)
+
+	cliErr, ok := err.(coreutils.CliError)
+	assert.True(t, ok, "error should be of type CliError for auto-resolution with partial success")
+	assert.Equal(t, coreutils.ExitCodeFailNoOp, cliErr.ExitCode)
+	assert.Contains(t, cliErr.ErrorMsg, "Partially successful: 2 succeeded, 2 failed")
+	assert.Contains(t, cliErr.ErrorMsg, "repo2/invalid")
+	assert.Contains(t, cliErr.ErrorMsg, "repo3/missing")
+}
+
+func TestCreateEvidenceCustom_DetermineFinalError_AutoResolution_AllFailed(t *testing.T) {
+	serverDetails := &config.ServerDetails{
+		Url:         "https://test.jfrog.io",
+		User:        "test-user",
+		AccessToken: "test-token",
+	}
+
+	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "")
+	custom, ok := cmd.(*createEvidenceCustom)
+	assert.True(t, ok)
+
+	custom.autoSubjectResolution = true
+
+	// Test with all subjects failed
+	errors := []error{
+		errorutils.CheckErrorf("validation failed for subject 'repo1/invalid': invalid format"),
+		errorutils.CheckErrorf("upload failed for subject 'repo2/missing': 404 Not Found"),
+	}
+	successfulSubjects := []string{}
+	failedSubjects := []string{"repo1/invalid", "repo2/missing"}
+
+	err := custom.determineFinalError(errors, successfulSubjects, failedSubjects)
+	assert.Error(t, err)
+
+	cliErr, ok := err.(coreutils.CliError)
+	assert.True(t, ok, "error should be of type CliError for auto-resolution with all failed")
+	assert.Equal(t, coreutils.ExitCodeFailNoOp, cliErr.ExitCode)
+	assert.Contains(t, cliErr.ErrorMsg, "Failed to process 2 subjects")
+	assert.Contains(t, cliErr.ErrorMsg, "repo1/invalid")
+	assert.Contains(t, cliErr.ErrorMsg, "repo2/missing")
+}
+
+func TestCreateEvidenceCustom_DetermineFinalError_ManualMode_Success(t *testing.T) {
+	serverDetails := &config.ServerDetails{
+		Url:         "https://test.jfrog.io",
+		User:        "test-user",
+		AccessToken: "test-token",
+	}
+
+	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "")
+	custom, ok := cmd.(*createEvidenceCustom)
+	assert.True(t, ok)
+
+	custom.autoSubjectResolution = false
+
+	// Test manual mode with no errors (single subject succeeded)
+	err := custom.determineFinalError([]error{}, []string{"repo1/artifact1"}, []string{})
+	assert.NoError(t, err)
+}
+
+func TestCreateEvidenceCustom_DetermineFinalError_ManualMode_Failure(t *testing.T) {
+	serverDetails := &config.ServerDetails{
+		Url:         "https://test.jfrog.io",
+		User:        "test-user",
+		AccessToken: "test-token",
+	}
+
+	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "")
+	custom, ok := cmd.(*createEvidenceCustom)
+	assert.True(t, ok)
+
+	custom.autoSubjectResolution = false
+
+	// Test manual mode with error (single subject failed)
+	expectedError := errorutils.CheckErrorf("validation failed for subject 'repo1/invalid': invalid format")
+	errors := []error{expectedError}
+	successfulSubjects := []string{}
+	failedSubjects := []string{"repo1/invalid"}
+
+	err := custom.determineFinalError(errors, successfulSubjects, failedSubjects)
+	assert.Error(t, err)
+	assert.Equal(t, expectedError, err, "manual mode should return the original error directly")
+}
+
+func TestCreateEvidenceCustom_ExtractSubjectFromBundle_ImprovedErrorHandling(t *testing.T) {
+	serverDetails := &config.ServerDetails{
+		Url:         "https://test.jfrog.io",
+		User:        "test-user",
+		AccessToken: "test-token",
+	}
+
+	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "")
+	custom, ok := cmd.(*createEvidenceCustom)
+	assert.True(t, ok)
+
+	// Test with bundle that has empty subject name (missing "name" field)
+	statement := map[string]any{
+		"_type": "https://in-toto.io/Statement/v1",
+		"subject": []any{
+			map[string]any{
+				"digest": map[string]any{
+					"sha256": "test-sha256",
+				},
+				// Missing "name" field - this should cause extraction to return empty subject
+			},
+		},
+		"predicateType": "https://slsa.dev/provenance/v0.2",
+		"predicate":     map[string]any{},
+	}
+
+	statementBytes, err := json.Marshal(statement)
+	assert.NoError(t, err)
+	payload := base64.StdEncoding.EncodeToString(statementBytes)
+
+	bundleJSON := `{
+		"mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.2",
+		"verificationMaterial": {
+			"certificate": {
+				"rawBytes": "dGVzdC1jZXJ0"
+			}
+		},
+		"dsseEnvelope": {
+			"payload": "` + payload + `",
+			"payloadType": "application/vnd.in-toto+json",
+			"signatures": [
+				{
+					"sig": "dGVzdC1zaWduYXR1cmU=",
+					"keyid": "test-key-id"
+				}
+			]
+		}
+	}`
+
+	tmpDir := t.TempDir()
+	bundlePath := filepath.Join(tmpDir, "test-bundle-empty-subject.json")
+	err = os.WriteFile(bundlePath, []byte(bundleJSON), 0644)
+	assert.NoError(t, err)
+
+	// Parse the bundle to get a valid bundle object
+	bundle, err := sigstore.ParseBundle(bundlePath)
+	assert.NoError(t, err)
+
+	// Test that the improved error handling provides better context
+	// This should fail because the subject has no "name" field, resulting in empty subject
+	_, err = custom.extractSubjectFromBundle(bundle)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Subject is not found in the sigstore bundle")
+}
+
+func TestCreateEvidenceCustom_ValidateSubject_ImprovedErrorContext(t *testing.T) {
+	serverDetails := &config.ServerDetails{
+		Url:         "https://test.jfrog.io",
+		User:        "test-user",
+		AccessToken: "test-token",
+	}
+
+	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "")
+	custom, ok := cmd.(*createEvidenceCustom)
+	assert.True(t, ok)
+
+	// Test valid subject
+	err := custom.validateSubject("repo/artifact")
+	assert.NoError(t, err)
+
+	// Test invalid subject
+	err = custom.validateSubject("invalid-subject")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Subject 'invalid-subject' is invalid")
+	assert.Contains(t, err.Error(), "format: <repo>/<path>/<name> or <repo>/<name>")
+
+	// Test empty subject
+	err = custom.validateSubject("")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Subject '' is invalid")
+}
+
+func TestCreateEvidenceCustom_HandleSubjectNotFound_ImprovedErrorContext(t *testing.T) {
+	serverDetails := &config.ServerDetails{
+		Url:         "https://test.jfrog.io",
+		User:        "test-user",
+		AccessToken: "test-token",
+	}
+
+	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "")
+	custom, ok := cmd.(*createEvidenceCustom)
+	assert.True(t, ok)
+
+	// Test 404 error
+	originalErr := errorutils.CheckErrorf("404 Not Found")
+	subjectPath := "repo/missing-artifact"
+	err := custom.handleSubjectNotFound(subjectPath, originalErr)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Subject 'repo/missing-artifact' is not found")
+
+	// Test non-404 error (should pass through unchanged)
+	otherErr := errorutils.CheckErrorf("500 Internal Server Error")
+	err = custom.handleSubjectNotFound(subjectPath, otherErr)
+	assert.Error(t, err)
+	assert.Equal(t, otherErr, err)
 }
