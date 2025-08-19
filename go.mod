@@ -7,7 +7,7 @@ require (
 	github.com/forPelevin/gomoji v1.3.0
 	github.com/gookit/color v1.5.4
 	github.com/jfrog/build-info-go v1.10.16
-	github.com/jfrog/froggit-go v1.20.1
+	github.com/jfrog/froggit-go v1.20.2
 	github.com/jfrog/gofrog v1.7.6
 	github.com/jfrog/jfrog-cli-core/v2 v2.59.5
 	github.com/jfrog/jfrog-client-go v1.54.5
@@ -79,7 +79,7 @@ require (
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/certificate-transparency-go v1.3.2 // indirect
 	github.com/google/go-containerregistry v0.20.3 // indirect
-	github.com/google/go-github/v62 v62.0.0 // indirect
+	github.com/google/go-github/v74 v74.0.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
