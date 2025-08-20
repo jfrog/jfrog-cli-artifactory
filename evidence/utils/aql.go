@@ -5,13 +5,13 @@ import (
 	gofrogio "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
-	clientLog "github.com/jfrog/jfrog-client-go/utils/log"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"io"
 )
 
 // ExecuteAqlQuery executes an AQL query and returns the result.
 func ExecuteAqlQuery(query string, client *artifactory.ArtifactoryServicesManager) (*AqlResult, error) {
-	clientLog.Debug("Getting artifactory sha256 using AQL query:", query)
+	log.Debug("Getting artifactory sha256 using AQL query:", query)
 	stream, err := (*client).Aql(query)
 	if err != nil {
 		return nil, err

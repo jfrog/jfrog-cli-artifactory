@@ -344,6 +344,42 @@ func TestPrintText_severalEvidence_Success(t *testing.T) {
 	assert.Contains(t, out, "Verification passed for 2 out of 2 evidence")
 }
 
+func TestPrintText_SigstoreBundleSuccess(t *testing.T) {
+	resp := &model.VerificationResponse{
+		Subject: model.Subject{
+			Sha256: "test-checksum",
+			Path:   "test-file.txt",
+		},
+		OverallVerificationStatus: model.Success,
+		EvidenceVerifications: &[]model.EvidenceVerification{{
+			MediaType:       model.SigstoreBundle,
+			PredicateType:   "test-predicate",
+			CreatedBy:       "test-user",
+			CreatedAt:       "2024-01-01T00:00:00Z",
+			SubjectChecksum: "test-checksum",
+			VerificationResult: model.EvidenceVerificationResult{
+				SigstoreBundleVerificationStatus: model.Success,
+			},
+		}},
+	}
+
+	out := captureOutput(func() {
+		err := printText(resp)
+		assert.NoError(t, err)
+	})
+
+	assert.Contains(t, out, "Subject sha256:        test-checksum")
+	assert.Contains(t, out, "Subject:               test-file.txt")
+	assert.Contains(t, out, "Loaded 1 evidence")
+	assert.Contains(t, out, "Verification passed for 1 out of 1 evidence")
+	assert.Contains(t, out, "- Evidence 1:")
+	assert.Contains(t, out, "- Media type:                     sigstore.bundle")
+	assert.Contains(t, out, "- Predicate type:                 test-predicate")
+	assert.Contains(t, out, "- Evidence subject sha256:        test-checksum")
+	assert.Contains(t, out, "- Sigstore verification status:")
+	assert.Contains(t, out, success)
+}
+
 func TestPrintText_NilResponse(t *testing.T) {
 	err := printText(nil)
 	assert.Error(t, err)
@@ -362,6 +398,7 @@ func TestPrintText_WithFullDetails(t *testing.T) {
 			PredicateType:   "test-type",
 			CreatedBy:       "test-user",
 			CreatedAt:       "2024-01-01T00:00:00Z",
+			MediaType:       model.SimpleDSSE,
 			VerificationResult: model.EvidenceVerificationResult{
 				Sha256VerificationStatus:     model.Success,
 				SignaturesVerificationStatus: model.Success,
@@ -377,6 +414,7 @@ func TestPrintText_WithFullDetails(t *testing.T) {
 	})
 	assert.Contains(t, out, "Subject sha256:        test-checksum")
 	assert.Contains(t, out, "Subject:               test/path")
+	assert.Contains(t, out, "Media type:                     evidence.dsse")
 	assert.Contains(t, out, "Key source:                     test-key-source")
 	assert.Contains(t, out, "Key fingerprint:                test-fingerprint")
 }
@@ -590,4 +628,125 @@ func TestVerifyEvidenceBase_QueryEvidenceMetadata_GraphqlValidationError_PublicK
 	// Check if the error contains the expected version requirement message
 	assert.Contains(t, err.Error(), "the evidence service version should be at least 7.125.0")
 	assert.Contains(t, err.Error(), "the onemodel version should be at least 1.55.0")
+}
+
+func TestIsVerificationSucceed(t *testing.T) {
+	tests := []struct {
+		name           string
+		verification   model.EvidenceVerification
+		expectedResult bool
+		description    string
+	}{
+		{
+			name: "DSSE_BothSuccess",
+			verification: model.EvidenceVerification{
+				MediaType: model.SimpleDSSE,
+				VerificationResult: model.EvidenceVerificationResult{
+					Sha256VerificationStatus:     model.Success,
+					SignaturesVerificationStatus: model.Success,
+				},
+			},
+			expectedResult: true,
+			description:    "DSSE verification should succeed when both Sha256 and Signatures are success",
+		},
+		{
+			name: "DSSE_Sha256Failed",
+			verification: model.EvidenceVerification{
+				MediaType: model.SimpleDSSE,
+				VerificationResult: model.EvidenceVerificationResult{
+					Sha256VerificationStatus:     model.Failed,
+					SignaturesVerificationStatus: model.Success,
+				},
+			},
+			expectedResult: false,
+			description:    "DSSE verification should fail when Sha256 verification fails",
+		},
+		{
+			name: "DSSE_SignaturesFailed",
+			verification: model.EvidenceVerification{
+				MediaType: model.SimpleDSSE,
+				VerificationResult: model.EvidenceVerificationResult{
+					Sha256VerificationStatus:     model.Success,
+					SignaturesVerificationStatus: model.Failed,
+				},
+			},
+			expectedResult: false,
+			description:    "DSSE verification should fail when Signatures verification fails",
+		},
+		{
+			name: "DSSE_BothFailed",
+			verification: model.EvidenceVerification{
+				MediaType: model.SimpleDSSE,
+				VerificationResult: model.EvidenceVerificationResult{
+					Sha256VerificationStatus:     model.Failed,
+					SignaturesVerificationStatus: model.Failed,
+				},
+			},
+			expectedResult: false,
+			description:    "DSSE verification should fail when both Sha256 and Signatures verification fail",
+		},
+		{
+			name: "SigstoreBundle_Success",
+			verification: model.EvidenceVerification{
+				MediaType: model.SigstoreBundle,
+				VerificationResult: model.EvidenceVerificationResult{
+					SigstoreBundleVerificationStatus: model.Success,
+				},
+			},
+			expectedResult: true,
+			description:    "Sigstore bundle verification should succeed when SigstoreBundleVerificationStatus is success",
+		},
+		{
+			name: "SigstoreBundle_Failed",
+			verification: model.EvidenceVerification{
+				MediaType: model.SigstoreBundle,
+				VerificationResult: model.EvidenceVerificationResult{
+					SigstoreBundleVerificationStatus: model.Failed,
+				},
+			},
+			expectedResult: false,
+			description:    "Sigstore bundle verification should fail when SigstoreBundleVerificationStatus is failed",
+		},
+		{
+			name: "SigstoreBundle_SuccessWithOthersFailed",
+			verification: model.EvidenceVerification{
+				MediaType: model.SigstoreBundle,
+				VerificationResult: model.EvidenceVerificationResult{
+					Sha256VerificationStatus:         model.Failed,
+					SignaturesVerificationStatus:     model.Failed,
+					SigstoreBundleVerificationStatus: model.Success,
+				},
+			},
+			expectedResult: true,
+			description:    "Verification should succeed with Sigstore bundle success even if DSSE fields are failed",
+		},
+		{
+			name: "DSSE_SuccessWithSigstoreFailed",
+			verification: model.EvidenceVerification{
+				MediaType: model.SimpleDSSE,
+				VerificationResult: model.EvidenceVerificationResult{
+					Sha256VerificationStatus:         model.Success,
+					SignaturesVerificationStatus:     model.Success,
+					SigstoreBundleVerificationStatus: model.Failed,
+				},
+			},
+			expectedResult: true,
+			description:    "Verification should succeed with DSSE success even if Sigstore bundle field is failed",
+		},
+		{
+			name: "AllFieldsEmpty",
+			verification: model.EvidenceVerification{
+				VerificationResult: model.EvidenceVerificationResult{},
+			},
+			expectedResult: false,
+			description:    "Verification should fail when all verification status fields are empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isVerificationSucceed(tt.verification)
+			assert.Equal(t, tt.expectedResult, result, tt.description)
+		})
+	}
 }

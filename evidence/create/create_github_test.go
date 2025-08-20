@@ -1,11 +1,13 @@
 package create
 
 import (
-	gofrogcmd "github.com/jfrog/gofrog/io"
-	artifactoryUtils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	"os"
 	"testing"
 
+	gofrogcmd "github.com/jfrog/gofrog/io"
+	artifactoryUtils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
+
+	evidenceUtils "github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/stretchr/testify/assert"
@@ -52,13 +54,13 @@ func TestIsRunningUnderGitHubAction(t *testing.T) {
 	defer func() {
 		_ = os.Unsetenv("GITHUB_ACTIONS")
 	}()
-	assert.True(t, isRunningUnderGitHubAction())
+	assert.True(t, evidenceUtils.IsRunningUnderGitHubAction())
 
 	_ = os.Setenv("GITHUB_ACTIONS", "false")
 	defer func() {
 		_ = os.Unsetenv("GITHUB_ACTIONS")
 	}()
-	assert.False(t, isRunningUnderGitHubAction())
+	assert.False(t, evidenceUtils.IsRunningUnderGitHubAction())
 }
 
 func TestGetFlagType(t *testing.T) {

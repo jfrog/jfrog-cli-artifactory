@@ -25,14 +25,14 @@ type MockPackageService struct {
 
 func (m *MockPackageService) GetPackageType(_ artifactory.ArtifactoryServicesManager) (string, error) {
 	if m.ShouldError {
-		return "", fmt.Errorf(m.ErrorMsg)
+		return "", fmt.Errorf("%s", m.ErrorMsg)
 	}
 	return m.PackageType, nil
 }
 
 func (m *MockPackageService) GetPackageVersionLeadArtifact(_ string, _ metadata.Manager, _ artifactory.ArtifactoryServicesManager) (string, error) {
 	if m.ShouldError {
-		return "", fmt.Errorf(m.ErrorMsg)
+		return "", fmt.Errorf("%s", m.ErrorMsg)
 	}
 	return m.LeadArtifact, nil
 }
