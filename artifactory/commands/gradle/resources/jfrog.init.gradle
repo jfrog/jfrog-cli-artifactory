@@ -18,6 +18,11 @@ void configureMavenRepo(repositories, String rtUrl, String rtUser, String rtPass
         if (allowInsecure) {
             allowInsecureProtocol = true
         }
+        
+        metadataSources {
+            artifact()
+            mavenPom()
+        }
     }
 }
 
