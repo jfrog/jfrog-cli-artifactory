@@ -10,9 +10,9 @@ import (
 	"github.com/jfrog/jfrog-client-go/auth"
 )
 
-// DockerSubjectResolver handles resolution of Docker and OCI container image subjects
+// OciSubjectResolver handles resolution of Docker and OCI container image subjects
 // Both Docker and OCI use the same container image format and registry protocols
-type DockerSubjectResolver struct {
+type OciSubjectResolver struct {
 	aqlResolver AqlResolver
 	subject     string
 	client      artifactory.ArtifactoryServicesManager
@@ -24,9 +24,9 @@ const shaPrefix = "sha256:"
 // Format: {protocol}://{registry}/v2/{path}/manifests/sha256:{checksum}
 const registryUrlMask = "%s://%s/v2/%s/manifests/" + shaPrefix + "%s"
 
-// NewDockerSubjectResolver creates a new DockerSubjectResolver instance
-func NewDockerSubjectResolver(subject string, client artifactory.ArtifactoryServicesManager) *DockerSubjectResolver {
-	return &DockerSubjectResolver{
+// NewOciSubjectResolver creates a new OciSubjectResolver instance
+func NewOciSubjectResolver(subject string, client artifactory.ArtifactoryServicesManager) *OciSubjectResolver {
+	return &OciSubjectResolver{
 		subject:     subject,
 		aqlResolver: NewAqlSubjectResolver(client),
 		client:      client,
@@ -34,7 +34,7 @@ func NewDockerSubjectResolver(subject string, client artifactory.ArtifactoryServ
 }
 
 // Resolve resolves a container image subject to repository paths using the checksum
-func (d *DockerSubjectResolver) Resolve(checksum string) ([]string, error) {
+func (d *OciSubjectResolver) Resolve(checksum string) ([]string, error) {
 	if d.subject == "" {
 		return nil, fmt.Errorf("subject cannot be empty")
 	}
@@ -45,7 +45,7 @@ func (d *DockerSubjectResolver) Resolve(checksum string) ([]string, error) {
 		return nil, fmt.Errorf("artifactory client is not properly initialized")
 	}
 
-	domain, path, err := parseDockerSubject(d.subject)
+	domain, path, err := parseOciSubject(d.subject)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse container subject: %w", err)
 	}
@@ -75,7 +75,7 @@ func (d *DockerSubjectResolver) Resolve(checksum string) ([]string, error) {
 	return d.aqlResolver.Resolve(repo, path, checksum)
 }
 
-// buildContainerUrl constructs a Docker registry v2 API URL for the given subject parts and checksum
+// buildContainerUrl constructs a OCI registry v2 API URL for the given subject parts and checksum
 func buildContainerUrl(domain, path, checksum string, serviceDetails auth.ServiceDetails) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("path cannot be empty")
@@ -115,8 +115,8 @@ func buildContainerUrl(domain, path, checksum string, serviceDetails auth.Servic
 	return manifestURL, nil
 }
 
-// parseDockerSubject extracts registry domain and repository path from a Docker/OCI subject
-func parseDockerSubject(subject string) (string, string, error) {
+// parseOciSubject extracts registry domain and repository path from a OCI subject
+func parseOciSubject(subject string) (string, string, error) {
 	if subject == "" {
 		return "", "", fmt.Errorf("subject cannot be empty")
 	}

@@ -20,6 +20,8 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
+const subjectsLimit = 10
+
 type createEvidenceCustom struct {
 	createEvidenceBase
 	subjectRepoPaths      []string
@@ -79,6 +81,10 @@ func (c *createEvidenceCustom) Run() error {
 	var errors []error
 	var successfulSubjects []string
 	var failedSubjects []string
+
+	if len(c.subjectRepoPaths) > subjectsLimit {
+		return fmt.Errorf("too many subjects resolved (%d). Maximum allowed is %d", len(c.subjectRepoPaths), subjectsLimit)
+	}
 
 	for _, subjectRepoPath := range c.subjectRepoPaths {
 		if err := c.validateSubject(subjectRepoPath); err != nil {

@@ -597,7 +597,7 @@ func TestCreateEvidenceCustom_ExtractSubjectFromBundle_ImprovedErrorHandling(t *
 	// This should fail because the subject has no "name" field, resulting in empty subject
 	_, err = custom.extractSubjectFromBundle(bundle)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Subject is not found in the sigstore bundle")
+	assert.Contains(t, err.Error(), "failed to extract subject from bundle: name was not found in DSSE subject")
 }
 
 func TestCreateEvidenceCustom_ValidateSubject_ImprovedErrorContext(t *testing.T) {

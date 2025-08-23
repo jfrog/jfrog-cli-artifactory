@@ -39,33 +39,36 @@ func extractSubjectFromEnvelope(envelope *protodsse.Envelope) (repoPath, sha256 
 		return "", "", errorutils.CheckErrorf("failed to parse statement from DSSE payload: %w", err)
 	}
 
-	repoPath, sha256 = extractRepoPathFromStatement(statement)
+	repoPath, sha256, err = extractRepoPathFromStatement(statement)
+	if err != nil {
+		return "", "", err
+	}
 	return repoPath, sha256, nil
 }
 
 // extractRepoPathFromStatement extracts the repository path and SHA256 checksum from a statement
 // The statement should contain a "subject" array with at least one subject object
 // Each subject should have a "name" field and optionally a "digest" field with SHA256
-func extractRepoPathFromStatement(statement map[string]any) (string, string) {
+func extractRepoPathFromStatement(statement map[string]any) (string, string, error) {
 	if statement == nil {
-		return "", ""
+		return "", "", errorutils.CheckErrorf("statement was not found in DSSE payload")
 	}
 
 	subjects, ok := statement["subject"].([]any)
 	if !ok || len(subjects) == 0 {
-		return "", ""
+		return "", "", errorutils.CheckErrorf("subject was not found in DSSE statement")
 	}
 
 	// Get the first subject
 	subject, ok := subjects[0].(map[string]any)
 	if !ok {
-		return "", ""
+		return "", "", errorutils.CheckErrorf("invalid subject format in DSSE statement")
 	}
 
 	// Extract the name
 	name, ok := subject["name"].(string)
 	if !ok || name == "" {
-		return "", ""
+		return "", "", errorutils.CheckErrorf("name was not found in DSSE subject")
 	}
 
 	// Extract the SHA256 digest if available
@@ -76,5 +79,5 @@ func extractRepoPathFromStatement(statement map[string]any) (string, string) {
 		}
 	}
 
-	return name, sha256
+	return name, sha256, nil
 }

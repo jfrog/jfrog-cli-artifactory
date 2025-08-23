@@ -48,7 +48,7 @@ func TestBuildUrl(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			domain, path, err := parseDockerSubject(tc.subject)
+			domain, path, err := parseOciSubject(tc.subject)
 			if err != nil {
 				t.Fatalf("failed to parse subject: %v", err)
 			}

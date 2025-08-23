@@ -15,16 +15,16 @@ type SubjectResolver interface {
 // ResolverFunc is a function type that resolves subjects to repository paths
 type ResolverFunc func(subject, checksum string, client artifactory.ArtifactoryServicesManager) ([]string, error)
 
-// dockerResolver handles both Docker and OCI subject resolution since they share the same format
-var dockerResolver ResolverFunc = func(subject, checksum string, client artifactory.ArtifactoryServicesManager) ([]string, error) {
-	resolver := NewDockerSubjectResolver(subject, client)
+// ociResolver handles OCI subject resolution
+var ociResolver ResolverFunc = func(subject, checksum string, client artifactory.ArtifactoryServicesManager) ([]string, error) {
+	resolver := NewOciSubjectResolver(subject, client)
 	return resolver.Resolve(checksum)
 }
 
 // resolvers maps protocol prefixes to their corresponding resolver functions
 var resolvers = map[string]ResolverFunc{
-	"docker": dockerResolver,
-	"oci":    dockerResolver,
+	"docker": ociResolver,
+	"oci":    ociResolver,
 }
 
 // ResolveSubject resolves a subject to repository paths based on its protocol prefix
