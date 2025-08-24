@@ -24,8 +24,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-const EvdDefaultUser = "JFrog CLI"
-
 type createEvidenceBase struct {
 	serverDetails     *config.ServerDetails
 	predicateFilePath string
@@ -39,6 +37,8 @@ type createEvidenceBase struct {
 	flagType          FlagType
 	useSonarPredicate bool
 }
+
+const EvdDefaultUser = "JFrog CLI"
 
 func (c *createEvidenceBase) createEnvelope(subject, subjectSha256 string) ([]byte, error) {
 	var statementJson []byte
@@ -106,12 +106,12 @@ func (c *createEvidenceBase) buildStatementFromSonar(subject, subjectSha256 stri
 		}
 		sha = cs
 	}
-	augmented, err := augmentStatementWithSubjectAndStage(statementBytes, sha, c.stage)
+	extendedStatement, err := addSubjectAndStageToStatement(statementBytes, sha, c.stage)
 	if err != nil {
 		return nil, err
 	}
 	c.providerId = "sonar"
-	return augmented, nil
+	return extendedStatement, nil
 }
 
 func (c *createEvidenceBase) createEnvelopeWithPredicateAndPredicateType(subject,
@@ -213,9 +213,7 @@ func (c *createEvidenceBase) setMarkdown(statement *intoto.Statement) error {
 			log.Warn(fmt.Sprintf("failed to read markdown file '%s'", c.markdownFilePath))
 			return err
 		}
-		// Temporary fix: replace \n with <br> in markdown
-		markdownWithBR := strings.ReplaceAll(string(markdown), "\n", "<br>")
-		statement.SetMarkdown([]byte(markdownWithBR))
+		statement.SetMarkdown(markdown)
 	}
 	return nil
 }
@@ -346,8 +344,8 @@ func createSigners(privateKey *cryptox.SSLibKey) ([]dsse.Signer, error) {
 	return signers, nil
 }
 
-// augmentStatementWithSubjectAndStage injects subject and stage into the given in-toto statement JSON.
-func augmentStatementWithSubjectAndStage(statement []byte, sha256 string, stage string) ([]byte, error) {
+// addSubjectAndStageToStatement injects subject and stage into the given in-toto statement JSON.
+func addSubjectAndStageToStatement(statement []byte, sha256 string, stage string) ([]byte, error) {
 	var m map[string]any
 	if err := json.Unmarshal(statement, &m); err != nil {
 		return nil, err
