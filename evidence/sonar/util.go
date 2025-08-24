@@ -3,6 +3,8 @@ package sonar
 import (
 	"net/url"
 	"os"
+
+	"github.com/jfrog/gofrog/log"
 )
 
 const defaultSonarURL = "https://api.sonarcloud.io"
@@ -12,6 +14,7 @@ func fileExists(path string) bool {
 		return false
 	}
 	_, err := os.Stat(path)
+	log.Debug("Checking if file exists:", path, " - ", err)
 	return err == nil
 }
 

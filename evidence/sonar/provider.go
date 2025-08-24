@@ -4,10 +4,6 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/jfrog/jfrog-client-go/config"
-	"github.com/jfrog/jfrog-client-go/sonar"
-	sonarauth "github.com/jfrog/jfrog-client-go/sonar/auth"
-	sonarservices "github.com/jfrog/jfrog-client-go/sonar/services"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/httputils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -33,8 +29,8 @@ type sonarPredicate struct {
 
 // Provider handles SonarQube analysis business logic
 type Provider struct {
-	manager        sonar.Manager
-	cachedAnalysis string
+	client           Client
+	cachedAnalysisId string
 }
 
 // NewSonarProviderWithCredentials creates a new SonarProvider with SonarQube credentials
@@ -46,27 +42,8 @@ func NewSonarProviderWithCredentials(sonarURL, token string) (*Provider, error) 
 		return nil, errorutils.CheckErrorf("SonarQube token is required")
 	}
 
-	// Create SonarQube auth details
-	sonarDetails := sonarauth.NewSonarDetails()
-	sonarDetails.SetUrl(sonarURL)
-	sonarDetails.SetAccessToken(token)
-
-	// Create config with SonarQube details
-	cfg, err := config.NewConfigBuilder().
-		SetServiceDetails(sonarDetails).
-		Build()
-	if err != nil {
-		return nil, errorutils.CheckErrorf("failed to create SonarQube config: %v", err)
-	}
-
-	// Create SonarQube manager
-	manager, err := sonar.NewManager(cfg)
-	if err != nil {
-		return nil, errorutils.CheckErrorf("failed to create SonarQube manager: %v", err)
-	}
-
 	return &Provider{
-		manager: manager,
+		client: NewClient(sonarURL, token),
 	}, nil
 }
 
@@ -77,16 +54,16 @@ func (p *Provider) BuildPredicate(ceTaskID, analysisID string, maxRetries *int, 
 	}
 
 	// Use cached analysis id if available; otherwise poll once and cache
-	if p.cachedAnalysis == "" {
+	if p.cachedAnalysisId == "" {
 		log.Info("Polling for task completion:", ceTaskID)
 		completedAnalysisID, err := p.pollTaskUntilSuccess(ceTaskID, maxRetries, retryInterval)
 		if err != nil {
 			return nil, "", nil, errorutils.CheckErrorf("failed to poll task completion: %v", err)
 		}
-		p.cachedAnalysis = completedAnalysisID
+		p.cachedAnalysisId = completedAnalysisID
 	}
-	if p.cachedAnalysis != "" {
-		analysisID = p.cachedAnalysis
+	if p.cachedAnalysisId != "" {
+		analysisID = p.cachedAnalysisId
 	}
 
 	predicate, predicateType, markdown, err := p.getSonarPredicate(ceTaskID)
@@ -114,13 +91,13 @@ func (p *Provider) BuildStatement(ceTaskID string, maxRetries *int, retryInterva
 		return nil, errorutils.CheckErrorf("ceTaskID is required for SonarQube evidence creation")
 	}
 
-	if p.cachedAnalysis == "" {
+	if p.cachedAnalysisId == "" {
 		log.Info("Polling for task completion:", ceTaskID)
 		completedAnalysisID, err := p.pollTaskUntilSuccess(ceTaskID, maxRetries, retryInterval)
 		if err != nil {
 			return nil, errorutils.CheckErrorf("failed to poll task completion: %v", err)
 		}
-		p.cachedAnalysis = completedAnalysisID
+		p.cachedAnalysisId = completedAnalysisID
 	}
 
 	statement, err := p.getSonarStatement(ceTaskID)
@@ -131,12 +108,12 @@ func (p *Provider) BuildStatement(ceTaskID string, maxRetries *int, retryInterva
 }
 
 func (p *Provider) pollTaskUntilSuccess(ceTaskID string, maxRetries *int, retryInterval *int) (string, error) {
-	if p.manager == nil {
+	if p.client == nil {
 		return "", errorutils.CheckErrorf("SonarQube manager is not available")
 	}
 
 	// First, check if the task is already completed
-	taskDetails, err := p.manager.GetTaskDetails(ceTaskID)
+	taskDetails, err := p.client.GetTaskDetails(ceTaskID)
 	if err != nil {
 		return "", err
 	}
@@ -173,7 +150,7 @@ func (p *Provider) pollTaskUntilSuccess(ceTaskID string, maxRetries *int, retryI
 		PollingInterval: pollingInterval,
 		MsgPrefix:       "Polling SonarQube task",
 		PollingAction: func() (shouldStop bool, responseBody []byte, err error) {
-			taskDetails, err := p.manager.GetTaskDetails(ceTaskID)
+			taskDetails, err := p.client.GetTaskDetails(ceTaskID)
 			if err != nil {
 				return true, nil, err
 			}
@@ -202,12 +179,12 @@ func (p *Provider) pollTaskUntilSuccess(ceTaskID string, maxRetries *int, retryI
 }
 
 func (p *Provider) getSonarPredicate(ceTaskID string) ([]byte, string, []byte, error) {
-	if p.manager == nil {
+	if p.client == nil {
 		return nil, "", nil, errorutils.CheckErrorf("SonarQube manager is not available")
 	}
 
 	// Use raw statement and unmarshal only the needed fields
-	body, err := p.manager.GetSonarIntotoStatement(ceTaskID)
+	body, err := p.client.GetSonarIntotoStatement(ceTaskID)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -227,11 +204,11 @@ func (p *Provider) getSonarPredicate(ceTaskID string) ([]byte, string, []byte, e
 }
 
 func (p *Provider) getSonarStatement(ceTaskID string) ([]byte, error) {
-	if p.manager == nil {
+	if p.client == nil {
 		return nil, errorutils.CheckErrorf("SonarQube manager is not available")
 	}
 
-	body, err := p.manager.GetSonarIntotoStatement(ceTaskID)
+	body, err := p.client.GetSonarIntotoStatement(ceTaskID)
 	if err != nil {
 		return nil, err
 	}
@@ -239,12 +216,12 @@ func (p *Provider) getSonarStatement(ceTaskID string) ([]byte, error) {
 }
 
 func (p *Provider) buildPredicateFromQualityGates(analysisID string) ([]byte, error) {
-	if p.manager == nil {
+	if p.client == nil {
 		return nil, errorutils.CheckErrorf("SonarQube manager is not available")
 	}
 
 	// Get quality gates response
-	qgResponse, err := p.manager.GetQualityGateAnalysis(analysisID)
+	qgResponse, err := p.client.GetQualityGateAnalysis(analysisID)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +231,7 @@ func (p *Provider) buildPredicateFromQualityGates(analysisID string) ([]byte, er
 
 // Mapping functions
 
-func (p *Provider) mapQualityGatesToPredicate(qgResponse sonarservices.QualityGatesAnalysis) ([]byte, error) {
+func (p *Provider) mapQualityGatesToPredicate(qgResponse QualityGatesAnalysis) ([]byte, error) {
 	// Map conditions to the new format (removing PeriodIndex as it's not in the new structure)
 	var conditions []struct {
 		Status         string `json:"status"`

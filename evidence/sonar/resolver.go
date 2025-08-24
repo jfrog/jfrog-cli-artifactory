@@ -67,7 +67,6 @@ func resolvePredicateWithConfig(cfg *conf.EvidenceConfig) (string, []byte, []byt
 		sonarBaseURL = cfg.Sonar.URL
 	}
 
-	// Get token from environment only
 	token := os.Getenv("SONAR_TOKEN")
 	if token == "" {
 		token = os.Getenv("SONARQUBE_TOKEN")

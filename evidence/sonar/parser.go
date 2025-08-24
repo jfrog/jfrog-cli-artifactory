@@ -18,36 +18,53 @@ type ReportTask struct {
 
 func parseReportTask(path string) (ReportTask, error) {
 	rt := ReportTask{}
-	f, e := os.Open(path)
-	if e != nil {
-		return rt, errorutils.CheckErrorf("failed to open report task file '%s': %v", path, e)
+
+	props, err := readPropertiesFile(path)
+	if err != nil {
+		return rt, err
+	}
+
+	rt.CeTaskURL = props["ceTaskUrl"]
+	rt.CeTaskID = props["ceTaskId"]
+	rt.AnalysisID = props["analysisId"]
+	rt.ProjectKey = props["projectKey"]
+	rt.ServerURL = props["serverUrl"]
+
+	if rt.CeTaskID == "" && rt.CeTaskURL != "" {
+		if idx := strings.LastIndex(rt.CeTaskURL, "?id="); idx != -1 {
+			rt.CeTaskID = rt.CeTaskURL[idx+4:]
+		}
+	}
+
+	return rt, nil
+}
+
+func readPropertiesFile(path string) (map[string]string, error) {
+	props := make(map[string]string)
+
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, errorutils.CheckErrorf("failed to open report task file '%s': %v", path, err)
 	}
 	defer f.Close()
+
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "ceTaskUrl=") {
-			val := strings.TrimPrefix(line, "ceTaskUrl=")
-			rt.CeTaskURL = val
-			if idx := strings.LastIndex(val, "?id="); idx != -1 {
-				rt.CeTaskID = val[idx+4:]
-			}
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
 		}
-		if strings.HasPrefix(line, "ceTaskId=") {
-			rt.CeTaskID = strings.TrimPrefix(line, "ceTaskId=")
-		}
-		if strings.HasPrefix(line, "analysisId=") {
-			rt.AnalysisID = strings.TrimPrefix(line, "analysisId=")
-		}
-		if strings.HasPrefix(line, "projectKey=") {
-			rt.ProjectKey = strings.TrimPrefix(line, "projectKey=")
-		}
-		if strings.HasPrefix(line, "serverUrl=") {
-			rt.ServerURL = strings.TrimPrefix(line, "serverUrl=")
+
+		if idx := strings.Index(line, "="); idx != -1 {
+			key := strings.TrimSpace(line[:idx])
+			value := strings.TrimSpace(line[idx+1:])
+			props[key] = value
 		}
 	}
+
 	if err := scanner.Err(); err != nil {
-		return rt, errorutils.CheckErrorf("failed reading report task file '%s': %v", path, err)
+		return nil, errorutils.CheckErrorf("failed reading report task file '%s': %v", path, err)
 	}
-	return rt, nil
+
+	return props, nil
 }

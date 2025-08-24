@@ -5,6 +5,7 @@ import (
 
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/spf13/viper"
 )
 
@@ -40,6 +41,7 @@ func LoadEvidenceConfig() (*EvidenceConfig, error) {
 		if err := v.Unmarshal(&cfg); err != nil {
 			return nil, errorutils.CheckError(err)
 		}
+		log.Info("Found evidence config file:", p)
 		return cfg, nil
 	}
 	return nil, nil

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"testing"
 
-	sonarservices "github.com/jfrog/jfrog-client-go/sonar/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -22,23 +21,23 @@ func (m *MockSonarManager) GetSonarIntotoStatement(ceTaskID string) ([]byte, err
 	return nil, args.Error(1)
 }
 
-func (m *MockSonarManager) GetQualityGateAnalysis(analysisID string) (*sonarservices.QualityGatesAnalysis, error) {
+func (m *MockSonarManager) GetQualityGateAnalysis(analysisID string) (*QualityGatesAnalysis, error) {
 	args := m.Called(analysisID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	if qga, ok := args.Get(0).(*sonarservices.QualityGatesAnalysis); ok {
+	if qga, ok := args.Get(0).(*QualityGatesAnalysis); ok {
 		return qga, args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *MockSonarManager) GetTaskDetails(ceTaskID string) (*sonarservices.TaskDetails, error) {
+func (m *MockSonarManager) GetTaskDetails(ceTaskID string) (*TaskDetails, error) {
 	args := m.Called(ceTaskID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	if td, ok := args.Get(0).(*sonarservices.TaskDetails); ok {
+	if td, ok := args.Get(0).(*TaskDetails); ok {
 		return td, args.Error(1)
 	}
 	return nil, args.Error(1)
@@ -46,18 +45,18 @@ func (m *MockSonarManager) GetTaskDetails(ceTaskID string) (*sonarservices.TaskD
 
 func TestNewSonarProviderWithManager(t *testing.T) {
 	mockManager := &MockSonarManager{}
-	provider := &Provider{manager: mockManager}
+	provider := &Provider{client: mockManager}
 	assert.NotNil(t, provider)
 	assert.IsType(t, &Provider{}, provider)
-	assert.Equal(t, mockManager, provider.manager)
+	assert.Equal(t, mockManager, provider.client)
 }
 
 func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_Success(t *testing.T) {
 	mockManager := &MockSonarManager{}
-	provider := &Provider{manager: mockManager}
+	provider := &Provider{client: mockManager}
 
 	// Mock task polling - task is already completed
-	taskResp := &sonarservices.TaskDetails{
+	taskResp := &TaskDetails{
 		Task: struct {
 			ID                 string      `json:"id"`
 			Type               string      `json:"type"`
@@ -109,10 +108,10 @@ func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_Success(t *testing.T
 
 func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_Fallback(t *testing.T) {
 	mockManager := &MockSonarManager{}
-	provider := &Provider{manager: mockManager}
+	provider := &Provider{client: mockManager}
 
 	// Mock task polling - task starts as pending, then becomes successful
-	taskRespPending := &sonarservices.TaskDetails{
+	taskRespPending := &TaskDetails{
 		Task: struct {
 			ID                 string      `json:"id"`
 			Type               string      `json:"type"`
@@ -136,7 +135,7 @@ func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_Fallback(t *testing.
 		},
 	}
 
-	taskRespSuccess := &sonarservices.TaskDetails{
+	taskRespSuccess := &TaskDetails{
 		Task: struct {
 			ID                 string      `json:"id"`
 			Type               string      `json:"type"`
@@ -161,7 +160,7 @@ func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_Fallback(t *testing.
 	}
 
 	// Mock quality gates response
-	qgResp := &sonarservices.QualityGatesAnalysis{
+	qgResp := &QualityGatesAnalysis{
 		ProjectStatus: struct {
 			Status     string `json:"status"`
 			Conditions []struct {
@@ -251,10 +250,10 @@ func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_Fallback(t *testing.
 
 func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_BothFail(t *testing.T) {
 	mockManager := &MockSonarManager{}
-	provider := &Provider{manager: mockManager}
+	provider := &Provider{client: mockManager}
 
 	// Mock task polling - task is already completed
-	taskResp := &sonarservices.TaskDetails{
+	taskResp := &TaskDetails{
 		Task: struct {
 			ID                 string      `json:"id"`
 			Type               string      `json:"type"`
@@ -305,7 +304,7 @@ func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_BothFail(t *testing.
 }
 
 func TestSonarProvider_BuildPredicate_EmptyCeTaskID(t *testing.T) {
-	provider := &Provider{manager: nil}
+	provider := &Provider{client: nil}
 
 	// Test that BuildPredicate returns an error when ceTaskID is empty
 	predicate, predicateType, markdown, err := provider.BuildPredicate(
@@ -323,9 +322,9 @@ func TestSonarProvider_BuildPredicate_EmptyCeTaskID(t *testing.T) {
 }
 
 func TestSonarProvider_mapQualityGatesToPredicate(t *testing.T) {
-	provider := &Provider{manager: nil}
+	provider := &Provider{client: nil}
 
-	qgResponse := sonarservices.QualityGatesAnalysis{
+	qgResponse := QualityGatesAnalysis{
 		ProjectStatus: struct {
 			Status     string `json:"status"`
 			Conditions []struct {
