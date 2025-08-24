@@ -31,7 +31,7 @@ type createEvidenceCustom struct {
 }
 
 func NewCreateEvidenceCustom(serverDetails *config.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, subjectRepoPath,
-	subjectSha256, sigstoreBundlePath, providerId string) evidence.Command {
+	subjectSha256, sigstoreBundlePath, providerId string, useSonarPredicate bool) evidence.Command {
 	var subjectRepoPathSlice []string
 	if subjectRepoPath != "" {
 		subjectRepoPathSlice = []string{subjectRepoPath}
@@ -47,6 +47,7 @@ func NewCreateEvidenceCustom(serverDetails *config.ServerDetails, predicateFileP
 			markdownFilePath:  markdownFilePath,
 			key:               key,
 			keyId:             keyId,
+			useSonarPredicate: useSonarPredicate,
 		},
 		subjectRepoPaths:   subjectRepoPathSlice,
 		subjectSha256:      subjectSha256,

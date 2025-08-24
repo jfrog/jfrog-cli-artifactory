@@ -37,7 +37,8 @@ func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDe
 		ecc.ctx.GetStringFlagValue(subjectRepoPath),
 		ecc.ctx.GetStringFlagValue(subjectSha256),
 		ecc.ctx.GetStringFlagValue(sigstoreBundle),
-		ecc.ctx.GetStringFlagValue(providerId))
+		ecc.ctx.GetStringFlagValue(providerId),
+		ecc.ctx.GetBoolFlagValue(useSonarPredicate))
 	return ecc.execute(createCmd)
 }
 

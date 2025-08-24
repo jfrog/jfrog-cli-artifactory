@@ -39,7 +39,7 @@ type createGitHubEvidence struct {
 	buildNumber string
 }
 
-func NewCreateGithub(serverDetails *config.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, project, buildName, buildNumber, typeFlag string) evidence.Command {
+func NewCreateGithub(serverDetails *config.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, project, buildName, buildNumber, typeFlag string, useSonarPredicate bool) evidence.Command {
 	flagType := getFlagType(typeFlag)
 	return &createGitHubEvidence{
 		createEvidenceBase: createEvidenceBase{
@@ -50,6 +50,7 @@ func NewCreateGithub(serverDetails *config.ServerDetails, predicateFilePath, pre
 			key:               key,
 			keyId:             keyId,
 			flagType:          flagType,
+			useSonarPredicate: useSonarPredicate,
 		},
 		project:     project,
 		buildName:   buildName,

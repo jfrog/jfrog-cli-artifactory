@@ -43,7 +43,8 @@ func (ebc *evidenceGitHubCommand) CreateEvidence(ctx *components.Context, server
 		ebc.ctx.GetStringFlagValue(project),
 		ebc.ctx.GetStringFlagValue(buildName),
 		ebc.ctx.GetStringFlagValue(buildNumber),
-		ebc.ctx.GetStringFlagValue(typeFlag))
+		ebc.ctx.GetStringFlagValue(typeFlag),
+		ebc.ctx.GetBoolFlagValue(useSonarPredicate))
 	return ebc.execute(createCmd)
 }
 

@@ -78,7 +78,7 @@ func TestBuildInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c, ok := NewCreateEvidenceBuild(nil, "", "", "", "", "", tt.project, tt.buildName, tt.buildNumber).(*createEvidenceBuild)
+			c, ok := NewCreateEvidenceBuild(nil, "", "", "", "", "", tt.project, tt.buildName, tt.buildNumber, false).(*createEvidenceBuild)
 			if !ok {
 				t.Fatal("Failed to create createEvidenceBuild instance")
 			}
@@ -133,6 +133,7 @@ func TestCreateEvidenceBuild_RecordSummary(t *testing.T) {
 		"myProject",
 		"testBuild",
 		"123",
+		false,
 	)
 	c, ok := evidence.(*createEvidenceBuild)
 	if !ok {

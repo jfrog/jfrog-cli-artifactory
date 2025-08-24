@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	evidenceUtils "github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	"os"
 	"strings"
+
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/sonar"
+	evidenceUtils "github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
 
@@ -22,36 +24,94 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+const EvdDefaultUser = "JFrog CLI"
+
 type createEvidenceBase struct {
 	serverDetails     *config.ServerDetails
 	predicateFilePath string
 	predicateType     string
 	markdownFilePath  string
+	markdown          []byte
 	key               string
 	keyId             string
 	providerId        string
 	stage             string
 	flagType          FlagType
+	useSonarPredicate bool
 }
 
-const EvdDefaultUser = "JFrog CLI"
-
 func (c *createEvidenceBase) createEnvelope(subject, subjectSha256 string) ([]byte, error) {
-	statementJson, err := c.buildIntotoStatementJson(subject, subjectSha256)
+	var statementJson []byte
+	var err error
+	if c.useSonarPredicate {
+		statementJson, err = c.buildStatementFromSonar(subject, subjectSha256)
+		if err != nil {
+			log.Debug("Main statement flow failed, falling back to predicate flow:", err.Error())
+			sonarPredicate, perr := c.buildSonarPredicate()
+			if perr != nil {
+				return nil, perr
+			}
+			statementJson, err = c.buildIntotoStatementJson(subject, subjectSha256, sonarPredicate)
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		statementJson, err = c.buildIntotoStatementJson(subject, subjectSha256, nil)
+	}
 	if err != nil {
 		return nil, err
 	}
-
 	signedEnvelope, err := createAndSignEnvelope(statementJson, c.key, c.keyId)
 	if err != nil {
 		return nil, err
 	}
-
 	envelopeBytes, err := json.Marshal(signedEnvelope)
 	if err != nil {
 		return nil, err
 	}
 	return envelopeBytes, nil
+}
+
+func (c *createEvidenceBase) buildSonarPredicate() ([]byte, error) {
+	resolver := sonar.NewPredicateResolver()
+	predicateType, predicate, markdown, err := resolver.ResolvePredicate()
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve predicate: %w", err)
+	}
+	c.predicateType = predicateType
+	c.providerId = "sonar"
+	if len(markdown) > 0 {
+		c.markdown = markdown
+	}
+	return predicate, nil
+}
+
+// buildStatementFromSonar fetches in-toto statement from main flow, augments it with subject and stage, and returns it.
+func (c *createEvidenceBase) buildStatementFromSonar(subject, subjectSha256 string) ([]byte, error) {
+	stmtResolver := sonar.NewStatementResolver()
+	statementBytes, _, err := stmtResolver.ResolveStatement()
+	if err != nil {
+		return nil, err
+	}
+	sha := subjectSha256
+	if sha == "" {
+		artifactoryClient, cerr := c.createArtifactoryClient()
+		if cerr != nil {
+			return nil, cerr
+		}
+		cs, cerr := c.getFileChecksum(subject, artifactoryClient)
+		if cerr != nil {
+			return nil, cerr
+		}
+		sha = cs
+	}
+	augmented, err := augmentStatementWithSubjectAndStage(statementBytes, sha, c.stage)
+	if err != nil {
+		return nil, err
+	}
+	c.providerId = "sonar"
+	return augmented, nil
 }
 
 func (c *createEvidenceBase) createEnvelopeWithPredicateAndPredicateType(subject,
@@ -75,11 +135,14 @@ func (c *createEvidenceBase) createEnvelopeWithPredicateAndPredicateType(subject
 	return envelopeBytes, nil
 }
 
-func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 string) ([]byte, error) {
-	predicate, err := os.ReadFile(c.predicateFilePath)
-	if err != nil {
-		log.Warn(fmt.Sprintf("failed to read predicate file '%s'", predicate))
-		return nil, err
+func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 string, predicate []byte) ([]byte, error) {
+	if len(predicate) == 0 {
+		customPredicate, err := os.ReadFile(c.predicateFilePath)
+		if err != nil {
+			log.Warn(fmt.Sprintf("failed to read predicate file '%s'", customPredicate))
+			return nil, err
+		}
+		predicate = customPredicate
 	}
 
 	artifactoryClient, err := c.createArtifactoryClient()
@@ -136,6 +199,11 @@ func (c *createEvidenceBase) buildIntotoStatementJsonWithPredicateAndPredicateTy
 }
 
 func (c *createEvidenceBase) setMarkdown(statement *intoto.Statement) error {
+	if len(c.markdown) > 0 {
+		statement.SetMarkdown(c.markdown)
+		return nil
+	}
+
 	if c.markdownFilePath != "" {
 		if !strings.HasSuffix(c.markdownFilePath, ".md") {
 			return fmt.Errorf("file '%s' does not have a .md extension", c.markdownFilePath)
@@ -145,7 +213,9 @@ func (c *createEvidenceBase) setMarkdown(statement *intoto.Statement) error {
 			log.Warn(fmt.Sprintf("failed to read markdown file '%s'", c.markdownFilePath))
 			return err
 		}
-		statement.SetMarkdown(markdown)
+		// Temporary fix: replace \n with <br> in markdown
+		markdownWithBR := strings.ReplaceAll(string(markdown), "\n", "<br>")
+		statement.SetMarkdown([]byte(markdownWithBR))
 	}
 	return nil
 }
@@ -162,6 +232,7 @@ func (c *createEvidenceBase) uploadEvidence(evidencePayload []byte, repoPath str
 		DSSEFileRaw: evidencePayload,
 		ProviderId:  c.providerId,
 	}
+	log.Info("Uploading evidence to Artifactory provider:", c.providerId)
 	log.Debug("Uploading evidence for subject:", repoPath)
 	body, err := evidenceManager.UploadEvidence(evidenceDetails)
 	if err != nil {
@@ -273,4 +344,24 @@ func createSigners(privateKey *cryptox.SSLibKey) ([]dsse.Signer, error) {
 		return nil, errors.New("unsupported key type")
 	}
 	return signers, nil
+}
+
+// augmentStatementWithSubjectAndStage injects subject and stage into the given in-toto statement JSON.
+func augmentStatementWithSubjectAndStage(statement []byte, sha256 string, stage string) ([]byte, error) {
+	var m map[string]any
+	if err := json.Unmarshal(statement, &m); err != nil {
+		return nil, err
+	}
+	// subject
+	subject := map[string]any{
+		"digest": map[string]any{
+			"sha256": sha256,
+		},
+	}
+	m["subject"] = []any{subject}
+	// stage
+	if stage != "" {
+		m["stage"] = stage
+	}
+	return json.Marshal(m)
 }

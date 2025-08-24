@@ -44,6 +44,7 @@ const (
 	providerId         = "provider-id"
 	publicKeys         = "public-keys"
 	useArtifactoryKeys = "use-artifactory-keys"
+	useSonarPredicate  = "use-sonar-predicate"
 	sigstoreBundle     = "sigstore-bundle"
 	artifactsLimit     = "artifacts-limit"
 )
@@ -81,6 +82,7 @@ var flagsMap = map[string]components.Flag{
 	publicKeys:         components.NewStringFlag(publicKeys, "Array of paths to public keys for signatures verification with \";\" separator. Supported keys: 'ecdsa','rsa' and 'ed25519'.", func(f *components.StringFlag) { f.Mandatory = false }),
 	sigstoreBundle:     components.NewStringFlag(sigstoreBundle, "Path to a Sigstore bundle file with a pre-signed DSSE envelope. Incompatible with --"+key+", --"+keyAlias+", --"+predicate+", --"+predicateType+" and --"+subjectSha256+".", func(f *components.StringFlag) { f.Mandatory = false }),
 	useArtifactoryKeys: components.NewBoolFlag(useArtifactoryKeys, "Use Artifactory keys for verification. When enabled, the verify command retrieves keys from Artifactory.", components.WithBoolDefaultValueFalse()),
+	useSonarPredicate:  components.NewBoolFlag(useSonarPredicate, "Use SonarQube predicate generation. When enabled, automatically generates predicate from SonarQube analysis data.", components.WithBoolDefaultValueFalse()),
 	artifactsLimit:     components.NewStringFlag(artifactsLimit, "The number of artifacts in a release bundle to be included in the evidences file. The default value is 1000 artifacts", func(f *components.StringFlag) { f.Mandatory = false }),
 }
 
@@ -107,6 +109,7 @@ var commandFlags = map[string][]string{
 		key,
 		keyAlias,
 		providerId,
+		useSonarPredicate,
 		sigstoreBundle,
 	},
 	VerifyEvidence: {

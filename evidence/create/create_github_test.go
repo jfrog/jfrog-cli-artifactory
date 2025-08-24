@@ -36,7 +36,7 @@ func (m *MockBuildAndVcsDetails) GetLastBuildLink(serverDetails *config.ServerDe
 
 func TestNewCreateGithub(t *testing.T) {
 	serverDetails := &config.ServerDetails{}
-	command := NewCreateGithub(serverDetails, "path/to/predicate.json", "predicateType", "path/to/markdown.md", "key", "keyId", "myProject", "myBuild", "123", "gh-commiter")
+	command := NewCreateGithub(serverDetails, "path/to/predicate.json", "predicateType", "path/to/markdown.md", "key", "keyId", "myProject", "myBuild", "123", "gh-commiter", false)
 
 	assert.NotNil(t, command)
 
