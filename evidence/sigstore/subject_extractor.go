@@ -13,19 +13,19 @@ import (
 // Returns the repository path, SHA256 checksum, and any error that occurred
 func ExtractSubjectFromBundle(b *bundle.Bundle) (repoPath, sha256 string, err error) {
 	if b == nil {
-		return "", "", errorutils.CheckErrorf("bundle cannot be nil")
+		return repoPath, sha256, errorutils.CheckErrorf("bundle cannot be nil")
 	}
 
 	envelope, err := GetDSSEEnvelope(b)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to get DSSE envelope: %w", err)
+		return repoPath, sha256, fmt.Errorf("failed to get DSSE envelope: %w", err)
 	}
 
 	return extractSubjectFromEnvelope(envelope)
 }
 
 // extractSubjectFromEnvelope extracts the repository path and SHA256 checksum from a DSSE envelope
-func extractSubjectFromEnvelope(envelope *protodsse.Envelope) (repoPath, sha256 string, err error) {
+func extractSubjectFromEnvelope(envelope *protodsse.Envelope) (string, string, error) {
 	if envelope == nil {
 		return "", "", errorutils.CheckErrorf("envelope cannot be nil")
 	}
@@ -39,7 +39,7 @@ func extractSubjectFromEnvelope(envelope *protodsse.Envelope) (repoPath, sha256 
 		return "", "", errorutils.CheckErrorf("failed to parse statement from DSSE payload: %w", err)
 	}
 
-	repoPath, sha256, err = extractRepoPathFromStatement(statement)
+	repoPath, sha256, err := extractRepoPathFromStatement(statement)
 	if err != nil {
 		return "", "", err
 	}
