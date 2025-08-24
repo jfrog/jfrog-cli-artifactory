@@ -11,6 +11,10 @@ import (
 
 const jfrogPredicateType = "https://jfrog.com/evidence/sonarqube/v1"
 
+// Set default values if not provided
+const defaultMaxRetries = 30
+const defaultRetryInterval = 5000 // in milliseconds
+
 // Predicate model for SonarQube analysis results
 type sonarPredicate struct {
 	Gates []struct {
@@ -107,7 +111,7 @@ func (p *Provider) BuildStatement(ceTaskID string, maxRetries *int, retryInterva
 	return statement, nil
 }
 
-func (p *Provider) pollTaskUntilSuccess(ceTaskID string, maxRetries *int, retryInterval *int) (string, error) {
+func (p *Provider) pollTaskUntilSuccess(ceTaskID string, configuredMaxRetries *int, configuredRetryInterval *int) (string, error) {
 	if p.client == nil {
 		return "", errorutils.CheckErrorf("SonarQube manager is not available")
 	}
@@ -130,20 +134,19 @@ func (p *Provider) pollTaskUntilSuccess(ceTaskID string, maxRetries *int, retryI
 	// Task is not completed, start polling
 	log.Info("Task not completed, starting polling...")
 
-	// Set default values if not provided
-	defaultMaxRetries := 30
-	defaultRetryInterval := 5000 // 5 seconds in milliseconds
-
-	if maxRetries != nil {
-		defaultMaxRetries = *maxRetries
+	maxRetries := defaultMaxRetries
+	if configuredMaxRetries != nil {
+		maxRetries = *configuredMaxRetries
 	}
-	if retryInterval != nil {
-		defaultRetryInterval = *retryInterval
+
+	RetryInterval := defaultRetryInterval
+	if configuredRetryInterval != nil {
+		RetryInterval = *configuredRetryInterval
 	}
 
 	// Convert milliseconds to duration
-	pollingInterval := time.Duration(defaultRetryInterval) * time.Millisecond
-	timeout := time.Duration(defaultMaxRetries) * pollingInterval
+	pollingInterval := time.Duration(RetryInterval) * time.Millisecond
+	timeout := time.Duration(maxRetries) * pollingInterval
 
 	pollingExecutor := httputils.PollingExecutor{
 		Timeout:         timeout,
