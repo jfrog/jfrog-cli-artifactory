@@ -90,7 +90,7 @@ func (c *createEvidenceBase) buildSonarPredicate() ([]byte, error) {
 // buildStatementFromSonar fetches in-toto statement from main flow, augments it with subject and stage, and returns it.
 func (c *createEvidenceBase) buildStatementFromSonar(subject, subjectSha256 string) ([]byte, error) {
 	stmtResolver := sonar.NewStatementResolver()
-	statementBytes, _, err := stmtResolver.ResolveStatement()
+	statementBytes, err := stmtResolver.ResolveStatement()
 	if err != nil {
 		return nil, err
 	}

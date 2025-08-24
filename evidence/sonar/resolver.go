@@ -14,7 +14,7 @@ type PredicateResolver interface {
 
 // StatementResolver resolves a full in-toto statement and optional markdown.
 type StatementResolver interface {
-	ResolveStatement() (statement []byte, markdown []byte, err error)
+	ResolveStatement() (statement []byte, err error)
 }
 
 type defaultPredicateResolver struct{}
@@ -36,7 +36,7 @@ func (d *defaultPredicateResolver) ResolvePredicate() (string, []byte, []byte, e
 	return resolvePredicateWithConfig(cfg)
 }
 
-func (d *defaultPredicateResolver) ResolveStatement() ([]byte, []byte, error) {
+func (d *defaultPredicateResolver) ResolveStatement() ([]byte, error) {
 	log.Info("Fetching SonarQube in-toto statement")
 	var cfg *conf.EvidenceConfig
 	if c, err := conf.LoadEvidenceConfig(); err == nil {
@@ -85,7 +85,7 @@ func resolvePredicateWithConfig(cfg *conf.EvidenceConfig) (string, []byte, []byt
 		retryInterval = cfg.Sonar.RetryInterval
 	}
 
-	predicate, predicateType, markdown, err := provider.BuildPredicate(rt.ProjectKey, rt.CeTaskID, rt.AnalysisID, maxRetries, retryInterval)
+	predicate, predicateType, markdown, err := provider.BuildPredicate(rt.CeTaskID, rt.AnalysisID, maxRetries, retryInterval)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -93,19 +93,19 @@ func resolvePredicateWithConfig(cfg *conf.EvidenceConfig) (string, []byte, []byt
 	return predicateType, predicate, markdown, nil
 }
 
-func resolveStatementWithConfig(cfg *conf.EvidenceConfig) ([]byte, []byte, error) {
+func resolveStatementWithConfig(cfg *conf.EvidenceConfig) ([]byte, error) {
 	var reportPath string
 	if cfg != nil && cfg.Sonar != nil {
 		reportPath = cfg.Sonar.ReportTaskFile
 	}
 	reportPath = detectReportTaskPath(reportPath)
 	if reportPath == "" {
-		return nil, nil, errorutils.CheckErrorf("no report-task.txt file found and no custom path configured")
+		return nil, errorutils.CheckErrorf("no report-task.txt file found and no custom path configured")
 	}
 
 	rt, err := parseReportTask(reportPath)
 	if err != nil {
-		return nil, nil, errorutils.CheckErrorf("failed to parse report-task file at %s: %v", reportPath, err)
+		return nil, errorutils.CheckErrorf("failed to parse report-task file at %s: %v", reportPath, err)
 	}
 
 	log.Info("Parsed report-task file at", reportPath, "with ceTaskID:", rt.CeTaskID, "and projectKey:", rt.ProjectKey)
@@ -122,7 +122,7 @@ func resolveStatementWithConfig(cfg *conf.EvidenceConfig) ([]byte, []byte, error
 
 	provider, err := NewSonarProviderWithCredentials(sonarBaseURL, token)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	var maxRetries, retryInterval *int
@@ -131,9 +131,9 @@ func resolveStatementWithConfig(cfg *conf.EvidenceConfig) ([]byte, []byte, error
 		retryInterval = cfg.Sonar.RetryInterval
 	}
 
-	statement, markdown, err := provider.BuildStatement(rt.CeTaskID, rt.AnalysisID, maxRetries, retryInterval)
+	statement, err := provider.BuildStatement(rt.CeTaskID, maxRetries, retryInterval)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return statement, markdown, nil
+	return statement, nil
 }

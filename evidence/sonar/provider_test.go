@@ -27,7 +27,10 @@ func (m *MockSonarManager) GetQualityGateAnalysis(analysisID string) (*sonarserv
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*sonarservices.QualityGatesAnalysis), args.Error(1)
+	if qga, ok := args.Get(0).(*sonarservices.QualityGatesAnalysis); ok {
+		return qga, args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
 func (m *MockSonarManager) GetTaskDetails(ceTaskID string) (*sonarservices.TaskDetails, error) {
@@ -35,7 +38,10 @@ func (m *MockSonarManager) GetTaskDetails(ceTaskID string) (*sonarservices.TaskD
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*sonarservices.TaskDetails), args.Error(1)
+	if td, ok := args.Get(0).(*sonarservices.TaskDetails); ok {
+		return td, args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
 func TestNewSonarProviderWithManager(t *testing.T) {
@@ -86,7 +92,6 @@ func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_Success(t *testing.T
 	retryInterval := 1 // 1 millisecond
 
 	predicate, predicateType, markdown, err := provider.BuildPredicate(
-		"project-key",
 		"task-123",
 		"analysis-123",
 		&maxRetries,    // maxRetries
@@ -209,7 +214,6 @@ func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_Fallback(t *testing.
 
 	mockManager.On("GetTaskDetails", "task-123").Return(taskRespPending, nil).Once()
 	mockManager.On("GetTaskDetails", "task-123").Return(taskRespSuccess, nil).Once()
-	mockManager.On("GetTaskDetails", "task-123").Return(taskRespSuccess, nil).Once() // For buildPredicateFromQualityGates
 
 	// Mock enterprise endpoint failure
 	mockManager.On("GetSonarIntotoStatementRaw", "task-123").Return(nil, errors.New("enterprise error"))
@@ -221,7 +225,6 @@ func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_Fallback(t *testing.
 	retryInterval := 1 // 1 millisecond
 
 	predicate, predicateType, markdown, err := provider.BuildPredicate(
-		"", // Empty project key, should be filled from task response
 		"task-123",
 		"analysis-123",
 		&maxRetries,    // maxRetries
@@ -287,7 +290,6 @@ func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_BothFail(t *testing.
 	retryInterval := 1 // 1 millisecond
 
 	predicate, predicateType, markdown, err := provider.BuildPredicate(
-		"project-key",
 		"task-123",
 		"analysis-123",
 		&maxRetries,    // maxRetries
@@ -307,7 +309,6 @@ func TestSonarProvider_BuildPredicate_EmptyCeTaskID(t *testing.T) {
 
 	// Test that BuildPredicate returns an error when ceTaskID is empty
 	predicate, predicateType, markdown, err := provider.BuildPredicate(
-		"project-key",
 		"", // empty ceTaskID
 		"analysis-123",
 		nil, // maxRetries
@@ -375,31 +376,7 @@ func TestSonarProvider_mapQualityGatesToPredicate(t *testing.T) {
 		},
 	}
 
-	taskData := &sonarservices.TaskDetails{
-		Task: struct {
-			ID                 string      `json:"id"`
-			Type               string      `json:"type"`
-			ComponentID        string      `json:"componentId"`
-			ComponentKey       string      `json:"componentKey"`
-			ComponentName      string      `json:"componentName"`
-			ComponentQualifier string      `json:"componentQualifier"`
-			AnalysisID         string      `json:"analysisId"`
-			Status             string      `json:"status"`
-			SubmittedAt        string      `json:"submittedAt"`
-			StartedAt          string      `json:"startedAt"`
-			ExecutedAt         string      `json:"executedAt"`
-			ExecutionTimeMs    int         `json:"executionTimeMs"`
-			Logs               interface{} `json:"logs"`
-			HasScannerContext  bool        `json:"hasScannerContext"`
-			Organization       string      `json:"organization"`
-		}{
-			ID:           "task-123",
-			ComponentKey: "project-key",
-			AnalysisID:   "analysis-123",
-		},
-	}
-
-	result, err := provider.mapQualityGatesToPredicate(qgResponse, taskData, "", "", "")
+	result, err := provider.mapQualityGatesToPredicate(qgResponse)
 
 	assert.NoError(t, err)
 	assert.NotNil(t, result)

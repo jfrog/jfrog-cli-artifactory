@@ -70,7 +70,7 @@ func NewSonarProviderWithCredentials(sonarURL, token string) (*Provider, error) 
 	}, nil
 }
 
-func (p *Provider) BuildPredicate(projectKey, ceTaskID, analysisID string, maxRetries *int, retryInterval *int) ([]byte, string, []byte, error) {
+func (p *Provider) BuildPredicate(ceTaskID, analysisID string, maxRetries *int, retryInterval *int) ([]byte, string, []byte, error) {
 	// ceTaskID is required for both enterprise endpoint and fallback logic
 	if ceTaskID == "" {
 		return nil, "", nil, errorutils.CheckErrorf("ceTaskID is required for SonarQube evidence creation")
@@ -92,7 +92,7 @@ func (p *Provider) BuildPredicate(projectKey, ceTaskID, analysisID string, maxRe
 	predicate, predicateType, markdown, err := p.getSonarPredicate(ceTaskID)
 	if err != nil {
 		log.Debug("Enterprise endpoint failed, falling back to quality gates endpoint:", err.Error())
-		predicate, err = p.buildPredicateFromQualityGates(projectKey, ceTaskID, analysisID)
+		predicate, err = p.buildPredicateFromQualityGates(analysisID)
 		if err != nil {
 			return nil, "", nil, err
 		}
@@ -109,28 +109,25 @@ func (p *Provider) BuildPredicate(projectKey, ceTaskID, analysisID string, maxRe
 
 // BuildStatement tries to retrieve an in-toto statement from the enterprise endpoint.
 // It polls the task until completion. If successful, returns the statement bytes and markdown.
-func (p *Provider) BuildStatement(ceTaskID, analysisID string, maxRetries *int, retryInterval *int) ([]byte, []byte, error) {
+func (p *Provider) BuildStatement(ceTaskID string, maxRetries *int, retryInterval *int) ([]byte, error) {
 	if ceTaskID == "" {
-		return nil, nil, errorutils.CheckErrorf("ceTaskID is required for SonarQube evidence creation")
+		return nil, errorutils.CheckErrorf("ceTaskID is required for SonarQube evidence creation")
 	}
 
 	if p.cachedAnalysis == "" {
 		log.Info("Polling for task completion:", ceTaskID)
 		completedAnalysisID, err := p.pollTaskUntilSuccess(ceTaskID, maxRetries, retryInterval)
 		if err != nil {
-			return nil, nil, errorutils.CheckErrorf("failed to poll task completion: %v", err)
+			return nil, errorutils.CheckErrorf("failed to poll task completion: %v", err)
 		}
 		p.cachedAnalysis = completedAnalysisID
 	}
-	if p.cachedAnalysis != "" {
-		analysisID = p.cachedAnalysis
-	}
 
-	statement, markdown, err := p.getSonarStatement(ceTaskID)
+	statement, err := p.getSonarStatement(ceTaskID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return statement, markdown, nil
+	return statement, nil
 }
 
 func (p *Provider) pollTaskUntilSuccess(ceTaskID string, maxRetries *int, retryInterval *int) (string, error) {
@@ -229,27 +226,21 @@ func (p *Provider) getSonarPredicate(ceTaskID string) ([]byte, string, []byte, e
 	return predicateBytes, stmt.PredicateType, []byte(stmt.Markdown), nil
 }
 
-func (p *Provider) getSonarStatement(ceTaskID string) ([]byte, []byte, error) {
-	if p.manager == nil {
-		return nil, nil, errorutils.CheckErrorf("SonarQube manager is not available")
-	}
-
-	body, err := p.manager.GetSonarIntotoStatementRaw(ceTaskID)
-	if err != nil {
-		return nil, nil, err
-	}
-	return body, nil, nil
-}
-
-func (p *Provider) buildPredicateFromQualityGates(projectKey, ceTaskID, analysisID string) ([]byte, error) {
+func (p *Provider) getSonarStatement(ceTaskID string) ([]byte, error) {
 	if p.manager == nil {
 		return nil, errorutils.CheckErrorf("SonarQube manager is not available")
 	}
 
-	// First, get the task response to get additional data
-	var taskData *sonarservices.TaskDetails
-	if ceTaskID != "" {
-		taskData, _ = p.manager.GetTaskDetails(ceTaskID)
+	body, err := p.manager.GetSonarIntotoStatementRaw(ceTaskID)
+	if err != nil {
+		return nil, err
+	}
+	return body, nil
+}
+
+func (p *Provider) buildPredicateFromQualityGates(analysisID string) ([]byte, error) {
+	if p.manager == nil {
+		return nil, errorutils.CheckErrorf("SonarQube manager is not available")
 	}
 
 	// Get quality gates response
@@ -258,25 +249,12 @@ func (p *Provider) buildPredicateFromQualityGates(projectKey, ceTaskID, analysis
 		return nil, err
 	}
 
-	return p.mapQualityGatesToPredicate(*qgResponse, taskData, projectKey, ceTaskID, analysisID)
+	return p.mapQualityGatesToPredicate(*qgResponse)
 }
 
 // Mapping functions
 
-func (p *Provider) mapQualityGatesToPredicate(qgResponse sonarservices.QualityGatesAnalysis, taskData *sonarservices.TaskDetails, projectKey, ceTaskID, analysisID string) ([]byte, error) {
-	// Use task data to fill in missing fields
-	if taskData != nil {
-		if projectKey == "" {
-			projectKey = taskData.Task.ComponentKey
-		}
-		if ceTaskID == "" {
-			ceTaskID = taskData.Task.ID
-		}
-		if analysisID == "" {
-			analysisID = taskData.Task.AnalysisID
-		}
-	}
-
+func (p *Provider) mapQualityGatesToPredicate(qgResponse sonarservices.QualityGatesAnalysis) ([]byte, error) {
 	// Map conditions to the new format (removing PeriodIndex as it's not in the new structure)
 	var conditions []struct {
 		Status         string `json:"status"`
