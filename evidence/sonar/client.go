@@ -1,14 +1,12 @@
 package sonar
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -71,26 +69,12 @@ type httpClient struct {
 
 func NewClient(sonarURL, token string) Client {
 	base := strings.TrimRight(sonarURL, "/")
-	if base == "" {
-		base = DefaultSonarURL
-	}
 	return &httpClient{baseURL: base, token: token, client: &http.Client{}}
 }
 
 func (c *httpClient) authHeader() string {
 	if c.token != "" {
 		return "Bearer " + c.token
-	}
-	if val := os.Getenv("SONAR_TOKEN"); val != "" {
-		return "Bearer " + val
-	}
-	if val := os.Getenv("SONARQUBE_TOKEN"); val != "" {
-		return "Bearer " + val
-	}
-	user := os.Getenv("SONAR_USER")
-	pass := os.Getenv("SONAR_PASSWORD")
-	if user != "" && pass != "" {
-		return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
 	}
 	return ""
 }
@@ -123,6 +107,7 @@ func (c *httpClient) GetSonarIntotoStatement(ceTaskID string) ([]byte, error) {
 	u, _ := url.Parse(baseURL)
 	hostname := u.Hostname()
 	if hostname != "localhost" && net.ParseIP(hostname) == nil && !strings.HasPrefix(hostname, "api.") {
+		// sonar v2 api has prefix "api." in the hostname
 		baseURL = strings.Replace(baseURL, "://", "://api.", 1)
 	}
 	enterpriseURL := fmt.Sprintf("%s/dop-translation/jfrog-evidence/%s", baseURL, url.QueryEscape(ceTaskID))

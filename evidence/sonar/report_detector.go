@@ -13,17 +13,16 @@ var reportTaskCandidates = []string{
 }
 
 func GetReportTaskPath() string {
-	reportPath := detectReportTaskPath("")
-	if reportPath == "" {
-		var cfg *conf.EvidenceConfig
-		if c, err := conf.LoadEvidenceConfig(); err == nil {
-			cfg = c
-		}
-		if cfg != nil && cfg.Sonar != nil && cfg.Sonar.ReportTaskFile != "" {
-			reportPath = detectReportTaskPath(cfg.Sonar.ReportTaskFile)
-		}
+	var cfg *conf.EvidenceConfig
+	if c, err := conf.LoadEvidenceConfig(); err == nil {
+		cfg = c
 	}
-	return reportPath
+
+	if cfg != nil && cfg.Sonar != nil && cfg.Sonar.ReportTaskFile != "" {
+		return detectReportTaskPath(cfg.Sonar.ReportTaskFile)
+	}
+
+	return detectReportTaskPath("")
 }
 
 func detectReportTaskPath(configuredReportPath string) string {
