@@ -14,7 +14,7 @@ type MockSonarManager struct {
 	mock.Mock
 }
 
-func (m *MockSonarManager) GetSonarIntotoStatementRaw(ceTaskID string) ([]byte, error) {
+func (m *MockSonarManager) GetSonarIntotoStatement(ceTaskID string) ([]byte, error) {
 	args := m.Called(ceTaskID)
 	if b, ok := args.Get(0).([]byte); ok {
 		return b, args.Error(1)
@@ -85,7 +85,7 @@ func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_Success(t *testing.T
 	enterpriseResp := []byte(`{"predicateType":"test-type","predicate":{"test":"data"},"markdown":"test markdown"}`)
 
 	mockManager.On("GetTaskDetails", "task-123").Return(taskResp, nil)
-	mockManager.On("GetSonarIntotoStatementRaw", "task-123").Return(enterpriseResp, nil)
+	mockManager.On("GetSonarIntotoStatement", "task-123").Return(enterpriseResp, nil)
 
 	// Use very short polling intervals for testing
 	maxRetries := 1
@@ -216,7 +216,7 @@ func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_Fallback(t *testing.
 	mockManager.On("GetTaskDetails", "task-123").Return(taskRespSuccess, nil).Once()
 
 	// Mock enterprise endpoint failure
-	mockManager.On("GetSonarIntotoStatementRaw", "task-123").Return(nil, errors.New("enterprise error"))
+	mockManager.On("GetSonarIntotoStatement", "task-123").Return(nil, errors.New("enterprise error"))
 
 	mockManager.On("GetQualityGateAnalysis", "analysis-123").Return(qgResp, nil)
 
@@ -279,7 +279,7 @@ func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_BothFail(t *testing.
 	}
 
 	// Mock enterprise endpoint failure
-	mockManager.On("GetSonarIntotoStatementRaw", "task-123").Return(nil, errors.New("enterprise error"))
+	mockManager.On("GetSonarIntotoStatement", "task-123").Return(nil, errors.New("enterprise error"))
 
 	// Mock quality gates failure
 	mockManager.On("GetTaskDetails", "task-123").Return(taskResp, nil)

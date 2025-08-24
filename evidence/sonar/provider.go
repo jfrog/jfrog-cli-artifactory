@@ -207,7 +207,7 @@ func (p *Provider) getSonarPredicate(ceTaskID string) ([]byte, string, []byte, e
 	}
 
 	// Use raw statement and unmarshal only the needed fields
-	body, err := p.manager.GetSonarIntotoStatementRaw(ceTaskID)
+	body, err := p.manager.GetSonarIntotoStatement(ceTaskID)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -231,7 +231,7 @@ func (p *Provider) getSonarStatement(ceTaskID string) ([]byte, error) {
 		return nil, errorutils.CheckErrorf("SonarQube manager is not available")
 	}
 
-	body, err := p.manager.GetSonarIntotoStatementRaw(ceTaskID)
+	body, err := p.manager.GetSonarIntotoStatement(ceTaskID)
 	if err != nil {
 		return nil, err
 	}
