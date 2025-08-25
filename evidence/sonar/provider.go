@@ -106,12 +106,12 @@ func (p *Provider) pollTaskUntilSuccess(ceTaskID string, configuredMaxRetries *i
 		maxRetries = *configuredMaxRetries
 	}
 
-	RetryInterval := defaultRetryInterval
+	retryInterval := defaultRetryInterval
 	if configuredRetryInterval != nil {
-		RetryInterval = *configuredRetryInterval
+		retryInterval = *configuredRetryInterval
 	}
 
-	pollingInterval := time.Duration(RetryInterval) * time.Millisecond
+	pollingInterval := time.Duration(retryInterval) * time.Millisecond
 	timeout := time.Duration(maxRetries) * pollingInterval
 
 	pollingExecutor := httputils.PollingExecutor{
