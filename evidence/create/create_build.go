@@ -3,6 +3,7 @@ package create
 import (
 	"errors"
 	"fmt"
+
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
 
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
@@ -24,7 +25,7 @@ type createEvidenceBuild struct {
 }
 
 func NewCreateEvidenceBuild(serverDetails *config.ServerDetails,
-	predicateFilePath, predicateType, markdownFilePath, key, keyId, project, buildName, buildNumber string) evidence.Command {
+	predicateFilePath, predicateType, markdownFilePath, key, keyId, project, buildName, buildNumber string, useSonarPredicate bool) evidence.Command {
 	return &createEvidenceBuild{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
@@ -33,6 +34,7 @@ func NewCreateEvidenceBuild(serverDetails *config.ServerDetails,
 			markdownFilePath:  markdownFilePath,
 			key:               key,
 			keyId:             keyId,
+			useSonarPredicate: useSonarPredicate,
 		},
 		project:     project,
 		buildName:   buildName,
@@ -116,9 +118,10 @@ func getBuildLatestTimestamp(name string, number string, project string, artifac
 		BuildNumber: number,
 		ProjectKey:  project,
 	}
+	log.Debug("Getting build info for buildName:", name, "buildNumber:", number, "project:", project)
 	res, ok, err := artifactoryClient.GetBuildInfo(buildInfo)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get build info for buildName: %s, buildNumber: %s, project: %s, error: %w", name, number, project, err)
 	}
 	if !ok {
 		errorMessage := fmt.Sprintf("failed to find buildName, name:%s, number:%s, project: %s", name, number, project)

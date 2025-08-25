@@ -60,7 +60,7 @@ func TestNewCreateEvidenceReleaseBundle(t *testing.T) {
 	releaseBundle := "test-bundle"
 	releaseBundleVersion := "1.0.0"
 
-	cmd := NewCreateEvidenceReleaseBundle(serverDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, project, releaseBundle, releaseBundleVersion)
+	cmd := NewCreateEvidenceReleaseBundle(serverDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, project, releaseBundle, releaseBundleVersion, false)
 	createCmd, ok := cmd.(*createEvidenceReleaseBundle)
 	assert.True(t, ok)
 
@@ -211,7 +211,7 @@ func TestStageIntegrationInConstructor(t *testing.T) {
 		releaseBundle := "test-bundle"
 		releaseBundleVersion := "1.0.0"
 
-		cmd := NewCreateEvidenceReleaseBundle(serverDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, project, releaseBundle, releaseBundleVersion)
+		cmd := NewCreateEvidenceReleaseBundle(serverDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, project, releaseBundle, releaseBundleVersion, false)
 		createCmd, ok := cmd.(*createEvidenceReleaseBundle)
 		assert.True(t, ok)
 
@@ -317,6 +317,7 @@ func TestCreateEvidenceReleaseBundle_RecordSummary(t *testing.T) {
 		"myProject",
 		"testBundle",
 		"2.0.0",
+		false,
 	)
 	c, ok := evidence.(*createEvidenceReleaseBundle)
 	if !ok {

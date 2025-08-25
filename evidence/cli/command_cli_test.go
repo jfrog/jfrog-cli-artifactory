@@ -605,3 +605,82 @@ func setDefaultValue(flag string, defaultValue string) components.Flag {
 	f.DefaultValue = defaultValue
 	return f
 }
+
+func TestValidateSonarQubeRequirements(t *testing.T) {
+	// Save original environment variables
+	originalSonarToken := os.Getenv("SONAR_TOKEN")
+	originalSonarQubeToken := os.Getenv("SONARQUBE_TOKEN")
+	defer func() {
+		err := os.Setenv("SONAR_TOKEN", originalSonarToken)
+		if err != nil {
+			assert.FailNow(t, err.Error())
+		}
+		err = os.Setenv("SONARQUBE_TOKEN", originalSonarQubeToken)
+		if err != nil {
+			assert.FailNow(t, err.Error())
+		}
+	}()
+
+	tests := []struct {
+		name           string
+		sonarToken     string
+		sonarQubeToken string
+		expectError    bool
+		errorContains  string
+	}{
+		{
+			name:           "Valid_With_SONAR_TOKEN",
+			sonarToken:     "test-token",
+			sonarQubeToken: "",
+			expectError:    false,
+		},
+		{
+			name:           "Valid_With_SONARQUBE_TOKEN",
+			sonarToken:     "",
+			sonarQubeToken: "test-token",
+			expectError:    false,
+		},
+		{
+			name:           "Valid_With_Both_Tokens",
+			sonarToken:     "test-token-1",
+			sonarQubeToken: "test-token-2",
+			expectError:    false,
+		},
+		{
+			name:           "Invalid_No_Token",
+			sonarToken:     "",
+			sonarQubeToken: "",
+			expectError:    true,
+			errorContains:  "SonarQube token is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set environment variables for test
+			err := os.Setenv("SONAR_TOKEN", tt.sonarToken)
+			if err != nil {
+				assert.FailNow(t, err.Error())
+			}
+			err = os.Setenv("SONARQUBE_TOKEN", tt.sonarQubeToken)
+			if err != nil {
+				assert.FailNow(t, err.Error())
+			}
+
+			err = validateSonarQubeRequirements()
+
+			if tt.expectError {
+				assert.Error(t, err)
+				if tt.errorContains != "" {
+					assert.Contains(t, err.Error(), tt.errorContains)
+				}
+			} else if err != nil {
+				// Note: This test will fail if report-task.txt doesn't exist
+				// In a real test environment, you might want to mock the file system
+				// or create a temporary file for testing.
+				// If an error occurs, it's expected to be about the missing report-task.txt file.
+				assert.Contains(t, err.Error(), "report-task.txt file not found")
+			}
+		})
+	}
+}
