@@ -78,12 +78,11 @@ func TestResolvePredicate_ReturnsComponents(t *testing.T) {
 
 	// This test will likely fail in a real environment since it needs Sonar configuration
 	// but it tests the interface contract
-	predicateType, predicate, markdown, err := resolver.ResolvePredicate()
+	predicateType, predicate, err := resolver.ResolvePredicate()
 
 	// We expect an error since there's no Sonar configuration in test environment
 	assert.Error(t, err)
 	assert.Empty(t, predicateType)
 	assert.Nil(t, predicate)
-	assert.Nil(t, markdown)
 	assert.Contains(t, err.Error(), "no report-task.txt file found")
 }

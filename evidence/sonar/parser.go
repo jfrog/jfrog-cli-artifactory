@@ -11,7 +11,6 @@ import (
 type ReportTask struct {
 	CeTaskURL  string
 	CeTaskID   string
-	AnalysisID string
 	ProjectKey string
 	ServerURL  string
 }
@@ -26,7 +25,6 @@ func parseReportTask(path string) (ReportTask, error) {
 
 	rt.CeTaskURL = props["ceTaskUrl"]
 	rt.CeTaskID = props["ceTaskId"]
-	rt.AnalysisID = props["analysisId"]
 	rt.ProjectKey = props["projectKey"]
 	rt.ServerURL = props["serverUrl"]
 

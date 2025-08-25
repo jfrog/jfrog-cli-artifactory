@@ -51,91 +51,12 @@ func TestNewSonarProviderWithManager(t *testing.T) {
 	assert.Equal(t, mockManager, provider.client)
 }
 
-func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_Success(t *testing.T) {
+func TestSonarProvider_BuildPredicate_SuccessFromQualityGates(t *testing.T) {
 	mockManager := &MockSonarManager{}
 	provider := &Provider{client: mockManager}
 
 	// Mock task polling - task is already completed
 	taskResp := &TaskDetails{
-		Task: struct {
-			ID                 string      `json:"id"`
-			Type               string      `json:"type"`
-			ComponentID        string      `json:"componentId"`
-			ComponentKey       string      `json:"componentKey"`
-			ComponentName      string      `json:"componentName"`
-			ComponentQualifier string      `json:"componentQualifier"`
-			AnalysisID         string      `json:"analysisId"`
-			Status             string      `json:"status"`
-			SubmittedAt        string      `json:"submittedAt"`
-			StartedAt          string      `json:"startedAt"`
-			ExecutedAt         string      `json:"executedAt"`
-			ExecutionTimeMs    int         `json:"executionTimeMs"`
-			Logs               interface{} `json:"logs"`
-			HasScannerContext  bool        `json:"hasScannerContext"`
-			Organization       string      `json:"organization"`
-		}{
-			ID:         "task-123",
-			Status:     "SUCCESS",
-			AnalysisID: "analysis-123",
-		},
-	}
-
-	// Mock successful enterprise response (raw JSON)
-	enterpriseResp := []byte(`{"predicateType":"test-type","predicate":{"test":"data"},"markdown":"test markdown"}`)
-
-	mockManager.On("GetTaskDetails", "task-123").Return(taskResp, nil)
-	mockManager.On("GetSonarIntotoStatement", "task-123").Return(enterpriseResp, nil)
-
-	// Use very short polling intervals for testing
-	maxRetries := 1
-	retryInterval := 1 // 1 millisecond
-
-	predicate, predicateType, markdown, err := provider.BuildPredicate(
-		"task-123",
-		"analysis-123",
-		&maxRetries,    // maxRetries
-		&retryInterval, // retryInterval
-	)
-
-	assert.NoError(t, err)
-	assert.NotNil(t, predicate)
-	assert.Equal(t, "test-type", predicateType)
-	assert.Equal(t, "test markdown", string(markdown))
-	assert.Contains(t, string(predicate), `"test":"data"`)
-
-	mockManager.AssertExpectations(t)
-}
-
-func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_Fallback(t *testing.T) {
-	mockManager := &MockSonarManager{}
-	provider := &Provider{client: mockManager}
-
-	// Mock task polling - task starts as pending, then becomes successful
-	taskRespPending := &TaskDetails{
-		Task: struct {
-			ID                 string      `json:"id"`
-			Type               string      `json:"type"`
-			ComponentID        string      `json:"componentId"`
-			ComponentKey       string      `json:"componentKey"`
-			ComponentName      string      `json:"componentName"`
-			ComponentQualifier string      `json:"componentQualifier"`
-			AnalysisID         string      `json:"analysisId"`
-			Status             string      `json:"status"`
-			SubmittedAt        string      `json:"submittedAt"`
-			StartedAt          string      `json:"startedAt"`
-			ExecutedAt         string      `json:"executedAt"`
-			ExecutionTimeMs    int         `json:"executionTimeMs"`
-			Logs               interface{} `json:"logs"`
-			HasScannerContext  bool        `json:"hasScannerContext"`
-			Organization       string      `json:"organization"`
-		}{
-			ID:         "task-123",
-			Status:     "PENDING",
-			AnalysisID: "analysis-123",
-		},
-	}
-
-	taskRespSuccess := &TaskDetails{
 		Task: struct {
 			ID                 string      `json:"id"`
 			Type               string      `json:"type"`
@@ -211,21 +132,15 @@ func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_Fallback(t *testing.
 		},
 	}
 
-	mockManager.On("GetTaskDetails", "task-123").Return(taskRespPending, nil).Once()
-	mockManager.On("GetTaskDetails", "task-123").Return(taskRespSuccess, nil).Once()
-
-	// Mock enterprise endpoint failure
-	mockManager.On("GetSonarIntotoStatement", "task-123").Return(nil, errors.New("enterprise error"))
-
+	mockManager.On("GetTaskDetails", "task-123").Return(taskResp, nil)
 	mockManager.On("GetQualityGateAnalysis", "analysis-123").Return(qgResp, nil)
 
 	// Use very short polling intervals for testing
 	maxRetries := 1
 	retryInterval := 1 // 1 millisecond
 
-	predicate, predicateType, markdown, err := provider.BuildPredicate(
+	predicate, predicateType, err := provider.BuildPredicate(
 		"task-123",
-		"analysis-123",
 		&maxRetries,    // maxRetries
 		&retryInterval, // retryInterval
 	)
@@ -233,7 +148,6 @@ func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_Fallback(t *testing.
 	assert.NoError(t, err)
 	assert.NotNil(t, predicate)
 	assert.Equal(t, jfrogPredicateType, predicateType)
-	assert.Nil(t, markdown)
 
 	// Verify predicate contains expected data
 	predicateStr := string(predicate)
@@ -248,7 +162,7 @@ func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_Fallback(t *testing.
 	mockManager.AssertExpectations(t)
 }
 
-func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_BothFail(t *testing.T) {
+func TestSonarProvider_BuildPredicate_BothFail(t *testing.T) {
 	mockManager := &MockSonarManager{}
 	provider := &Provider{client: mockManager}
 
@@ -277,9 +191,6 @@ func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_BothFail(t *testing.
 		},
 	}
 
-	// Mock enterprise endpoint failure
-	mockManager.On("GetSonarIntotoStatement", "task-123").Return(nil, errors.New("enterprise error"))
-
 	// Mock quality gates failure
 	mockManager.On("GetTaskDetails", "task-123").Return(taskResp, nil)
 	mockManager.On("GetQualityGateAnalysis", "analysis-123").Return(nil, errors.New("quality gates error"))
@@ -288,9 +199,8 @@ func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_BothFail(t *testing.
 	maxRetries := 1
 	retryInterval := 1 // 1 millisecond
 
-	predicate, predicateType, markdown, err := provider.BuildPredicate(
+	predicate, predicateType, err := provider.BuildPredicate(
 		"task-123",
-		"analysis-123",
 		&maxRetries,    // maxRetries
 		&retryInterval, // retryInterval
 	)
@@ -298,7 +208,6 @@ func TestSonarProvider_BuildPredicateWithEnterpriseEndpoint_BothFail(t *testing.
 	assert.Error(t, err)
 	assert.Nil(t, predicate)
 	assert.Equal(t, "", predicateType)
-	assert.Nil(t, markdown)
 
 	mockManager.AssertExpectations(t)
 }
@@ -307,9 +216,8 @@ func TestSonarProvider_BuildPredicate_EmptyCeTaskID(t *testing.T) {
 	provider := &Provider{client: nil}
 
 	// Test that BuildPredicate returns an error when ceTaskID is empty
-	predicate, predicateType, markdown, err := provider.BuildPredicate(
-		"", // empty ceTaskID
-		"analysis-123",
+	predicate, predicateType, err := provider.BuildPredicate(
+		"",  // empty ceTaskID
 		nil, // maxRetries
 		nil, // retryInterval
 	)
@@ -318,7 +226,6 @@ func TestSonarProvider_BuildPredicate_EmptyCeTaskID(t *testing.T) {
 	assert.Contains(t, err.Error(), "ceTaskID is required")
 	assert.Nil(t, predicate)
 	assert.Equal(t, "", predicateType)
-	assert.Nil(t, markdown)
 }
 
 func TestSonarProvider_mapQualityGatesToPredicate(t *testing.T) {

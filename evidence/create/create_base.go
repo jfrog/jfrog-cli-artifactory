@@ -75,15 +75,13 @@ func (c *createEvidenceBase) createEnvelope(subject, subjectSha256 string) ([]by
 
 func (c *createEvidenceBase) buildSonarPredicate() ([]byte, error) {
 	resolver := sonar.NewPredicateResolver()
-	predicateType, predicate, markdown, err := resolver.ResolvePredicate()
+	predicateType, predicate, err := resolver.ResolvePredicate()
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve predicate: %w", err)
 	}
+
 	c.predicateType = predicateType
 	c.providerId = "sonar"
-	if len(markdown) > 0 {
-		c.markdown = markdown
-	}
 	return predicate, nil
 }
 
