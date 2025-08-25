@@ -45,7 +45,7 @@ func (c *createEvidenceBase) createEnvelope(subject, subjectSha256 string) ([]by
 	var statementJson []byte
 	var err error
 	if c.useSonarPredicate {
-		statementJson, err = c.buildSonarStatement(subject, subjectSha256, statementJson)
+		statementJson, err = c.buildSonarStatement(subject, subjectSha256)
 	} else {
 		statementJson, err = c.buildIntotoStatementJson(subject, subjectSha256, nil)
 	}
@@ -63,7 +63,7 @@ func (c *createEvidenceBase) createEnvelope(subject, subjectSha256 string) ([]by
 	return envelopeBytes, nil
 }
 
-func (c *createEvidenceBase) buildSonarStatement(subject string, subjectSha256 string, statementJson []byte) ([]byte, error) {
+func (c *createEvidenceBase) buildSonarStatement(subject string, subjectSha256 string) ([]byte, error) {
 	statementJson, err := c.getStatementFromSonar(subject, subjectSha256)
 	if err != nil {
 		log.Debug("Main statement flow failed, falling back to predicate flow:", err.Error())
