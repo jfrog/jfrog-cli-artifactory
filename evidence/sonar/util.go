@@ -2,20 +2,18 @@ package sonar
 
 import (
 	"net/url"
-	"os"
 
-	"github.com/jfrog/gofrog/log"
+	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 )
 
-const defaultSonarURL = "https://api.sonarcloud.io"
+const defaultSonarURL = "https://sonarcloud.io"
 
 func fileExists(path string) bool {
 	if path == "" {
 		return false
 	}
-	_, err := os.Stat(path)
-	log.Debug("Checking if file exists:", path, " - ", err)
-	return err == nil
+	exists, err := fileutils.IsFileExists(path, false)
+	return err == nil && exists
 }
 
 func resolveSonarBaseURL(ceTaskURL, serverURL string) string {

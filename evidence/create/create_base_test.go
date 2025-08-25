@@ -13,12 +13,59 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-client-go/artifactory"
+	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/evidence/services"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
 )
+
+type mockServicesManager struct {
+	artifactory.EmptyArtifactoryServicesManager
+}
+
+func (m *mockServicesManager) FileInfo(relativePath string) (*utils.FileInfo, error) {
+	if relativePath == "exists" {
+		return &utils.FileInfo{Checksums: struct {
+			Sha1   string `json:"sha1,omitempty"`
+			Sha256 string `json:"sha256,omitempty"`
+			Md5    string `json:"md5,omitempty"`
+		}{Sha256: "abc"}}, nil
+	}
+	return nil, errors.New("not found")
+}
+
+func TestResolveSubjectSha256_MatchProvided(t *testing.T) {
+	c := &createEvidenceBase{}
+	got, err := c.resolveSubjectSha256(&mockServicesManager{}, "exists", "abc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "abc" {
+		t.Fatalf("expected abc got %s", got)
+	}
+}
+
+func TestResolveSubjectSha256_Mismatch(t *testing.T) {
+	c := &createEvidenceBase{}
+	_, err := c.resolveSubjectSha256(&mockServicesManager{}, "exists", "mismatch")
+	if err == nil {
+		t.Fatalf("expected error on mismatch")
+	}
+}
+
+func TestResolveSubjectSha256_NoProvidedUsesFetched(t *testing.T) {
+	c := &createEvidenceBase{}
+	got, err := c.resolveSubjectSha256(&mockServicesManager{}, "exists", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "abc" {
+		t.Fatalf("expected fetched sha abc got %s", got)
+	}
+}
 
 // MockEvidenceServiceManager mocks the evidence service manager for testing
 type MockEvidenceServiceManager struct {
@@ -34,7 +81,6 @@ func (m *MockEvidenceServiceManager) UploadEvidence(details services.EvidenceDet
 }
 
 func TestUploadEvidence_ErrorHandling(t *testing.T) {
-	// Save the current log level and set it to DEBUG for testing
 	originalLogLevel := log.GetLogger().GetLogLevel()
 	log.SetLogger(log.NewLogger(log.DEBUG, nil))
 	defer log.SetLogger(log.NewLogger(originalLogLevel, nil))
@@ -78,27 +124,18 @@ func TestUploadEvidence_ErrorHandling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create a createEvidenceBase instance
 			c := &createEvidenceBase{
 				serverDetails: &config.ServerDetails{},
 				providerId:    "test-provider",
 			}
-
-			// Since we can't easily mock utils.CreateEvidenceServiceManager,
-			// we'll need to test the error handling logic directly.
-			// For a full integration test, you would need to use dependency injection
-			// or refactor the code to accept the evidence manager as a parameter.
-
-			// For now, let's test the error message formatting by simulating the error
 			err := c.handleUploadError(tt.uploadError, tt.repoPath)
-
 			assert.Error(t, err)
 			assert.Equal(t, tt.expectedError, err.Error())
 		})
 	}
 }
 
-// Add a helper method to test error handling logic
+// test helper
 func (c *createEvidenceBase) handleUploadError(err error, repoPath string) error {
 	errStr := err.Error()
 	if strings.Contains(errStr, "400") || strings.Contains(errStr, "404") {
@@ -145,11 +182,9 @@ func TestCreateAndSignEnvelope(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			keyContent, err := os.ReadFile(filepath.Join("../..", tt.keyPath))
-
 			if err != nil {
 				t.Fatalf("failed to read key file: %v", err)
 			}
-
 			envelope, err := createAndSignEnvelope(tt.payloadJson, string(keyContent), tt.keyId)
 			if tt.expectError {
 				assert.Error(t, err)
@@ -158,9 +193,7 @@ func TestCreateAndSignEnvelope(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, envelope)
-
 				envelopeBytes, _ := json.Marshal(envelope)
-
 				var signedEnvelope dsse.Envelope
 				err = json.Unmarshal(envelopeBytes, &signedEnvelope)
 				assert.NoError(t, err)
@@ -169,19 +202,11 @@ func TestCreateAndSignEnvelope(t *testing.T) {
 		})
 	}
 }
+
 func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_NotInGitHub(t *testing.T) {
 	assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
-
-	base := &createEvidenceBase{
-		predicateType: "https://slsa.dev/provenance/v1",
-		providerId:    "test-provider",
-	}
-
-	summaryData := commandsummary.EvidenceSummaryData{
-		Subject:       "/test/subject",
-		Verified:      true,
-		PredicateType: base.predicateType,
-	}
+	base := &createEvidenceBase{predicateType: "https://slsa.dev/provenance/v1", providerId: "test-provider"}
+	summaryData := commandsummary.EvidenceSummaryData{Subject: "/test/subject", Verified: true, PredicateType: base.predicateType}
 	err := base.recordEvidenceSummary(summaryData)
 	assert.NoError(t, err)
 }
@@ -189,28 +214,15 @@ func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_NotInGitHub(t
 func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_GitHubCommiter(t *testing.T) {
 	tempDir, err := fileutils.CreateTempDir()
 	assert.NoError(t, err)
-	defer func() {
-		assert.NoError(t, fileutils.RemoveTempDir(tempDir))
-	}()
-
+	defer func() { assert.NoError(t, fileutils.RemoveTempDir(tempDir)) }()
 	assert.NoError(t, os.Setenv("GITHUB_ACTIONS", "true"))
 	assert.NoError(t, os.Setenv(coreutils.SummaryOutputDirPathEnv, tempDir))
 	defer func() {
 		assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
 		assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
 	}()
-
-	base := &createEvidenceBase{
-		predicateType: "https://slsa.dev/provenance/v1",
-		providerId:    "test-provider",
-		flagType:      "gh-commiter",
-	}
-
-	summaryData := commandsummary.EvidenceSummaryData{
-		Subject:       "/test/subject",
-		Verified:      true,
-		PredicateType: base.predicateType,
-	}
+	base := &createEvidenceBase{predicateType: "https://slsa.dev/provenance/v1", providerId: "test-provider", flagType: "gh-commiter"}
+	summaryData := commandsummary.EvidenceSummaryData{Subject: "/test/subject", Verified: true, PredicateType: base.predicateType}
 	err = base.recordEvidenceSummary(summaryData)
 	assert.NoError(t, err)
 }
@@ -218,28 +230,15 @@ func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_GitHubCommite
 func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_Success(t *testing.T) {
 	tempDir, err := fileutils.CreateTempDir()
 	assert.NoError(t, err)
-	defer func() {
-		assert.NoError(t, fileutils.RemoveTempDir(tempDir))
-	}()
-
+	defer func() { assert.NoError(t, fileutils.RemoveTempDir(tempDir)) }()
 	assert.NoError(t, os.Setenv("GITHUB_ACTIONS", "true"))
 	assert.NoError(t, os.Setenv(coreutils.SummaryOutputDirPathEnv, tempDir))
 	defer func() {
 		assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
 		assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
 	}()
-
-	base := &createEvidenceBase{
-		predicateType: "https://slsa.dev/provenance/v1",
-		providerId:    "test-provider",
-		flagType:      "other",
-	}
-
-	summaryData := commandsummary.EvidenceSummaryData{
-		Subject:       "/docker-cosign-test/hello-world",
-		Verified:      true,
-		PredicateType: base.predicateType,
-	}
+	base := &createEvidenceBase{predicateType: "https://slsa.dev/provenance/v1", providerId: "test-provider", flagType: "other"}
+	summaryData := commandsummary.EvidenceSummaryData{Subject: "/docker-cosign-test/hello-world", Verified: true, PredicateType: base.predicateType}
 	err = base.recordEvidenceSummary(summaryData)
 	assert.NoError(t, err)
 }
@@ -247,21 +246,9 @@ func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_Success(t *te
 func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_NoSummaryEnv(t *testing.T) {
 	assert.NoError(t, os.Setenv("GITHUB_ACTIONS", "true"))
 	assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
-	defer func() {
-		assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
-	}()
-
-	base := &createEvidenceBase{
-		predicateType: "https://slsa.dev/provenance/v1",
-		providerId:    "test-provider",
-		flagType:      "other",
-	}
-
-	summaryData := commandsummary.EvidenceSummaryData{
-		Subject:       "/test/subject",
-		Verified:      true,
-		PredicateType: base.predicateType,
-	}
+	defer func() { assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS")) }()
+	base := &createEvidenceBase{predicateType: "https://slsa.dev/provenance/v1", providerId: "test-provider", flagType: "other"}
+	summaryData := commandsummary.EvidenceSummaryData{Subject: "/test/subject", Verified: true, PredicateType: base.predicateType}
 	err := base.recordEvidenceSummary(summaryData)
 	assert.Error(t, err)
 }
@@ -269,28 +256,15 @@ func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_NoSummaryEnv(
 func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_Verified(t *testing.T) {
 	tempDir, err := fileutils.CreateTempDir()
 	assert.NoError(t, err)
-	defer func() {
-		assert.NoError(t, fileutils.RemoveTempDir(tempDir))
-	}()
-
+	defer func() { assert.NoError(t, fileutils.RemoveTempDir(tempDir)) }()
 	assert.NoError(t, os.Setenv("GITHUB_ACTIONS", "true"))
 	assert.NoError(t, os.Setenv(coreutils.SummaryOutputDirPathEnv, tempDir))
 	defer func() {
 		assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
 		assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
 	}()
-
-	base := &createEvidenceBase{
-		predicateType: "https://slsa.dev/provenance/v1",
-		providerId:    "test-provider",
-		flagType:      "other",
-	}
-
-	summaryData := commandsummary.EvidenceSummaryData{
-		Subject:       "/docker-cosign-test/hello-world",
-		Verified:      true,
-		PredicateType: base.predicateType,
-	}
+	base := &createEvidenceBase{predicateType: "", providerId: "test-provider", flagType: "other"}
+	summaryData := commandsummary.EvidenceSummaryData{Subject: "/docker-cosign-test/hello-world", Verified: true, PredicateType: base.predicateType}
 	err = base.recordEvidenceSummary(summaryData)
 	assert.NoError(t, err)
 }
@@ -298,28 +272,15 @@ func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_Verified(t *t
 func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_NotVerified(t *testing.T) {
 	tempDir, err := fileutils.CreateTempDir()
 	assert.NoError(t, err)
-	defer func() {
-		assert.NoError(t, fileutils.RemoveTempDir(tempDir))
-	}()
-
+	defer func() { assert.NoError(t, fileutils.RemoveTempDir(tempDir)) }()
 	assert.NoError(t, os.Setenv("GITHUB_ACTIONS", "true"))
 	assert.NoError(t, os.Setenv(coreutils.SummaryOutputDirPathEnv, tempDir))
 	defer func() {
 		assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
 		assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
 	}()
-
-	base := &createEvidenceBase{
-		predicateType: "",
-		providerId:    "test-provider",
-		flagType:      "other",
-	}
-
-	summaryData := commandsummary.EvidenceSummaryData{
-		Subject:       "/test-repo/artifact",
-		Verified:      false,
-		PredicateType: base.predicateType,
-	}
+	base := &createEvidenceBase{predicateType: "", providerId: "test-provider", flagType: "other"}
+	summaryData := commandsummary.EvidenceSummaryData{Subject: "/test-repo/artifact", Verified: false, PredicateType: base.predicateType}
 	err = base.recordEvidenceSummary(summaryData)
 	assert.NoError(t, err)
 }

@@ -371,7 +371,7 @@ func validateSonarQubeRequirements() error {
 	if reportPath == "" {
 		return errorutils.CheckErrorf("SonarQube report-task.txt file not found. Please ensure SonarQube analysis has been completed or configure a custom path in evidence config")
 	}
-	log.Info("Found evidence config file:", reportPath)
+	log.Info("Found SonarQube task report:", reportPath)
 
 	return nil
 }

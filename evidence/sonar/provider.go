@@ -46,20 +46,24 @@ func NewSonarProviderWithCredentials(sonarURL, token string) (*Provider, error) 
 		return nil, errorutils.CheckErrorf("SonarQube token is required")
 	}
 
+	client, err := NewClient(sonarURL, token)
+	if err != nil {
+		return nil, err
+	}
 	return &Provider{
-		client: NewClient(sonarURL, token),
+		client: client,
 	}, nil
 }
 
 // BuildPredicate the fallback flow: build predicate from quality gates.
-func (p *Provider) BuildPredicate(ceTaskID string, maxRetries *int, retryInterval *int) ([]byte, string, error) {
+func (p *Provider) BuildPredicate(ceTaskID string, pollingMaxRetries *int, pollingRetryIntervalMs *int) ([]byte, string, error) {
 	if ceTaskID == "" {
 		return nil, "", errorutils.CheckErrorf("ceTaskID is required for SonarQube evidence creation")
 	}
 
 	if p.cachedAnalysisId == "" {
 		log.Info("Polling for task completion:", ceTaskID)
-		completedAnalysisID, err := p.pollTaskUntilSuccess(ceTaskID, maxRetries, retryInterval)
+		completedAnalysisID, err := p.pollTaskUntilSuccess(ceTaskID, pollingMaxRetries, pollingRetryIntervalMs)
 		if err != nil {
 			return nil, "", errorutils.CheckErrorf("failed to poll task completion: %v", err)
 		}
@@ -75,14 +79,14 @@ func (p *Provider) BuildPredicate(ceTaskID string, maxRetries *int, retryInterva
 
 // BuildStatement tries to retrieve an in-toto statement from the integration endpoint.
 // If successful, returns the statement bytes.
-func (p *Provider) BuildStatement(ceTaskID string, maxRetries *int, retryInterval *int) ([]byte, error) {
+func (p *Provider) BuildStatement(ceTaskID string, pollingMaxRetries *int, pollingRetryIntervalMs *int) ([]byte, error) {
 	if ceTaskID == "" {
 		return nil, errorutils.CheckErrorf("ceTaskID is required for SonarQube evidence creation")
 	}
 
 	if p.cachedAnalysisId == "" {
 		log.Info("Polling for task completion:", ceTaskID)
-		completedAnalysisID, err := p.pollTaskUntilSuccess(ceTaskID, maxRetries, retryInterval)
+		completedAnalysisID, err := p.pollTaskUntilSuccess(ceTaskID, pollingMaxRetries, pollingRetryIntervalMs)
 		if err != nil {
 			return nil, errorutils.CheckErrorf("failed to poll task completion: %v", err)
 		}
@@ -96,22 +100,22 @@ func (p *Provider) BuildStatement(ceTaskID string, maxRetries *int, retryInterva
 	return statement, nil
 }
 
-func (p *Provider) pollTaskUntilSuccess(ceTaskID string, configuredMaxRetries *int, configuredRetryInterval *int) (string, error) {
+func (p *Provider) pollTaskUntilSuccess(ceTaskID string, configuredPollingMaxRetries *int, configuredPollingRetryIntervalMs *int) (string, error) {
 	if p.client == nil {
 		return "", errorutils.CheckErrorf("SonarQube manager is not available")
 	}
 
 	maxRetries := defaultMaxRetries
-	if configuredMaxRetries != nil {
-		maxRetries = *configuredMaxRetries
+	if configuredPollingMaxRetries != nil {
+		maxRetries = *configuredPollingMaxRetries
 	}
 
-	retryInterval := defaultRetryInterval
-	if configuredRetryInterval != nil {
-		retryInterval = *configuredRetryInterval
+	retryIntervalMs := defaultRetryInterval
+	if configuredPollingRetryIntervalMs != nil {
+		retryIntervalMs = *configuredPollingRetryIntervalMs
 	}
 
-	pollingInterval := time.Duration(retryInterval) * time.Millisecond
+	pollingInterval := time.Duration(retryIntervalMs) * time.Millisecond
 	timeout := time.Duration(maxRetries) * pollingInterval
 
 	pollingExecutor := httputils.PollingExecutor{

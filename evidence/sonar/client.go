@@ -3,13 +3,13 @@ package sonar
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
-	"net/http"
 	"net/url"
 	"strings"
 
+	"github.com/jfrog/jfrog-client-go/http/jfroghttpclient"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/io/httputils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -62,12 +62,16 @@ type Client interface {
 type httpClient struct {
 	baseURL string
 	token   string
-	client  *http.Client
+	client  *jfroghttpclient.JfrogHttpClient
 }
 
-func NewClient(sonarURL, token string) Client {
+func NewClient(sonarURL, token string) (Client, error) {
 	base := strings.TrimRight(sonarURL, "/")
-	return &httpClient{baseURL: base, token: token, client: &http.Client{}}
+	cli, err := jfroghttpclient.JfrogClientBuilder().Build()
+	if err != nil {
+		return nil, errorutils.CheckError(err)
+	}
+	return &httpClient{baseURL: base, token: token, client: cli}, nil
 }
 
 func (c *httpClient) authHeader() string {
@@ -78,21 +82,16 @@ func (c *httpClient) authHeader() string {
 }
 
 func (c *httpClient) doGET(urlStr string) ([]byte, int, error) {
-	req, err := http.NewRequest(http.MethodGet, urlStr, nil)
-	if err != nil {
-		return nil, 0, err
-	}
+	details := httputils.HttpClientDetails{Headers: map[string]string{}}
 	if h := c.authHeader(); h != "" {
-		req.Header.Set("Authorization", h)
+		details.Headers["Authorization"] = h
 	}
 	log.Debug("HTTP GET", urlStr)
-	resp, err := c.client.Do(req)
+	resp, body, _, err := c.client.SendGet(urlStr, true, &details)
 	if err != nil {
 		log.Debug("HTTP GET error for", urlStr, "error:", err.Error())
 		return nil, 0, err
 	}
-	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(resp.Body)
 	log.Debug("HTTP GET response for", urlStr, "status:", resp.StatusCode, "body:", string(body))
 	return body, resp.StatusCode, nil
 }
@@ -104,8 +103,9 @@ func (c *httpClient) GetSonarIntotoStatement(ceTaskID string) ([]byte, error) {
 	baseURL := c.baseURL
 	u, _ := url.Parse(baseURL)
 	hostname := u.Hostname()
+	// Get sonar intoto statement has api prefix before the hostname
+	// if hostname is localhost or an ip address or has api prefix, then don't add the api.
 	if hostname != "localhost" && net.ParseIP(hostname) == nil && !strings.HasPrefix(hostname, "api.") {
-		// sonar v2 api has prefix "api." in the hostname
 		baseURL = strings.Replace(baseURL, "://", "://api.", 1)
 	}
 	enterpriseURL := fmt.Sprintf("%s/dop-translation/jfrog-evidence/%s", baseURL, url.QueryEscape(ceTaskID))

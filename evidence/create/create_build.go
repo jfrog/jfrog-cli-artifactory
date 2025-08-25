@@ -118,7 +118,7 @@ func getBuildLatestTimestamp(name string, number string, project string, artifac
 		BuildNumber: number,
 		ProjectKey:  project,
 	}
-	log.Info("Getting build info for buildName:", name, "buildNumber:", number, "project:", project)
+	log.Debug("Getting build info for buildName:", name, "buildNumber:", number, "project:", project)
 	res, ok, err := artifactoryClient.GetBuildInfo(buildInfo)
 	if err != nil {
 		return "", fmt.Errorf("failed to get build info for buildName: %s, buildNumber: %s, project: %s, error: %w", name, number, project, err)

@@ -77,14 +77,13 @@ func resolvePredicateWithConfig(cfg *conf.EvidenceConfig) (string, []byte, error
 		return "", nil, err
 	}
 
-	// Get polling configuration from config
-	var maxRetries, retryInterval *int
+	var pollingMaxRetries, pollingRetryIntervalMs *int
 	if cfg != nil && cfg.Sonar != nil {
-		maxRetries = cfg.Sonar.MaxRetries
-		retryInterval = cfg.Sonar.RetryInterval
+		pollingMaxRetries = cfg.Sonar.PollingMaxRetries
+		pollingRetryIntervalMs = cfg.Sonar.PollingRetryIntervalMs
 	}
 
-	predicate, predicateType, err := provider.BuildPredicate(rt.CeTaskID, maxRetries, retryInterval)
+	predicate, predicateType, err := provider.BuildPredicate(rt.CeTaskID, pollingMaxRetries, pollingRetryIntervalMs)
 	if err != nil {
 		return "", nil, err
 	}
@@ -107,7 +106,7 @@ func resolveStatementWithConfig(cfg *conf.EvidenceConfig) ([]byte, error) {
 		return nil, errorutils.CheckErrorf("failed to parse report-task file at %s: %v", reportPath, err)
 	}
 
-	log.Info("Parsed report-task file at", reportPath, "with ceTaskID:", rt.CeTaskID, "and projectKey:", rt.ProjectKey)
+	log.Info("Parsed report-task file at", reportPath, "with ceTaskID:", rt.CeTaskID)
 
 	sonarBaseURL := resolveSonarBaseURL(rt.CeTaskURL, rt.ServerURL)
 	if cfg != nil && cfg.Sonar != nil && cfg.Sonar.URL != "" {
@@ -124,13 +123,13 @@ func resolveStatementWithConfig(cfg *conf.EvidenceConfig) ([]byte, error) {
 		return nil, err
 	}
 
-	var maxRetries, retryInterval *int
+	var pollingMaxRetries, pollingRetryIntervalMs *int
 	if cfg != nil && cfg.Sonar != nil {
-		maxRetries = cfg.Sonar.MaxRetries
-		retryInterval = cfg.Sonar.RetryInterval
+		pollingMaxRetries = cfg.Sonar.PollingMaxRetries
+		pollingRetryIntervalMs = cfg.Sonar.PollingRetryIntervalMs
 	}
 
-	statement, err := provider.BuildStatement(rt.CeTaskID, maxRetries, retryInterval)
+	statement, err := provider.BuildStatement(rt.CeTaskID, pollingMaxRetries, pollingRetryIntervalMs)
 	if err != nil {
 		return nil, err
 	}

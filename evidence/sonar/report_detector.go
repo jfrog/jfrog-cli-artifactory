@@ -18,11 +18,12 @@ func GetReportTaskPath() string {
 		cfg = c
 	}
 
+	var reportPath string
 	if cfg != nil && cfg.Sonar != nil && cfg.Sonar.ReportTaskFile != "" {
-		return detectReportTaskPath(cfg.Sonar.ReportTaskFile)
+		reportPath = cfg.Sonar.ReportTaskFile
 	}
 
-	return detectReportTaskPath("")
+	return detectReportTaskPath(reportPath)
 }
 
 func detectReportTaskPath(configuredReportPath string) string {
@@ -38,6 +39,6 @@ func detectReportTaskPath(configuredReportPath string) string {
 			return path
 		}
 	}
-	log.Debug("No report-task.txt found.")
+	log.Debug("No report task file found.")
 	return ""
 }

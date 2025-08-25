@@ -41,7 +41,7 @@ func TestResolveSonarBaseURL_WithConfig(t *testing.T) {
 			configuredURL: "",
 			ceTaskURL:     "",
 			serverURL:     "",
-			expectedURL:   "https://api.sonarcloud.io",
+			expectedURL:   "https://sonarcloud.io",
 		},
 	}
 

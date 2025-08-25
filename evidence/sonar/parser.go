@@ -18,7 +18,7 @@ type ReportTask struct {
 func parseReportTask(path string) (ReportTask, error) {
 	rt := ReportTask{}
 
-	props, err := readPropertiesFile(path)
+	props, err := readTaskReport(path)
 	if err != nil {
 		return rt, err
 	}
@@ -37,7 +37,7 @@ func parseReportTask(path string) (ReportTask, error) {
 	return rt, nil
 }
 
-func readPropertiesFile(path string) (map[string]string, error) {
+func readTaskReport(path string) (map[string]string, error) {
 	props := make(map[string]string)
 
 	f, err := os.Open(path)
