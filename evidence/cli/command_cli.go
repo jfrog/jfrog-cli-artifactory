@@ -20,6 +20,7 @@ import (
 	coreUtils "github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 func GetCommands() []components.Command {
@@ -370,6 +371,7 @@ func validateSonarQubeRequirements() error {
 	if reportPath == "" {
 		return errorutils.CheckErrorf("SonarQube report-task.txt file not found. Please ensure SonarQube analysis has been completed or configure a custom path in evidence config")
 	}
+	log.Info("Found evidence config file:", reportPath)
 
 	return nil
 }

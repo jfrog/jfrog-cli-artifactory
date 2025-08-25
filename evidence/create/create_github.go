@@ -5,6 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"regexp"
+	"strings"
+
 	"github.com/jfrog/froggit-go/vcsclient"
 	"github.com/jfrog/froggit-go/vcsutils"
 	artifactoryUtils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
@@ -16,9 +20,6 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"os"
-	"regexp"
-	"strings"
 )
 
 type FlagType string
@@ -39,7 +40,7 @@ type createGitHubEvidence struct {
 	buildNumber string
 }
 
-func NewCreateGithub(serverDetails *config.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, project, buildName, buildNumber, typeFlag string, useSonarPredicate bool) evidence.Command {
+func NewCreateGithub(serverDetails *config.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, project, buildName, buildNumber, typeFlag string) evidence.Command {
 	flagType := getFlagType(typeFlag)
 	return &createGitHubEvidence{
 		createEvidenceBase: createEvidenceBase{
@@ -50,7 +51,6 @@ func NewCreateGithub(serverDetails *config.ServerDetails, predicateFilePath, pre
 			key:               key,
 			keyId:             keyId,
 			flagType:          flagType,
-			useSonarPredicate: useSonarPredicate,
 		},
 		project:     project,
 		buildName:   buildName,

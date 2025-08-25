@@ -13,8 +13,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-const DefaultSonarURL = "https://api.sonarcloud.io"
-
 type QualityGatesAnalysis struct {
 	ProjectStatus struct {
 		Status     string `json:"status"`
