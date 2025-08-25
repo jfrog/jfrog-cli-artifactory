@@ -21,7 +21,11 @@ func (m *MockArtifactoryServicesManager) Aql(query string) (io.ReadCloser, error
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(io.ReadCloser), args.Error(1)
+	readCloser, ok := args.Get(0).(io.ReadCloser)
+	if !ok {
+		return nil, args.Error(1)
+	}
+	return readCloser, args.Error(1)
 }
 
 // MockReadCloser is a mock implementation of io.ReadCloser
