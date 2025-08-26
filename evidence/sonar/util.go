@@ -4,6 +4,7 @@ import (
 	"net/url"
 
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 const defaultSonarURL = "https://sonarcloud.io"
@@ -13,6 +14,9 @@ func fileExists(path string) bool {
 		return false
 	}
 	exists, err := fileutils.IsFileExists(path, false)
+	if err != nil {
+		log.Debug("Error while checking if file exists", path, err)
+	}
 	return err == nil && exists
 }
 
