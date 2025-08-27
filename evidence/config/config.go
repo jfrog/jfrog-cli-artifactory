@@ -20,10 +20,10 @@ const (
 	keyPollingMaxRetries      = "sonar.pollingMaxRetries"
 	keyPollingRetryIntervalMs = "sonar.pollingRetryIntervalMs"
 
-	envReportTaskFile         = "REPORT_TASK_FILE"
+	envReportTaskFile         = "SONAR_REPORT_TASK_FILE"
 	envSonarURL               = "SONAR_URL"
-	envPollingMaxRetries      = "POLLING_MAX_RETRIES"
-	envPollingRetryIntervalMs = "POLLING_RETRY_INTERVAL_MS"
+	envPollingMaxRetries      = "SONAR_POLLING_MAX_RETRIES"
+	envPollingRetryIntervalMs = "SONAR_POLLING_RETRY_INTERVAL_MS"
 )
 
 type SonarConfig struct {
