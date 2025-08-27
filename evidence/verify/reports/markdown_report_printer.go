@@ -80,5 +80,7 @@ func (p *markdownReportPrinter) Print(result *model.VerificationResponse) error 
 	if result.OverallVerificationStatus == model.Failed {
 		return coreutils.CliError{ExitCode: coreutils.ExitCodeError}
 	}
+
+	fmt.Println()
 	return nil
 }

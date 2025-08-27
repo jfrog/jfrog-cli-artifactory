@@ -79,6 +79,7 @@ func TestPlaintext_Print_SigstoreBundleSuccess(t *testing.T) {
 			SubjectChecksum: "test-checksum",
 			VerificationResult: model.EvidenceVerificationResult{
 				SigstoreBundleVerificationStatus: model.Success,
+				Sha256VerificationStatus:         model.Success,
 			},
 		}},
 	}

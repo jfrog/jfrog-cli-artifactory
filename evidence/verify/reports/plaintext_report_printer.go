@@ -64,8 +64,8 @@ func (p *plaintextReportPrinter) printVerificationResult(verification *model.Evi
 	if verification.VerificationResult.KeyFingerprint != "" {
 		fmt.Printf("    - Key fingerprint:                %s\n", verification.VerificationResult.KeyFingerprint)
 	}
+	fmt.Printf("    - Sha256 verification status:     %s\n", p.getColoredStatus(verification.VerificationResult.Sha256VerificationStatus))
 	if verification.MediaType == model.SimpleDSSE {
-		fmt.Printf("    - Sha256 verification status:     %s\n", p.getColoredStatus(verification.VerificationResult.Sha256VerificationStatus))
 		fmt.Printf("    - Signatures verification status: %s\n", p.getColoredStatus(verification.VerificationResult.SignaturesVerificationStatus))
 	}
 	if verification.MediaType == model.SigstoreBundle {
