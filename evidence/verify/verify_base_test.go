@@ -489,6 +489,7 @@ func TestIsVerificationSucceed(t *testing.T) {
 				MediaType: model.SigstoreBundle,
 				VerificationResult: model.EvidenceVerificationResult{
 					SigstoreBundleVerificationStatus: model.Success,
+					Sha256VerificationStatus:         model.Success,
 				},
 			},
 			expectedResult: true,
@@ -510,7 +511,7 @@ func TestIsVerificationSucceed(t *testing.T) {
 			verification: model.EvidenceVerification{
 				MediaType: model.SigstoreBundle,
 				VerificationResult: model.EvidenceVerificationResult{
-					Sha256VerificationStatus:         model.Failed,
+					Sha256VerificationStatus:         model.Success,
 					SignaturesVerificationStatus:     model.Failed,
 					SigstoreBundleVerificationStatus: model.Success,
 				},
