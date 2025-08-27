@@ -65,6 +65,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y mono-complete
 
+      # Install Mono on macOS to run nuget.exe (due to this issue on macOS that hasn't been fixed yet - https://github.com/NuGet/setup-nuget/issues/168)
+      - name: Install Mono on macOS
+        if: matrix.os == 'macOS'
+        run: |
+          brew install mono
+
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
 
