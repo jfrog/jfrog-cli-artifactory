@@ -35,7 +35,9 @@ jobs:
         run: python -m pip install pipenv poetry
 
       - name: Install Helm
-        uses: azure/setup-helm@v4.3.0
+        uses: azure/setup-helm@v4
+        with:
+          version: 'latest'
 
       - name: Install NuGet
         uses: nuget/setup-nuget@v2
