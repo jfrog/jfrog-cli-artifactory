@@ -2,6 +2,7 @@ package verifiers
 
 import (
 	"fmt"
+
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 )
@@ -70,21 +71,22 @@ func (v *evidenceVerifier) verifyEvidence(evidence *model.SearchEvidenceEdge, su
 		CreatedAt:          evidence.Node.CreatedAt,
 		VerificationResult: model.EvidenceVerificationResult{},
 	}
+	evidenceVerification.VerificationResult.Sha256VerificationStatus = verifyChecksum(subjectSha256, evidence.Node.Subject.Sha256)
 	if err := v.parser.parseEvidence(evidence, evidenceVerification); err != nil {
 		return nil, fmt.Errorf("failed to read envelope: %w", err)
 	}
-	if err := v.performVerification(evidence, evidenceVerification, subjectSha256); err != nil {
+	if err := v.performVerification(evidence, evidenceVerification); err != nil {
 		return nil, err
 	}
 	return evidenceVerification, nil
 }
 
-func (v *evidenceVerifier) performVerification(evidence *model.SearchEvidenceEdge, result *model.EvidenceVerification, subjectSha256 string) error {
+func (v *evidenceVerifier) performVerification(evidence *model.SearchEvidenceEdge, result *model.EvidenceVerification) error {
 	switch result.MediaType {
 	case model.SigstoreBundle:
-		return v.sigstoreVerifier.verify(subjectSha256, result)
+		return v.sigstoreVerifier.verify(result)
 	case model.SimpleDSSE:
-		return v.dsseVerifier.verify(subjectSha256, evidence, result)
+		return v.dsseVerifier.verify(evidence, result)
 	default:
 		return fmt.Errorf("unsupported verification mode: %v", result.MediaType)
 	}
@@ -94,4 +96,11 @@ func shouldFailOverall(verification *model.EvidenceVerification) bool {
 	return verification.VerificationResult.SignaturesVerificationStatus == model.Failed ||
 		verification.VerificationResult.Sha256VerificationStatus == model.Failed ||
 		verification.VerificationResult.SigstoreBundleVerificationStatus == model.Failed
+}
+
+func verifyChecksum(subjectSha256, evidenceChecksum string) model.VerificationStatus {
+	if subjectSha256 == evidenceChecksum {
+		return model.Success
+	}
+	return model.Failed
 }

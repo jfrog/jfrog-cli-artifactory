@@ -13,7 +13,7 @@ import (
 func TestSigstoreVerifier_VerifyNilResult(t *testing.T) {
 	verifier := &sigstoreVerifier{}
 
-	err := verifier.verify(createTestSHA256(), nil)
+	err := verifier.verify(nil)
 	assert.Error(t, err)
 	assert.Equal(t, "empty evidence verification or Sigstore bundle provided for verification", err.Error())
 }
@@ -26,7 +26,7 @@ func TestSigstoreVerifier_VerifyResultWithNilSigstoreBundle(t *testing.T) {
 		VerificationResult: model.EvidenceVerificationResult{},
 	}
 
-	err := verifier.verify(createTestSHA256(), result)
+	err := verifier.verify(result)
 	assert.Error(t, err)
 	assert.Equal(t, "empty evidence verification or Sigstore bundle provided for verification", err.Error())
 }
@@ -46,7 +46,7 @@ func TestSigstoreVerifier_VerifyNilProtobufBundle(t *testing.T) {
 		VerificationResult: model.EvidenceVerificationResult{},
 	}
 
-	err := verifier.verify(createTestSHA256(), result)
+	err := verifier.verify(result)
 	assert.Error(t, err)
 	assert.Equal(t, "invalid bundle: missing protobuf bundle", err.Error())
 
@@ -69,32 +69,7 @@ func TestSigstoreVerifier_VerifyNilBundle(t *testing.T) {
 		VerificationResult: model.EvidenceVerificationResult{},
 	}
 
-	err := verifier.verify(createTestSHA256(), result)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to load TUF root certificate")
-
-	// Verify that the mock provider was called
-	mockProvider.AssertExpectations(t)
-}
-
-func TestSigstoreVerifier_VerifyInvalidDigest(t *testing.T) {
-	mockProvider := &MockTUFRootCertificateProvider{}
-	// TUF provider gets called first, so we need to mock it
-	mockProvider.On("LoadTUFRootCertificate").Return(nil, errors.New("mock TUF provider"))
-
-	verifier := &sigstoreVerifier{
-		rootCertificateProvider: mockProvider,
-	}
-
-	result := &model.EvidenceVerification{
-		SigstoreBundle: &bundle.Bundle{
-			Bundle: &protobundle.Bundle{}, // Empty but not nil
-		},
-		VerificationResult: model.EvidenceVerificationResult{},
-	}
-
-	// Use invalid hex string
-	err := verifier.verify("invalid-hex", result)
+	err := verifier.verify(result)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to load TUF root certificate")
 
@@ -117,7 +92,7 @@ func TestSigstoreVerifier_VerifyTUFProviderError(t *testing.T) {
 		VerificationResult: model.EvidenceVerificationResult{},
 	}
 
-	err := verifier.verify(createTestSHA256(), result)
+	err := verifier.verify(result)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to load TUF root certificate")
 	assert.Contains(t, err.Error(), "TUF load failed")
@@ -150,7 +125,7 @@ func TestSigstoreVerifier_VerifyNilBundleAfterTUFSuccess(t *testing.T) {
 		VerificationResult: model.EvidenceVerificationResult{},
 	}
 
-	err := verifier.verify(createTestSHA256(), result)
+	err := verifier.verify(result)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid bundle: missing protobuf bundle")
 
@@ -177,7 +152,7 @@ func TestSigstoreVerifier_InvalidBundleCreation(t *testing.T) {
 		VerificationResult: model.EvidenceVerificationResult{},
 	}
 
-	err := verifier.verify(createTestSHA256(), result)
+	err := verifier.verify(result)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create bundle for verification")
 

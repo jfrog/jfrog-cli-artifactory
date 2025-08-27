@@ -1,7 +1,6 @@
 package verifiers
 
 import (
-	"encoding/hex"
 	"fmt"
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify/verifiers/ca"
@@ -15,7 +14,7 @@ import (
 const sigstoreKeySource = "Sigstore Bundle Key"
 
 type sigstoreVerifierInterface interface {
-	verify(subjectSha256 string, result *model.EvidenceVerification) error
+	verify(result *model.EvidenceVerification) error
 }
 
 type sigstoreVerifier struct {
@@ -26,7 +25,7 @@ func newSigstoreVerifier() sigstoreVerifierInterface {
 	return &sigstoreVerifier{}
 }
 
-func (v *sigstoreVerifier) verify(subjectSha256 string, result *model.EvidenceVerification) error {
+func (v *sigstoreVerifier) verify(result *model.EvidenceVerification) error {
 	if result == nil || result.SigstoreBundle == nil {
 		return fmt.Errorf("empty evidence verification or Sigstore bundle provided for verification")
 	}
@@ -60,13 +59,9 @@ func (v *sigstoreVerifier) verify(subjectSha256 string, result *model.EvidenceVe
 		return errors.Wrap(err, "failed to create bundle for verification")
 	}
 
-	digestBytes, err := hex.DecodeString(subjectSha256)
-	if err != nil {
-		return fmt.Errorf("invalid hex digest: %w", err)
-	}
 	policy := verify.NewPolicy(
-		verify.WithArtifactDigest("sha256", digestBytes), // Use digest for artifact verification
-		verify.WithoutIdentitiesUnsafe(),                 // Skip identity verification for now
+		verify.WithoutArtifactUnsafe(),   // Skip artifact verification due to separate digest verification
+		verify.WithoutIdentitiesUnsafe(), // Skip identity verification for now
 	)
 
 	verificationResult, err := verifier.Verify(bundleToVerify, policy)
