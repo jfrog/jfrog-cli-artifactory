@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 )
 
 var JsonReportPrinter = &jsonReportPrinter{}
@@ -23,8 +22,6 @@ func (p *jsonReportPrinter) Print(result *model.VerificationResponse) error {
 		return err
 	}
 	fmt.Println(string(resultJson))
-	if result.OverallVerificationStatus == model.Failed {
-		return coreutils.CliError{ExitCode: coreutils.ExitCodeError}
-	}
+
 	return nil
 }

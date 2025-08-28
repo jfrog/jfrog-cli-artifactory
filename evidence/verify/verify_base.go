@@ -10,6 +10,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify/verifiers"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/onemodel"
@@ -51,7 +52,12 @@ func (v *verifyEvidenceBase) verifyEvidence(client *artifactory.ArtifactoryServi
 	if err != nil {
 		return err
 	}
-	return v.printVerifyResult(verify)
+
+	err = v.printVerifyResult(verify)
+	if verify.OverallVerificationStatus == model.Failed {
+		return coreutils.CliError{ExitCode: coreutils.ExitCodeError}
+	}
+	return err
 }
 
 // createArtifactoryClient creates an Artifactory client for evidence operations.

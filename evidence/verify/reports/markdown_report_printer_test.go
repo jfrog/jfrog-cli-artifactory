@@ -15,6 +15,7 @@ func TestMarkdown_Print_Success(t *testing.T) {
 		},
 		OverallVerificationStatus: model.Success,
 		EvidenceVerifications: &[]model.EvidenceVerification{{
+			MediaType:     model.SimpleDSSE,
 			PredicateType: "pred-1",
 			VerificationResult: model.EvidenceVerificationResult{
 				SignaturesVerificationStatus: model.Success,
@@ -33,11 +34,10 @@ func TestMarkdown_Print_Success(t *testing.T) {
 		err := MarkdownReportPrinter.Print(resp)
 		assert.NoError(t, err)
 	})
-	assert.Contains(t, out, "# Evidence Verification Result")
-	assert.Contains(t, out, "## Quick Summary")
-	assert.Contains(t, out, "## Full Results")
-	assert.Contains(t, out, "test/path")
-	assert.Contains(t, out, "test-checksum")
+	assert.Contains(t, out, "## Evidence Verification Result Summary")
+	assert.Contains(t, out, "| pred-1 | evidence.dsse | - | - | ✅ Verified | - |")
+	assert.Contains(t, out, "| pred-2 | sigstore.bundle | - | - | ❌ Failed | - |")
+	assert.Contains(t, out, "## Attestation Verification Full Results")
 }
 
 func TestMarkdown_Print_NilResponse(t *testing.T) {
