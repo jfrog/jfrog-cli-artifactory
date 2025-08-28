@@ -5,7 +5,6 @@ import (
 
 	"github.com/gookit/color"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 )
 
 var PlaintextReportPrinter = &plaintextReportPrinter{
@@ -47,9 +46,7 @@ func (p *plaintextReportPrinter) Print(result *model.VerificationResponse) error
 	for i, verification := range *result.EvidenceVerifications {
 		p.printVerificationResult(&verification, i)
 	}
-	if result.OverallVerificationStatus == model.Failed {
-		return coreutils.CliError{ExitCode: coreutils.ExitCodeError}
-	}
+
 	return nil
 }
 

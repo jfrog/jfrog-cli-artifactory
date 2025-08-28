@@ -2,15 +2,22 @@ package reports
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 )
 
 var MarkdownReportPrinter = &markdownReportPrinter{}
 
 type markdownReportPrinter struct {
+}
+
+// getStatusDisplay converts a verification status to a combined icon + text representation.
+// For example: Success -> "✅ Verified", Failed -> "❌ Failed".
+func getStatusDisplay(status model.VerificationStatus) string {
+	if status == model.Success {
+		return "✅ Verified"
+	}
+	return "❌ Failed"
 }
 
 func (p *markdownReportPrinter) Print(result *model.VerificationResponse) error {
@@ -19,41 +26,21 @@ func (p *markdownReportPrinter) Print(result *model.VerificationResponse) error 
 		return err
 	}
 
-	fmt.Println("# Evidence Verification Result")
+	fmt.Println("## Evidence Verification Result Summary")
 	fmt.Println()
 	fmt.Printf("**Subject:** %s  \n", result.Subject.Path)
 	fmt.Printf("**Subject sha256:** %s  \n", result.Subject.Sha256)
-
-	successfulVerifications := 0
-	failedVerifications := 0
-	fmt.Println("## Quick Summary")
-	fmt.Println("| Predicate type | Verification status |")
-	fmt.Println("|-|-|")
-	for _, verification := range *result.EvidenceVerifications {
-		var verificationStatus string
-		if IsVerificationSucceed(verification) {
-			verificationStatus = "success"
-			successfulVerifications++
-		} else {
-			verificationStatus = "failed"
-			failedVerifications++
-		}
-		fmt.Printf("| %s | %s |\n", verification.PredicateType, verificationStatus)
-	}
-
-	fmt.Printf("**Total loaded evidence:** %d  \n", len(*result.EvidenceVerifications))
-	fmt.Printf("**Successful verifications:** %d  \n", successfulVerifications)
-	fmt.Printf("**Failed verifications:** %d  \n", failedVerifications)
-	fmt.Printf("**Overall verification status:** %s  \n", strings.ToLower(string(result.OverallVerificationStatus)))
+	fmt.Println()
+	fmt.Printf("**Overall attestation verification status:** %s  \n", getStatusDisplay(result.OverallVerificationStatus))
 
 	fmt.Println()
-	fmt.Println("## Full Results")
-	fmt.Println("| Predicate type | Subject Path | Subject Digest | Media type | Key source | Key fingerprint | Verification status | Failure reason |")
-	fmt.Println("|-|-|-|-|-|-|-|-|")
+	fmt.Println("## Attestation Verification Full Results")
+	fmt.Println("| Predicate type | Media type | Key source | Key fingerprint | Verification status | Failure reason |")
+	fmt.Println("|-|-|-|-|-|-|")
 	for _, verification := range *result.EvidenceVerifications {
-		verificationStatus := "failed"
+		var verificationStatus model.VerificationStatus = model.Failed
 		if IsVerificationSucceed(verification) {
-			verificationStatus = "success"
+			verificationStatus = model.Success
 		}
 		failureReason := verification.VerificationResult.FailureReason
 		if failureReason == "" {
@@ -67,20 +54,15 @@ func (p *markdownReportPrinter) Print(result *model.VerificationResponse) error 
 		if keyFingerprint == "" {
 			keyFingerprint = "-"
 		}
-		fmt.Printf("| %s | %s | %s | %s | %s | %s | %s | %s |\n",
+		fmt.Printf("| %s | %s | %s | %s | %s | %s |\n",
 			verification.PredicateType,
-			result.Subject.Path,
-			result.Subject.Sha256,
 			verification.MediaType,
 			keySource,
 			keyFingerprint,
-			verificationStatus,
+			getStatusDisplay(verificationStatus),
 			failureReason)
 	}
-	if result.OverallVerificationStatus == model.Failed {
-		return coreutils.CliError{ExitCode: coreutils.ExitCodeError}
-	}
-
 	fmt.Println()
+
 	return nil
 }
