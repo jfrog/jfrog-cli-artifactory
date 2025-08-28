@@ -30,7 +30,6 @@ type createEvidenceBase struct {
 	predicateFilePath string
 	predicateType     string
 	markdownFilePath  string
-	markdown          []byte
 	key               string
 	keyId             string
 	providerId        string
@@ -47,7 +46,7 @@ func (c *createEvidenceBase) createEnvelope(subject, subjectSha256 string) ([]by
 	if c.useSonarPredicate {
 		statementJson, err = c.buildSonarStatement(subject, subjectSha256)
 	} else {
-		statementJson, err = c.buildIntotoStatementJson(subject, subjectSha256, nil)
+		statementJson, err = c.buildIntotoStatementJson(subject, subjectSha256)
 	}
 	if err != nil {
 		return nil, err
@@ -63,36 +62,8 @@ func (c *createEvidenceBase) createEnvelope(subject, subjectSha256 string) ([]by
 	return envelopeBytes, nil
 }
 
-func (c *createEvidenceBase) buildSonarStatement(subject string, subjectSha256 string) ([]byte, error) {
-	statementJson, err := c.getStatementFromSonar(subject, subjectSha256)
-	if err != nil {
-		log.Debug("Main statement flow failed, falling back to predicate flow:", err.Error())
-		sonarPredicate, perr := c.buildSonarPredicate()
-		if perr != nil {
-			return nil, perr
-		}
-		statementJson, err = c.buildIntotoStatementJson(subject, subjectSha256, sonarPredicate)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return statementJson, nil
-}
-
-func (c *createEvidenceBase) buildSonarPredicate() ([]byte, error) {
-	resolver := sonar.NewPredicateResolver()
-	predicateType, predicate, err := resolver.ResolvePredicate()
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve predicate: %w", err)
-	}
-
-	c.predicateType = predicateType
-	c.providerId = "sonar"
-	return predicate, nil
-}
-
-// getStatementFromSonar fetches in-toto statement from main flow, augments it with subject and stage, and returns it.
-func (c *createEvidenceBase) getStatementFromSonar(subject, subjectSha256 string) ([]byte, error) {
+// buildSonarStatement get in-toto statement from sonar, augments it with subject and stage, and returns it.
+func (c *createEvidenceBase) buildSonarStatement(subject, subjectSha256 string) ([]byte, error) {
 	stmtResolver := sonar.NewStatementResolver()
 	statementBytes, err := stmtResolver.ResolveStatement()
 	if err != nil {
@@ -138,14 +109,11 @@ func (c *createEvidenceBase) createEnvelopeWithPredicateAndPredicateType(subject
 	return envelopeBytes, nil
 }
 
-func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 string, predicate []byte) ([]byte, error) {
-	if len(predicate) == 0 {
-		customPredicate, err := os.ReadFile(c.predicateFilePath)
-		if err != nil {
-			log.Warn(fmt.Sprintf("failed to read predicate file '%s'", customPredicate))
-			return nil, err
-		}
-		predicate = customPredicate
+func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 string) ([]byte, error) {
+	predicate, err := os.ReadFile(c.predicateFilePath)
+	if err != nil {
+		log.Warn(fmt.Sprintf("failed to read predicate file '%s'", predicate))
+		return nil, err
 	}
 
 	artifactoryClient, err := c.createArtifactoryClient()
@@ -222,11 +190,6 @@ func (c *createEvidenceBase) buildIntotoStatementJsonWithPredicateAndPredicateTy
 }
 
 func (c *createEvidenceBase) setMarkdown(statement *intoto.Statement) error {
-	if len(c.markdown) > 0 {
-		statement.SetMarkdown(c.markdown)
-		return nil
-	}
-
 	if c.markdownFilePath != "" {
 		if !strings.HasSuffix(c.markdownFilePath, ".md") {
 			return fmt.Errorf("file '%s' does not have a .md extension", c.markdownFilePath)

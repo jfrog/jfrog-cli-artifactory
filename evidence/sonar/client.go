@@ -13,26 +13,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-type QualityGatesAnalysis struct {
-	ProjectStatus struct {
-		Status     string `json:"status"`
-		Conditions []struct {
-			Status         string `json:"status"`
-			MetricKey      string `json:"metricKey"`
-			Comparator     string `json:"comparator"`
-			PeriodIndex    int    `json:"periodIndex"`
-			ErrorThreshold string `json:"errorThreshold"`
-			ActualValue    string `json:"actualValue"`
-		} `json:"conditions"`
-		Periods []struct {
-			Index int    `json:"index"`
-			Mode  string `json:"mode"`
-			Date  string `json:"date"`
-		} `json:"periods"`
-		IgnoredConditions bool `json:"ignoredConditions"`
-	} `json:"projectStatus"`
-}
-
 type TaskDetails struct {
 	Task struct {
 		ID                 string      `json:"id"`
@@ -54,7 +34,6 @@ type TaskDetails struct {
 }
 
 type Client interface {
-	GetQualityGateAnalysis(analysisID string) (*QualityGatesAnalysis, error)
 	GetTaskDetails(ceTaskID string) (*TaskDetails, error)
 	GetSonarIntotoStatement(ceTaskID string) ([]byte, error)
 }
@@ -86,7 +65,6 @@ func (c *httpClient) doGET(urlStr string) ([]byte, int, error) {
 	if h := c.authHeader(); h != "" {
 		details.Headers["Authorization"] = h
 	}
-	log.Debug("HTTP GET", urlStr)
 	resp, body, _, err := c.client.SendGet(urlStr, true, &details)
 	if err != nil {
 		log.Debug("HTTP GET error for", urlStr, "error:", err.Error())
@@ -119,25 +97,6 @@ func (c *httpClient) GetSonarIntotoStatement(ceTaskID string) ([]byte, error) {
 	return body, nil
 }
 
-func (c *httpClient) GetQualityGateAnalysis(analysisID string) (*QualityGatesAnalysis, error) {
-	if analysisID == "" {
-		return nil, errorutils.CheckError(fmt.Errorf("missing analysis id for quality gates endpoint"))
-	}
-	qualityGatesURL := fmt.Sprintf("%s/api/qualitygates/project_status?analysisId=%s", c.baseURL, url.QueryEscape(analysisID))
-	body, statusCode, err := c.doGET(qualityGatesURL)
-	if err != nil {
-		return nil, errorutils.CheckErrorf("quality gates endpoint failed with status %d: %v", statusCode, err)
-	}
-	if statusCode != 200 {
-		return nil, errorutils.CheckErrorf("quality gates endpoint returned status %d: %s", statusCode, string(body))
-	}
-	var response QualityGatesAnalysis
-	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, errorutils.CheckErrorf("failed to parse quality gates response: %v", err)
-	}
-	return &response, nil
-}
-
 func (c *httpClient) GetTaskDetails(ceTaskID string) (*TaskDetails, error) {
 	if ceTaskID == "" {
 		return nil, nil
@@ -151,7 +110,7 @@ func (c *httpClient) GetTaskDetails(ceTaskID string) (*TaskDetails, error) {
 		return nil, errorutils.CheckErrorf("task endpoint returned status %d: %s", statusCode, string(body))
 	}
 	var response TaskDetails
-	if err := json.Unmarshal(body, &response); err != nil {
+	if err = json.Unmarshal(body, &response); err != nil {
 		return nil, errorutils.CheckErrorf("failed to parse task response: %v", err)
 	}
 	return &response, nil

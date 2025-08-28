@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-// Mock SonarManager for testing
 type MockSonarManager struct {
 	mock.Mock
 }
@@ -17,17 +16,6 @@ func (m *MockSonarManager) GetSonarIntotoStatement(ceTaskID string) ([]byte, err
 	args := m.Called(ceTaskID)
 	if b, ok := args.Get(0).([]byte); ok {
 		return b, args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
-func (m *MockSonarManager) GetQualityGateAnalysis(analysisID string) (*QualityGatesAnalysis, error) {
-	args := m.Called(analysisID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	if qga, ok := args.Get(0).(*QualityGatesAnalysis); ok {
-		return qga, args.Error(1)
 	}
 	return nil, args.Error(1)
 }
@@ -51,249 +39,289 @@ func TestNewSonarProviderWithManager(t *testing.T) {
 	assert.Equal(t, mockManager, provider.client)
 }
 
-func TestSonarProvider_BuildPredicate_SuccessFromQualityGates(t *testing.T) {
+func TestBuildStatement_SuccessDirect(t *testing.T) {
 	mockManager := &MockSonarManager{}
 	provider := &Provider{client: mockManager}
 
-	// Mock task polling - task is already completed
-	taskResp := &TaskDetails{
-		Task: struct {
-			ID                 string      `json:"id"`
-			Type               string      `json:"type"`
-			ComponentID        string      `json:"componentId"`
-			ComponentKey       string      `json:"componentKey"`
-			ComponentName      string      `json:"componentName"`
-			ComponentQualifier string      `json:"componentQualifier"`
-			AnalysisID         string      `json:"analysisId"`
-			Status             string      `json:"status"`
-			SubmittedAt        string      `json:"submittedAt"`
-			StartedAt          string      `json:"startedAt"`
-			ExecutedAt         string      `json:"executedAt"`
-			ExecutionTimeMs    int         `json:"executionTimeMs"`
-			Logs               interface{} `json:"logs"`
-			HasScannerContext  bool        `json:"hasScannerContext"`
-			Organization       string      `json:"organization"`
-		}{
-			ID:         "task-123",
-			Status:     "SUCCESS",
-			AnalysisID: "analysis-123",
-		},
-	}
+	mockManager.On("GetSonarIntotoStatement", "task-123").Return([]byte(`{"ok":true}`), nil)
 
-	// Mock quality gates response
-	qgResp := &QualityGatesAnalysis{
-		ProjectStatus: struct {
-			Status     string `json:"status"`
-			Conditions []struct {
-				Status         string `json:"status"`
-				MetricKey      string `json:"metricKey"`
-				Comparator     string `json:"comparator"`
-				PeriodIndex    int    `json:"periodIndex"`
-				ErrorThreshold string `json:"errorThreshold"`
-				ActualValue    string `json:"actualValue"`
-			} `json:"conditions"`
-			Periods []struct {
-				Index int    `json:"index"`
-				Mode  string `json:"mode"`
-				Date  string `json:"date"`
-			} `json:"periods"`
-			IgnoredConditions bool `json:"ignoredConditions"`
-		}{
-			Status: "OK",
-			Conditions: []struct {
-				Status         string `json:"status"`
-				MetricKey      string `json:"metricKey"`
-				Comparator     string `json:"comparator"`
-				PeriodIndex    int    `json:"periodIndex"`
-				ErrorThreshold string `json:"errorThreshold"`
-				ActualValue    string `json:"actualValue"`
-			}{
-				{
-					Status:         "OK",
-					MetricKey:      "new_reliability_rating",
-					Comparator:     "GT",
-					PeriodIndex:    1,
-					ErrorThreshold: "1",
-					ActualValue:    "1",
-				},
-			},
-			Periods: []struct {
-				Index int    `json:"index"`
-				Mode  string `json:"mode"`
-				Date  string `json:"date"`
-			}{
-				{
-					Index: 1,
-					Mode:  "previous_version",
-					Date:  "2025-01-15T10:30:00+0000",
-				},
-			},
-			IgnoredConditions: false,
-		},
-	}
-
-	mockManager.On("GetTaskDetails", "task-123").Return(taskResp, nil)
-	mockManager.On("GetQualityGateAnalysis", "analysis-123").Return(qgResp, nil)
-
-	// Use very short polling intervals for testing
-	maxRetries := 1
-	retryInterval := 1 // 1 millisecond
-
-	predicate, predicateType, err := provider.BuildPredicate(
-		"task-123",
-		&maxRetries,    // maxRetries
-		&retryInterval, // retryInterval
-	)
+	stmt, err := provider.GetStatement("task-123", nil, nil)
 
 	assert.NoError(t, err)
-	assert.NotNil(t, predicate)
-	assert.Equal(t, jfrogPredicateType, predicateType)
-
-	// Verify predicate contains expected data
-	predicateStr := string(predicate)
-	assert.Contains(t, predicateStr, `"type":"QUALITY"`)
-	assert.Contains(t, predicateStr, `"status":"OK"`)
-	assert.Contains(t, predicateStr, `"ignoredConditions":false`)
-	assert.Contains(t, predicateStr, `"metricKey":"new_reliability_rating"`)
-	assert.Contains(t, predicateStr, `"comparator":"GT"`)
-	assert.Contains(t, predicateStr, `"errorThreshold":"1"`)
-	assert.Contains(t, predicateStr, `"actualValue":"1"`)
-
+	assert.Equal(t, []byte(`{"ok":true}`), stmt)
 	mockManager.AssertExpectations(t)
 }
 
-func TestSonarProvider_BuildPredicate_BothFail(t *testing.T) {
+func TestBuildStatement_RetryAfterPolling(t *testing.T) {
 	mockManager := &MockSonarManager{}
 	provider := &Provider{client: mockManager}
 
-	// Mock task polling - task is already completed
-	taskResp := &TaskDetails{
-		Task: struct {
-			ID                 string      `json:"id"`
-			Type               string      `json:"type"`
-			ComponentID        string      `json:"componentId"`
-			ComponentKey       string      `json:"componentKey"`
-			ComponentName      string      `json:"componentName"`
-			ComponentQualifier string      `json:"componentQualifier"`
-			AnalysisID         string      `json:"analysisId"`
-			Status             string      `json:"status"`
-			SubmittedAt        string      `json:"submittedAt"`
-			StartedAt          string      `json:"startedAt"`
-			ExecutedAt         string      `json:"executedAt"`
-			ExecutionTimeMs    int         `json:"executionTimeMs"`
-			Logs               interface{} `json:"logs"`
-			HasScannerContext  bool        `json:"hasScannerContext"`
-			Organization       string      `json:"organization"`
-		}{
-			ID:         "task-123",
-			Status:     "SUCCESS",
-			AnalysisID: "analysis-123",
-		},
-	}
+	mockManager.On("GetSonarIntotoStatement", "task-123").Once().Return(nil, errors.New("not ready"))
+	mockManager.On("GetTaskDetails", "task-123").Return(&TaskDetails{Task: struct {
+		ID                 string      `json:"id"`
+		Type               string      `json:"type"`
+		ComponentID        string      `json:"componentId"`
+		ComponentKey       string      `json:"componentKey"`
+		ComponentName      string      `json:"componentName"`
+		ComponentQualifier string      `json:"componentQualifier"`
+		AnalysisID         string      `json:"analysisId"`
+		Status             string      `json:"status"`
+		SubmittedAt        string      `json:"submittedAt"`
+		StartedAt          string      `json:"startedAt"`
+		ExecutedAt         string      `json:"executedAt"`
+		ExecutionTimeMs    int         `json:"executionTimeMs"`
+		Logs               interface{} `json:"logs"`
+		HasScannerContext  bool        `json:"hasScannerContext"`
+		Organization       string      `json:"organization"`
+	}{Status: "SUCCESS"}}, nil)
+	mockManager.On("GetSonarIntotoStatement", "task-123").Once().Return([]byte(`{"ok":true}`), nil)
 
-	// Mock quality gates failure
-	mockManager.On("GetTaskDetails", "task-123").Return(taskResp, nil)
-	mockManager.On("GetQualityGateAnalysis", "analysis-123").Return(nil, errors.New("quality gates error"))
-
-	// Use very short polling intervals for testing
 	maxRetries := 1
-	retryInterval := 1 // 1 millisecond
+	retryInterval := 1
+	stmt, err := provider.GetStatement("task-123", &maxRetries, &retryInterval)
 
-	predicate, predicateType, err := provider.BuildPredicate(
-		"task-123",
-		&maxRetries,    // maxRetries
-		&retryInterval, // retryInterval
-	)
-
-	assert.Error(t, err)
-	assert.Nil(t, predicate)
-	assert.Equal(t, "", predicateType)
-
+	assert.NoError(t, err)
+	assert.Equal(t, []byte(`{"ok":true}`), stmt)
 	mockManager.AssertExpectations(t)
 }
 
-func TestSonarProvider_BuildPredicate_EmptyCeTaskID(t *testing.T) {
-	provider := &Provider{client: nil}
+func TestBuildStatement_PendingThenSuccess(t *testing.T) {
+	mockManager := &MockSonarManager{}
+	provider := &Provider{client: mockManager}
 
-	// Test that BuildPredicate returns an error when ceTaskID is empty
-	predicate, predicateType, err := provider.BuildPredicate(
-		"",  // empty ceTaskID
-		nil, // maxRetries
-		nil, // retryInterval
-	)
+	mockManager.On("GetSonarIntotoStatement", "task-123").Once().Return(nil, errors.New("not ready"))
+	mockManager.On("GetTaskDetails", "task-123").Once().Return(&TaskDetails{Task: struct {
+		ID                 string      `json:"id"`
+		Type               string      `json:"type"`
+		ComponentID        string      `json:"componentId"`
+		ComponentKey       string      `json:"componentKey"`
+		ComponentName      string      `json:"componentName"`
+		ComponentQualifier string      `json:"componentQualifier"`
+		AnalysisID         string      `json:"analysisId"`
+		Status             string      `json:"status"`
+		SubmittedAt        string      `json:"submittedAt"`
+		StartedAt          string      `json:"startedAt"`
+		ExecutedAt         string      `json:"executedAt"`
+		ExecutionTimeMs    int         `json:"executionTimeMs"`
+		Logs               interface{} `json:"logs"`
+		HasScannerContext  bool        `json:"hasScannerContext"`
+		Organization       string      `json:"organization"`
+	}{Status: "PENDING"}}, nil)
+	mockManager.On("GetTaskDetails", "task-123").Once().Return(&TaskDetails{Task: struct {
+		ID                 string      `json:"id"`
+		Type               string      `json:"type"`
+		ComponentID        string      `json:"componentId"`
+		ComponentKey       string      `json:"componentKey"`
+		ComponentName      string      `json:"componentName"`
+		ComponentQualifier string      `json:"componentQualifier"`
+		AnalysisID         string      `json:"analysisId"`
+		Status             string      `json:"status"`
+		SubmittedAt        string      `json:"submittedAt"`
+		StartedAt          string      `json:"startedAt"`
+		ExecutedAt         string      `json:"executedAt"`
+		ExecutionTimeMs    int         `json:"executionTimeMs"`
+		Logs               interface{} `json:"logs"`
+		HasScannerContext  bool        `json:"hasScannerContext"`
+		Organization       string      `json:"organization"`
+	}{Status: "SUCCESS"}}, nil)
+	mockManager.On("GetSonarIntotoStatement", "task-123").Once().Return([]byte(`{"ok":true}`), nil)
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "ceTaskID is required")
-	assert.Nil(t, predicate)
-	assert.Equal(t, "", predicateType)
-}
-
-func TestSonarProvider_mapQualityGatesToPredicate(t *testing.T) {
-	provider := &Provider{client: nil}
-
-	qgResponse := QualityGatesAnalysis{
-		ProjectStatus: struct {
-			Status     string `json:"status"`
-			Conditions []struct {
-				Status         string `json:"status"`
-				MetricKey      string `json:"metricKey"`
-				Comparator     string `json:"comparator"`
-				PeriodIndex    int    `json:"periodIndex"`
-				ErrorThreshold string `json:"errorThreshold"`
-				ActualValue    string `json:"actualValue"`
-			} `json:"conditions"`
-			Periods []struct {
-				Index int    `json:"index"`
-				Mode  string `json:"mode"`
-				Date  string `json:"date"`
-			} `json:"periods"`
-			IgnoredConditions bool `json:"ignoredConditions"`
-		}{
-			Status: "OK",
-			Conditions: []struct {
-				Status         string `json:"status"`
-				MetricKey      string `json:"metricKey"`
-				Comparator     string `json:"comparator"`
-				PeriodIndex    int    `json:"periodIndex"`
-				ErrorThreshold string `json:"errorThreshold"`
-				ActualValue    string `json:"actualValue"`
-			}{
-				{
-					Status:         "OK",
-					MetricKey:      "new_reliability_rating",
-					Comparator:     "GT",
-					PeriodIndex:    1,
-					ErrorThreshold: "1",
-					ActualValue:    "1",
-				},
-			},
-			Periods: []struct {
-				Index int    `json:"index"`
-				Mode  string `json:"mode"`
-				Date  string `json:"date"`
-			}{
-				{
-					Index: 1,
-					Mode:  "previous_version",
-					Date:  "2025-01-15T10:30:00+0000",
-				},
-			},
-			IgnoredConditions: false,
-		},
-	}
-
-	result, err := provider.mapQualityGatesToPredicate(qgResponse)
+	maxRetries := 5
+	retryInterval := 1
+	stmt, err := provider.GetStatement("task-123", &maxRetries, &retryInterval)
 
 	assert.NoError(t, err)
-	assert.NotNil(t, result)
+	assert.Equal(t, []byte(`{"ok":true}`), stmt)
+	mockManager.AssertExpectations(t)
+}
 
-	// Verify the mapped predicate contains expected data
-	resultStr := string(result)
-	assert.Contains(t, resultStr, `"type":"QUALITY"`)
-	assert.Contains(t, resultStr, `"status":"OK"`)
-	assert.Contains(t, resultStr, `"ignoredConditions":false`)
-	assert.Contains(t, resultStr, `"metricKey":"new_reliability_rating"`)
-	assert.Contains(t, resultStr, `"comparator":"GT"`)
-	assert.Contains(t, resultStr, `"errorThreshold":"1"`)
-	assert.Contains(t, resultStr, `"actualValue":"1"`)
+func TestBuildStatement_PollingFailedStatus(t *testing.T) {
+	mockManager := &MockSonarManager{}
+	provider := &Provider{client: mockManager}
+
+	mockManager.On("GetSonarIntotoStatement", "task-123").Once().Return(nil, errors.New("not ready"))
+	mockManager.On("GetTaskDetails", "task-123").Return(&TaskDetails{Task: struct {
+		ID                 string      `json:"id"`
+		Type               string      `json:"type"`
+		ComponentID        string      `json:"componentId"`
+		ComponentKey       string      `json:"componentKey"`
+		ComponentName      string      `json:"componentName"`
+		ComponentQualifier string      `json:"componentQualifier"`
+		AnalysisID         string      `json:"analysisId"`
+		Status             string      `json:"status"`
+		SubmittedAt        string      `json:"submittedAt"`
+		StartedAt          string      `json:"startedAt"`
+		ExecutedAt         string      `json:"executedAt"`
+		ExecutionTimeMs    int         `json:"executionTimeMs"`
+		Logs               interface{} `json:"logs"`
+		HasScannerContext  bool        `json:"hasScannerContext"`
+		Organization       string      `json:"organization"`
+	}{Status: "FAILED"}}, nil)
+
+	maxRetries := 1
+	retryInterval := 1
+	stmt, err := provider.GetStatement("task-123", &maxRetries, &retryInterval)
+
+	assert.Error(t, err)
+	assert.Nil(t, stmt)
+	mockManager.AssertExpectations(t)
+}
+
+func TestBuildStatement_PollingSuccessButStatementStillFails(t *testing.T) {
+	mockManager := &MockSonarManager{}
+	provider := &Provider{client: mockManager}
+
+	mockManager.On("GetSonarIntotoStatement", "task-123").Once().Return(nil, errors.New("not ready"))
+	mockManager.On("GetTaskDetails", "task-123").Return(&TaskDetails{Task: struct {
+		ID                 string      `json:"id"`
+		Type               string      `json:"type"`
+		ComponentID        string      `json:"componentId"`
+		ComponentKey       string      `json:"componentKey"`
+		ComponentName      string      `json:"componentName"`
+		ComponentQualifier string      `json:"componentQualifier"`
+		AnalysisID         string      `json:"analysisId"`
+		Status             string      `json:"status"`
+		SubmittedAt        string      `json:"submittedAt"`
+		StartedAt          string      `json:"startedAt"`
+		ExecutedAt         string      `json:"executedAt"`
+		ExecutionTimeMs    int         `json:"executionTimeMs"`
+		Logs               interface{} `json:"logs"`
+		HasScannerContext  bool        `json:"hasScannerContext"`
+		Organization       string      `json:"organization"`
+	}{Status: "SUCCESS"}}, nil)
+	mockManager.On("GetSonarIntotoStatement", "task-123").Once().Return(nil, errors.New("still not ready"))
+
+	maxRetries := 1
+	retryInterval := 1
+	stmt, err := provider.GetStatement("task-123", &maxRetries, &retryInterval)
+
+	assert.Error(t, err)
+	assert.Nil(t, stmt)
+	mockManager.AssertExpectations(t)
+}
+
+func TestBuildStatement_TaskEndpointError(t *testing.T) {
+	mockManager := &MockSonarManager{}
+	provider := &Provider{client: mockManager}
+
+	mockManager.On("GetSonarIntotoStatement", "task-123").Once().Return(nil, errors.New("not ready"))
+	mockManager.On("GetTaskDetails", "task-123").Return(nil, errors.New("task api error"))
+
+	maxRetries := 1
+	retryInterval := 1
+	stmt, err := provider.GetStatement("task-123", &maxRetries, &retryInterval)
+
+	assert.Error(t, err)
+	assert.Nil(t, stmt)
+	mockManager.AssertExpectations(t)
+}
+
+func TestBuildStatement_EmptyCeTaskID(t *testing.T) {
+	provider := &Provider{client: nil}
+	stmt, err := provider.GetStatement("", nil, nil)
+	assert.Error(t, err)
+	assert.Nil(t, stmt)
+}
+
+func TestBuildStatement_NilClient(t *testing.T) {
+	provider := &Provider{client: nil}
+	stmt, err := provider.GetStatement("task-123", nil, nil)
+	assert.Error(t, err)
+	assert.Nil(t, stmt)
+}
+
+func TestBuildStatement_EntitlementMapping_403(t *testing.T) {
+	mockManager := &MockSonarManager{}
+	provider := &Provider{client: mockManager}
+
+	mockManager.On("GetSonarIntotoStatement", "task-123").Once().Return(nil, errors.New("enterprise endpoint returned status 403: {\"message\":\"JFrog integration is only available on the Enterprise plan\"}"))
+	mockManager.On("GetTaskDetails", "task-123").Return(&TaskDetails{Task: struct {
+		ID                 string      `json:"id"`
+		Type               string      `json:"type"`
+		ComponentID        string      `json:"componentId"`
+		ComponentKey       string      `json:"componentKey"`
+		ComponentName      string      `json:"componentName"`
+		ComponentQualifier string      `json:"componentQualifier"`
+		AnalysisID         string      `json:"analysisId"`
+		Status             string      `json:"status"`
+		SubmittedAt        string      `json:"submittedAt"`
+		StartedAt          string      `json:"startedAt"`
+		ExecutedAt         string      `json:"executedAt"`
+		ExecutionTimeMs    int         `json:"executionTimeMs"`
+		Logs               interface{} `json:"logs"`
+		HasScannerContext  bool        `json:"hasScannerContext"`
+		Organization       string      `json:"organization"`
+	}{Status: "SUCCESS"}}, nil)
+	mockManager.On("GetSonarIntotoStatement", "task-123").Once().Return(nil, errors.New("enterprise endpoint returned status 403: {\"message\":\"JFrog integration is only available on the Enterprise plan\"}"))
+
+	maxRetries := 1
+	retryInterval := 1
+	stmt, err := provider.GetStatement("task-123", &maxRetries, &retryInterval)
+	assert.Error(t, err)
+	assert.Nil(t, stmt)
+	assert.Contains(t, err.Error(), "Missing entitlement for Sonar evidence creation")
+}
+
+func TestBuildStatement_EntitlementMapping_404(t *testing.T) {
+	mockManager := &MockSonarManager{}
+	provider := &Provider{client: mockManager}
+
+	mockManager.On("GetSonarIntotoStatement", "task-123").Once().Return(nil, errors.New("enterprise endpoint returned status 404: not found"))
+	mockManager.On("GetTaskDetails", "task-123").Return(&TaskDetails{Task: struct {
+		ID                 string      `json:"id"`
+		Type               string      `json:"type"`
+		ComponentID        string      `json:"componentId"`
+		ComponentKey       string      `json:"componentKey"`
+		ComponentName      string      `json:"componentName"`
+		ComponentQualifier string      `json:"componentQualifier"`
+		AnalysisID         string      `json:"analysisId"`
+		Status             string      `json:"status"`
+		SubmittedAt        string      `json:"submittedAt"`
+		StartedAt          string      `json:"startedAt"`
+		ExecutedAt         string      `json:"executedAt"`
+		ExecutionTimeMs    int         `json:"executionTimeMs"`
+		Logs               interface{} `json:"logs"`
+		HasScannerContext  bool        `json:"hasScannerContext"`
+		Organization       string      `json:"organization"`
+	}{Status: "SUCCESS"}}, nil)
+	mockManager.On("GetSonarIntotoStatement", "task-123").Once().Return(nil, errors.New("enterprise endpoint returned status 404: not found"))
+
+	maxRetries := 1
+	retryInterval := 1
+	stmt, err := provider.GetStatement("task-123", &maxRetries, &retryInterval)
+	assert.Error(t, err)
+	assert.Nil(t, stmt)
+	assert.Contains(t, err.Error(), "Missing entitlement for Sonar evidence creation")
+}
+
+func TestBuildStatement_NonEntitlementErrorPassesThrough(t *testing.T) {
+	mockManager := &MockSonarManager{}
+	provider := &Provider{client: mockManager}
+
+	mockManager.On("GetSonarIntotoStatement", "task-123").Once().Return(nil, errors.New("enterprise endpoint returned status 500: boom"))
+	mockManager.On("GetTaskDetails", "task-123").Return(&TaskDetails{Task: struct {
+		ID                 string      `json:"id"`
+		Type               string      `json:"type"`
+		ComponentID        string      `json:"componentId"`
+		ComponentKey       string      `json:"componentKey"`
+		ComponentName      string      `json:"componentName"`
+		ComponentQualifier string      `json:"componentQualifier"`
+		AnalysisID         string      `json:"analysisId"`
+		Status             string      `json:"status"`
+		SubmittedAt        string      `json:"submittedAt"`
+		StartedAt          string      `json:"startedAt"`
+		ExecutedAt         string      `json:"executedAt"`
+		ExecutionTimeMs    int         `json:"executionTimeMs"`
+		Logs               interface{} `json:"logs"`
+		HasScannerContext  bool        `json:"hasScannerContext"`
+		Organization       string      `json:"organization"`
+	}{Status: "SUCCESS"}}, nil)
+	mockManager.On("GetSonarIntotoStatement", "task-123").Once().Return(nil, errors.New("enterprise endpoint returned status 500: boom"))
+
+	maxRetries := 1
+	retryInterval := 1
+	stmt, err := provider.GetStatement("task-123", &maxRetries, &retryInterval)
+	assert.Error(t, err)
+	assert.Nil(t, stmt)
+	assert.Contains(t, err.Error(), "status 500")
 }
