@@ -14,7 +14,7 @@ const localKeySource = "User Provided Key"
 const artifactoryKeySource = "Artifactory Key"
 
 type dsseVerifierInterface interface {
-	verify(subjectSha256 string, evidence *model.SearchEvidenceEdge, result *model.EvidenceVerification) error
+	verify(evidence *model.SearchEvidenceEdge, result *model.EvidenceVerification) error
 }
 
 type dsseVerifier struct {
@@ -30,11 +30,10 @@ func newDsseVerifier(keys []string, useArtifactoryKeys bool) dsseVerifierInterfa
 	}
 }
 
-func (v *dsseVerifier) verify(subjectSha256 string, evidence *model.SearchEvidenceEdge, result *model.EvidenceVerification) error {
+func (v *dsseVerifier) verify(evidence *model.SearchEvidenceEdge, result *model.EvidenceVerification) error {
 	if evidence == nil || result == nil {
 		return fmt.Errorf("empty evidence or result provided for DSSE verification")
 	}
-	result.VerificationResult.Sha256VerificationStatus = verifyChecksum(subjectSha256, evidence.Node.Subject.Sha256)
 	localVerifiers, err := v.getLocalVerifiers()
 	if err != nil && v.keys != nil && len(v.keys) > 0 {
 		return err
@@ -132,11 +131,4 @@ func getArtifactoryVerifiers(evidence *model.SearchEvidenceEdge) ([]dsse.Verifie
 		return nil, fmt.Errorf("failed to create verifier for evidence predicate type: %s", evidence.Node.PredicateType)
 	}
 	return verifier, nil
-}
-
-func verifyChecksum(subjectSha256, evidenceChecksum string) model.VerificationStatus {
-	if subjectSha256 == evidenceChecksum {
-		return model.Success
-	}
-	return model.Failed
 }

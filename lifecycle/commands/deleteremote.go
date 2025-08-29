@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/jfrog/gofrog/version"
-	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
@@ -96,16 +95,12 @@ func (rbd *ReleaseBundleRemoteDeleteCommand) Run() error {
 	if err != nil {
 		return err
 	}
-	artifactoryServiceManager, err := utils.CreateServiceManager(rbd.serverDetails, -1, 0, false)
-	if err != nil {
-		return err
-	}
 
-	return rbd.deleteRemote(servicesManager, rbDetails, queryParams, artifactoryServiceManager)
+	return rbd.deleteRemote(servicesManager, rbDetails, queryParams)
 }
 
 func (rbd *ReleaseBundleRemoteDeleteCommand) deleteRemote(servicesManager *lifecycle.LifecycleServicesManager,
-	rbDetails services.ReleaseBundleDetails, queryParams services.CommonOptionalQueryParams, artifactoryServiceManager artifactory.ArtifactoryServicesManager) error {
+	rbDetails services.ReleaseBundleDetails, queryParams services.CommonOptionalQueryParams) error {
 
 	confirm, err := rbd.confirmDelete()
 	if err != nil || !confirm {
@@ -113,14 +108,13 @@ func (rbd *ReleaseBundleRemoteDeleteCommand) deleteRemote(servicesManager *lifec
 	}
 
 	aggregatedRules := rbd.getAggregatedDistRules()
-	newReleaseBundleApiSupported := rbd.IsNewReleaseBundleApiSupported(artifactoryServiceManager)
 
 	return servicesManager.RemoteDeleteReleaseBundle(rbDetails, services.ReleaseBundleRemoteDeleteParams{
 		DistributionRules:         aggregatedRules,
 		DryRun:                    rbd.dryRun,
 		MaxWaitMinutes:            rbd.maxWaitMinutes,
 		CommonOptionalQueryParams: queryParams,
-	}, newReleaseBundleApiSupported)
+	})
 }
 
 func (rbd *ReleaseBundleRemoteDeleteCommand) distributionRulesEmpty() bool {

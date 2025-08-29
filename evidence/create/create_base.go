@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	evidenceUtils "github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	"os"
 	"strings"
+
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/sonar"
+	evidenceUtils "github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
 
@@ -32,26 +35,57 @@ type createEvidenceBase struct {
 	providerId        string
 	stage             string
 	flagType          FlagType
+	useSonarPredicate bool
 }
 
 const EvdDefaultUser = "JFrog CLI"
 
 func (c *createEvidenceBase) createEnvelope(subject, subjectSha256 string) ([]byte, error) {
-	statementJson, err := c.buildIntotoStatementJson(subject, subjectSha256)
+	var statementJson []byte
+	var err error
+	if c.useSonarPredicate {
+		statementJson, err = c.buildSonarStatement(subject, subjectSha256)
+	} else {
+		statementJson, err = c.buildIntotoStatementJson(subject, subjectSha256)
+	}
 	if err != nil {
 		return nil, err
 	}
-
 	signedEnvelope, err := createAndSignEnvelope(statementJson, c.key, c.keyId)
 	if err != nil {
 		return nil, err
 	}
-
 	envelopeBytes, err := json.Marshal(signedEnvelope)
 	if err != nil {
 		return nil, err
 	}
 	return envelopeBytes, nil
+}
+
+// buildSonarStatement get in-toto statement from sonar, augments it with subject and stage, and returns it.
+func (c *createEvidenceBase) buildSonarStatement(subject, subjectSha256 string) ([]byte, error) {
+	stmtResolver := sonar.NewStatementResolver()
+	statementBytes, err := stmtResolver.ResolveStatement()
+	if err != nil {
+		return nil, err
+	}
+
+	servicesManager, err := c.createArtifactoryClient()
+	if err != nil {
+		return nil, err
+	}
+
+	sha256, err := c.resolveSubjectSha256(servicesManager, subject, subjectSha256)
+	if err != nil {
+		return nil, err
+	}
+
+	extendedStatement, err := addSubjectAndStageToStatement(statementBytes, sha256, c.stage)
+	if err != nil {
+		return nil, err
+	}
+	c.providerId = "sonar"
+	return extendedStatement, nil
 }
 
 func (c *createEvidenceBase) createEnvelopeWithPredicateAndPredicateType(subject,
@@ -97,8 +131,11 @@ func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 str
 	if err != nil {
 		return nil, err
 	}
-
-	err = statement.SetSubject(artifactoryClient, subject, subjectSha256)
+	sha256, err := c.resolveSubjectSha256(artifactoryClient, subject, subjectSha256)
+	if err != nil {
+		return nil, err
+	}
+	err = statement.SetSubject(sha256)
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +146,17 @@ func (c *createEvidenceBase) buildIntotoStatementJson(subject, subjectSha256 str
 		return nil, err
 	}
 	return statementJson, nil
+}
+
+func (c *createEvidenceBase) resolveSubjectSha256(servicesManager artifactory.ArtifactoryServicesManager, subject, subjectSha256 string) (string, error) {
+	sha256, err := c.getFileChecksum(subject, servicesManager)
+	if err != nil {
+		return "", err
+	}
+	if subjectSha256 != "" && sha256 != subjectSha256 {
+		return "", errorutils.CheckErrorf("provided sha256 does not match the file's sha256")
+	}
+	return sha256, nil
 }
 
 func (c *createEvidenceBase) buildIntotoStatementJsonWithPredicateAndPredicateType(subject, subjectSha256, predicateType string, predicate []byte) ([]byte, error) {
@@ -123,10 +171,16 @@ func (c *createEvidenceBase) buildIntotoStatementJsonWithPredicateAndPredicateTy
 		return nil, err
 	}
 
-	err = statement.SetSubject(artifactoryClient, subject, subjectSha256)
+	sha256, err := c.resolveSubjectSha256(artifactoryClient, subject, subjectSha256)
 	if err != nil {
 		return nil, err
 	}
+
+	err = statement.SetSubject(sha256)
+	if err != nil {
+		return nil, err
+	}
+
 	statementJson, err := statement.Marshal()
 	if err != nil {
 		log.Error("failed marshaling statement json file", err)
@@ -273,4 +327,24 @@ func createSigners(privateKey *cryptox.SSLibKey) ([]dsse.Signer, error) {
 		return nil, errors.New("unsupported key type")
 	}
 	return signers, nil
+}
+
+// addSubjectAndStageToStatement injects subject and stage into the given in-toto statement JSON.
+func addSubjectAndStageToStatement(statement []byte, sha256 string, stage string) ([]byte, error) {
+	var m map[string]any
+	if err := json.Unmarshal(statement, &m); err != nil {
+		return nil, err
+	}
+	// subject
+	subject := map[string]any{
+		"digest": map[string]any{
+			"sha256": sha256,
+		},
+	}
+	m["subject"] = []any{subject}
+	// stage
+	if stage != "" {
+		m["stage"] = stage
+	}
+	return json.Marshal(m)
 }

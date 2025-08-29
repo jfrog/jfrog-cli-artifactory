@@ -1,17 +1,16 @@
 package verify
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"testing"
 
-	"github.com/gookit/color"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify/reports"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/onemodel"
 	"github.com/stretchr/testify/assert"
 )
@@ -47,34 +46,20 @@ func (m *MockOneModelManagerWithQueryCapture) GraphqlQuery(query []byte) ([]byte
 // Satisfy interface for onemodel.Manager
 var _ onemodel.Manager = (*MockOneModelManagerBase)(nil)
 
-// Helper to capture output for testing print functions
-func captureOutput(f func()) string {
-	var buf bytes.Buffer
+// MockEvidenceVerifier implements the EvidenceVerifierInterface for unit testing verifyEvidence
+type MockEvidenceVerifier struct {
+	Result   *model.VerificationResponse
+	Err      error
+	LastSha  string
+	LastMeta *[]model.SearchEvidenceEdge
+	LastPath string
+}
 
-	oldStdout := os.Stdout
-
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	color.SetOutput(&buf)
-
-	defer func() {
-		os.Stdout = oldStdout
-		color.ResetOutput()
-	}()
-
-	done := make(chan bool)
-	go func() {
-		f()
-		_ = w.Close()
-		done <- true
-	}()
-
-	var capturedOutput bytes.Buffer
-	_, _ = io.Copy(&capturedOutput, r)
-	<-done
-
-	return buf.String() + capturedOutput.String()
+func (m *MockEvidenceVerifier) Verify(subjectSha256 string, evidenceMetadata *[]model.SearchEvidenceEdge, subjectPath string) (*model.VerificationResponse, error) {
+	m.LastSha = subjectSha256
+	m.LastMeta = evidenceMetadata
+	m.LastPath = subjectPath
+	return m.Result, m.Err
 }
 
 func TestVerifyEvidenceBase_PrintVerifyResult_JSON(t *testing.T) {
@@ -90,31 +75,6 @@ func TestVerifyEvidenceBase_PrintVerifyResult_JSON(t *testing.T) {
 	// since fmt.Println writes to stdout which we can't easily capture in tests
 	err := v.printVerifyResult(resp)
 	assert.NoError(t, err)
-}
-
-func TestVerifyEvidenceBase_PrintVerifyResult_Failed(t *testing.T) {
-	v := &verifyEvidenceBase{format: "full"}
-	resp := &model.VerificationResponse{
-		Subject: model.Subject{
-			Sha256: "test-checksum",
-		},
-		OverallVerificationStatus: model.Failed,
-		EvidenceVerifications: &[]model.EvidenceVerification{{
-			SubjectChecksum: "test-checksum",
-			PredicateType:   "test-type",
-			CreatedBy:       "test-user",
-			CreatedAt:       "2024-01-01T00:00:00Z",
-			VerificationResult: model.EvidenceVerificationResult{
-				Sha256VerificationStatus:     model.Failed,
-				SignaturesVerificationStatus: model.Success,
-			},
-		}},
-	}
-
-	// Test that print function executes without error - stdout output testing is complex
-	err := v.printVerifyResult(resp)
-	// Should get an exit code error since verification failed
-	assert.Error(t, err)
 }
 
 func TestVerifyEvidenceBase_PrintVerifyResult_Text_Success(t *testing.T) {
@@ -137,27 +97,7 @@ func TestVerifyEvidenceBase_PrintVerifyResult_Text_Success(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestVerifyEvidenceBase_PrintVerifyResult_Text_Failed(t *testing.T) {
-	v := &verifyEvidenceBase{format: "text"}
-	resp := &model.VerificationResponse{
-		OverallVerificationStatus: model.Failed,
-		EvidenceVerifications: &[]model.EvidenceVerification{{
-			PredicateType: "test-type",
-			CreatedBy:     "test-user",
-			CreatedAt:     "2024-01-01T00:00:00Z",
-			VerificationResult: model.EvidenceVerificationResult{
-				Sha256VerificationStatus:     model.Failed,
-				SignaturesVerificationStatus: model.Failed,
-			},
-		}},
-	}
-
-	// Test that the print function returns error for failed verification
-	err := v.printVerifyResult(resp)
-	assert.Error(t, err)
-}
-
-func TestVerifyEvidenceBase_PrintVerifyResult_UnknownFormat(t *testing.T) {
+func TestVerifyEvidenceBase_UnknownFormat_DefaultsToText(t *testing.T) {
 	v := &verifyEvidenceBase{format: "unknown"}
 	resp := &model.VerificationResponse{
 		OverallVerificationStatus: model.Success,
@@ -285,175 +225,6 @@ func TestVerifyEvidenceBase_QueryEvidenceMetadata_CreateOneModelClient(t *testin
 	_, err := v.queryEvidenceMetadata("test-repo", "test/path", "test-file.txt")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "error querying evidence from One-Model service")
-}
-
-func TestPrintText_Success(t *testing.T) {
-	resp := &model.VerificationResponse{
-		OverallVerificationStatus: model.Success,
-		EvidenceVerifications: &[]model.EvidenceVerification{{
-			PredicateType: "test-type",
-			CreatedBy:     "test-user",
-			CreatedAt:     "2024-01-01T00:00:00Z",
-			VerificationResult: model.EvidenceVerificationResult{
-				SignaturesVerificationStatus: model.Success,
-				Sha256VerificationStatus:     model.Success,
-			},
-		}},
-	}
-
-	out := captureOutput(func() {
-		err := printText(resp)
-		assert.NoError(t, err)
-	})
-	assert.Contains(t, out, "Verification passed for 1 out of 1 evidence")
-}
-
-func TestPrintText_severalEvidence_Success(t *testing.T) {
-	resp := &model.VerificationResponse{
-		Subject: model.Subject{
-			Sha256: "test-checksum",
-			Path:   "test-file.txt",
-		},
-		OverallVerificationStatus: model.Success,
-		EvidenceVerifications: &[]model.EvidenceVerification{{
-			PredicateType: "test-type",
-			CreatedBy:     "test-user",
-			CreatedAt:     "2024-01-01T00:00:00Z",
-			VerificationResult: model.EvidenceVerificationResult{
-				SignaturesVerificationStatus: model.Success,
-				Sha256VerificationStatus:     model.Success,
-			},
-		}, {
-			PredicateType: "test-type-2",
-			CreatedBy:     "test-user-2",
-			CreatedAt:     "2024-01-02T00:00:00Z",
-			VerificationResult: model.EvidenceVerificationResult{
-				SignaturesVerificationStatus: model.Success,
-				Sha256VerificationStatus:     model.Success,
-			},
-		}},
-	}
-
-	out := captureOutput(func() {
-		err := printText(resp)
-		assert.NoError(t, err)
-	})
-	assert.Contains(t, out, "Subject sha256:        test-checksum")
-	assert.Contains(t, out, "Subject:               test-file.txt")
-	assert.Contains(t, out, "Loaded 2 evidence")
-	assert.Contains(t, out, "Verification passed for 2 out of 2 evidence")
-}
-
-func TestPrintText_SigstoreBundleSuccess(t *testing.T) {
-	resp := &model.VerificationResponse{
-		Subject: model.Subject{
-			Sha256: "test-checksum",
-			Path:   "test-file.txt",
-		},
-		OverallVerificationStatus: model.Success,
-		EvidenceVerifications: &[]model.EvidenceVerification{{
-			MediaType:       model.SigstoreBundle,
-			PredicateType:   "test-predicate",
-			CreatedBy:       "test-user",
-			CreatedAt:       "2024-01-01T00:00:00Z",
-			SubjectChecksum: "test-checksum",
-			VerificationResult: model.EvidenceVerificationResult{
-				SigstoreBundleVerificationStatus: model.Success,
-			},
-		}},
-	}
-
-	out := captureOutput(func() {
-		err := printText(resp)
-		assert.NoError(t, err)
-	})
-
-	assert.Contains(t, out, "Subject sha256:        test-checksum")
-	assert.Contains(t, out, "Subject:               test-file.txt")
-	assert.Contains(t, out, "Loaded 1 evidence")
-	assert.Contains(t, out, "Verification passed for 1 out of 1 evidence")
-	assert.Contains(t, out, "- Evidence 1:")
-	assert.Contains(t, out, "- Media type:                     sigstore.bundle")
-	assert.Contains(t, out, "- Predicate type:                 test-predicate")
-	assert.Contains(t, out, "- Evidence subject sha256:        test-checksum")
-	assert.Contains(t, out, "- Sigstore verification status:")
-	assert.Contains(t, out, success)
-}
-
-func TestPrintText_NilResponse(t *testing.T) {
-	err := printText(nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "verification response is empty")
-}
-
-func TestPrintText_WithFullDetails(t *testing.T) {
-	resp := &model.VerificationResponse{
-		Subject: model.Subject{
-			Sha256: "test-checksum",
-			Path:   "test/path",
-		},
-		OverallVerificationStatus: model.Success,
-		EvidenceVerifications: &[]model.EvidenceVerification{{
-			SubjectChecksum: "test-checksum",
-			PredicateType:   "test-type",
-			CreatedBy:       "test-user",
-			CreatedAt:       "2024-01-01T00:00:00Z",
-			MediaType:       model.SimpleDSSE,
-			VerificationResult: model.EvidenceVerificationResult{
-				Sha256VerificationStatus:     model.Success,
-				SignaturesVerificationStatus: model.Success,
-				KeySource:                    "test-key-source",
-				KeyFingerprint:               "test-fingerprint",
-			},
-		}},
-	}
-
-	out := captureOutput(func() {
-		err := printText(resp)
-		assert.NoError(t, err)
-	})
-	assert.Contains(t, out, "Subject sha256:        test-checksum")
-	assert.Contains(t, out, "Subject:               test/path")
-	assert.Contains(t, out, "Media type:                     evidence.dsse")
-	assert.Contains(t, out, "Key source:                     test-key-source")
-	assert.Contains(t, out, "Key fingerprint:                test-fingerprint")
-}
-
-func TestPrintJson_Success(t *testing.T) {
-	resp := &model.VerificationResponse{
-		Subject: model.Subject{
-			Sha256: "test-checksum",
-		},
-		OverallVerificationStatus: model.Success,
-	}
-
-	// For JSON output, just test that it doesn't return an error
-	// since fmt.Println writes to stdout which we can't easily capture in tests
-	err := printJson(resp)
-	assert.NoError(t, err)
-}
-
-func TestPrintJson_NilResponse(t *testing.T) {
-	err := printJson(nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "verification response is empty")
-}
-
-func TestGetColoredStatus_AllStatuses(t *testing.T) {
-	assert.Equal(t, success, getColoredStatus(model.Success))
-	assert.Equal(t, failed, getColoredStatus(model.Failed))
-}
-
-func TestValidateResponse_Success(t *testing.T) {
-	resp := &model.VerificationResponse{}
-	err := validateResponse(resp)
-	assert.NoError(t, err)
-}
-
-func TestValidateResponse_NilResponse(t *testing.T) {
-	err := validateResponse(nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "verification response is empty")
 }
 
 func TestVerifyEvidenceBase_SearchEvidenceQueryExactMatch(t *testing.T) {
@@ -691,6 +462,7 @@ func TestIsVerificationSucceed(t *testing.T) {
 				MediaType: model.SigstoreBundle,
 				VerificationResult: model.EvidenceVerificationResult{
 					SigstoreBundleVerificationStatus: model.Success,
+					Sha256VerificationStatus:         model.Success,
 				},
 			},
 			expectedResult: true,
@@ -712,7 +484,7 @@ func TestIsVerificationSucceed(t *testing.T) {
 			verification: model.EvidenceVerification{
 				MediaType: model.SigstoreBundle,
 				VerificationResult: model.EvidenceVerificationResult{
-					Sha256VerificationStatus:         model.Failed,
+					Sha256VerificationStatus:         model.Success,
 					SignaturesVerificationStatus:     model.Failed,
 					SigstoreBundleVerificationStatus: model.Success,
 				},
@@ -745,8 +517,66 @@ func TestIsVerificationSucceed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := isVerificationSucceed(tt.verification)
+			result := reports.IsVerificationSucceed(tt.verification)
 			assert.Equal(t, tt.expectedResult, result, tt.description)
 		})
 	}
+}
+
+func TestVerifyEvidence_UsesProvidedVerifier_Success(t *testing.T) {
+	resp := &model.VerificationResponse{
+		OverallVerificationStatus: model.Success,
+		EvidenceVerifications:     &[]model.EvidenceVerification{{}},
+	}
+	mockVerifier := &MockEvidenceVerifier{Result: resp}
+
+	v := &verifyEvidenceBase{
+		verifier: mockVerifier,
+		format:   "json",
+	}
+
+	metadata := []model.SearchEvidenceEdge{{}}
+	err := v.verifyEvidence(nil, &metadata, "sha-123", "some/path/file")
+	assert.NoError(t, err)
+	assert.Equal(t, "sha-123", mockVerifier.LastSha)
+	assert.Equal(t, &metadata, mockVerifier.LastMeta)
+	assert.Equal(t, "some/path/file", mockVerifier.LastPath)
+}
+
+func TestVerifyEvidence_ReturnsVerifierError(t *testing.T) {
+	mockVerifier := &MockEvidenceVerifier{Err: errors.New("verify failed")}
+	v := &verifyEvidenceBase{verifier: mockVerifier}
+
+	metadata := []model.SearchEvidenceEdge{{}}
+	err := v.verifyEvidence(nil, &metadata, "sha-xyz", "subject/path")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "verify failed")
+}
+
+func TestVerifyEvidence_ReturnsCliErrorOnFailedStatus(t *testing.T) {
+	resp := &model.VerificationResponse{
+		OverallVerificationStatus: model.Failed,
+		EvidenceVerifications:     &[]model.EvidenceVerification{{}},
+	}
+	mockVerifier := &MockEvidenceVerifier{Result: resp}
+	v := &verifyEvidenceBase{verifier: mockVerifier, format: "text"}
+
+	metadata := []model.SearchEvidenceEdge{{}}
+	err := v.verifyEvidence(nil, &metadata, "sha-000", "subject")
+	if assert.Error(t, err) {
+		_, ok := err.(coreutils.CliError)
+		assert.True(t, ok, "error should be of type CliError when overall status is failed")
+	}
+}
+
+func TestVerifyEvidence_InitializesVerifierWhenNil_EmptyMetadataError(t *testing.T) {
+	var mgr artifactory.ArtifactoryServicesManager
+	client := &mgr
+
+	v := &verifyEvidenceBase{verifier: nil, format: "json"}
+	emptyMetadata := []model.SearchEvidenceEdge{}
+
+	err := v.verifyEvidence(client, &emptyMetadata, "sha-empty", "subject")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no evidence metadata provided")
 }

@@ -25,7 +25,7 @@ func TestNewCreateEvidencePackage(t *testing.T) {
 	packageVersion := "1.0.0"
 	packageRepoName := "test-repo"
 
-	cmd := NewCreateEvidencePackage(serverDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, packageName, packageVersion, packageRepoName)
+	cmd := NewCreateEvidencePackage(serverDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, packageName, packageVersion, packageRepoName, false)
 	createCmd, ok := cmd.(*createEvidencePackage)
 	assert.True(t, ok)
 
@@ -93,6 +93,7 @@ func TestCreateEvidencePackage_RecordSummary(t *testing.T) {
 		packageName,
 		packageVersion,
 		repoName,
+		false,
 	)
 	c, ok := evidence.(*createEvidencePackage)
 	if !ok {
