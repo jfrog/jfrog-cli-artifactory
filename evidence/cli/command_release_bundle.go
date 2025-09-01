@@ -42,6 +42,7 @@ func (erc *evidenceReleaseBundleCommand) CreateEvidence(ctx *components.Context,
 		erc.ctx.GetStringFlagValue(project),
 		erc.ctx.GetStringFlagValue(releaseBundle),
 		erc.ctx.GetStringFlagValue(releaseBundleVersion),
+		erc.ctx.GetStringFlagValue(providerId),
 		erc.ctx.GetBoolFlagValue(useSonarPredicate))
 	return erc.execute(createCmd)
 }

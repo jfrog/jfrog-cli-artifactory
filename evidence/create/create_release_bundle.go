@@ -23,7 +23,7 @@ type createEvidenceReleaseBundle struct {
 }
 
 func NewCreateEvidenceReleaseBundle(serverDetails *config.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, project, releaseBundle,
-	releaseBundleVersion string, useSonarPredicate bool) evidence.Command {
+	releaseBundleVersion, providerId string, useSonarPredicate bool) evidence.Command {
 	return &createEvidenceReleaseBundle{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
@@ -32,6 +32,7 @@ func NewCreateEvidenceReleaseBundle(serverDetails *config.ServerDetails, predica
 			markdownFilePath:  markdownFilePath,
 			key:               key,
 			keyId:             keyId,
+			providerId:        providerId,
 			stage:             getReleaseBundleStage(serverDetails, releaseBundle, releaseBundleVersion, project),
 			useSonarPredicate: useSonarPredicate,
 		},

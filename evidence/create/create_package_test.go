@@ -25,7 +25,7 @@ func TestNewCreateEvidencePackage(t *testing.T) {
 	packageVersion := "1.0.0"
 	packageRepoName := "test-repo"
 
-	cmd := NewCreateEvidencePackage(serverDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, packageName, packageVersion, packageRepoName, false)
+	cmd := NewCreateEvidencePackage(serverDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, packageName, packageVersion, packageRepoName, "", false)
 	createCmd, ok := cmd.(*createEvidencePackage)
 	assert.True(t, ok)
 
@@ -93,6 +93,7 @@ func TestCreateEvidencePackage_RecordSummary(t *testing.T) {
 		packageName,
 		packageVersion,
 		repoName,
+		"",
 		false,
 	)
 	c, ok := evidence.(*createEvidencePackage)
@@ -132,5 +133,55 @@ func TestCreateEvidencePackage_RecordSummary(t *testing.T) {
 			assert.Equal(t, repoName, summaryData.RepoKey)
 			break
 		}
+	}
+}
+
+func TestCreateEvidencePackage_ProviderId(t *testing.T) {
+	tests := []struct {
+		name               string
+		providerId         string
+		expectedProviderId string
+	}{
+		{
+			name:               "With custom provider ID",
+			providerId:         "custom-provider",
+			expectedProviderId: "custom-provider",
+		},
+		{
+			name:               "With empty provider ID",
+			providerId:         "",
+			expectedProviderId: "",
+		},
+		{
+			name:               "With sonar provider ID",
+			providerId:         "sonar",
+			expectedProviderId: "sonar",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			serverDetails := &config.ServerDetails{Url: "http://test.com"}
+
+			cmd := NewCreateEvidencePackage(
+				serverDetails,
+				"",
+				"test-predicate-type",
+				"",
+				"test-key",
+				"test-key-id",
+				"test-package",
+				"1.0.0",
+				"test-repo",
+				tt.providerId,
+				false,
+			)
+
+			createCmd, ok := cmd.(*createEvidencePackage)
+			assert.True(t, ok)
+
+			// Verify that the provider ID is correctly set in the base struct
+			assert.Equal(t, tt.expectedProviderId, createCmd.providerId)
+		})
 	}
 }

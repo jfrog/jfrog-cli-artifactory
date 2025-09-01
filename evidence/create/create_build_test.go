@@ -78,7 +78,7 @@ func TestBuildInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c, ok := NewCreateEvidenceBuild(nil, "", "", "", "", "", tt.project, tt.buildName, tt.buildNumber, false).(*createEvidenceBuild)
+			c, ok := NewCreateEvidenceBuild(nil, "", "", "", "", "", tt.project, tt.buildName, tt.buildNumber, "", false).(*createEvidenceBuild)
 			if !ok {
 				t.Fatal("Failed to create createEvidenceBuild instance")
 			}
@@ -133,6 +133,7 @@ func TestCreateEvidenceBuild_RecordSummary(t *testing.T) {
 		"myProject",
 		"testBuild",
 		"123",
+		"",
 		false,
 	)
 	c, ok := evidence.(*createEvidenceBuild)
@@ -176,5 +177,55 @@ func TestCreateEvidenceBuild_RecordSummary(t *testing.T) {
 			assert.Equal(t, "myProject-build-info", summaryData.RepoKey)
 			break
 		}
+	}
+}
+
+func TestCreateEvidenceBuild_ProviderId(t *testing.T) {
+	tests := []struct {
+		name               string
+		providerId         string
+		expectedProviderId string
+	}{
+		{
+			name:               "With custom provider ID",
+			providerId:         "custom-provider",
+			expectedProviderId: "custom-provider",
+		},
+		{
+			name:               "With empty provider ID",
+			providerId:         "",
+			expectedProviderId: "",
+		},
+		{
+			name:               "With sonar provider ID",
+			providerId:         "sonar",
+			expectedProviderId: "sonar",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			serverDetails := &config.ServerDetails{Url: "http://test.com"}
+
+			cmd := NewCreateEvidenceBuild(
+				serverDetails,
+				"",
+				"test-predicate-type",
+				"",
+				"test-key",
+				"test-key-id",
+				"test-project",
+				"test-build",
+				"1",
+				tt.providerId,
+				false,
+			)
+
+			createCmd, ok := cmd.(*createEvidenceBuild)
+			assert.True(t, ok)
+
+			// Verify that the provider ID is correctly set in the base struct
+			assert.Equal(t, tt.expectedProviderId, createCmd.providerId)
+		})
 	}
 }

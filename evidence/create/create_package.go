@@ -18,13 +18,14 @@ type createEvidencePackage struct {
 }
 
 func NewCreateEvidencePackage(serverDetails *config.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, packageName,
-	packageVersion, packageRepoName string, useSonarPredicate bool) evidence.Command {
+	packageVersion, packageRepoName, providerId string, useSonarPredicate bool) evidence.Command {
 	return &createEvidencePackage{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
 			predicateFilePath: predicateFilePath,
 			predicateType:     predicateType,
 			markdownFilePath:  markdownFilePath,
+			providerId:        providerId,
 			key:               key,
 			keyId:             keyId,
 			useSonarPredicate: useSonarPredicate,

@@ -40,6 +40,7 @@ func (epc *evidencePackageCommand) CreateEvidence(ctx *components.Context, serve
 		epc.ctx.GetStringFlagValue(packageName),
 		epc.ctx.GetStringFlagValue(packageVersion),
 		epc.ctx.GetStringFlagValue(packageRepoName),
+		epc.ctx.GetStringFlagValue(providerId),
 		epc.ctx.GetBoolFlagValue(useSonarPredicate))
 	return epc.execute(createCmd)
 }
