@@ -273,11 +273,11 @@ func createAndSignEnvelope(payloadJson []byte, key string, keyId string) (*dsse.
 
 	privateKey, err := cryptox.ReadKey(keyFile)
 	if err != nil {
-		return nil, err
+		return nil, enhanceKeyError(err, keyId)
 	}
 
 	if privateKey == nil {
-		return nil, errors.New("failed to load private key. please verify provided key")
+		return nil, enhanceKeyError(errors.New("failed to load private key"), keyId)
 	}
 
 	privateKey.KeyID = keyId
@@ -327,6 +327,16 @@ func createSigners(privateKey *cryptox.SSLibKey) ([]dsse.Signer, error) {
 		return nil, errors.New("unsupported key type")
 	}
 	return signers, nil
+}
+
+// enhanceKeyError provides a more meaningful error message for key-related failures
+func enhanceKeyError(originalErr error, keyId string) error {
+	if keyId != "" {
+		// If keyId is provided, it's likely a key alias that couldn't be resolved
+		return fmt.Errorf("key pair is incorrect or key alias '%s' was not found in Artifactory. Original error: %w", keyId, originalErr)
+	}
+	// If no keyId, provide general guidance
+	return fmt.Errorf("failed to load private key. Please verify the provided key is correct or check if the key alias exists in Artifactory. Original error: %w", originalErr)
 }
 
 // addSubjectAndStageToStatement injects subject and stage into the given in-toto statement JSON.

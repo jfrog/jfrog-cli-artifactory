@@ -167,7 +167,7 @@ func TestCreateAndSignEnvelope(t *testing.T) {
 			keyPath:          "tests/testdata/unsupported_key.pem",
 			keyId:            "test-key-id",
 			expectError:      true,
-			expectedErrorMsg: "failed to decode the data as PEM block (are you sure this is a pem file?)",
+			expectedErrorMsg: "key pair is incorrect or key alias 'test-key-id' was not found in Artifactory. Original error: failed to decode the data as PEM block (are you sure this is a pem file?)",
 		},
 		{
 			name:             "public key type",
@@ -175,7 +175,15 @@ func TestCreateAndSignEnvelope(t *testing.T) {
 			keyPath:          "tests/testdata/public_key.pem",
 			keyId:            "test-key-id",
 			expectError:      true,
-			expectedErrorMsg: "failed to load private key. please verify provided key",
+			expectedErrorMsg: "key pair is incorrect or key alias 'test-key-id' was not found in Artifactory. Original error: failed to load private key",
+		},
+		{
+			name:             "public key type without keyId",
+			payloadJson:      []byte(`{"foo": "bar"}`),
+			keyPath:          "tests/testdata/public_key.pem",
+			keyId:            "",
+			expectError:      true,
+			expectedErrorMsg: "failed to load private key. Please verify the provided key is correct or check if the key alias exists in Artifactory. Original error: failed to load private key",
 		},
 	}
 
