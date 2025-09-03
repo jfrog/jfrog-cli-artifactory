@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/create"
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -29,8 +30,8 @@ func (ebc *evidenceGitHubCommand) CreateEvidence(ctx *components.Context, server
 	if ebc.ctx.GetStringFlagValue(sigstoreBundle) != "" {
 		return errorutils.CheckErrorf("--%s is not supported for GitHub evidence.", sigstoreBundle)
 	}
-	if strings.ToLower(ebc.ctx.GetStringFlagValue(provider)) == SonarProvider {
-		return errorutils.CheckErrorf("--%s %s is not supported for GitHub evidence.", provider, SonarProvider)
+	if strings.ToLower(ebc.ctx.GetStringFlagValue(provider)) == utils.SonarProvider {
+		return errorutils.CheckErrorf("--%s %s is not supported for GitHub evidence.", provider, utils.SonarProvider)
 	}
 
 	err := ebc.validateEvidenceBuildContext(ctx)

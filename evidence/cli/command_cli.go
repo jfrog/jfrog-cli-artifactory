@@ -11,7 +11,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/get"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/cli/docs/verify"
 	sonarhelper "github.com/jfrog/jfrog-cli-artifactory/evidence/sonar"
-	jfrogArtClient "github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
+	evidenceUtils "github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
@@ -22,8 +22,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
-
-const SonarProvider = "sonar"
 
 func GetCommands() []components.Command {
 	return []components.Command{
@@ -177,30 +175,28 @@ func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 	}
 
 	if (!ctx.IsFlagSet(predicate) || assertValueProvided(ctx, predicate) != nil) && !ctx.IsFlagSet(typeFlag) {
-		et := strings.ToLower(ctx.GetStringFlagValue(provider))
-		if et != SonarProvider {
+		if !evidenceUtils.IsSonarProvider(ctx.GetStringFlagValue(provider)) {
 			return errorutils.CheckErrorf("'predicate' is a mandatory field for creating evidence: --%s", predicate)
 		}
 	}
 
 	if (!ctx.IsFlagSet(predicateType) || assertValueProvided(ctx, predicateType) != nil) && !ctx.IsFlagSet(typeFlag) {
-		et := strings.ToLower(ctx.GetStringFlagValue(provider))
-		if et != SonarProvider {
+		if !evidenceUtils.IsSonarProvider(ctx.GetStringFlagValue(provider)) {
 			return errorutils.CheckErrorf("'predicate-type' is a mandatory field for creating evidence: --%s", predicateType)
 		}
 	}
 
 	// Validate SonarQube requirements when sonar evidence type is set
-	if strings.ToLower(ctx.GetStringFlagValue(provider)) == SonarProvider {
+	if evidenceUtils.IsSonarProvider(ctx.GetStringFlagValue(provider)) {
 		if err := validateSonarQubeRequirements(); err != nil {
 			return err
 		}
 		// Conflicting flags with sonar evidence type
 		if ctx.IsFlagSet(predicate) && ctx.GetStringFlagValue(predicate) != "" {
-			return errorutils.CheckErrorf("--%s cannot be used together with --%s %s", predicate, provider, SonarProvider)
+			return errorutils.CheckErrorf("--%s cannot be used together with --%s %s", predicate, provider, evidenceUtils.SonarProvider)
 		}
 		if ctx.IsFlagSet(predicateType) && ctx.GetStringFlagValue(predicateType) != "" {
-			return errorutils.CheckErrorf("--%s cannot be used together with --%s %s", predicateType, provider, SonarProvider)
+			return errorutils.CheckErrorf("--%s cannot be used together with --%s %s", predicateType, provider, evidenceUtils.SonarProvider)
 		}
 	}
 
@@ -242,7 +238,7 @@ func ensureKeyExists(ctx *components.Context, key string) error {
 		return nil
 	}
 
-	signingKeyValue, _ := jfrogArtClient.GetEnvVariable(coreUtils.SigningKey)
+	signingKeyValue, _ := evidenceUtils.GetEnvVariable(coreUtils.SigningKey)
 	if signingKeyValue == "" {
 		return errorutils.CheckErrorf("JFROG_CLI_SIGNING_KEY env variable or --%s flag must be provided when creating evidence", key)
 	}
@@ -251,7 +247,7 @@ func ensureKeyExists(ctx *components.Context, key string) error {
 }
 
 func setKeyAliasIfProvided(ctx *components.Context, keyAlias string) {
-	evdKeyAliasValue, _ := jfrogArtClient.GetEnvVariable(coreUtils.KeyAlias)
+	evdKeyAliasValue, _ := evidenceUtils.GetEnvVariable(coreUtils.KeyAlias)
 	if evdKeyAliasValue != "" {
 		ctx.AddStringFlag(keyAlias, evdKeyAliasValue)
 	}
@@ -304,7 +300,7 @@ func setBuildValue(ctx *components.Context, flag, envVar string) bool {
 }
 
 func validateKeys(ctx *components.Context) error {
-	signingKeyValue, _ := jfrogArtClient.GetEnvVariable(coreUtils.SigningKey)
+	signingKeyValue, _ := evidenceUtils.GetEnvVariable(coreUtils.SigningKey)
 	providedKeys := ctx.GetStringsArrFlagValue(publicKeys)
 	if len(providedKeys) > 0 {
 		joinedKeys := strings.Join(append(providedKeys, signingKeyValue), ";")
@@ -365,7 +361,7 @@ func assertValueProvided(c *components.Context, fieldName string) error {
 func validateSonarQubeRequirements() error {
 	// Check if SonarQube token is present
 	if os.Getenv("SONAR_TOKEN") == "" && os.Getenv("SONARQUBE_TOKEN") == "" {
-		return errorutils.CheckErrorf("SonarQube token is required when using --%s %s. Please set SONAR_TOKEN or SONARQUBE_TOKEN environment variable", provider, SonarProvider)
+		return errorutils.CheckErrorf("SonarQube token is required when using --%s %s. Please set SONAR_TOKEN or SONARQUBE_TOKEN environment variable", provider, evidenceUtils.SonarProvider)
 	}
 
 	// Check if report-task.txt exists using the detector or config

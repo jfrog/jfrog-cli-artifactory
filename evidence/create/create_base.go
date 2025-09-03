@@ -43,7 +43,7 @@ const EvdDefaultUser = "JFrog CLI"
 func (c *createEvidenceBase) createEnvelope(subject, subjectSha256 string) ([]byte, error) {
 	var statementJson []byte
 	var err error
-	if c.provider == "sonar" {
+	if evidenceUtils.IsSonarProvider(c.provider) {
 		statementJson, err = c.buildSonarStatement(subject, subjectSha256)
 	} else {
 		statementJson, err = c.buildIntotoStatementJson(subject, subjectSha256)
