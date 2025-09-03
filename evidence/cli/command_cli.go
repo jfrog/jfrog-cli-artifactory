@@ -175,7 +175,9 @@ func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 	}
 
 	if ctx.IsFlagSet(integration) && assertValueProvided(ctx, integration) == nil {
-		return evidenceUtils.ValidateIntegration(ctx.GetStringFlagValue(integration))
+		if err := evidenceUtils.ValidateIntegration(ctx.GetStringFlagValue(integration)); err != nil {
+			return err
+		}
 	}
 
 	if (!ctx.IsFlagSet(predicate) || assertValueProvided(ctx, predicate) != nil) && !ctx.IsFlagSet(typeFlag) {
