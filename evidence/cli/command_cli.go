@@ -186,7 +186,7 @@ func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 		}
 	}
 
-	// Validate SonarQube requirements when sonar evidence type is set
+	// Validate SonarQube requirements when sonar integration is set
 	if evidenceUtils.IsSonarIntegration(ctx.GetStringFlagValue(integration)) {
 		if err := validateSonarQubeRequirements(); err != nil {
 			return err
