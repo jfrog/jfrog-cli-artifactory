@@ -3,8 +3,15 @@ package python
 import (
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/build-info-go/flexpack"
 	"github.com/jfrog/build-info-go/utils/pythonutils"
 	gofrogcmd "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/python/dependencies"
@@ -16,10 +23,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/spf13/viper"
 	"golang.org/x/exp/slices"
-	"io"
-	"os"
-	"os/exec"
-	"path/filepath"
 )
 
 const (
@@ -95,15 +98,204 @@ func (pc *PoetryCommand) install(buildConfiguration *buildUtils.BuildConfigurati
 
 func (pc *PoetryCommand) publish(buildConfiguration *buildUtils.BuildConfiguration, pythonBuildInfo *build.Build) error {
 	publishCmdArgs := append(slices.Clone(pc.args), "-r "+pc.repository)
-	// Collect build info by running the jf poetry install cmd
-	pc.args = []string{}
-	err := pc.install(buildConfiguration, pythonBuildInfo)
+
+	// Get build name and number (already extracted from CLI arguments)
+	// Since buildConfiguration is created from CLI args, these should be available directly
+	buildName, err := buildConfiguration.GetBuildName()
 	if err != nil {
 		return err
 	}
-	// Run the publish cmd
+	buildNumber, err := buildConfiguration.GetBuildNumber()
+	if err != nil {
+		return err
+	}
+
+	// Get current working directory
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	// Use FlexPack to collect dependencies with checksums
+	if buildName != "" && buildNumber != "" {
+		log.Info("Using FlexPack to collect Poetry dependencies...")
+
+		// Create FlexPack Poetry configuration
+		config := flexpack.PoetryConfig{
+			WorkingDirectory: workingDir,
+		}
+
+		// Create Poetry FlexPack instance
+		poetryFlex, err := flexpack.NewPoetryFlexPack(config)
+		if err != nil {
+			return fmt.Errorf("failed to create Poetry FlexPack: %w", err)
+		}
+
+		// Collect build info using FlexPack
+		flexBuildInfo, err := poetryFlex.CollectBuildInfo(buildName, buildNumber)
+		if err != nil {
+			return fmt.Errorf("failed to collect build info with FlexPack: %w", err)
+		}
+
+		// Save FlexPack build info to be picked up by rt bp
+		return pc.saveFlexPackBuildInfo(flexBuildInfo)
+	}
+
+	// Run the publish command to upload artifacts
 	pc.args = publishCmdArgs
-	return gofrogcmd.RunCmd(pc)
+	err = gofrogcmd.RunCmd(pc)
+	if err != nil {
+		return err
+	}
+
+	// After successful publish, collect artifacts information
+	if buildName != "" && buildNumber != "" {
+		return pc.collectPublishedArtifacts(buildConfiguration, pythonBuildInfo, workingDir)
+	}
+
+	return nil
+}
+
+// saveFlexPackBuildInfo saves FlexPack build info for jfrog-cli rt bp compatibility
+func (pc *PoetryCommand) saveFlexPackBuildInfo(buildInfo *entities.BuildInfo) error {
+	// Create build-info service
+	service := build.NewBuildInfoService()
+
+	// Create or get build
+	buildInstance, err := service.GetOrCreateBuildWithProject(buildInfo.Name, buildInfo.Number, "")
+	if err != nil {
+		return fmt.Errorf("failed to create build: %w", err)
+	}
+
+	// Save the complete build info (this will be loaded by rt bp)
+	return buildInstance.SaveBuildInfo(buildInfo)
+}
+
+// collectPublishedArtifacts collects information about artifacts that were published
+func (pc *PoetryCommand) collectPublishedArtifacts(buildConfiguration *buildUtils.BuildConfiguration, pythonBuildInfo *build.Build, workingDir string) error {
+	// Get the build directory from pyproject.toml configuration or use default
+	buildDir, err := pc.getBuildDirectoryFromPyproject(workingDir)
+	if err != nil {
+		log.Debug("Failed to read build directory from pyproject.toml, using default 'dist': " + err.Error())
+		buildDir = filepath.Join(workingDir, "dist")
+	}
+
+	// Look for built artifacts in the build directory
+	if _, err := os.Stat(buildDir); os.IsNotExist(err) {
+		log.Debug(fmt.Sprintf("No build directory found at %s, skipping artifact collection", buildDir))
+		return nil
+	}
+
+	// Get module name
+	moduleName := buildConfiguration.GetModule()
+	if moduleName == "" {
+		// Try to determine module name from pyproject.toml
+		if name, err := pc.getProjectNameFromPyproject(workingDir); err == nil {
+			moduleName = name
+		} else {
+			moduleName = "poetry-module"
+		}
+	}
+
+	// Find artifacts in build directory
+	artifacts, err := pc.findDistArtifacts(buildDir)
+	if err != nil {
+		return err
+	}
+
+	if len(artifacts) > 0 {
+		log.Debug(fmt.Sprintf("Found %d artifacts to add to build info", len(artifacts)))
+		// Add artifacts to build info
+		return pythonBuildInfo.AddArtifacts(moduleName, "pypi", artifacts...)
+	}
+
+	return nil
+}
+
+// getBuildDirectoryFromPyproject reads the build directory configuration from pyproject.toml
+func (pc *PoetryCommand) getBuildDirectoryFromPyproject(workingDir string) (string, error) {
+	pyprojectPath := filepath.Join(workingDir, pyproject)
+	viper.SetConfigType("toml")
+	viper.SetConfigFile(pyprojectPath)
+	if err := viper.ReadInConfig(); err != nil {
+		return "", err
+	}
+
+	// Check for build directory configuration in [tool.poetry.build] section
+	buildDir := viper.GetString("tool.poetry.build.directory")
+	if buildDir != "" {
+		// If it's a relative path, make it absolute relative to working directory
+		if !filepath.IsAbs(buildDir) {
+			buildDir = filepath.Join(workingDir, buildDir)
+		}
+		return buildDir, nil
+	}
+
+	// Default to "dist" directory if not configured
+	return filepath.Join(workingDir, "dist"), nil
+}
+
+// getProjectNameFromPyproject extracts project name from pyproject.toml
+func (pc *PoetryCommand) getProjectNameFromPyproject(workingDir string) (string, error) {
+	pyprojectPath := filepath.Join(workingDir, pyproject)
+	viper.SetConfigType("toml")
+	viper.SetConfigFile(pyprojectPath)
+	if err := viper.ReadInConfig(); err != nil {
+		return "", err
+	}
+
+	name := viper.GetString("tool.poetry.name")
+	if name == "" {
+		return "", fmt.Errorf("no project name found in pyproject.toml")
+	}
+
+	return name, nil
+}
+
+// findDistArtifacts finds and creates artifact entries for files in dist directory
+func (pc *PoetryCommand) findDistArtifacts(distDir string) ([]entities.Artifact, error) {
+	var artifacts []entities.Artifact
+
+	entries, err := os.ReadDir(distDir)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		filename := entry.Name()
+		// Only include wheel and tar.gz files
+		artifactType := getArtifactType(filename)
+		if artifactType == "unknown" {
+			continue
+		}
+
+		filePath := filepath.Join(distDir, filename)
+
+		// Create artifact entry
+		artifact := entities.Artifact{
+			Name: filename,
+			Path: filePath,
+			Type: artifactType,
+		}
+
+		artifacts = append(artifacts, artifact)
+	}
+
+	return artifacts, nil
+}
+
+// getArtifactType determines the artifact type based on file extension
+func getArtifactType(filename string) string {
+	if strings.HasSuffix(filename, ".whl") {
+		return "wheel"
+	} else if strings.HasSuffix(filename, ".tar.gz") {
+		return "sdist"
+	}
+	return "unknown"
 }
 
 func (pc *PoetryCommand) UpdateDepsChecksumInfoFunc(dependenciesMap map[string]entities.Dependency, srcPath string) error {
