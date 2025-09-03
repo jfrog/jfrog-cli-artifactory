@@ -28,8 +28,8 @@ func (p *markdownReportPrinter) Print(result *model.VerificationResponse) error 
 
 	fmt.Println("## Evidence Verification Result Summary")
 	fmt.Println()
-	fmt.Printf("**Subject:** %s  \n", result.Subject.Path)
-	fmt.Printf("**Subject sha256:** %s  \n", result.Subject.Sha256)
+	fmt.Printf("Subject path: `%s`  \n", result.Subject.Path)
+	fmt.Printf("Subject sha256: `%s`  \n", result.Subject.Sha256)
 	fmt.Println()
 	fmt.Printf("**Overall attestation verification status:** %s  \n", getStatusDisplay(result.OverallVerificationStatus))
 
