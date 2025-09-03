@@ -25,7 +25,7 @@ type createEvidenceBuild struct {
 }
 
 func NewCreateEvidenceBuild(serverDetails *config.ServerDetails,
-	predicateFilePath, predicateType, markdownFilePath, key, keyId, project, buildName, buildNumber, providerId string, provider string) evidence.Command {
+	predicateFilePath, predicateType, markdownFilePath, key, keyId, project, buildName, buildNumber, providerId, integration string) evidence.Command {
 	return &createEvidenceBuild{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
@@ -35,7 +35,7 @@ func NewCreateEvidenceBuild(serverDetails *config.ServerDetails,
 			key:               key,
 			keyId:             keyId,
 			providerId:        providerId,
-			provider:          provider,
+			integration:       integration,
 		},
 		project:     project,
 		buildName:   buildName,

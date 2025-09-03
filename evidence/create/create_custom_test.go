@@ -36,7 +36,7 @@ func TestNewCreateEvidenceCustom(t *testing.T) {
 		"test-repo/test-artifact",
 		"abcd1234",
 		"", // No sigstore bundle
-		"test-provider",
+		"test-integration",
 		"",
 	)
 
@@ -115,7 +115,7 @@ func TestCreateEvidenceCustom_WithSigstoreBundle(t *testing.T) {
 		"",
 		"",         // No sha256 (will be extracted from bundle)
 		bundlePath, // Sigstore bundle path
-		"test-provider",
+		"test-integration",
 		"",
 	)
 
@@ -142,7 +142,7 @@ func TestCreateEvidenceCustom_MissingSigstoreBundle(t *testing.T) {
 		"test-repo/test-artifact",
 		"",
 		"/non/existent/bundle.json", // Non-existent bundle
-		"test-provider",
+		"test-integration",
 		"",
 	)
 
@@ -187,7 +187,7 @@ func TestCreateEvidenceCustom_UploadError(t *testing.T) {
 		"test-repo/test-artifact",
 		"sha256:12345",
 		"", // No sigstore bundle
-		"test-provider",
+		"test-integration",
 		"",
 	)
 
@@ -261,7 +261,7 @@ func TestCreateEvidenceCustom_SigstoreBundleWithSubjectPath(t *testing.T) {
 		"provided-repo/provided-artifact", // This should be used as fallback
 		"",
 		bundlePath,
-		"test-provider",
+		"test-integration",
 		"",
 	)
 
@@ -290,7 +290,7 @@ func TestCreateEvidenceCustom_NewSubjectError_AutoSubjectResolution(t *testing.T
 		"",
 		"abcd1234",
 		"/path/to/sigstore-bundle.json",
-		"test-provider",
+		"test-integration",
 		"",
 	)
 
@@ -326,7 +326,7 @@ func TestCreateEvidenceCustom_NewSubjectError_RegularExecution(t *testing.T) {
 		"test-repo/test-artifact",
 		"abcd1234",
 		"",
-		"test-provider",
+		"test-integration",
 		"",
 	)
 
@@ -377,7 +377,7 @@ func TestCreateEvidenceCustom_RecordSummary(t *testing.T) {
 		subjectRepoPath,
 		subjectSha256,
 		"",
-		"test-provider",
+		"test-integration",
 		"",
 	)
 	c, ok := evidence.(*createEvidenceCustom)

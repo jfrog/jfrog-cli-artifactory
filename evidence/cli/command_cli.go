@@ -175,28 +175,28 @@ func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 	}
 
 	if (!ctx.IsFlagSet(predicate) || assertValueProvided(ctx, predicate) != nil) && !ctx.IsFlagSet(typeFlag) {
-		if !evidenceUtils.IsSonarProvider(ctx.GetStringFlagValue(provider)) {
+		if !evidenceUtils.IsSonarIntegration(ctx.GetStringFlagValue(integration)) {
 			return errorutils.CheckErrorf("'predicate' is a mandatory field for creating evidence: --%s", predicate)
 		}
 	}
 
 	if (!ctx.IsFlagSet(predicateType) || assertValueProvided(ctx, predicateType) != nil) && !ctx.IsFlagSet(typeFlag) {
-		if !evidenceUtils.IsSonarProvider(ctx.GetStringFlagValue(provider)) {
+		if !evidenceUtils.IsSonarIntegration(ctx.GetStringFlagValue(integration)) {
 			return errorutils.CheckErrorf("'predicate-type' is a mandatory field for creating evidence: --%s", predicateType)
 		}
 	}
 
 	// Validate SonarQube requirements when sonar evidence type is set
-	if evidenceUtils.IsSonarProvider(ctx.GetStringFlagValue(provider)) {
+	if evidenceUtils.IsSonarIntegration(ctx.GetStringFlagValue(integration)) {
 		if err := validateSonarQubeRequirements(); err != nil {
 			return err
 		}
 		// Conflicting flags with sonar evidence type
 		if ctx.IsFlagSet(predicate) && ctx.GetStringFlagValue(predicate) != "" {
-			return errorutils.CheckErrorf("--%s cannot be used together with --%s %s", predicate, provider, evidenceUtils.SonarProvider)
+			return errorutils.CheckErrorf("--%s cannot be used together with --%s %s", predicate, integration, evidenceUtils.SonarIntegration)
 		}
 		if ctx.IsFlagSet(predicateType) && ctx.GetStringFlagValue(predicateType) != "" {
-			return errorutils.CheckErrorf("--%s cannot be used together with --%s %s", predicateType, provider, evidenceUtils.SonarProvider)
+			return errorutils.CheckErrorf("--%s cannot be used together with --%s %s", predicateType, integration, evidenceUtils.SonarIntegration)
 		}
 	}
 
@@ -361,7 +361,7 @@ func assertValueProvided(c *components.Context, fieldName string) error {
 func validateSonarQubeRequirements() error {
 	// Check if SonarQube token is present
 	if os.Getenv("SONAR_TOKEN") == "" && os.Getenv("SONARQUBE_TOKEN") == "" {
-		return errorutils.CheckErrorf("SonarQube token is required when using --%s %s. Please set SONAR_TOKEN or SONARQUBE_TOKEN environment variable", provider, evidenceUtils.SonarProvider)
+		return errorutils.CheckErrorf("SonarQube token is required when using --%s %s. Please set SONAR_TOKEN or SONARQUBE_TOKEN environment variable", integration, evidenceUtils.SonarIntegration)
 	}
 
 	// Check if report-task.txt exists using the detector or config

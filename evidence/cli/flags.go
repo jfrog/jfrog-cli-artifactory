@@ -44,7 +44,7 @@ const (
 	providerId         = "provider-id"
 	publicKeys         = "public-keys"
 	useArtifactoryKeys = "use-artifactory-keys"
-	provider           = "provider"
+	integration        = "integration"
 	sigstoreBundle     = "sigstore-bundle"
 	artifactsLimit     = "artifacts-limit"
 )
@@ -83,7 +83,7 @@ var flagsMap = map[string]components.Flag{
 	sigstoreBundle:     components.NewStringFlag(sigstoreBundle, "Path to a Sigstore bundle file with a pre-signed DSSE envelope. Incompatible with --"+key+", --"+keyAlias+", --"+predicate+", --"+predicateType+" and --"+subjectSha256+".", func(f *components.StringFlag) { f.Mandatory = false }),
 	useArtifactoryKeys: components.NewBoolFlag(useArtifactoryKeys, "Use Artifactory keys for verification. When enabled, the verify command retrieves keys from Artifactory.", components.WithBoolDefaultValueFalse()),
 	artifactsLimit:     components.NewStringFlag(artifactsLimit, "The number of artifacts in a release bundle to be included in the evidences file. The default value is 1000 artifacts", func(f *components.StringFlag) { f.Mandatory = false }),
-	provider:           components.NewStringFlag(provider, "Evidence provider. Supported values: 'sonar'.", func(f *components.StringFlag) { f.Mandatory = false }),
+	integration:        components.NewStringFlag(integration, "External integration. Supported values: 'sonar'.", func(f *components.StringFlag) { f.Mandatory = false }),
 }
 
 var commandFlags = map[string][]string{
@@ -109,7 +109,7 @@ var commandFlags = map[string][]string{
 		key,
 		keyAlias,
 		providerId,
-		provider,
+		integration,
 		sigstoreBundle,
 	},
 	VerifyEvidence: {

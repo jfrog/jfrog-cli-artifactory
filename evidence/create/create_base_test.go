@@ -126,7 +126,7 @@ func TestUploadEvidence_ErrorHandling(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &createEvidenceBase{
 				serverDetails: &config.ServerDetails{},
-				providerId:    "test-provider",
+				providerId:    "test-integration",
 			}
 			err := c.handleUploadError(tt.uploadError, tt.repoPath)
 			assert.Error(t, err)
@@ -213,7 +213,7 @@ func TestCreateAndSignEnvelope(t *testing.T) {
 
 func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_NotInGitHub(t *testing.T) {
 	assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
-	base := &createEvidenceBase{predicateType: "https://slsa.dev/provenance/v1", providerId: "test-provider"}
+	base := &createEvidenceBase{predicateType: "https://slsa.dev/provenance/v1", providerId: "test-integration"}
 	summaryData := commandsummary.EvidenceSummaryData{Subject: "/test/subject", Verified: true, PredicateType: base.predicateType}
 	err := base.recordEvidenceSummary(summaryData)
 	assert.NoError(t, err)
@@ -229,7 +229,7 @@ func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_GitHubCommite
 		assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
 		assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
 	}()
-	base := &createEvidenceBase{predicateType: "https://slsa.dev/provenance/v1", providerId: "test-provider", flagType: "gh-commiter"}
+	base := &createEvidenceBase{predicateType: "https://slsa.dev/provenance/v1", providerId: "test-integration", flagType: "gh-commiter"}
 	summaryData := commandsummary.EvidenceSummaryData{Subject: "/test/subject", Verified: true, PredicateType: base.predicateType}
 	err = base.recordEvidenceSummary(summaryData)
 	assert.NoError(t, err)
@@ -245,7 +245,7 @@ func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_Success(t *te
 		assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
 		assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
 	}()
-	base := &createEvidenceBase{predicateType: "https://slsa.dev/provenance/v1", providerId: "test-provider", flagType: "other"}
+	base := &createEvidenceBase{predicateType: "https://slsa.dev/provenance/v1", providerId: "test-integration", flagType: "other"}
 	summaryData := commandsummary.EvidenceSummaryData{Subject: "/docker-cosign-test/hello-world", Verified: true, PredicateType: base.predicateType}
 	err = base.recordEvidenceSummary(summaryData)
 	assert.NoError(t, err)
@@ -255,7 +255,7 @@ func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_NoSummaryEnv(
 	assert.NoError(t, os.Setenv("GITHUB_ACTIONS", "true"))
 	assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
 	defer func() { assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS")) }()
-	base := &createEvidenceBase{predicateType: "https://slsa.dev/provenance/v1", providerId: "test-provider", flagType: "other"}
+	base := &createEvidenceBase{predicateType: "https://slsa.dev/provenance/v1", providerId: "test-integration", flagType: "other"}
 	summaryData := commandsummary.EvidenceSummaryData{Subject: "/test/subject", Verified: true, PredicateType: base.predicateType}
 	err := base.recordEvidenceSummary(summaryData)
 	assert.Error(t, err)
@@ -271,7 +271,7 @@ func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_Verified(t *t
 		assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
 		assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
 	}()
-	base := &createEvidenceBase{predicateType: "", providerId: "test-provider", flagType: "other"}
+	base := &createEvidenceBase{predicateType: "", providerId: "test-integration", flagType: "other"}
 	summaryData := commandsummary.EvidenceSummaryData{Subject: "/docker-cosign-test/hello-world", Verified: true, PredicateType: base.predicateType}
 	err = base.recordEvidenceSummary(summaryData)
 	assert.NoError(t, err)
@@ -287,7 +287,7 @@ func TestCreateEvidenceBase_RecordEvidenceSummaryIfInGitHubActions_NotVerified(t
 		assert.NoError(t, os.Unsetenv("GITHUB_ACTIONS"))
 		assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
 	}()
-	base := &createEvidenceBase{predicateType: "", providerId: "test-provider", flagType: "other"}
+	base := &createEvidenceBase{predicateType: "", providerId: "test-integration", flagType: "other"}
 	summaryData := commandsummary.EvidenceSummaryData{Subject: "/test-repo/artifact", Verified: false, PredicateType: base.predicateType}
 	err = base.recordEvidenceSummary(summaryData)
 	assert.NoError(t, err)

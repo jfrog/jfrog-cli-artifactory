@@ -31,7 +31,7 @@ type createEvidenceCustom struct {
 }
 
 func NewCreateEvidenceCustom(serverDetails *config.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, subjectRepoPath,
-	subjectSha256, sigstoreBundlePath, providerId string, provider string) evidence.Command {
+	subjectSha256, sigstoreBundlePath, providerId, integration string) evidence.Command {
 	var subjectRepoPathSlice []string
 	if subjectRepoPath != "" {
 		subjectRepoPathSlice = []string{subjectRepoPath}
@@ -47,7 +47,7 @@ func NewCreateEvidenceCustom(serverDetails *config.ServerDetails, predicateFileP
 			markdownFilePath:  markdownFilePath,
 			key:               key,
 			keyId:             keyId,
-			provider:          provider,
+			integration:       integration,
 		},
 		subjectRepoPaths:   subjectRepoPathSlice,
 		subjectSha256:      subjectSha256,
