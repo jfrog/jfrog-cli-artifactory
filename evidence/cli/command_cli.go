@@ -23,6 +23,8 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+const SonarEvidenceType = "sonar"
+
 func GetCommands() []components.Command {
 	return []components.Command{
 		{
@@ -175,30 +177,30 @@ func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 	}
 
 	if (!ctx.IsFlagSet(predicate) || assertValueProvided(ctx, predicate) != nil) && !ctx.IsFlagSet(typeFlag) {
-		// Allow missing predicate only when use-sonar-predicate flag is set
-		if !ctx.GetBoolFlagValue(useSonarPredicate) {
+		et := strings.ToLower(ctx.GetStringFlagValue(evidenceType))
+		if et != SonarEvidenceType {
 			return errorutils.CheckErrorf("'predicate' is a mandatory field for creating evidence: --%s", predicate)
 		}
 	}
 
 	if (!ctx.IsFlagSet(predicateType) || assertValueProvided(ctx, predicateType) != nil) && !ctx.IsFlagSet(typeFlag) {
-		// Allow missing predicate-type only when use-sonar-predicate flag is set
-		if !ctx.GetBoolFlagValue(useSonarPredicate) {
+		et := strings.ToLower(ctx.GetStringFlagValue(evidenceType))
+		if et != SonarEvidenceType {
 			return errorutils.CheckErrorf("'predicate-type' is a mandatory field for creating evidence: --%s", predicateType)
 		}
 	}
 
-	// Validate SonarQube requirements when use-sonar-predicate is set
-	if ctx.GetBoolFlagValue(useSonarPredicate) {
+	// Validate SonarQube requirements when sonar evidence type is set
+	if strings.ToLower(ctx.GetStringFlagValue(evidenceType)) == SonarEvidenceType {
 		if err := validateSonarQubeRequirements(); err != nil {
 			return err
 		}
-		// Conflicting flags with use-sonar-predicate
+		// Conflicting flags with sonar evidence type
 		if ctx.IsFlagSet(predicate) && ctx.GetStringFlagValue(predicate) != "" {
-			return errorutils.CheckErrorf("--%s cannot be used together with --%s", predicate, useSonarPredicate)
+			return errorutils.CheckErrorf("--%s cannot be used together with --%s %s", predicate, evidenceType, SonarEvidenceType)
 		}
 		if ctx.IsFlagSet(predicateType) && ctx.GetStringFlagValue(predicateType) != "" {
-			return errorutils.CheckErrorf("--%s cannot be used together with --%s", predicateType, useSonarPredicate)
+			return errorutils.CheckErrorf("--%s cannot be used together with --%s %s", predicateType, evidenceType, SonarEvidenceType)
 		}
 	}
 
@@ -363,7 +365,7 @@ func assertValueProvided(c *components.Context, fieldName string) error {
 func validateSonarQubeRequirements() error {
 	// Check if SonarQube token is present
 	if os.Getenv("SONAR_TOKEN") == "" && os.Getenv("SONARQUBE_TOKEN") == "" {
-		return errorutils.CheckErrorf("SonarQube token is required when using --%s. Please set SONAR_TOKEN or SONARQUBE_TOKEN environment variable", useSonarPredicate)
+		return errorutils.CheckErrorf("SonarQube token is required when using --%s %s. Please set SONAR_TOKEN or SONARQUBE_TOKEN environment variable", evidenceType, SonarEvidenceType)
 	}
 
 	// Check if report-task.txt exists using the detector or config

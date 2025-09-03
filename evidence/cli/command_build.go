@@ -41,7 +41,7 @@ func (ebc *evidenceBuildCommand) CreateEvidence(ctx *components.Context, serverD
 		ebc.ctx.GetStringFlagValue(buildName),
 		ebc.ctx.GetStringFlagValue(buildNumber),
 		ebc.ctx.GetStringFlagValue(providerId),
-		ebc.ctx.GetBoolFlagValue(useSonarPredicate))
+		ebc.ctx.GetStringFlagValue(evidenceType))
 	return ebc.execute(createCmd)
 }
 

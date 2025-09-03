@@ -25,7 +25,7 @@ type createEvidenceBuild struct {
 }
 
 func NewCreateEvidenceBuild(serverDetails *config.ServerDetails,
-	predicateFilePath, predicateType, markdownFilePath, key, keyId, project, buildName, buildNumber, providerId string, useSonarPredicate bool) evidence.Command {
+	predicateFilePath, predicateType, markdownFilePath, key, keyId, project, buildName, buildNumber, providerId string, evidenceType string) evidence.Command {
 	return &createEvidenceBuild{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
@@ -35,7 +35,7 @@ func NewCreateEvidenceBuild(serverDetails *config.ServerDetails,
 			key:               key,
 			keyId:             keyId,
 			providerId:        providerId,
-			useSonarPredicate: useSonarPredicate,
+			evidenceType:      evidenceType,
 		},
 		project:     project,
 		buildName:   buildName,
