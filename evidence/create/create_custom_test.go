@@ -37,7 +37,7 @@ func TestNewCreateEvidenceCustom(t *testing.T) {
 		"abcd1234",
 		"", // No sigstore bundle
 		"test-provider",
-		false,
+		"",
 	)
 
 	assert.NotNil(t, cmd)
@@ -116,7 +116,7 @@ func TestCreateEvidenceCustom_WithSigstoreBundle(t *testing.T) {
 		"",         // No sha256 (will be extracted from bundle)
 		bundlePath, // Sigstore bundle path
 		"test-provider",
-		false,
+		"",
 	)
 
 	// Verify command setup
@@ -143,7 +143,7 @@ func TestCreateEvidenceCustom_MissingSigstoreBundle(t *testing.T) {
 		"",
 		"/non/existent/bundle.json", // Non-existent bundle
 		"test-provider",
-		false,
+		"",
 	)
 
 	// Run should fail
@@ -188,7 +188,7 @@ func TestCreateEvidenceCustom_UploadError(t *testing.T) {
 		"sha256:12345",
 		"", // No sigstore bundle
 		"test-provider",
-		false,
+		"",
 	)
 
 	// Run should fail during upload
@@ -262,7 +262,7 @@ func TestCreateEvidenceCustom_SigstoreBundleWithSubjectPath(t *testing.T) {
 		"",
 		bundlePath,
 		"test-provider",
-		false,
+		"",
 	)
 
 	// Verify the command would use the provided subject path
@@ -291,7 +291,7 @@ func TestCreateEvidenceCustom_NewSubjectError_AutoSubjectResolution(t *testing.T
 		"abcd1234",
 		"/path/to/sigstore-bundle.json",
 		"test-provider",
-		false,
+		"",
 	)
 
 	custom, ok := cmd.(*createEvidenceCustom)
@@ -327,7 +327,7 @@ func TestCreateEvidenceCustom_NewSubjectError_RegularExecution(t *testing.T) {
 		"abcd1234",
 		"",
 		"test-provider",
-		false,
+		"",
 	)
 
 	custom, ok := cmd.(*createEvidenceCustom)
@@ -378,7 +378,7 @@ func TestCreateEvidenceCustom_RecordSummary(t *testing.T) {
 		subjectSha256,
 		"",
 		"test-provider",
-		false,
+		"",
 	)
 	c, ok := evidence.(*createEvidenceCustom)
 	if !ok {
@@ -426,7 +426,7 @@ func TestCreateEvidenceCustom_DetermineFinalError_AutoResolution_AllSuccess(t *t
 		AccessToken: "test-token",
 	}
 
-	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "", false)
+	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "", "")
 	custom, ok := cmd.(*createEvidenceCustom)
 	assert.True(t, ok)
 
@@ -444,7 +444,7 @@ func TestCreateEvidenceCustom_DetermineFinalError_AutoResolution_PartialSuccess(
 		AccessToken: "test-token",
 	}
 
-	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "", false)
+	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "", "")
 	custom, ok := cmd.(*createEvidenceCustom)
 	assert.True(t, ok)
 
@@ -476,7 +476,7 @@ func TestCreateEvidenceCustom_DetermineFinalError_AutoResolution_AllFailed(t *te
 		AccessToken: "test-token",
 	}
 
-	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "", false)
+	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "", "")
 	custom, ok := cmd.(*createEvidenceCustom)
 	assert.True(t, ok)
 
@@ -508,7 +508,7 @@ func TestCreateEvidenceCustom_DetermineFinalError_ManualMode_Success(t *testing.
 		AccessToken: "test-token",
 	}
 
-	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "", false)
+	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "", "")
 	custom, ok := cmd.(*createEvidenceCustom)
 	assert.True(t, ok)
 
@@ -526,7 +526,7 @@ func TestCreateEvidenceCustom_DetermineFinalError_ManualMode_Failure(t *testing.
 		AccessToken: "test-token",
 	}
 
-	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "", false)
+	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "", "")
 	custom, ok := cmd.(*createEvidenceCustom)
 	assert.True(t, ok)
 
@@ -550,7 +550,7 @@ func TestCreateEvidenceCustom_ExtractSubjectFromBundle_ImprovedErrorHandling(t *
 		AccessToken: "test-token",
 	}
 
-	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "", false)
+	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "", "")
 	custom, ok := cmd.(*createEvidenceCustom)
 	assert.True(t, ok)
 
@@ -615,7 +615,7 @@ func TestCreateEvidenceCustom_ValidateSubject_ImprovedErrorContext(t *testing.T)
 		AccessToken: "test-token",
 	}
 
-	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "", false)
+	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "", "")
 	custom, ok := cmd.(*createEvidenceCustom)
 	assert.True(t, ok)
 
@@ -642,7 +642,7 @@ func TestCreateEvidenceCustom_HandleSubjectNotFound_ImprovedErrorContext(t *test
 		AccessToken: "test-token",
 	}
 
-	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "", false)
+	cmd := NewCreateEvidenceCustom(serverDetails, "", "", "", "", "", "", "", "", "", "")
 	custom, ok := cmd.(*createEvidenceCustom)
 	assert.True(t, ok)
 
