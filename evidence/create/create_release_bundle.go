@@ -23,7 +23,7 @@ type createEvidenceReleaseBundle struct {
 }
 
 func NewCreateEvidenceReleaseBundle(serverDetails *config.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, project, releaseBundle,
-	releaseBundleVersion, providerId string, evidenceType string) evidence.Command {
+	releaseBundleVersion, providerId string, provider string) evidence.Command {
 	return &createEvidenceReleaseBundle{
 		createEvidenceBase: createEvidenceBase{
 			serverDetails:     serverDetails,
@@ -34,7 +34,7 @@ func NewCreateEvidenceReleaseBundle(serverDetails *config.ServerDetails, predica
 			keyId:             keyId,
 			providerId:        providerId,
 			stage:             getReleaseBundleStage(serverDetails, releaseBundle, releaseBundleVersion, project),
-			evidenceType:      evidenceType,
+			provider:          provider,
 		},
 		project:              project,
 		releaseBundle:        releaseBundle,

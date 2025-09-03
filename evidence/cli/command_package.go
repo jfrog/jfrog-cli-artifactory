@@ -41,7 +41,7 @@ func (epc *evidencePackageCommand) CreateEvidence(ctx *components.Context, serve
 		epc.ctx.GetStringFlagValue(packageVersion),
 		epc.ctx.GetStringFlagValue(packageRepoName),
 		epc.ctx.GetStringFlagValue(providerId),
-		epc.ctx.GetStringFlagValue(evidenceType))
+		epc.ctx.GetStringFlagValue(provider))
 	return epc.execute(createCmd)
 }
 

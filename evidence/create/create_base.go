@@ -35,7 +35,7 @@ type createEvidenceBase struct {
 	providerId        string
 	stage             string
 	flagType          FlagType
-	evidenceType      string
+	provider          string
 }
 
 const EvdDefaultUser = "JFrog CLI"
@@ -43,7 +43,7 @@ const EvdDefaultUser = "JFrog CLI"
 func (c *createEvidenceBase) createEnvelope(subject, subjectSha256 string) ([]byte, error) {
 	var statementJson []byte
 	var err error
-	if c.evidenceType == "sonar" {
+	if c.provider == "sonar" {
 		statementJson, err = c.buildSonarStatement(subject, subjectSha256)
 	} else {
 		statementJson, err = c.buildIntotoStatementJson(subject, subjectSha256)

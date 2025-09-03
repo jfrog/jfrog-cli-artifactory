@@ -29,8 +29,8 @@ func (ebc *evidenceGitHubCommand) CreateEvidence(ctx *components.Context, server
 	if ebc.ctx.GetStringFlagValue(sigstoreBundle) != "" {
 		return errorutils.CheckErrorf("--%s is not supported for GitHub evidence.", sigstoreBundle)
 	}
-	if strings.ToLower(ebc.ctx.GetStringFlagValue(evidenceType)) == SonarEvidenceType {
-		return errorutils.CheckErrorf("--%s %s is not supported for GitHub evidence.", evidenceType, SonarEvidenceType)
+	if strings.ToLower(ebc.ctx.GetStringFlagValue(provider)) == SonarProvider {
+		return errorutils.CheckErrorf("--%s %s is not supported for GitHub evidence.", provider, SonarProvider)
 	}
 
 	err := ebc.validateEvidenceBuildContext(ctx)

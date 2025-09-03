@@ -43,7 +43,7 @@ func (erc *evidenceReleaseBundleCommand) CreateEvidence(ctx *components.Context,
 		erc.ctx.GetStringFlagValue(releaseBundle),
 		erc.ctx.GetStringFlagValue(releaseBundleVersion),
 		erc.ctx.GetStringFlagValue(providerId),
-		erc.ctx.GetStringFlagValue(evidenceType))
+		erc.ctx.GetStringFlagValue(provider))
 	return erc.execute(createCmd)
 }
 

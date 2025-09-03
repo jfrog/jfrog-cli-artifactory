@@ -38,7 +38,7 @@ func (ecc *evidenceCustomCommand) CreateEvidence(_ *components.Context, serverDe
 		ecc.ctx.GetStringFlagValue(subjectSha256),
 		ecc.ctx.GetStringFlagValue(sigstoreBundle),
 		ecc.ctx.GetStringFlagValue(providerId),
-		ecc.ctx.GetStringFlagValue(evidenceType))
+		ecc.ctx.GetStringFlagValue(provider))
 	return ecc.execute(createCmd)
 }
 
