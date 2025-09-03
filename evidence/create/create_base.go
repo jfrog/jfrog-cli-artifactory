@@ -84,7 +84,7 @@ func (c *createEvidenceBase) buildSonarStatement(subject, subjectSha256 string) 
 	if err != nil {
 		return nil, err
 	}
-	c.providerId = "sonar"
+	c.providerId = evidenceUtils.SonarProvider
 	return extendedStatement, nil
 }
 
