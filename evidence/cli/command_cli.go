@@ -174,6 +174,10 @@ func validateCreateEvidenceCommonContext(ctx *components.Context) error {
 		return nil
 	}
 
+	if ctx.IsFlagSet(integration) && assertValueProvided(ctx, integration) == nil {
+		return evidenceUtils.ValidateIntegration(ctx.GetStringFlagValue(integration))
+	}
+
 	if (!ctx.IsFlagSet(predicate) || assertValueProvided(ctx, predicate) != nil) && !ctx.IsFlagSet(typeFlag) {
 		if !evidenceUtils.IsSonarIntegration(ctx.GetStringFlagValue(integration)) {
 			return errorutils.CheckErrorf("'predicate' is a mandatory field for creating evidence: --%s", predicate)
