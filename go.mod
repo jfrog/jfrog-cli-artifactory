@@ -7,11 +7,11 @@ require (
 	github.com/distribution/reference v0.6.0
 	github.com/forPelevin/gomoji v1.3.0
 	github.com/gookit/color v1.5.4
-	github.com/jfrog/build-info-go v1.10.16
-	github.com/jfrog/froggit-go v1.20.2
+	github.com/jfrog/build-info-go v1.10.17
+	github.com/jfrog/froggit-go v1.20.3
 	github.com/jfrog/gofrog v1.7.6
-	github.com/jfrog/jfrog-cli-core/v2 v2.59.6
-	github.com/jfrog/jfrog-client-go v1.54.6
+	github.com/jfrog/jfrog-cli-core/v2 v2.59.7
+	github.com/jfrog/jfrog-client-go v1.54.7
 	github.com/pkg/errors v0.9.1
 	github.com/secure-systems-lab/go-securesystemslib v0.9.0
 	github.com/sigstore/protobuf-specs v0.5.0
@@ -183,4 +183,4 @@ require (
 
 // replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.59.2-0.20250804083101-9cf424ecc926
 
-replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20250828063934-323bab527b5a
+// replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.28.1-0.20250828063934-323bab527b5a
