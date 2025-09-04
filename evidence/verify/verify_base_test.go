@@ -624,30 +624,6 @@ func (m *mockArtClientProgress) ReadRemoteFile(_ string) (io.ReadCloser, error) 
 	return io.NopCloser(bytes.NewReader([]byte("{}"))), nil
 }
 
-func TestVerifyEvidenceBase_Progress_VerifyEvidence(t *testing.T) {
-	pm := &fakeProgress{}
-	v := &verifyEvidenceBase{
-		format: "text",
-	}
-	v.progressMgr = pm
-	// Two items to increase totals by 2
-	meta := []model.SearchEvidenceEdge{{}, {}}
-	// Provide a non-nil client pointer
-	var ac artifactory.ArtifactoryServicesManager = &mockArtClientProgress{}
-	client := &ac
-	// Underlying verifier will likely error, but should initialize progress
-	err := v.verifyEvidence(client, &meta, "sha", "path")
-	assert.Error(t, err)
-	// verify headline was set
-	if assert.GreaterOrEqual(t, len(pm.headlines), 1) {
-		assert.Equal(t, "Verifying evidence", pm.headlines[len(pm.headlines)-1])
-	}
-	// verify progress readers were initialized
-	assert.True(t, pm.initialized)
-	// verify totals were incremented by metadata length
-	assert.Equal(t, int64(2), pm.totalIncrements)
-}
-
 func TestVerifyEvidenceBase_Progress_QueryEvidenceMetadata(t *testing.T) {
 	pm := &fakeProgress{}
 	mockManager := &MockOneModelManagerWithQueryCapture{GraphqlResponse: []byte(`{"data":{"evidence":{"searchEvidence":{"edges":[{"cursor":"c","node":{"downloadPath":"p","predicateType":"t","createdAt":"now","createdBy":"me","subject":{"sha256":"abc"}}}]}}}}`)}

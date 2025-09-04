@@ -264,21 +264,25 @@ func TestVerify_ChecksumVerificationAlwaysCalled(t *testing.T) {
 	// The checksum verification happens before parsing, so it should always be called
 }
 
-type fakeProgressMgr struct{ increments int }
+type fakeProgressMgr struct {
+	increments int
+	inited     bool
+	totalInc   int64
+}
 
-func (f *fakeProgressMgr) NewProgressReader(_ int64, _, _ string) ioUtils.Progress {
+func (f *fakeProgressMgr) NewProgressReader(total int64, label, path string) ioUtils.Progress {
 	return nil
 }
-func (f *fakeProgressMgr) SetMergingState(_ int, _ bool) ioUtils.Progress { return nil }
-func (f *fakeProgressMgr) GetProgress(_ int) ioUtils.Progress             { return nil }
-func (f *fakeProgressMgr) RemoveProgress(_ int)                           {}
-func (f *fakeProgressMgr) IncrementGeneralProgress()                      { f.increments++ }
-func (f *fakeProgressMgr) Quit() error                                    { return nil }
-func (f *fakeProgressMgr) IncGeneralProgressTotalBy(_ int64)              {}
-func (f *fakeProgressMgr) SetHeadlineMsg(_ string)                        {}
-func (f *fakeProgressMgr) ClearHeadlineMsg()                              {}
-func (f *fakeProgressMgr) InitProgressReaders()                           {}
-func (f *fakeProgressMgr) ClearProgress()                                 {}
+func (f *fakeProgressMgr) SetMergingState(id int, useSpinner bool) ioUtils.Progress { return nil }
+func (f *fakeProgressMgr) GetProgress(id int) ioUtils.Progress                      { return nil }
+func (f *fakeProgressMgr) RemoveProgress(id int)                                    {}
+func (f *fakeProgressMgr) IncrementGeneralProgress()                                { f.increments++ }
+func (f *fakeProgressMgr) Quit() error                                              { return nil }
+func (f *fakeProgressMgr) IncGeneralProgressTotalBy(n int64)                        { f.totalInc += n }
+func (f *fakeProgressMgr) SetHeadlineMsg(msg string)                                {}
+func (f *fakeProgressMgr) ClearHeadlineMsg()                                        {}
+func (f *fakeProgressMgr) InitProgressReaders()                                     { f.inited = true }
+func (f *fakeProgressMgr) ClearProgress()                                           {}
 
 func TestVerify_WithProgressMgr_Increments(t *testing.T) {
 	evidence := &[]model.SearchEvidenceEdge{{Node: model.EvidenceMetadata{DownloadPath: "p", Subject: model.EvidenceSubject{Sha256: createTestSHA256()}}}}
@@ -288,5 +292,21 @@ func TestVerify_WithProgressMgr_Increments(t *testing.T) {
 	verifier := NewEvidenceVerifier(nil, false, &clientInterface, pm)
 	_, err := verifier.Verify(createTestSHA256(), evidence, "/path")
 	assert.NoError(t, err)
+	assert.True(t, pm.inited)
 	assert.Equal(t, 1, pm.increments)
+}
+
+func TestVerify_WithProgressMgr_InitializesAndIncrements_Multiple(t *testing.T) {
+	evidence := &[]model.SearchEvidenceEdge{
+		{Node: model.EvidenceMetadata{DownloadPath: "p1", Subject: model.EvidenceSubject{Sha256: createTestSHA256()}}},
+		{Node: model.EvidenceMetadata{DownloadPath: "p2", Subject: model.EvidenceSubject{Sha256: createTestSHA256()}}},
+	}
+	mockClient := &MockArtifactoryServicesManagerVerifier{ReadRemoteFileFunc: func() io.ReadCloser { return io.NopCloser(bytes.NewReader(createMockDsseEnvelopeBytes(t))) }}
+	var clientInterface artifactory.ArtifactoryServicesManager = mockClient
+	pm := &fakeProgressMgr{}
+	verifier := NewEvidenceVerifier(nil, false, &clientInterface, pm)
+	_, err := verifier.Verify(createTestSHA256(), evidence, "/path")
+	assert.NoError(t, err)
+	assert.True(t, pm.inited)
+	assert.Equal(t, 2, pm.increments)
 }

@@ -38,6 +38,11 @@ func (v *evidenceVerifier) Verify(subjectSha256 string, evidenceMetadata *[]mode
 	if evidenceMetadata == nil || len(*evidenceMetadata) == 0 {
 		return nil, fmt.Errorf("no evidence metadata provided")
 	}
+	evidenceNumber := len(*evidenceMetadata)
+	if v.progressMgr != nil {
+		v.progressMgr.InitProgressReaders()
+		v.progressMgr.IncGeneralProgressTotalBy(int64(evidenceNumber))
+	}
 	verificationResponse := &model.VerificationResponse{
 		SchemaVersion: model.SchemaVersion,
 		Subject: model.Subject{
@@ -46,7 +51,7 @@ func (v *evidenceVerifier) Verify(subjectSha256 string, evidenceMetadata *[]mode
 		},
 		OverallVerificationStatus: model.Success,
 	}
-	evidenceVerifications := make([]model.EvidenceVerification, 0, len(*evidenceMetadata))
+	evidenceVerifications := make([]model.EvidenceVerification, 0, evidenceNumber)
 	for i := range *evidenceMetadata {
 		evidence := &(*evidenceMetadata)[i]
 		verification, err := v.verifyEvidence(evidence, subjectSha256)

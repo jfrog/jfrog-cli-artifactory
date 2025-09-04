@@ -32,7 +32,6 @@ type verifyEvidenceBase struct {
 	oneModelClient     onemodel.Manager
 	verifier           verifiers.EvidenceVerifierInterface
 	progressMgr        ioUtils.ProgressMgr
-	pmInitialized      bool
 }
 
 // newVerifyEvidenceBase builds a base with optional progress manager initialized.
@@ -56,24 +55,10 @@ func (v *verifyEvidenceBase) setHeadline(msg string) {
 	}
 }
 
-func (v *verifyEvidenceBase) initTotals() {
-	if v.progressMgr != nil && !v.pmInitialized {
-		v.progressMgr.InitProgressReaders()
-		v.pmInitialized = true
-	}
-}
-
-func (v *verifyEvidenceBase) incTotal(n int64) {
-	if v.progressMgr != nil {
-		v.progressMgr.IncGeneralProgressTotalBy(n)
-	}
-}
-
 func (v *verifyEvidenceBase) quitProgress() {
 	if v.progressMgr != nil {
 		_ = v.progressMgr.Quit()
 		v.progressMgr = nil
-		v.pmInitialized = false
 	}
 }
 
@@ -93,10 +78,6 @@ func (v *verifyEvidenceBase) printVerifyResult(result *model.VerificationRespons
 func (v *verifyEvidenceBase) verifyEvidence(client *artifactory.ArtifactoryServicesManager, evidenceMetadata *[]model.SearchEvidenceEdge, sha256, subjectPath string) error {
 	if v.verifier == nil {
 		v.setHeadline("Verifying evidence")
-		v.initTotals()
-		if evidenceMetadata != nil {
-			v.incTotal(int64(len(*evidenceMetadata)))
-		}
 		v.verifier = verifiers.NewEvidenceVerifier(v.keys, v.useArtifactoryKeys, client, v.progressMgr)
 	}
 	verify, err := v.verifier.Verify(sha256, evidenceMetadata, subjectPath)
