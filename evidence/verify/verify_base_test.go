@@ -1,7 +1,6 @@
 package verify
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -615,14 +614,6 @@ func (b *fakeBar) ActionWithProgress(reader io.Reader) io.Reader { return reader
 func (b *fakeBar) SetProgress(_ int64)                           {}
 func (b *fakeBar) Abort()                                        {}
 func (b *fakeBar) GetId() int                                    { return b.id }
-
-type mockArtClientProgress struct {
-	artifactory.EmptyArtifactoryServicesManager
-}
-
-func (m *mockArtClientProgress) ReadRemoteFile(_ string) (io.ReadCloser, error) {
-	return io.NopCloser(bytes.NewReader([]byte("{}"))), nil
-}
 
 func TestVerifyEvidenceBase_Progress_QueryEvidenceMetadata(t *testing.T) {
 	pm := &fakeProgress{}
