@@ -94,7 +94,7 @@ func TestVerifyEvidenceCustom_CommandName(t *testing.T) {
 }
 
 func TestVerifyEvidenceCustom_ServerDetails(t *testing.T) {
-	serverDetails := &config.ServerDetails{Url: "http://test.com"}
+	serverDetails := &config.ServerDetails{Url: "test.com"}
 	cmd := &verifyEvidenceCustom{
 		verifyEvidenceBase: verifyEvidenceBase{serverDetails: serverDetails},
 	}
@@ -344,4 +344,33 @@ func TestVerifyEvidenceCustom_Run_Success(t *testing.T) {
 	mockVerifier.AssertCalled(t, "Verify", "test-sha256", mock.AnythingOfType("*[]model.SearchEvidenceEdge"), mock.Anything)
 
 	t.Log("✅ SUCCESS: Run() method called mock verifier.Verify() with testify assertions!")
+}
+
+func TestVerifyEvidenceCustom_Progress_Success(t *testing.T) {
+	// Mock AQL response with subject file
+	aqlResult := `{"results":[{"sha256":"test-sha256","name":"subject.txt","repo":"test-repo","path":"path/to"}]}`
+	mockClient := &MockArtifactoryServicesManagerCustom{AqlResponse: aqlResult}
+	mockOneModel := &MockOneModelManagerCustom{GraphqlResponse: []byte(`{"data":{"evidence":{"searchEvidence":{"edges":[{"node":{"subject":{"sha256":"test-sha256"},"downloadPath":"/evidence/path"}}]}}}}`)}
+	mockVerifier := &MockVerifierCustom{}
+	expected := &model.VerificationResponse{OverallVerificationStatus: model.Success, Subject: model.Subject{Path: "test-repo/path/to/subject.txt", Sha256: "test-sha256"}}
+	mockVerifier.On("Verify", "test-sha256", mock.AnythingOfType("*[]model.SearchEvidenceEdge"), mock.AnythingOfType("string")).Return(expected, nil)
+
+	cmd := &verifyEvidenceCustom{
+		verifyEvidenceBase: verifyEvidenceBase{
+			serverDetails:  &config.ServerDetails{},
+			format:         "json",
+			verifier:       mockVerifier,
+			oneModelClient: mockOneModel,
+		},
+		subjectRepoPath: "test-repo/path/to/subject.txt",
+	}
+	var clientInterface artifactory.ArtifactoryServicesManager = mockClient
+	cmd.artifactoryClient = &clientInterface
+	pm := &fakeProgress{}
+	cmd.progressMgr = pm
+
+	err := cmd.Run()
+	assert.NoError(t, err)
+	assert.True(t, pm.quitCalled)
+	assert.True(t, len(pm.headlines) >= 1)
 }

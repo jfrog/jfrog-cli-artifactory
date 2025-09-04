@@ -5,6 +5,7 @@ import (
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
 	"github.com/jfrog/jfrog-client-go/artifactory"
+	ioUtils "github.com/jfrog/jfrog-client-go/utils/io"
 )
 
 type EvidenceVerifierInterface interface {
@@ -18,16 +19,18 @@ type evidenceVerifier struct {
 	parser             evidenceParserInterface
 	dsseVerifier       dsseVerifierInterface
 	sigstoreVerifier   sigstoreVerifierInterface
+	progressMgr        ioUtils.ProgressMgr
 }
 
-func NewEvidenceVerifier(keys []string, useArtifactoryKeys bool, client *artifactory.ArtifactoryServicesManager) EvidenceVerifierInterface {
+func NewEvidenceVerifier(keys []string, useArtifactoryKeys bool, client *artifactory.ArtifactoryServicesManager, progressMgr ioUtils.ProgressMgr) EvidenceVerifierInterface {
 	return &evidenceVerifier{
 		keys:               keys,
 		artifactoryClient:  *client,
 		useArtifactoryKeys: useArtifactoryKeys,
-		parser:             newEvidenceParser(client),
+		parser:             newEvidenceParser(client, progressMgr),
 		dsseVerifier:       newDsseVerifier(keys, useArtifactoryKeys),
 		sigstoreVerifier:   newSigstoreVerifier(),
+		progressMgr:        progressMgr,
 	}
 }
 

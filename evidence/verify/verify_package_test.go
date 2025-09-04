@@ -119,7 +119,7 @@ func TestVerifyEvidencePackage_CommandName(t *testing.T) {
 }
 
 func TestVerifyEvidencePackage_ServerDetails(t *testing.T) {
-	serverDetails := &config.ServerDetails{Url: "http://test.com"}
+	serverDetails := &config.ServerDetails{Url: "test.com"}
 	cmd := &verifyEvidencePackage{
 		verifyEvidenceBase: verifyEvidenceBase{serverDetails: serverDetails},
 	}
@@ -499,4 +499,32 @@ func TestVerifyEvidencePackage_Run_VerificationError(t *testing.T) {
 	// Verify that the mock verifier was called with expected parameters
 	mockVerifier.AssertExpectations(t)
 	mockVerifier.AssertCalled(t, "Verify", "test-sha256", mock.AnythingOfType("*[]model.SearchEvidenceEdge"), mock.AnythingOfType("string"))
+}
+
+func TestVerifyEvidencePackage_Progress_Success(t *testing.T) {
+	aqlResult := `{"results":[{"sha256":"sha","name":"pkg.jar"}]}`
+	mockClient := &MockArtifactoryServicesManagerPackage{AqlResponse: aqlResult, GetRepositoryResponse: services.RepositoryDetails{PackageType: "maven"}, PackageLeadFileData: []byte("maven-local/p/v/p.jar")}
+	mockOneModel := &MockOneModelManagerPackage{GraphqlResponse: []byte(`{"data":{"evidence":{"searchEvidence":{"edges":[{"node":{"subject":{"sha256":"sha"},"downloadPath":"/evidence"}}]}}}}`)}
+	mockVerifier := new(MockVerifierPackage)
+	expected := &model.VerificationResponse{OverallVerificationStatus: model.Success, Subject: model.Subject{Path: "maven-local/p/v/p.jar", Sha256: "sha"}}
+	mockVerifier.On("Verify", "sha", mock.AnythingOfType("*[]model.SearchEvidenceEdge"), mock.AnythingOfType("string")).Return(expected, nil)
+
+	cmd := &verifyEvidencePackage{
+		verifyEvidenceBase: verifyEvidenceBase{
+			serverDetails:  &config.ServerDetails{},
+			format:         "json",
+			verifier:       mockVerifier,
+			oneModelClient: mockOneModel,
+		},
+		packageService: evidence.NewPackageService("p", "v", "maven-local"),
+	}
+	var clientInterface artifactory.ArtifactoryServicesManager = mockClient
+	cmd.artifactoryClient = &clientInterface
+	pm := &fakeProgress{}
+	cmd.progressMgr = pm
+
+	err := cmd.Run()
+	assert.NoError(t, err)
+	assert.True(t, pm.quitCalled)
+	assert.True(t, len(pm.headlines) >= 1)
 }

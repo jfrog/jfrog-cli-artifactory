@@ -99,7 +99,7 @@ func TestVerifyEvidenceReleaseBundle_CommandName(t *testing.T) {
 }
 
 func TestVerifyEvidenceReleaseBundle_ServerDetails(t *testing.T) {
-	serverDetails := &config.ServerDetails{Url: "http://test.com"}
+	serverDetails := &config.ServerDetails{Url: "test.com"}
 	cmd := &verifyEvidenceReleaseBundle{
 		verifyEvidenceBase: verifyEvidenceBase{serverDetails: serverDetails},
 	}
@@ -468,4 +468,34 @@ func TestVerifyEvidenceReleaseBundle_ProjectBuildRepoKey(t *testing.T) {
 			mockBase.AssertExpectations(t)
 		})
 	}
+}
+
+func TestVerifyEvidenceReleaseBundle_Progress_Success(t *testing.T) {
+	aqlResult := `{"results":[{"sha256":"sha","name":"release-bundle.json.evd"}]}`
+	mockClient := &MockArtifactoryServicesManagerReleaseBundle{AqlResponse: aqlResult}
+	mockOneModel := &MockOneModelManagerReleaseBundle{GraphqlResponse: []byte(`{"data":{"evidence":{"searchEvidence":{"edges":[{"node":{"subject":{"sha256":"sha"},"downloadPath":"/evidence"}}]}}}}`)}
+	mockVerifier := &MockVerifierReleaseBundle{}
+	expected := &model.VerificationResponse{OverallVerificationStatus: model.Success, Subject: model.Subject{Path: "/p/rb/evd", Sha256: "sha"}}
+	mockVerifier.On("Verify", "sha", mock.AnythingOfType("*[]model.SearchEvidenceEdge"), mock.AnythingOfType("string")).Return(expected, nil)
+
+	cmd := &verifyEvidenceReleaseBundle{
+		verifyEvidenceBase: verifyEvidenceBase{
+			serverDetails:  &config.ServerDetails{},
+			format:         "json",
+			verifier:       mockVerifier,
+			oneModelClient: mockOneModel,
+		},
+		project:              "p",
+		releaseBundle:        "rb",
+		releaseBundleVersion: "1",
+	}
+	var clientInterface artifactory.ArtifactoryServicesManager = mockClient
+	cmd.artifactoryClient = &clientInterface
+	pm := &fakeProgress{}
+	cmd.progressMgr = pm
+
+	err := cmd.Run()
+	assert.NoError(t, err)
+	assert.True(t, pm.quitCalled)
+	assert.True(t, len(pm.headlines) >= 1)
 }

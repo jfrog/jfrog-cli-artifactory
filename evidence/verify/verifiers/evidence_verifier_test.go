@@ -8,12 +8,13 @@ import (
 
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
 	"github.com/jfrog/jfrog-client-go/artifactory"
+	ioUtils "github.com/jfrog/jfrog-client-go/utils/io"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestVerify_NilEvidenceMetadata(t *testing.T) {
 	mockClient := createMockArtifactoryClient([]byte{})
-	verifier := NewEvidenceVerifier(nil, true, mockClient)
+	verifier := NewEvidenceVerifier(nil, true, mockClient, nil)
 
 	result, err := verifier.Verify("test-sha256", nil, "")
 	assert.EqualError(t, err, "no evidence metadata provided")
@@ -22,7 +23,7 @@ func TestVerify_NilEvidenceMetadata(t *testing.T) {
 
 func TestVerify_EmptyEvidenceMetadata(t *testing.T) {
 	mockClient := createMockArtifactoryClient([]byte{})
-	verifier := NewEvidenceVerifier(nil, true, mockClient)
+	verifier := NewEvidenceVerifier(nil, true, mockClient, nil)
 	emptyMetadata := &[]model.SearchEvidenceEdge{}
 
 	result, err := verifier.Verify("test-sha256", emptyMetadata, "")
@@ -36,7 +37,7 @@ func TestVerify_FileReadError(t *testing.T) {
 		ReadRemoteFileError: errors.New("file read error"),
 	}
 	var clientInterface artifactory.ArtifactoryServicesManager = mockClient
-	verifier := NewEvidenceVerifier(nil, true, &clientInterface)
+	verifier := NewEvidenceVerifier(nil, true, &clientInterface, nil)
 
 	_, err := verifier.Verify(createTestSHA256(), evidence, "/path/to/file")
 	assert.EqualError(t, err, "failed to read envelope: failed to read remote file: file read error")
@@ -75,7 +76,7 @@ func TestVerify_MultipleEvidence(t *testing.T) {
 		},
 	}
 	var clientInterface artifactory.ArtifactoryServicesManager = mockClient
-	verifier := NewEvidenceVerifier(nil, false, &clientInterface)
+	verifier := NewEvidenceVerifier(nil, false, &clientInterface, nil)
 
 	result, err := verifier.Verify(testSha256, evidence, "/path/to/file")
 
@@ -101,7 +102,7 @@ func TestVerify_NilEvidence(t *testing.T) {
 	mockClient := createMockArtifactoryClient([]byte{})
 	verifier := &evidenceVerifier{
 		artifactoryClient: *mockClient,
-		parser:            newEvidenceParser(mockClient),
+		parser:            newEvidenceParser(mockClient, nil),
 		dsseVerifier:      newDsseVerifier(nil, false),
 		sigstoreVerifier:  newSigstoreVerifier(),
 	}
@@ -145,7 +146,7 @@ func TestVerify_OverallStatus(t *testing.T) {
 		},
 	}
 	var clientInterface artifactory.ArtifactoryServicesManager = mockClient
-	verifier := NewEvidenceVerifier(nil, false, &clientInterface)
+	verifier := NewEvidenceVerifier(nil, false, &clientInterface, nil)
 
 	result, err := verifier.Verify(createTestSHA256(), evidence, "/path/to/file")
 
@@ -206,7 +207,7 @@ func TestVerify_ChecksumVerificationFailure(t *testing.T) {
 		},
 	}
 	var clientInterface artifactory.ArtifactoryServicesManager = mockClient
-	verifier := NewEvidenceVerifier(nil, false, &clientInterface)
+	verifier := NewEvidenceVerifier(nil, false, &clientInterface, nil)
 
 	result, err := verifier.Verify(subjectSha256, evidence, "/path/to/file")
 
@@ -250,7 +251,7 @@ func TestVerify_ChecksumVerificationAlwaysCalled(t *testing.T) {
 		},
 	}
 	var clientInterface artifactory.ArtifactoryServicesManager = mockClient
-	verifier := NewEvidenceVerifier(nil, false, &clientInterface)
+	verifier := NewEvidenceVerifier(nil, false, &clientInterface, nil)
 
 	_, err := verifier.Verify(subjectSha256, evidence, "/path/to/file")
 
@@ -261,4 +262,31 @@ func TestVerify_ChecksumVerificationAlwaysCalled(t *testing.T) {
 	// The error should occur after checksum verification, so we can't check the result
 	// But we can verify that the verifyChecksum function is called by checking the implementation
 	// The checksum verification happens before parsing, so it should always be called
+}
+
+type fakeProgressMgr struct{ increments int }
+
+func (f *fakeProgressMgr) NewProgressReader(_ int64, _, _ string) ioUtils.Progress {
+	return nil
+}
+func (f *fakeProgressMgr) SetMergingState(_ int, _ bool) ioUtils.Progress { return nil }
+func (f *fakeProgressMgr) GetProgress(_ int) ioUtils.Progress             { return nil }
+func (f *fakeProgressMgr) RemoveProgress(_ int)                           {}
+func (f *fakeProgressMgr) IncrementGeneralProgress()                      { f.increments++ }
+func (f *fakeProgressMgr) Quit() error                                    { return nil }
+func (f *fakeProgressMgr) IncGeneralProgressTotalBy(_ int64)              {}
+func (f *fakeProgressMgr) SetHeadlineMsg(_ string)                        {}
+func (f *fakeProgressMgr) ClearHeadlineMsg()                              {}
+func (f *fakeProgressMgr) InitProgressReaders()                           {}
+func (f *fakeProgressMgr) ClearProgress()                                 {}
+
+func TestVerify_WithProgressMgr_Increments(t *testing.T) {
+	evidence := &[]model.SearchEvidenceEdge{{Node: model.EvidenceMetadata{DownloadPath: "p", Subject: model.EvidenceSubject{Sha256: createTestSHA256()}}}}
+	mockClient := &MockArtifactoryServicesManagerVerifier{ReadRemoteFileFunc: func() io.ReadCloser { return io.NopCloser(bytes.NewReader(createMockDsseEnvelopeBytes(t))) }}
+	var clientInterface artifactory.ArtifactoryServicesManager = mockClient
+	pm := &fakeProgressMgr{}
+	verifier := NewEvidenceVerifier(nil, false, &clientInterface, pm)
+	_, err := verifier.Verify(createTestSHA256(), evidence, "/path")
+	assert.NoError(t, err)
+	assert.Equal(t, 1, pm.increments)
 }

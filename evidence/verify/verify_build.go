@@ -22,20 +22,17 @@ type verifyEvidenceBuild struct {
 // NewVerifyEvidenceBuild creates a new command for verifying evidence for a build.
 func NewVerifyEvidenceBuild(serverDetails *config.ServerDetails, project, buildName, buildNumber, format string, keys []string, useArtifactoryKeys bool) evidence.Command {
 	return &verifyEvidenceBuild{
-		verifyEvidenceBase: verifyEvidenceBase{
-			serverDetails:      serverDetails,
-			format:             format,
-			keys:               keys,
-			useArtifactoryKeys: useArtifactoryKeys,
-		},
-		project:     project,
-		buildName:   buildName,
-		buildNumber: buildNumber,
+		verifyEvidenceBase: newVerifyEvidenceBase(serverDetails, format, keys, useArtifactoryKeys),
+		project:            project,
+		buildName:          buildName,
+		buildNumber:        buildNumber,
 	}
 }
 
 // Run executes the build evidence verification command.
 func (v *verifyEvidenceBuild) Run() error {
+	defer v.quitProgress()
+
 	client, err := v.createArtifactoryClient()
 	if err != nil {
 		return fmt.Errorf("failed to create Artifactory client: %w", err)
@@ -43,6 +40,7 @@ func (v *verifyEvidenceBuild) Run() error {
 
 	repoKey := utils.BuildBuildInfoRepoKey(v.project)
 
+	v.setHeadline("Searching build")
 	result, err := utils.ExecuteAqlQuery(fmt.Sprintf(aqlBuildQueryTemplate, repoKey, v.buildName, v.buildNumber), client)
 	if err != nil {
 		return fmt.Errorf("failed to execute AQL query: %w", err)

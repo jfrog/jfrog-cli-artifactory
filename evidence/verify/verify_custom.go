@@ -2,9 +2,10 @@ package verify
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/jfrog/jfrog-cli-artifactory/evidence"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
-	"strings"
 
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
@@ -21,18 +22,15 @@ type verifyEvidenceCustom struct {
 // NewVerifyEvidenceCustom creates a new command for verifying evidence for a custom subject path.
 func NewVerifyEvidenceCustom(serverDetails *config.ServerDetails, subjectRepoPath, format string, keys []string, useArtifactoryKeys bool) evidence.Command {
 	return &verifyEvidenceCustom{
-		verifyEvidenceBase: verifyEvidenceBase{
-			serverDetails:      serverDetails,
-			format:             format,
-			keys:               keys,
-			useArtifactoryKeys: useArtifactoryKeys,
-		},
-		subjectRepoPath: subjectRepoPath,
+		verifyEvidenceBase: newVerifyEvidenceBase(serverDetails, format, keys, useArtifactoryKeys),
+		subjectRepoPath:    subjectRepoPath,
 	}
 }
 
 // Run executes the custom evidence verification command.
 func (v *verifyEvidenceCustom) Run() error {
+	defer v.quitProgress()
+
 	repo, path, name, err := extractSubjectRepoPathName(v)
 	if err != nil {
 		return err
@@ -41,6 +39,7 @@ func (v *verifyEvidenceCustom) Run() error {
 	if err != nil {
 		return fmt.Errorf("failed to create Artifactory client: %w", err)
 	}
+	v.setHeadline("Searching subject")
 	query := prepareAqlQuery(path, repo, name)
 	result, err := utils.ExecuteAqlQuery(query, client)
 	if err != nil {

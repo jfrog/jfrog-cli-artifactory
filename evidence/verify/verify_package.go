@@ -23,13 +23,8 @@ type verifyEvidencePackage struct {
 // NewVerifyEvidencePackage creates a new command for verifying evidence for a package.
 func NewVerifyEvidencePackage(serverDetails *config.ServerDetails, format, packageName, packageVersion, packageRepoName string, keys []string, useArtifactoryKeys bool) evidence.Command {
 	return &verifyEvidencePackage{
-		verifyEvidenceBase: verifyEvidenceBase{
-			serverDetails:      serverDetails,
-			format:             format,
-			keys:               keys,
-			useArtifactoryKeys: useArtifactoryKeys,
-		},
-		packageService: evidence.NewPackageService(packageName, packageVersion, packageRepoName),
+		verifyEvidenceBase: newVerifyEvidenceBase(serverDetails, format, keys, useArtifactoryKeys),
+		packageService:     evidence.NewPackageService(packageName, packageVersion, packageRepoName),
 	}
 }
 
@@ -45,11 +40,13 @@ func (c *verifyEvidencePackage) ServerDetails() (*config.ServerDetails, error) {
 
 // Run executes the package evidence verification command.
 func (c *verifyEvidencePackage) Run() error {
+	defer c.quitProgress()
+
 	artifactoryClient, err := c.createArtifactoryClient()
 	if err != nil {
 		return fmt.Errorf("failed to create Artifactory client: %w", err)
 	}
-
+	c.setHeadline("Searching package")
 	packageType, err := c.packageService.GetPackageType(*artifactoryClient)
 	if err != nil {
 		return fmt.Errorf("failed to get package type: %w", err)

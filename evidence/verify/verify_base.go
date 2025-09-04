@@ -9,11 +9,13 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify/reports"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/verify/verifiers"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
+	coreProgress "github.com/jfrog/jfrog-cli-core/v2/common/progressbar"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/onemodel"
+	ioUtils "github.com/jfrog/jfrog-client-go/utils/io"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -29,6 +31,50 @@ type verifyEvidenceBase struct {
 	artifactoryClient  *artifactory.ArtifactoryServicesManager
 	oneModelClient     onemodel.Manager
 	verifier           verifiers.EvidenceVerifierInterface
+	progressMgr        ioUtils.ProgressMgr
+	pmInitialized      bool
+}
+
+// newVerifyEvidenceBase builds a base with optional progress manager initialized.
+func newVerifyEvidenceBase(serverDetails *config.ServerDetails, format string, keys []string, useArtifactoryKeys bool) verifyEvidenceBase {
+	v := verifyEvidenceBase{
+		serverDetails:      serverDetails,
+		format:             format,
+		keys:               keys,
+		useArtifactoryKeys: useArtifactoryKeys,
+	}
+	// Initialize progress manager if possible. The progress manager is optional.
+	if pm, _ := coreProgress.InitFilesProgressBarIfPossible(false); pm != nil {
+		v.progressMgr = pm
+	}
+	return v
+}
+
+func (v *verifyEvidenceBase) setHeadline(msg string) {
+	if v.progressMgr != nil {
+		v.progressMgr.SetHeadlineMsg(msg)
+	}
+}
+
+func (v *verifyEvidenceBase) initTotals() {
+	if v.progressMgr != nil && !v.pmInitialized {
+		v.progressMgr.InitProgressReaders()
+		v.pmInitialized = true
+	}
+}
+
+func (v *verifyEvidenceBase) incTotal(n int64) {
+	if v.progressMgr != nil {
+		v.progressMgr.IncGeneralProgressTotalBy(n)
+	}
+}
+
+func (v *verifyEvidenceBase) quitProgress() {
+	if v.progressMgr != nil {
+		_ = v.progressMgr.Quit()
+		v.progressMgr = nil
+		v.pmInitialized = false
+	}
 }
 
 // printVerifyResult prints the verification result in the requested format.
@@ -46,7 +92,12 @@ func (v *verifyEvidenceBase) printVerifyResult(result *model.VerificationRespons
 // verifyEvidence runs the verification process for the given evidence metadata and subject sha256.
 func (v *verifyEvidenceBase) verifyEvidence(client *artifactory.ArtifactoryServicesManager, evidenceMetadata *[]model.SearchEvidenceEdge, sha256, subjectPath string) error {
 	if v.verifier == nil {
-		v.verifier = verifiers.NewEvidenceVerifier(v.keys, v.useArtifactoryKeys, client)
+		v.setHeadline("Verifying evidence")
+		v.initTotals()
+		if evidenceMetadata != nil {
+			v.incTotal(int64(len(*evidenceMetadata)))
+		}
+		v.verifier = verifiers.NewEvidenceVerifier(v.keys, v.useArtifactoryKeys, client, v.progressMgr)
 	}
 	verify, err := v.verifier.Verify(sha256, evidenceMetadata, subjectPath)
 	if err != nil {
@@ -75,6 +126,8 @@ func (v *verifyEvidenceBase) createArtifactoryClient() (*artifactory.Artifactory
 
 // queryEvidenceMetadata queries evidence metadata for a given repo, path, and name.
 func (v *verifyEvidenceBase) queryEvidenceMetadata(repo string, path string, name string) (*[]model.SearchEvidenceEdge, error) {
+	v.setHeadline("Searching evidence")
+
 	err := createOneModelService(v)
 	if err != nil {
 		return nil, err

@@ -2,6 +2,7 @@ package verify
 
 import (
 	"fmt"
+
 	"github.com/jfrog/jfrog-cli-artifactory/evidence"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 
@@ -21,12 +22,7 @@ type verifyEvidenceReleaseBundle struct {
 // NewVerifyEvidenceReleaseBundle creates a new command for verifying evidence for a release bundle.
 func NewVerifyEvidenceReleaseBundle(serverDetails *config.ServerDetails, format, project, releaseBundle, releaseBundleVersion string, keys []string, useArtifactoryKeys bool) evidence.Command {
 	return &verifyEvidenceReleaseBundle{
-		verifyEvidenceBase: verifyEvidenceBase{
-			serverDetails:      serverDetails,
-			format:             format,
-			keys:               keys,
-			useArtifactoryKeys: useArtifactoryKeys,
-		},
+		verifyEvidenceBase:   newVerifyEvidenceBase(serverDetails, format, keys, useArtifactoryKeys),
 		project:              project,
 		releaseBundle:        releaseBundle,
 		releaseBundleVersion: releaseBundleVersion,
@@ -45,6 +41,8 @@ func (c *verifyEvidenceReleaseBundle) ServerDetails() (*config.ServerDetails, er
 
 // Run executes the release bundle evidence verification command.
 func (c *verifyEvidenceReleaseBundle) Run() error {
+	defer c.quitProgress()
+
 	artifactoryClient, err := c.createArtifactoryClient()
 	if err != nil {
 		return fmt.Errorf("failed to create Artifactory client: %w", err)
@@ -53,6 +51,7 @@ func (c *verifyEvidenceReleaseBundle) Run() error {
 	repoKey := utils.BuildReleaseBundleRepoKey(c.project)
 
 	path := fmt.Sprintf("%s/%s", c.releaseBundle, c.releaseBundleVersion)
+	c.setHeadline("Searching release bundle")
 	result, err := utils.ExecuteAqlQuery(fmt.Sprintf(aqlReleaseBundleQueryTemplate, repoKey, path, "release-bundle.json.evd"), artifactoryClient)
 	if err != nil {
 		return fmt.Errorf("failed to execute AQL query: %w", err)

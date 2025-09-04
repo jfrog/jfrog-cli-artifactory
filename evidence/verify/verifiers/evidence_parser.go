@@ -8,6 +8,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/dsse"
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
 	"github.com/jfrog/jfrog-client-go/artifactory"
+	ioUtils "github.com/jfrog/jfrog-client-go/utils/io"
 	"github.com/pkg/errors"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 )
@@ -18,11 +19,13 @@ type evidenceParserInterface interface {
 
 type evidenceParser struct {
 	artifactoryClient artifactory.ArtifactoryServicesManager
+	progressMgr       ioUtils.ProgressMgr
 }
 
-func newEvidenceParser(client *artifactory.ArtifactoryServicesManager) evidenceParserInterface {
+func newEvidenceParser(client *artifactory.ArtifactoryServicesManager, progress ioUtils.ProgressMgr) evidenceParserInterface {
 	return &evidenceParser{
 		artifactoryClient: *client,
+		progressMgr:       progress,
 	}
 }
 
@@ -41,6 +44,9 @@ func (p *evidenceParser) parseEvidence(evidence *model.SearchEvidenceEdge, evide
 	fileContent, err := io.ReadAll(file)
 	if err != nil {
 		return errors.Wrap(err, "failed to read file content: "+evidence.Node.DownloadPath)
+	}
+	if p.progressMgr != nil {
+		p.progressMgr.IncrementGeneralProgress()
 	}
 	// Try Sigstore bundle first
 	if err := p.tryParseSigstoreBundle(fileContent, evidenceResult); err == nil {
