@@ -426,7 +426,10 @@ type captureUploaderRB struct{ body []byte }
 
 func (c *captureUploaderRB) UploadEvidence(d evdservices.EvidenceDetails) ([]byte, error) {
 	resp := model.CreateResponse{PredicateSlug: "slug", Verified: true}
-	b, _ := json.Marshal(resp)
+	b, err := json.Marshal(resp)
+	if err != nil {
+		return nil, err
+	}
 	c.body = d.DSSEFileRaw
 	return b, nil
 }

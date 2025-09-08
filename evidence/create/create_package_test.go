@@ -223,7 +223,10 @@ type mockUploaderPkg struct{ body []byte }
 
 func (m *mockUploaderPkg) UploadEvidence(details evdservices.EvidenceDetails) ([]byte, error) {
 	resp := model.CreateResponse{PredicateSlug: "slug", Verified: true, PredicateType: "t"}
-	b, _ := json.Marshal(resp)
+	b, err := json.Marshal(resp)
+	if err != nil {
+		return nil, err
+	}
 	m.body = details.DSSEFileRaw
 	return b, nil
 }

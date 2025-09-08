@@ -33,7 +33,9 @@ type MockBuildAndVcsDetails struct {
 func (m *MockBuildAndVcsDetails) GetBuildDetails() *build.BuildConfiguration {
 	args := m.Called()
 	if buildConfig := args.Get(0); buildConfig != nil {
-		return buildConfig.(*build.BuildConfiguration)
+		if bc, ok := buildConfig.(*build.BuildConfiguration); ok {
+			return bc
+		}
 	}
 	return nil
 }
@@ -154,7 +156,10 @@ type captureUploaderGH struct{ body []byte }
 
 func (c *captureUploaderGH) UploadEvidence(d evdservices.EvidenceDetails) ([]byte, error) {
 	resp := model.CreateResponse{PredicateSlug: "slug", Verified: true}
-	b, _ := json.Marshal(resp)
+	b, err := json.Marshal(resp)
+	if err != nil {
+		return nil, err
+	}
 	c.body = d.DSSEFileRaw
 	return b, nil
 }
