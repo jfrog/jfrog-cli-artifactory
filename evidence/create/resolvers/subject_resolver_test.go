@@ -18,6 +18,7 @@ func TestResolveSubject_Docker(t *testing.T) {
 	// Should return error due to nil client
 	assert.Error(t, err)
 	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "artifactory client cannot be nil")
 }
 
 func TestResolveSubject_OCI(t *testing.T) {
@@ -30,6 +31,7 @@ func TestResolveSubject_OCI(t *testing.T) {
 	// Should return error due to nil client
 	assert.Error(t, err)
 	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "artifactory client cannot be nil")
 }
 
 func TestResolveSubject_NoProtocol(t *testing.T) {
@@ -102,4 +104,5 @@ func TestResolveSubject_WhitespaceProtocol(t *testing.T) {
 	// Should return error due to nil client, but protocol should be trimmed
 	assert.Error(t, err)
 	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "artifactory client cannot be nil") // Protocol should be recognized after trimming
 }
