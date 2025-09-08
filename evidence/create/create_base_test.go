@@ -216,7 +216,10 @@ type captureUploader struct{ last evdservices.EvidenceDetails }
 
 func (c *captureUploader) UploadEvidence(d evdservices.EvidenceDetails) ([]byte, error) {
 	resp := model.CreateResponse{PredicateSlug: "slug", Verified: true, PredicateType: "t"}
-	b, _ := json.Marshal(resp)
+	b, err := json.Marshal(resp)
+	if err != nil {
+		return nil, err
+	}
 	c.last = d
 	return b, nil
 }
@@ -317,8 +320,10 @@ func TestCreateEnvelope_Sonar_ProviderAndSubjectStage(t *testing.T) {
 	assert.Equal(t, "promoted", payload["stage"])
 	subj, ok := payload["subject"].([]any)
 	assert.True(t, ok)
-	first := subj[0].(map[string]any)
-	dig := first["digest"].(map[string]any)
+	first, ok := subj[0].(map[string]any)
+	assert.True(t, ok)
+	dig, ok := first["digest"].(map[string]any)
+	assert.True(t, ok)
 	assert.Equal(t, "deadbeef", dig["sha256"])
 }
 
@@ -486,8 +491,12 @@ func TestAddSubjectAndStageToStatement_StageEmpty(t *testing.T) {
 	assert.NoError(t, json.Unmarshal(out, &m))
 	_, hasStage := m["stage"]
 	assert.False(t, hasStage)
-	subj := m["subject"].([]any)
-	dg := subj[0].(map[string]any)["digest"].(map[string]any)
+	subj, ok := m["subject"].([]any)
+	assert.True(t, ok)
+	firstSubj, ok := subj[0].(map[string]any)
+	assert.True(t, ok)
+	dg, ok := firstSubj["digest"].(map[string]any)
+	assert.True(t, ok)
 	assert.Equal(t, "abc", dg["sha256"])
 }
 

@@ -52,7 +52,10 @@ type captureUploaderCustom struct{ last evdservices.EvidenceDetails }
 
 func (c *captureUploaderCustom) UploadEvidence(d evdservices.EvidenceDetails) ([]byte, error) {
 	resp := model.CreateResponse{PredicateSlug: "slug", Verified: true, PredicateType: "ptype"}
-	b, _ := json.Marshal(resp)
+	b, err := json.Marshal(resp)
+	if err != nil {
+		return nil, err
+	}
 	c.last = d
 	return b, nil
 }
@@ -91,7 +94,8 @@ func TestExtractSubjectFromBundle_ResolverErrorMapped(t *testing.T) {
 		"predicateType": "https://slsa.dev/provenance/v0.2",
 		"predicate":     map[string]any{},
 	}
-	statementBytes, _ := json.Marshal(statement)
+	statementBytes, err := json.Marshal(statement)
+	assert.NoError(t, err)
 	payload := base64.StdEncoding.EncodeToString(statementBytes)
 	bundleJSON := `{"mediaType":"application/vnd.dev.sigstore.bundle+json;version=0.2","verificationMaterial":{"certificate":{"rawBytes":"ZGF0YQ=="}},"dsseEnvelope":{"payload":"` + payload + `","payloadType":"application/vnd.in-toto+json","signatures":[{"sig":"ZGF0YQ==","keyid":"id"}]}}`
 	dir := t.TempDir()
@@ -154,7 +158,8 @@ func TestProcessSigstoreBundle_AutoResolutionAndSubjectsSet(t *testing.T) {
 		"predicateType": "https://slsa.dev/provenance/v0.2",
 		"predicate":     map[string]any{},
 	}
-	statementBytes, _ := json.Marshal(statement)
+	statementBytes, err := json.Marshal(statement)
+	assert.NoError(t, err)
 	payload := base64.StdEncoding.EncodeToString(statementBytes)
 	bundleJSON := `{
         "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.2",
@@ -178,7 +183,8 @@ func TestProcessSigstoreBundle_AutoResolutionAndSubjectsSet(t *testing.T) {
 func TestExtractSubjectFromBundle_ResolverReturnsEmpty_NewSubjectError(t *testing.T) {
 	// Build bundle with subject
 	statement := map[string]any{"_type": "https://in-toto.io/Statement/v1", "subject": []any{map[string]any{"digest": map[string]any{"sha256": "abc"}, "name": "repo/path/artifact"}}, "predicateType": "https://slsa.dev/provenance/v0.2", "predicate": map[string]any{}}
-	statementBytes, _ := json.Marshal(statement)
+	statementBytes, err := json.Marshal(statement)
+	assert.NoError(t, err)
 	payload := base64.StdEncoding.EncodeToString(statementBytes)
 	bundleJSON := `{"mediaType":"application/vnd.dev.sigstore.bundle+json;version=0.2","verificationMaterial":{"certificate":{"rawBytes":"ZGF0YQ=="}},"dsseEnvelope":{"payload":"` + payload + `","payloadType":"application/vnd.in-toto+json","signatures":[{"sig":"ZGF0YQ==","keyid":"id"}]}}`
 	dir := t.TempDir()
