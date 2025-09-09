@@ -13,7 +13,7 @@ import (
 )
 
 func TestNewVscodeCommand(t *testing.T) {
-	serviceURL := "https://company.jfrog.io/artifactory/api/vscodeextensions/repo/_apis/public/gallery"
+	serviceURL := "https://company.jfrog.io/artifactory/api/aieditorextensions/repo/_apis/public/gallery"
 	productPath := "/custom/path/product.json"
 	repoKey := "repo"
 
@@ -153,7 +153,7 @@ func TestVscodeCommand_ModifyProductJson_ValidFile(t *testing.T) {
 	require.NoError(t, err)
 
 	cmd := NewVscodeCommand("", productPath, "")
-	newServiceURL := "https://company.jfrog.io/artifactory/api/vscodeextensions/repo/_apis/public/gallery"
+	newServiceURL := "https://company.jfrog.io/artifactory/api/aieditorextensions/repo/_apis/public/gallery"
 
 	err = cmd.modifyProductJson(newServiceURL)
 	assert.NoError(t, err)
@@ -165,7 +165,7 @@ func TestVscodeCommand_ModifyProductJson_ValidFile(t *testing.T) {
 
 func TestVscodeCommand_ModifyProductJson_NonExistentFile(t *testing.T) {
 	cmd := NewVscodeCommand("", "/non/existent/path/product.json", "")
-	newServiceURL := "https://company.jfrog.io/artifactory/api/vscodeextensions/repo/_apis/public/gallery"
+	newServiceURL := "https://company.jfrog.io/artifactory/api/aieditorextensions/repo/_apis/public/gallery"
 
 	err := cmd.modifyProductJson(newServiceURL)
 	assert.Error(t, err)
@@ -173,7 +173,7 @@ func TestVscodeCommand_ModifyProductJson_NonExistentFile(t *testing.T) {
 
 func TestVscodeCommand_GetManualSetupInstructions(t *testing.T) {
 	cmd := NewVscodeCommand("", "", "")
-	serviceURL := "https://company.jfrog.io/artifactory/api/vscodeextensions/repo/_apis/public/gallery"
+	serviceURL := "https://company.jfrog.io/artifactory/api/aieditorextensions/repo/_apis/public/gallery"
 
 	instructions := cmd.getManualSetupInstructions(serviceURL)
 
@@ -206,7 +206,7 @@ func TestVscodeCommand_HandlePermissionError_macOS(t *testing.T) {
 		t.Skip("macOS-specific test")
 	}
 
-	cmd := NewVscodeCommand("https://company.jfrog.io/artifactory/api/vscodeextensions/repo/_apis/public/gallery",
+	cmd := NewVscodeCommand("https://company.jfrog.io/artifactory/api/aieditorextensions/repo/_apis/public/gallery",
 		"/Applications/Visual Studio Code.app/Contents/Resources/app/product.json", "")
 
 	err := cmd.handlePermissionError()

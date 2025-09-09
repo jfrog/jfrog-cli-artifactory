@@ -16,7 +16,7 @@ const (
 	productJsonPath = "product-json-path"
 	repoKeyFlag     = "repo-key"
 	urlSuffixFlag   = "url-suffix"
-	apiType         = "vscodeextensions"
+	apiType         = "aieditorextensions"
 )
 
 func GetCommands() []components.Command {
@@ -127,7 +127,7 @@ func getVscodeRepoKeyAndURL(c *components.Context) (repoKey, serviceURL string, 
 	if urlSuffix == "" {
 		urlSuffix = "_apis/public/gallery"
 	}
-	serviceURL = baseUrl + "/api/vscodeextensions/" + repoKey + "/" + strings.TrimLeft(urlSuffix, "/")
+	serviceURL = baseUrl + "/api/" + apiType + "/" + repoKey + "/" + strings.TrimLeft(urlSuffix, "/")
 	return
 }
 

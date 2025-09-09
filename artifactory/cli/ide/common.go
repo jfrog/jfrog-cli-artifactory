@@ -33,7 +33,7 @@ func HasServerConfigFlags(c *components.Context) bool {
 
 // ExtractRepoKeyFromURL extracts the repository key from both JetBrains and VSCode extension URLs.
 // For JetBrains: https://mycompany.jfrog.io/artifactory/api/jetbrainsplugins/jetbrains-plugins
-// For VSCode: https://mycompany.jfrog.io/artifactory/api/vscodeextensions/vscode-extensions/_apis/public/gallery
+// For VSCode: https://mycompany.jfrog.io/artifactory/api/aieditorextensions/vscode-extensions/_apis/public/gallery
 // Returns the repo key (e.g., "jetbrains-plugins" or "vscode-extensions")
 func ExtractRepoKeyFromURL(repoURL string) (string, error) {
 	if repoURL == "" {
@@ -56,8 +56,8 @@ func ExtractRepoKeyFromURL(repoURL string) (string, error) {
 	}
 
 	// Check for VSCode extensions API
-	if idx := strings.Index(url, "/api/vscodeextensions/"); idx != -1 {
-		rest := url[idx+len("/api/vscodeextensions/"):]
+	if idx := strings.Index(url, "/api/aieditorextensions/"); idx != -1 {
+		rest := url[idx+len("/api/aieditorextensions/"):]
 		parts := strings.SplitN(rest, "/", 2)
 		if len(parts) == 0 || parts[0] == "" {
 			return "", fmt.Errorf("repository key not found in VSCode URL")
@@ -65,7 +65,7 @@ func ExtractRepoKeyFromURL(repoURL string) (string, error) {
 		return parts[0], nil
 	}
 
-	return "", fmt.Errorf("URL does not contain a supported API type (/api/jetbrainsplugins/ or /api/vscodeextensions/)")
+	return "", fmt.Errorf("URL does not contain a supported API type (/api/jetbrainsplugins/ or /api/aieditorextensions/)")
 }
 
 // IsValidUrl checks if a string is a valid URL with scheme and host

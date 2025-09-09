@@ -4,10 +4,10 @@ const VscodeConfigDescription = `
 Configure VSCode to use JFrog Artifactory for extensions.
 
 The service URL should be in the format:
-https://<artifactory-url>/artifactory/api/vscodeextensions/<repo-key>/_apis/public/gallery
+https://<artifactory-url>/artifactory/api/aieditorextensions/<repo-key>/_apis/public/gallery
 
 Examples:
-  jf vscode-config https://mycompany.jfrog.io/artifactory/api/vscodeextensions/vscode-extensions/_apis/public/gallery
+  jf vscode-config https://mycompany.jfrog.io/artifactory/api/aieditorextensions/vscode-extensions/_apis/public/gallery
 
 This command will:
 - Modify the VSCode product.json file to change the extensions gallery URL
