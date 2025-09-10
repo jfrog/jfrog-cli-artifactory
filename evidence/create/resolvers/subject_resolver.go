@@ -57,3 +57,15 @@ func ResolveSubject(subject, checksum string, client artifactory.ArtifactoryServ
 	// Unsupported protocol, return original subject
 	return []string{subject}, nil
 }
+
+// SubjectLookup resolves a subject+checksum to repository paths
+type SubjectLookup interface {
+	ResolveSubject(subject, checksum string, client artifactory.ArtifactoryServicesManager) ([]string, error)
+}
+
+// DefaultSubjectLookup delegates to the package-level ResolveSubject function
+type DefaultSubjectLookup struct{}
+
+func (DefaultSubjectLookup) ResolveSubject(subject, checksum string, client artifactory.ArtifactoryServicesManager) ([]string, error) {
+	return ResolveSubject(subject, checksum, client)
+}

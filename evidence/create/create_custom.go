@@ -28,6 +28,8 @@ type createEvidenceCustom struct {
 	subjectSha256         string
 	sigstoreBundlePath    string
 	autoSubjectResolution bool
+
+	lookup resolvers.SubjectLookup
 }
 
 func NewCreateEvidenceCustom(serverDetails *config.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, subjectRepoPath,
@@ -52,6 +54,7 @@ func NewCreateEvidenceCustom(serverDetails *config.ServerDetails, predicateFileP
 		subjectRepoPaths:   subjectRepoPathSlice,
 		subjectSha256:      subjectSha256,
 		sigstoreBundlePath: sigstoreBundlePath,
+		lookup:             resolvers.DefaultSubjectLookup{},
 	}
 }
 
@@ -156,7 +159,7 @@ func (c *createEvidenceCustom) extractSubjectFromBundle(bundle *bundle.Bundle) (
 	}
 
 	log.Info("Resolving subject from bundle:", subject, "with checksum:", sha256)
-	subjects, err := resolvers.ResolveSubject(subject, sha256, client)
+	subjects, err := c.lookup.ResolveSubject(subject, sha256, client)
 	if err != nil {
 		return nil, errorutils.CheckErrorf("failed to resolve subject '%s' with checksum '%s': %s", subject, sha256, err.Error())
 	}

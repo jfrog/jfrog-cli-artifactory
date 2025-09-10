@@ -3,6 +3,7 @@ package create
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,8 +13,11 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+	lifecycleServices "github.com/jfrog/jfrog-client-go/lifecycle/services"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/stretchr/testify/assert"
+
+	evdservices "github.com/jfrog/jfrog-client-go/evidence/services"
 )
 
 type mockReleaseBundleArtifactoryServicesManager struct {
@@ -321,9 +325,7 @@ func TestCreateEvidenceReleaseBundle_RecordSummary(t *testing.T) {
 		"",
 	)
 	c, ok := evidence.(*createEvidenceReleaseBundle)
-	if !ok {
-		t.Fatal("Failed to create createEvidenceReleaseBundle instance")
-	}
+	assert.True(t, ok, "should create createEvidenceReleaseBundle instance")
 
 	expectedResponse := &model.CreateResponse{
 		PredicateSlug: "test-rb-slug",
@@ -410,4 +412,93 @@ func TestCreateEvidenceReleaseBundle_ProviderId(t *testing.T) {
 			assert.Equal(t, tt.expectedProviderId, createCmd.providerId)
 		})
 	}
+}
+
+type mockReleaseBundleArtifactoryServicesManagerFileErr struct {
+	artifactory.EmptyArtifactoryServicesManager
+}
+
+func (m *mockReleaseBundleArtifactoryServicesManagerFileErr) FileInfo(_ string) (*utils.FileInfo, error) {
+	return nil, assert.AnError
+}
+
+type captureUploaderRB struct{ body []byte }
+
+func (c *captureUploaderRB) UploadEvidence(d evdservices.EvidenceDetails) ([]byte, error) {
+	resp := model.CreateResponse{PredicateSlug: "slug", Verified: true}
+	b, err := json.Marshal(resp)
+	if err != nil {
+		return nil, err
+	}
+	c.body = d.DSSEFileRaw
+	return b, nil
+}
+
+type failingUploaderRB struct{ err error }
+
+func (f failingUploaderRB) UploadEvidence(d evdservices.EvidenceDetails) ([]byte, error) {
+	return nil, f.err
+}
+
+func TestCreateEvidenceReleaseBundle_Run_Success_WithInjectedDeps(t *testing.T) {
+	d := t.TempDir()
+	pred := filepath.Join(d, "p.json")
+	_ = os.WriteFile(pred, []byte(`{"a":1}`), 0600)
+	key, _ := os.ReadFile(filepath.Join("../..", "tests/testdata/ecdsa_key.pem"))
+	art := &mockReleaseBundleArtifactoryServicesManager{}
+	upl := &captureUploaderRB{}
+	c := &createEvidenceReleaseBundle{createEvidenceBase: createEvidenceBase{serverDetails: &config.ServerDetails{User: "u"}, predicateFilePath: pred, predicateType: "t", key: string(key), artifactoryClient: art, uploader: upl}, project: "p", releaseBundle: "rb", releaseBundleVersion: "1.0.0"}
+	err := c.Run()
+	assert.NoError(t, err)
+	assert.NotNil(t, upl.body)
+}
+
+func TestCreateEvidenceReleaseBundle_Run_FileInfoError(t *testing.T) {
+	d := t.TempDir()
+	pred := filepath.Join(d, "p.json")
+	_ = os.WriteFile(pred, []byte(`{"a":1}`), 0600)
+	key, _ := os.ReadFile(filepath.Join("../..", "tests/testdata/ecdsa_key.pem"))
+	art := &mockReleaseBundleArtifactoryServicesManagerFileErr{}
+	c := &createEvidenceReleaseBundle{createEvidenceBase: createEvidenceBase{serverDetails: &config.ServerDetails{}, predicateFilePath: pred, predicateType: "t", key: string(key), artifactoryClient: art}, project: "p", releaseBundle: "rb", releaseBundleVersion: "1.0.0"}
+	err := c.Run()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "assert.AnError general error for testing") // FileInfo error
+}
+
+func TestCreateEvidenceReleaseBundle_Run_EnvelopeError(t *testing.T) {
+	d := t.TempDir()
+	pred := filepath.Join(d, "p.json")
+	_ = os.WriteFile(pred, []byte(`{"a":1}`), 0600)
+	pub, _ := os.ReadFile(filepath.Join("../..", "tests/testdata/public_key.pem"))
+	art := &mockReleaseBundleArtifactoryServicesManager{}
+	c := &createEvidenceReleaseBundle{createEvidenceBase: createEvidenceBase{serverDetails: &config.ServerDetails{}, predicateFilePath: pred, predicateType: "t", key: string(pub), artifactoryClient: art}, project: "p", releaseBundle: "rb", releaseBundleVersion: "1.0.0"}
+	err := c.Run()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to load private key") // Public key cannot be used for signing
+}
+
+func TestCreateEvidenceReleaseBundle_Run_UploadError(t *testing.T) {
+	d := t.TempDir()
+	pred := filepath.Join(d, "p.json")
+	_ = os.WriteFile(pred, []byte(`{"a":1}`), 0600)
+	key, _ := os.ReadFile(filepath.Join("../..", "tests/testdata/ecdsa_key.pem"))
+	art := &mockReleaseBundleArtifactoryServicesManager{}
+	upl := failingUploaderRB{err: assert.AnError}
+	c := &createEvidenceReleaseBundle{createEvidenceBase: createEvidenceBase{serverDetails: &config.ServerDetails{}, predicateFilePath: pred, predicateType: "t", key: string(key), artifactoryClient: art, uploader: upl}, project: "p", releaseBundle: "rb", releaseBundleVersion: "1.0.0"}
+	err := c.Run()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "assert.AnError general error for testing") // Upload error
+}
+
+func TestGetReleaseBundleCurrentStage(t *testing.T) {
+	resp := lifecycleServices.RbPromotionsResponse{Promotions: []lifecycleServices.RbPromotion{
+		{Status: "IN_PROGRESS", Environment: "dev"},
+		{Status: "COMPLETED", Environment: "staging"},
+	}}
+	stage := getReleaseBundleCurrentStage(resp)
+	assert.Equal(t, "staging", stage)
+
+	resp2 := lifecycleServices.RbPromotionsResponse{Promotions: []lifecycleServices.RbPromotion{{Status: "FAILED", Environment: "prod"}}}
+	stage2 := getReleaseBundleCurrentStage(resp2)
+	assert.Equal(t, "", stage2)
 }

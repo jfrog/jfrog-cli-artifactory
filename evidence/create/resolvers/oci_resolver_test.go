@@ -7,6 +7,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/http/jfroghttpclient"
 	"github.com/jfrog/jfrog-client-go/utils/io/httputils"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestBuildUrl(t *testing.T) {
@@ -49,16 +50,10 @@ func TestBuildUrl(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			domain, path, err := parseOciSubject(tc.subject)
-			if err != nil {
-				t.Fatalf("failed to parse subject: %v", err)
-			}
+			assert.NoError(t, err, "should parse subject successfully")
 			result, err := buildContainerUrl(domain, path, tc.checksum, mockServiceDetails)
-			if err != nil {
-				t.Fatalf("buildContainerUrl returned error: %v", err)
-			}
-			if result != tc.expected {
-				t.Errorf("buildContainerUrl(%s, %s) = %s, want %s", tc.subject, tc.checksum, result, tc.expected)
-			}
+			assert.NoError(t, err, "buildContainerUrl should not return error")
+			assert.Equal(t, tc.expected, result, "should build expected URL")
 		})
 	}
 }

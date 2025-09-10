@@ -25,6 +25,10 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+type evidenceUploader interface {
+	UploadEvidence(evidenceService.EvidenceDetails) ([]byte, error)
+}
+
 const sonarProviderId = "sonar"
 
 type createEvidenceBase struct {
@@ -38,6 +42,10 @@ type createEvidenceBase struct {
 	stage             string
 	flagType          FlagType
 	integration       string
+
+	artifactoryClient artifactory.ArtifactoryServicesManager
+	uploader          evidenceUploader
+	stmtResolver      sonar.StatementResolver
 }
 
 const EvdDefaultUser = "JFrog CLI"
@@ -66,8 +74,10 @@ func (c *createEvidenceBase) createEnvelope(subject, subjectSha256 string) ([]by
 
 // buildSonarStatement get in-toto statement from sonar, augments it with subject and stage, and returns it.
 func (c *createEvidenceBase) buildSonarStatement(subject, subjectSha256 string) ([]byte, error) {
-	stmtResolver := sonar.NewStatementResolver()
-	statementBytes, err := stmtResolver.ResolveStatement()
+	if c.stmtResolver == nil {
+		c.stmtResolver = sonar.NewStatementResolver()
+	}
+	statementBytes, err := c.stmtResolver.ResolveStatement()
 	if err != nil {
 		return nil, err
 	}
@@ -207,9 +217,12 @@ func (c *createEvidenceBase) setMarkdown(statement *intoto.Statement) error {
 }
 
 func (c *createEvidenceBase) uploadEvidence(evidencePayload []byte, repoPath string) (*model.CreateResponse, error) {
-	evidenceManager, err := utils.CreateEvidenceServiceManager(c.serverDetails, false)
-	if err != nil {
-		return nil, err
+	if c.uploader == nil {
+		manager, err := utils.CreateEvidenceServiceManager(c.serverDetails, false)
+		if err != nil {
+			return nil, err
+		}
+		c.uploader = manager
 	}
 
 	evidenceDetails := evidenceService.EvidenceDetails{
@@ -219,7 +232,7 @@ func (c *createEvidenceBase) uploadEvidence(evidencePayload []byte, repoPath str
 		ProviderId:  c.providerId,
 	}
 	log.Debug("Uploading evidence for subject:", repoPath)
-	body, err := evidenceManager.UploadEvidence(evidenceDetails)
+	body, err := c.uploader.UploadEvidence(evidenceDetails)
 	if err != nil {
 		return nil, err
 	}
@@ -251,6 +264,9 @@ func (c *createEvidenceBase) recordEvidenceSummary(summaryData commandsummary.Ev
 }
 
 func (c *createEvidenceBase) createArtifactoryClient() (artifactory.ArtifactoryServicesManager, error) {
+	if c.artifactoryClient != nil {
+		return c.artifactoryClient, nil
+	}
 	return utils.CreateUploadServiceManager(c.serverDetails, 1, 0, 0, false, nil)
 }
 

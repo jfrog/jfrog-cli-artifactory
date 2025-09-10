@@ -16,7 +16,221 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/jfrog/jfrog-cli-artifactory/evidence/create/resolvers"
+	"github.com/jfrog/jfrog-client-go/artifactory"
+	artutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+	evdservices "github.com/jfrog/jfrog-client-go/evidence/services"
 )
+
+// subjectLookupFunc is a test adapter implementing resolvers.SubjectLookup
+type subjectLookupFunc func(subject, checksum string, client artifactory.ArtifactoryServicesManager) ([]string, error)
+
+func (f subjectLookupFunc) ResolveSubject(subject, checksum string, client artifactory.ArtifactoryServicesManager) ([]string, error) {
+	return f(subject, checksum, client)
+}
+
+type failingUploaderCustom struct{ err error }
+
+func (f *failingUploaderCustom) UploadEvidence(e evdservices.EvidenceDetails) ([]byte, error) {
+	return nil, f.err
+}
+
+type mockArtifactoryServicesManagerCustom struct {
+	artifactory.EmptyArtifactoryServicesManager
+}
+
+func (m *mockArtifactoryServicesManagerCustom) FileInfo(_ string) (*artutils.FileInfo, error) {
+	return &artutils.FileInfo{Checksums: struct {
+		Sha1   string `json:"sha1,omitempty"`
+		Sha256 string `json:"sha256,omitempty"`
+		Md5    string `json:"md5,omitempty"`
+	}{Sha256: "sha"}}, nil
+}
+
+type captureUploaderCustom struct{ last evdservices.EvidenceDetails }
+
+func (c *captureUploaderCustom) UploadEvidence(d evdservices.EvidenceDetails) ([]byte, error) {
+	resp := model.CreateResponse{PredicateSlug: "slug", Verified: true, PredicateType: "ptype"}
+	b, err := json.Marshal(resp)
+	if err != nil {
+		return nil, err
+	}
+	c.last = d
+	return b, nil
+}
+
+func TestCreateEvidenceCustom_Run_DSSE_Success(t *testing.T) {
+	// Prepare predicate and key
+	dir := t.TempDir()
+	pred := filepath.Join(dir, "p.json")
+	assert.NoError(t, os.WriteFile(pred, []byte(`{"a":1}`), 0600))
+	key, _ := os.ReadFile(filepath.Join("../..", "tests/testdata/ecdsa_key.pem"))
+
+	// Inject artifactory and uploader
+	art := &mockArtifactoryServicesManagerCustom{}
+	upl := &captureUploaderCustom{}
+	c := &createEvidenceCustom{
+		createEvidenceBase: createEvidenceBase{serverDetails: &config.ServerDetails{User: "u"}, predicateFilePath: pred, predicateType: "ptype", key: string(key), artifactoryClient: art, uploader: upl},
+		subjectRepoPaths:   []string{"repo/path/name"},
+		subjectSha256:      "",
+	}
+	err := c.Run()
+	assert.NoError(t, err)
+	assert.NotNil(t, upl.last.DSSEFileRaw)
+	assert.Equal(t, "repo/path/name", upl.last.SubjectUri)
+}
+
+func TestExtractSubjectFromBundle_ResolverErrorMapped(t *testing.T) {
+	// Build a bundle with subject and sha256
+	statement := map[string]any{
+		"_type": "https://in-toto.io/Statement/v1",
+		"subject": []any{
+			map[string]any{
+				"digest": map[string]any{"sha256": "abc"},
+				"name":   "repo/path:tag",
+			},
+		},
+		"predicateType": "https://slsa.dev/provenance/v0.2",
+		"predicate":     map[string]any{},
+	}
+	statementBytes, err := json.Marshal(statement)
+	assert.NoError(t, err)
+	payload := base64.StdEncoding.EncodeToString(statementBytes)
+	bundleJSON := `{"mediaType":"application/vnd.dev.sigstore.bundle+json;version=0.2","verificationMaterial":{"certificate":{"rawBytes":"ZGF0YQ=="}},"dsseEnvelope":{"payload":"` + payload + `","payloadType":"application/vnd.in-toto+json","signatures":[{"sig":"ZGF0YQ==","keyid":"id"}]}}`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bundle.json")
+	assert.NoError(t, os.WriteFile(path, []byte(bundleJSON), 0600))
+
+	b, err := sigstore.ParseBundle(path)
+	assert.NoError(t, err)
+
+	// Inject a non-nil artifactory client and a lookup that returns error
+	c := &createEvidenceCustom{createEvidenceBase: createEvidenceBase{serverDetails: &config.ServerDetails{Url: "http://example.com"}, artifactoryClient: &mockArtifactoryServicesManagerCustom{}}}
+	c.lookup = subjectLookupFunc(func(subject, checksum string, client artifactory.ArtifactoryServicesManager) ([]string, error) {
+		return nil, errorutils.CheckErrorf("boom")
+	})
+	_, err = c.extractSubjectFromBundle(b)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to resolve subject")
+}
+
+func TestCreateEvidenceCustom_Run_DSSE_SigningError(t *testing.T) {
+	dir := t.TempDir()
+	pred := filepath.Join(dir, "p.json")
+	assert.NoError(t, os.WriteFile(pred, []byte(`{"a":1}`), 0600))
+	// Use public key to cause signing error
+	pub, _ := os.ReadFile(filepath.Join("../..", "tests/testdata/public_key.pem"))
+	art := &mockArtifactoryServicesManagerCustom{}
+	c := &createEvidenceCustom{createEvidenceBase: createEvidenceBase{serverDetails: &config.ServerDetails{}, predicateFilePath: pred, predicateType: "t", key: string(pub), artifactoryClient: art}, subjectRepoPaths: []string{"repo/a"}}
+	err := c.Run()
+	assert.Error(t, err)
+}
+
+type failingUploaderCustom404 struct{}
+
+func (f *failingUploaderCustom404) UploadEvidence(e evdservices.EvidenceDetails) ([]byte, error) {
+	return nil, errorutils.CheckErrorf("server response: 404 Not Found")
+}
+
+func TestCreateEvidenceCustom_Run_Upload404Mapped_ManualMode(t *testing.T) {
+	dir := t.TempDir()
+	pred := filepath.Join(dir, "p.json")
+	assert.NoError(t, os.WriteFile(pred, []byte(`{"a":1}`), 0600))
+	key, _ := os.ReadFile(filepath.Join("../..", "tests/testdata/ecdsa_key.pem"))
+	art := &mockArtifactoryServicesManagerCustom{}
+	c := &createEvidenceCustom{createEvidenceBase: createEvidenceBase{serverDetails: &config.ServerDetails{}, predicateFilePath: pred, predicateType: "t", key: string(key), artifactoryClient: art, uploader: &failingUploaderCustom404{}}, subjectRepoPaths: []string{"repo/a"}}
+	err := c.Run()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "is not found")
+}
+
+func TestProcessSigstoreBundle_AutoResolutionAndSubjectsSet(t *testing.T) {
+	// Build a valid bundle with subject name and sha
+	statement := map[string]any{
+		"_type": "https://in-toto.io/Statement/v1",
+		"subject": []any{
+			map[string]any{
+				"digest": map[string]any{"sha256": "abc"},
+				"name":   "repo/path/artifact",
+			},
+		},
+		"predicateType": "https://slsa.dev/provenance/v0.2",
+		"predicate":     map[string]any{},
+	}
+	statementBytes, err := json.Marshal(statement)
+	assert.NoError(t, err)
+	payload := base64.StdEncoding.EncodeToString(statementBytes)
+	bundleJSON := `{
+        "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.2",
+        "verificationMaterial": {"certificate": {"rawBytes": "dGVzdC1jZXJ0"}},
+        "dsseEnvelope": {"payload": "` + payload + `", "payloadType": "application/vnd.in-toto+json", "signatures": [{"sig": "dGVzdC1zaWduYXR1cmU=", "keyid": "id"}]}
+    }`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bundle.json")
+	assert.NoError(t, os.WriteFile(path, []byte(bundleJSON), 0600))
+
+	art := &mockArtifactoryServicesManagerCustom{}
+	c := &createEvidenceCustom{createEvidenceBase: createEvidenceBase{artifactoryClient: art}, sigstoreBundlePath: path}
+	c.lookup = resolvers.DefaultSubjectLookup{}
+	out, err := c.processSigstoreBundle()
+	assert.NoError(t, err)
+	assert.NotNil(t, out)
+	assert.True(t, c.autoSubjectResolution)
+	assert.Equal(t, []string{"repo/path/artifact"}, c.subjectRepoPaths)
+}
+
+func TestExtractSubjectFromBundle_ResolverReturnsEmpty_NewSubjectError(t *testing.T) {
+	// Build bundle with subject
+	statement := map[string]any{"_type": "https://in-toto.io/Statement/v1", "subject": []any{map[string]any{"digest": map[string]any{"sha256": "abc"}, "name": "repo/path/artifact"}}, "predicateType": "https://slsa.dev/provenance/v0.2", "predicate": map[string]any{}}
+	statementBytes, err := json.Marshal(statement)
+	assert.NoError(t, err)
+	payload := base64.StdEncoding.EncodeToString(statementBytes)
+	bundleJSON := `{"mediaType":"application/vnd.dev.sigstore.bundle+json;version=0.2","verificationMaterial":{"certificate":{"rawBytes":"ZGF0YQ=="}},"dsseEnvelope":{"payload":"` + payload + `","payloadType":"application/vnd.in-toto+json","signatures":[{"sig":"ZGF0YQ==","keyid":"id"}]}}`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bundle.json")
+	assert.NoError(t, os.WriteFile(path, []byte(bundleJSON), 0600))
+
+	b, err := sigstore.ParseBundle(path)
+	assert.NoError(t, err)
+
+	c := &createEvidenceCustom{}
+	// Inject resolver that returns empty slice
+	c.lookup = subjectLookupFunc(func(subject, checksum string, client artifactory.ArtifactoryServicesManager) ([]string, error) {
+		return []string{}, nil
+	})
+	// Ensure artifactory client creation has valid server details
+	c.serverDetails = &config.ServerDetails{Url: "http://example.com"}
+	_, err = c.extractSubjectFromBundle(b)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Subject resolution returned no results")
+}
+
+func TestCreateEvidenceCustom_Run_ValidationError(t *testing.T) {
+	dir := t.TempDir()
+	pred := filepath.Join(dir, "p.json")
+	assert.NoError(t, os.WriteFile(pred, []byte(`{"a":1}`), 0600))
+	key, _ := os.ReadFile(filepath.Join("../..", "tests/testdata/ecdsa_key.pem"))
+	art := &mockArtifactoryServicesManagerCustom{}
+	c := &createEvidenceCustom{createEvidenceBase: createEvidenceBase{serverDetails: &config.ServerDetails{}, predicateFilePath: pred, predicateType: "t", key: string(key), artifactoryClient: art}, subjectRepoPaths: []string{"invalid"}}
+	err := c.Run()
+	assert.Error(t, err)
+}
+
+func TestCreateEvidenceCustom_Run_SubjectsLimitExceeded(t *testing.T) {
+	dir := t.TempDir()
+	pred := filepath.Join(dir, "p.json")
+	assert.NoError(t, os.WriteFile(pred, []byte(`{"a":1}`), 0600))
+	key, _ := os.ReadFile(filepath.Join("../..", "tests/testdata/ecdsa_key.pem"))
+	art := &mockArtifactoryServicesManagerCustom{}
+	paths := make([]string, subjectsLimit+1)
+	for i := range paths {
+		paths[i] = "repo/a"
+	}
+	c := &createEvidenceCustom{createEvidenceBase: createEvidenceBase{serverDetails: &config.ServerDetails{}, predicateFilePath: pred, predicateType: "t", key: string(key), artifactoryClient: art}, subjectRepoPaths: paths}
+	err := c.Run()
+	assert.Error(t, err)
+}
 
 func TestNewCreateEvidenceCustom(t *testing.T) {
 	serverDetails := &config.ServerDetails{
@@ -171,34 +385,18 @@ func TestCreateEvidenceCustom_UploadError(t *testing.T) {
 		assert.NoError(t, os.Unsetenv(coreutils.SummaryOutputDirPathEnv))
 	}()
 
-	// Create command
-	serverDetails := &config.ServerDetails{
-		Url:         "http://localhost:8080", // Use a non-existent server to cause an upload error
-		User:        "test-user",
-		AccessToken: "test-token",
+	// Build command instance directly to inject failing uploader
+	custom := &createEvidenceCustom{
+		createEvidenceBase: createEvidenceBase{serverDetails: &config.ServerDetails{}, predicateFilePath: predicatePath, predicateType: "custom-predicate", uploader: &failingUploaderCustom{err: assert.AnError}},
+		subjectRepoPaths:   []string{"test-repo/test-artifact"},
+		subjectSha256:      "sha256:12345",
 	}
-	cmd := NewCreateEvidenceCustom(
-		serverDetails,
-		predicatePath,
-		"custom-predicate",
-		"", // No markdown
-		"", // No key
-		"", // No key alias
-		"test-repo/test-artifact",
-		"sha256:12345",
-		"", // No sigstore bundle
-		"test-integration",
-		"",
-	)
-
-	// Run should fail during upload
-	runErr := cmd.Run()
+	runErr := custom.Run()
 	assert.Error(t, runErr)
 
-	// Verify that no summary was created
 	summaryFiles, err := fileutils.ListFiles(summaryDir, true)
 	assert.NoError(t, err)
-	assert.Empty(t, summaryFiles, "no summary files should be created when upload fails")
+	assert.Empty(t, summaryFiles)
 }
 
 func TestCreateEvidenceCustom_SigstoreBundleWithSubjectPath(t *testing.T) {
@@ -381,9 +579,7 @@ func TestCreateEvidenceCustom_RecordSummary(t *testing.T) {
 		"",
 	)
 	c, ok := evidence.(*createEvidenceCustom)
-	if !ok {
-		t.Fatal("Failed to create createEvidenceCustom instance")
-	}
+	assert.True(t, ok, "should create createEvidenceCustom instance")
 
 	expectedResponse := &model.CreateResponse{
 		PredicateSlug: "custom-slug",

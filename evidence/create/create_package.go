@@ -9,12 +9,14 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/evidence/model"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/metadata"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 type createEvidencePackage struct {
 	createEvidenceBase
 	packageService evidence.PackageService
+	metadataClient metadata.Manager
 }
 
 func NewCreateEvidencePackage(serverDetails *config.ServerDetails, predicateFilePath, predicateType, markdownFilePath, key, keyId, packageName,
@@ -48,9 +50,11 @@ func (c *createEvidencePackage) Run() error {
 		log.Error("failed to create Artifactory client", err)
 		return err
 	}
-	metadataClient, err := utils.CreateMetadataServiceManager(c.serverDetails, false)
-	if err != nil {
-		return err
+	if c.metadataClient == nil {
+		c.metadataClient, err = utils.CreateMetadataServiceManager(c.serverDetails, false)
+		if err != nil {
+			return err
+		}
 	}
 
 	packageType, err := c.packageService.GetPackageType(artifactoryClient)
@@ -58,7 +62,7 @@ func (c *createEvidencePackage) Run() error {
 		return err
 	}
 
-	leadArtifactPath, err := c.packageService.GetPackageVersionLeadArtifact(packageType, metadataClient, artifactoryClient)
+	leadArtifactPath, err := c.packageService.GetPackageVersionLeadArtifact(packageType, c.metadataClient, artifactoryClient)
 	if err != nil {
 		return err
 	}

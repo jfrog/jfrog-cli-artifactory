@@ -33,6 +33,21 @@ const ghDefaultPredicateType = "https://jfrog.com/evidence/gh-commiter/v1"
 
 const gitFormat = `"{\"commit\":\"%H\",\"abbreviated_commit\":\"%h\",\"tree\":\"%T\",\"abbreviated_tree\":\"%t\",\"parent\":\"%P\",\"abbreviated_parent\":\"%p\",\"subject\":\"%s\",\"sanitized_subject_line\":\"%f\",\"author\":{\"name\":\"%an\",\"email\":\"%ae\",\"date\":\"%ad\"},\"commiter\":{\"name\":\"%cn\",\"email\":\"%ce\",\"date\":\"%cd\"}}"`
 
+// Package-level function variables for testing
+var (
+	getPlainGitLogFromPreviousBuild = artifactoryUtils.GetPlainGitLogFromPreviousBuild
+	getLastBuildLink                = artifactoryUtils.GetLastBuildLink
+	newVcsClient                    = func(token string) (pullRequestClient, error) {
+		return vcsclient.NewClientBuilder(vcsutils.GitHub).Token(token).Build()
+	}
+)
+
+// pullRequestClient is a minimal interface for what we actually use from vcsclient
+type pullRequestClient interface {
+	ListPullRequestsAssociatedWithCommit(ctx context.Context, owner, repository, commit string) ([]vcsclient.PullRequestInfo, error)
+	ListPullRequestReviews(ctx context.Context, owner, repository string, prID int) ([]vcsclient.PullRequestReviewDetails, error)
+}
+
 type createGitHubEvidence struct {
 	createEvidenceBase
 	project     string
@@ -127,7 +142,6 @@ func (c *createGitHubEvidence) buildBuildInfoSubjectPath(artifactoryClient artif
 	return buildInfoPath, buildInfoChecksum, nil
 }
 
-// This function will print the markdown to GH
 func (c *createGitHubEvidence) recordEvidenceSummaryData(evidence []byte, subject string, subjectSha256 string) error {
 	commandSummary, err := commandsummary.NewBuildInfoSummary()
 	if err != nil {
@@ -157,7 +171,7 @@ func (c *createGitHubEvidence) recordEvidenceSummaryData(evidence []byte, subjec
 func (c *createGitHubEvidence) getLastBuildLink() (string, error) {
 	buildConfiguration := new(build.BuildConfiguration)
 	buildConfiguration.SetBuildName(c.buildName).SetBuildNumber(c.buildName).SetProject(c.project)
-	link, err := artifactoryUtils.GetLastBuildLink(c.serverDetails, buildConfiguration)
+	link, err := getLastBuildLink(c.serverDetails, buildConfiguration)
 	if err != nil {
 		return "", err
 	}
@@ -180,7 +194,7 @@ func (c *createGitHubEvidence) committerReviewerEvidence() ([]byte, error) {
 
 	createBuildConfiguration := c.createBuildConfiguration()
 	gitDetails := artifactoryUtils.GitLogDetails{LogLimit: 100, PrettyFormat: gitFormat}
-	committerEvidence, err := getGitCommitInfo(c.serverDetails, createBuildConfiguration, gitDetails)
+	committerEvidence, err := c.getGitCommitInfo(c.serverDetails, createBuildConfiguration, gitDetails)
 	if err != nil {
 		return nil, err
 	}
@@ -193,13 +207,13 @@ func (c *createGitHubEvidence) createBuildConfiguration() *build.BuildConfigurat
 	return buildConfiguration
 }
 
-func getGitCommitInfo(serverDetails *config.ServerDetails, createBuildConfiguration *build.BuildConfiguration, gitDetails artifactoryUtils.GitLogDetails) ([]byte, error) {
+func (c *createGitHubEvidence) getGitCommitInfo(serverDetails *config.ServerDetails, createBuildConfiguration *build.BuildConfiguration, gitDetails artifactoryUtils.GitLogDetails) ([]byte, error) {
 	owner, repository, err := gitHubRepositoryDetails()
 	if err != nil {
 		return nil, err
 	}
 
-	entries, err := getGitCommitEntries(serverDetails, createBuildConfiguration, gitDetails)
+	entries, err := c.getGitCommitEntries(serverDetails, createBuildConfiguration, gitDetails)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +223,8 @@ func getGitCommitInfo(serverDetails *config.ServerDetails, createBuildConfigurat
 		return nil, err
 	}
 
-	client, err := vcsclient.NewClientBuilder(vcsutils.GitHub).Token(ghToken).Build()
+	// Create VCS client
+	client, err := newVcsClient(ghToken)
 	if err != nil {
 		return nil, err
 	}
@@ -245,8 +260,8 @@ func getGitCommitInfo(serverDetails *config.ServerDetails, createBuildConfigurat
 	return out, nil
 }
 
-func getGitCommitEntries(serverDetails *config.ServerDetails, createBuildConfiguration *build.BuildConfiguration, gitDetails artifactoryUtils.GitLogDetails) ([]model.GitLogEntry, error) {
-	fullLog, err := artifactoryUtils.GetPlainGitLogFromPreviousBuild(serverDetails, createBuildConfiguration, gitDetails)
+func (c *createGitHubEvidence) getGitCommitEntries(serverDetails *config.ServerDetails, createBuildConfiguration *build.BuildConfiguration, gitDetails artifactoryUtils.GitLogDetails) ([]model.GitLogEntry, error) {
+	fullLog, err := getPlainGitLogFromPreviousBuild(serverDetails, createBuildConfiguration, gitDetails)
 	if err != nil {
 		return nil, err
 	}
