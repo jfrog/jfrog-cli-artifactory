@@ -468,6 +468,43 @@ func TestIsSupportedPackageManager(t *testing.T) {
 	assert.False(t, IsSupportedPackageManager(project.Cocoapods), "Package manager Cocoapods should not be supported")
 }
 
+func TestGetRepositoryName(t *testing.T) {
+	testCases := []struct {
+		name             string
+		packageManager   project.ProjectType
+		expectedRepoType string
+	}{
+		{"npm", project.Npm, "npm"},
+		{"pnpm", project.Pnpm, "npm"},
+		{"yarn", project.Yarn, "npm"},
+		{"pip", project.Pip, "pypi"},
+		{"pipenv", project.Pipenv, "pypi"},
+		{"poetry", project.Poetry, "pypi"},
+		{"twine", project.Twine, "pypi"},
+		{"nuget", project.Nuget, "nuget"},
+		{"dotnet", project.Dotnet, "nuget"},
+		{"docker", project.Docker, "docker"},
+		{"podman", project.Podman, "docker"},
+		{"helm", project.Helm, "helm"},
+		{"go", project.Go, "go"},
+		{"gradle", project.Gradle, "gradle"},
+		{"maven", project.Maven, "maven"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			repoType := GetRepositoryName(testCase.packageManager)
+			assert.Equal(t, testCase.expectedRepoType, repoType)
+		})
+	}
+
+	// Test unsupported package manager
+	t.Run("unsupported", func(t *testing.T) {
+		repoType := GetRepositoryName(project.Cocoapods)
+		assert.Empty(t, repoType, "Expected empty string for unsupported package manager")
+	})
+}
+
 func TestGetRepositoryPackageType(t *testing.T) {
 	// Test supported package managers
 	for projectType, packageType := range packageManagerToRepositoryPackageType {
