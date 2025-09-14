@@ -3,6 +3,11 @@ package python
 import (
 	"bytes"
 	"errors"
+	"io"
+	"net/url"
+	"os"
+	"os/exec"
+
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/entities"
 	buildInfoUtils "github.com/jfrog/build-info-go/utils"
@@ -17,10 +22,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"io"
-	"net/url"
-	"os"
-	"os/exec"
 )
 
 const (
