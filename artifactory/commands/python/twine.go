@@ -3,18 +3,22 @@ package python
 import (
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/utils/pythonutils"
+	rtUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-client-go/artifactory/services"
+	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"os"
-	"os/exec"
-	"strings"
 )
 
 const (
@@ -75,7 +79,7 @@ func (tc *TwineCommand) SetArgs(args []string) *TwineCommand {
 func (tc *TwineCommand) Run() (err error) {
 	// Assert no forbidden flags were provided.
 	if tc.isRepoConfigFlagProvided() {
-		return errorutils.CheckErrorf(tc.getRepoConfigFlagProvidedErr())
+		return errorutils.CheckError(errors.New(tc.getRepoConfigFlagProvidedErr()))
 	}
 	if err = tc.extractAndFilterArgs(tc.args); err != nil {
 		return err
@@ -175,6 +179,53 @@ func (tc *TwineCommand) uploadAndCollectBuildInfo() error {
 	if err = pythonModule.AddArtifacts(artifacts); err != nil {
 		return err
 	}
+
+	buildName, err := tc.buildConfiguration.GetBuildName()
+	if err != nil {
+		return err
+	}
+	buildNumber, err := tc.buildConfiguration.GetBuildNumber()
+	if err != nil {
+		return err
+	}
+
+	var fileInitials string
+	for _, arg := range artifacts {
+		if strings.HasSuffix(arg.Name, ".tar.gz") {
+			fileInitials = strings.TrimSuffix(arg.Name, ".tar.gz")
+		}
+	}
+
+	searchParams := services.SearchParams{
+		CommonParams: &servicesUtils.CommonParams{
+			Aql: servicesUtils.Aql{
+				ItemsFind: CreateAqlQueryForSearch(tc.targetRepo, fileInitials),
+			},
+		},
+	}
+
+	servicesManager, err := rtUtils.CreateServiceManager(tc.serverDetails, -1, 0, false)
+	if err != nil {
+		return err
+	}
+
+	searchReader, err := servicesManager.SearchFiles(searchParams)
+	if err != nil {
+		log.Error("Failed to get uploaded twine package: ", err.Error())
+		return err
+	}
+
+	propsParams := services.PropsParams{
+		Reader: searchReader,
+		Props:  fmt.Sprintf("build.name=%s;build.number=%s", buildName, buildNumber),
+	}
+
+	_, err = servicesManager.SetProps(propsParams)
+	if err != nil {
+		log.Warn("Unable to set build properties: ", err, "\nThis may cause build to not properly link with artifact, please add build name and build number properties on the artifacts manually")
+		return err
+	}
+
 	log.Debug(fmt.Sprintf("Command finished successfully. %d artifacs were added to build info.", len(artifacts)))
 	return nil
 }
@@ -192,4 +243,18 @@ func (tc *TwineCommand) isRepoConfigFlagProvided() bool {
 
 func (tc *TwineCommand) getRepoConfigFlagProvidedErr() string {
 	return "twine command must not be executed with the following flags: " + coreutils.ListToText(twineRepoConfigFlags)
+}
+
+func CreateAqlQueryForSearch(repo, fileInitial string) string {
+	itemsPart :=
+		`{` +
+			`"repo": "%s",` +
+			`"$or": [{` +
+			`"$and":[{` +
+			`"path": {"$match": "*"},` +
+			`"name": {"$match": "%s*"}` +
+			`}]` +
+			`}]` +
+			`}`
+	return fmt.Sprintf(itemsPart, repo, fileInitial)
 }

@@ -3,6 +3,13 @@ package setup
 import (
 	_ "embed"
 	"fmt"
+	"io"
+	"net/url"
+	"os"
+	"os/exec"
+	"slices"
+	"strings"
+
 	bidotnet "github.com/jfrog/build-info-go/build/utils/dotnet"
 	biutils "github.com/jfrog/build-info-go/utils"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
@@ -24,9 +31,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"golang.org/x/exp/maps"
-	"net/url"
-	"os"
-	"slices"
 )
 
 // packageManagerToRepositoryPackageType maps project types to corresponding Artifactory repository package types.
@@ -40,6 +44,7 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	project.Pip:    repository.Pypi,
 	project.Pipenv: repository.Pypi,
 	project.Poetry: repository.Pypi,
+	project.Twine:  repository.Pypi,
 
 	// Nuget package managers
 	project.Nuget:  repository.Nuget,
@@ -48,6 +53,8 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	// Docker package managers
 	project.Docker: repository.Docker,
 	project.Podman: repository.Docker,
+
+	project.Helm: repository.Helm,
 
 	project.Go: repository.Go,
 
@@ -95,6 +102,16 @@ func GetSupportedPackageManagersList() []string {
 func IsSupportedPackageManager(packageManager project.ProjectType) bool {
 	_, exists := packageManagerToRepositoryPackageType[packageManager]
 	return exists
+}
+
+// GetRepositoryPackageType gets the package type and returns the corresponding repository package type.
+// For example, for pip or poetry the repository package type is "pypi".
+func GetRepositoryPackageType(packageManager project.ProjectType) (string, error) {
+	packageType, exists := packageManagerToRepositoryPackageType[packageManager]
+	if !exists {
+		return "", errorutils.CheckErrorf("unsupported package manager: %s", packageManager)
+	}
+	return packageType, nil
 }
 
 // CommandName returns the name of the login command.
@@ -150,12 +167,16 @@ func (sc *SetupCommand) Run() (err error) {
 		err = sc.configurePip()
 	case project.Poetry:
 		err = sc.configurePoetry()
+	case project.Twine:
+		err = sc.configureTwine()
 	case project.Go:
 		err = sc.configureGo()
 	case project.Nuget, project.Dotnet:
 		err = sc.configureDotnetNuget()
 	case project.Docker, project.Podman:
 		err = sc.configureContainer()
+	case project.Helm:
+		err = sc.configureHelm()
 	case project.Gradle:
 		err = sc.configureGradle()
 	case project.Maven:
@@ -170,7 +191,7 @@ func (sc *SetupCommand) Run() (err error) {
 	if sc.packageManager != project.Docker && sc.packageManager != project.Podman {
 		repoPrefix = coreutils.PrintBoldTitle(fmt.Sprintf(" repository '%s'", sc.repoName))
 	}
-	log.Output(fmt.Sprintf("Successfully configured %s to use JFrog Artifactory%s.", coreutils.PrintBoldTitle(sc.packageManager.String()), repoPrefix))
+	log.Output(fmt.Sprintf("Successfully configured %s to use JFrog%s.", coreutils.PrintBoldTitle(sc.packageManager.String()), repoPrefix))
 	return nil
 }
 
@@ -186,7 +207,7 @@ func (sc *SetupCommand) promptUserToSelectRepository() (err error) {
 	sc.repoName, err = utils.SelectRepositoryInteractively(
 		sc.serverDetails,
 		repoFilterParams,
-		fmt.Sprintf("To configure %s, we need you to select a %s repository in Artifactory:", repoFilterParams.PackageType, repoFilterParams.RepoType))
+		fmt.Sprintf("To configure %s, we need you to select a %s repository:", repoFilterParams.PackageType, repoFilterParams.RepoType))
 
 	return err
 }
@@ -223,6 +244,36 @@ func (sc *SetupCommand) configurePoetry() error {
 		return err
 	}
 	return python.RunPoetryConfig(repoUrl.String(), username, password, sc.repoName)
+}
+
+// configureTwine configures Twine to use the specified Artifactory PyPI repository.
+// Creates or updates the .pypirc file in the user's home directory with the following structure:
+//
+// [distutils]
+// index-servers =
+//
+//	pypi
+//
+// [pypi]
+// repository = https://<your-artifactory-url>/artifactory/api/pypi/<repo-name>/
+// username = <user>
+// password = <token-or-password>
+//
+// Using the name "pypi" as the repository section makes it the default for Twine,
+// allowing users to run `twine upload` without specifying a repository.
+func (sc *SetupCommand) configureTwine() error {
+	// Get the Artifactory PyPI repository URL and credentials.
+	// The returned URL is intended for installs (ends with "/simple"),
+	// but Twine requires the base repository URL for uploads.
+	repoUrl, username, password, err := python.GetPypiRepoUrlWithCredentials(sc.serverDetails, sc.repoName, false)
+	if err != nil {
+		return err
+	}
+	// Strip "/simple" to get the correct upload endpoint for Twine.
+	trimmedUrl := strings.TrimSuffix(repoUrl.String(), "/simple")
+
+	// Configure Twine using the .pypirc file
+	return python.ConfigurePypirc(trimmedUrl, sc.repoName, username, password)
 }
 
 // configureNpmPnpm configures npm to use the Artifactory repository URL and sets authentication. Pnpm supports the same commands.
@@ -282,6 +333,19 @@ func (sc *SetupCommand) configureYarn() (err error) {
 //
 //	go env -w GOPROXY=https://<user>:<token>@<your-artifactory-url>/artifactory/go/<repo-name>,direct
 func (sc *SetupCommand) configureGo() error {
+	if goProxyVal := os.Getenv("GOPROXY"); goProxyVal != "" {
+		// Remove the variable so it won't override the newly configured proxy (temporarily).
+		if err := os.Unsetenv("GOPROXY"); err != nil {
+			return errorutils.CheckErrorf("failed to unset GOPROXY environment variable: %w", err)
+		}
+		// Mask credentials in the GOPROXY value
+		if i := strings.Index(goProxyVal, "@"); i != -1 {
+			goProxyVal = "****" + goProxyVal[i:]
+		}
+		// Log a warning about the existing GOPROXY environment variable so the user can unset it permanently
+		log.Warn(fmt.Sprintf("A local GOPROXY='%s' is set and will override the global setting.\n"+
+			"Unset it in your shell config (e.g., .zshrc, .bashrc).", goProxyVal))
+	}
 	repoWithCredsUrl, err := golang.GetArtifactoryRemoteRepoUrl(sc.serverDetails, sc.repoName, golang.GoProxyUrlParams{Direct: true})
 	if err != nil {
 		return err
@@ -347,7 +411,7 @@ func (sc *SetupCommand) configureContainer() error {
 	}
 	urlWithoutScheme := parsedPlatformURL.Host + parsedPlatformURL.Path
 	return container.ContainerManagerLogin(
-		urlWithoutScheme,
+		strings.TrimPrefix(urlWithoutScheme, "/"),
 		&container.ContainerManagerLoginConfig{ServerDetails: sc.serverDetails},
 		containerManagerType,
 	)
@@ -396,4 +460,47 @@ func (sc *SetupCommand) configureGradle() error {
 	}
 
 	return gradle.WriteInitScript(initScript)
+}
+
+// configureHelm configures Helm to use Artifactory as an OCI registry.
+// It executes:
+//
+//	helm registry login <registry-url> --username <user> --password-stdin
+//
+// If anonymous access is enabled for the repository, no login is performed.
+func (sc *SetupCommand) configureHelm() error {
+	// Parse the URL to get the registry domain without scheme or path
+	parsedURL, err := url.Parse(sc.serverDetails.GetUrl())
+	if err != nil {
+		return err
+	}
+	// Use just the hostname part for OCI registry
+	registryURL := parsedURL.Host
+
+	// Prepare credentials
+	user := sc.serverDetails.GetUser()
+	pass := sc.serverDetails.GetPassword()
+	if token := sc.serverDetails.GetAccessToken(); token != "" {
+		if user == "" {
+			user = auth.ExtractUsernameFromAccessToken(token)
+		}
+		pass = token
+	}
+
+	// If no credentials are provided, throw an error
+	if user == "" && pass == "" {
+		return errorutils.CheckErrorf("credentials are required for Helm registry login")
+	}
+
+	// Login to the Helm OCI registry
+	cmdLogin := exec.Command("helm", "registry", "login", registryURL, "--username", user, "--password-stdin")
+
+	// Pipe password to stdin
+	cmdLogin.Stdin = strings.NewReader(pass)
+
+	// Suppress success output, retain errors only
+	cmdLogin.Stdout = io.Discard
+	cmdLogin.Stderr = os.Stderr
+
+	return cmdLogin.Run()
 }

@@ -1,11 +1,12 @@
 package flagkit
 
 import (
+	"strconv"
+
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/cmddefs"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	"strconv"
 )
 
 const (
@@ -137,7 +138,7 @@ const (
 
 	// Generic commands flags
 	exclusions              = "exclusions"
-	recursive               = "recursive"
+	Recursive               = "recursive"
 	flat                    = "flat"
 	build                   = "build"
 	excludeArtifacts        = "exclude-artifacts"
@@ -152,6 +153,7 @@ const (
 	props                   = "props"
 	targetProps             = "target-props"
 	excludeProps            = "exclude-props"
+	repoOnly                = "repo-only"
 	failNoOp                = "fail-no-op"
 	threads                 = "threads"
 	syncDeletes             = "sync-deletes"
@@ -179,7 +181,7 @@ const (
 	// Unique upload flags
 	uploadPrefix      = "upload-"
 	uploadExclusions  = uploadPrefix + exclusions
-	uploadRecursive   = uploadPrefix + recursive
+	uploadRecursive   = uploadPrefix + Recursive
 	uploadFlat        = uploadPrefix + flat
 	uploadRegexp      = uploadPrefix + regexpFlag
 	uploadExplode     = uploadPrefix + explode
@@ -194,7 +196,7 @@ const (
 
 	// Unique download flags
 	downloadPrefix       = "download-"
-	downloadRecursive    = downloadPrefix + recursive
+	downloadRecursive    = downloadPrefix + Recursive
 	downloadFlat         = downloadPrefix + flat
 	downloadExplode      = downloadPrefix + explode
 	downloadProps        = downloadPrefix + props
@@ -207,21 +209,21 @@ const (
 
 	// Unique move flags
 	movePrefix       = "move-"
-	moveRecursive    = movePrefix + recursive
+	moveRecursive    = movePrefix + Recursive
 	moveFlat         = movePrefix + flat
 	moveProps        = movePrefix + props
 	moveExcludeProps = movePrefix + excludeProps
 
 	// Unique copy flags
 	copyPrefix       = "copy-"
-	copyRecursive    = copyPrefix + recursive
+	copyRecursive    = copyPrefix + Recursive
 	copyFlat         = copyPrefix + flat
 	copyProps        = copyPrefix + props
 	copyExcludeProps = copyPrefix + excludeProps
 
 	// Unique delete flags
 	deletePrefix       = "delete-"
-	deleteRecursive    = deletePrefix + recursive
+	deleteRecursive    = deletePrefix + Recursive
 	deleteProps        = deletePrefix + props
 	deleteExcludeProps = deletePrefix + excludeProps
 	deleteQuiet        = deletePrefix + quiet
@@ -229,7 +231,7 @@ const (
 	// Unique search flags
 	searchInclude      = "include"
 	searchPrefix       = "search-"
-	searchRecursive    = searchPrefix + recursive
+	searchRecursive    = searchPrefix + Recursive
 	searchProps        = searchPrefix + props
 	searchExcludeProps = searchPrefix + excludeProps
 	count              = "count"
@@ -237,7 +239,7 @@ const (
 
 	// Unique properties flags
 	propertiesPrefix  = "props-"
-	propsRecursive    = propertiesPrefix + recursive
+	propsRecursive    = propertiesPrefix + Recursive
 	propsProps        = propertiesPrefix + props
 	propsExcludeProps = propertiesPrefix + excludeProps
 
@@ -257,7 +259,7 @@ const (
 	// Unique build-add-dependencies flags
 	badPrefix    = "bad-"
 	badDryRun    = badPrefix + dryRun
-	badRecursive = badPrefix + recursive
+	badRecursive = badPrefix + Recursive
 	badRegexp    = badPrefix + regexpFlag
 	badFromRt    = badPrefix + fromRt
 	badModule    = badPrefix + module
@@ -323,6 +325,7 @@ const (
 	// Build tool flags
 	deploymentThreads = "deployment-threads"
 	skipLogin         = "skip-login"
+	validateSha       = "validate-sha"
 
 	// Unique docker promote flags
 	dockerPromotePrefix = "docker-promote-"
@@ -341,6 +344,7 @@ const (
 	// Unique npm flags
 	npmPrefix          = "npm-"
 	npmDetailedSummary = npmPrefix + detailedSummary
+	runNative          = "run-native"
 
 	// Unique nuget/dotnet config flags
 	nugetV2                  = "nuget-v2"
@@ -352,7 +356,7 @@ const (
 	// Unique Terraform flags
 	namespace = "namespace"
 	provider  = "provider"
-	tag       = "tag"
+	Tag       = "tag"
 
 	// Template user flags
 	vars = "vars"
@@ -446,24 +450,30 @@ const (
 	ExcludeProjects = "exclude-projects"
 
 	// Unique lifecycle flags
-	Sync                 = "sync"
-	lifecyclePrefix      = "lc-"
-	lcSync               = lifecyclePrefix + Sync
-	lcProject            = lifecyclePrefix + Project
-	Builds               = "builds"
-	lcBuilds             = lifecyclePrefix + Builds
-	ReleaseBundles       = "release-bundles"
-	lcReleaseBundles     = lifecyclePrefix + ReleaseBundles
-	SigningKey           = "signing-key"
-	lcSigningKey         = lifecyclePrefix + SigningKey
-	PathMappingPattern   = "mapping-pattern"
-	lcPathMappingPattern = lifecyclePrefix + PathMappingPattern
-	PathMappingTarget    = "mapping-target"
-	lcPathMappingTarget  = lifecyclePrefix + PathMappingTarget
-	lcDryRun             = lifecyclePrefix + dryRun
-	lcIncludeRepos       = lifecyclePrefix + IncludeRepos
-	lcExcludeRepos       = lifecyclePrefix + ExcludeRepos
-	PromotionType        = "promotion-type"
+	Sync                     = "sync"
+	lifecyclePrefix          = "lc-"
+	lcSync                   = lifecyclePrefix + Sync
+	lcProject                = lifecyclePrefix + Project
+	Builds                   = "builds"
+	lcBuilds                 = lifecyclePrefix + Builds
+	ReleaseBundles           = "release-bundles"
+	lcReleaseBundles         = lifecyclePrefix + ReleaseBundles
+	SigningKey               = "signing-key"
+	lcSigningKey             = lifecyclePrefix + SigningKey
+	PathMappingPattern       = "mapping-pattern"
+	lcPathMappingPattern     = lifecyclePrefix + PathMappingPattern
+	PathMappingTarget        = "mapping-target"
+	lcPathMappingTarget      = lifecyclePrefix + PathMappingTarget
+	lcDryRun                 = lifecyclePrefix + dryRun
+	lcIncludeRepos           = lifecyclePrefix + IncludeRepos
+	lcExcludeRepos           = lifecyclePrefix + ExcludeRepos
+	PromotionType            = "promotion-type"
+	lcTag                    = lifecyclePrefix + Tag
+	lcProperties             = lifecyclePrefix + Properties
+	DeleteProperty           = "del-prop"
+	lcDeleteProperties       = lifecyclePrefix + DeleteProperty
+	SourceTypeReleaseBundles = "source-type-release-bundles"
+	SourceTypeBuilds         = "source-type-builds"
 )
 
 var commandFlags = map[string][]string{
@@ -489,7 +499,7 @@ var commandFlags = map[string][]string{
 	},
 	cmddefs.ReleaseBundleCreate: {
 		platformUrl, user, password, accessToken, serverId, lcSigningKey, lcSync, lcProject, lcBuilds, lcReleaseBundles,
-		specFlag, specVars, BuildName, BuildNumber,
+		specFlag, specVars, BuildName, BuildNumber, SourceTypeReleaseBundles, SourceTypeBuilds,
 	},
 	cmddefs.ReleaseBundlePromote: {
 		platformUrl, user, password, accessToken, serverId, lcSigningKey, lcSync, lcProject, lcIncludeRepos,
@@ -512,6 +522,9 @@ var commandFlags = map[string][]string{
 	},
 	cmddefs.ReleaseBundleImport: {
 		user, password, accessToken, serverId, platformUrl,
+	},
+	cmddefs.ReleaseBundleAnnotate: {
+		platformUrl, user, password, accessToken, serverId, lcProject, lcTag, lcProperties, lcDeleteProperties, propsRecursive,
 	},
 	AddConfig: {
 		interactive, EncPassword, configPlatformUrl, configRtUrl, configDistUrl, configXrUrl, configMcUrl, configPlUrl, configUser, configPassword, configAccessToken, sshKeyPath, sshPassphrase, ClientCertPath,
@@ -567,7 +580,7 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
 		ClientCertKeyPath, specFlag, specVars, exclusions, sortBy, sortOrder, limit, offset,
 		propsRecursive, build, includeDeps, excludeArtifacts, bundle, includeDirs, failNoOp, threads, archiveEntries, propsProps, propsExcludeProps,
-		InsecureTls, retries, retryWaitTime, Project,
+		InsecureTls, retries, retryWaitTime, Project, repoOnly,
 	},
 	BuildPublish: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, buildUrl, bpDryRun,
@@ -646,7 +659,7 @@ var commandFlags = map[string][]string{
 	},
 	ContainerPush: {
 		BuildName, BuildNumber, module, url, user, password, accessToken, sshPassphrase, sshKeyPath,
-		serverId, skipLogin, threads, Project, detailedSummary,
+		serverId, skipLogin, threads, Project, detailedSummary, validateSha,
 	},
 	ContainerPull: {
 		BuildName, BuildNumber, module, url, user, password, accessToken, sshPassphrase, sshKeyPath,
@@ -656,10 +669,10 @@ var commandFlags = map[string][]string{
 		global, serverIdResolve, serverIdDeploy, repoResolve, repoDeploy,
 	},
 	NpmInstallCi: {
-		BuildName, BuildNumber, module, Project,
+		BuildName, BuildNumber, module, Project, runNative,
 	},
 	NpmPublish: {
-		BuildName, BuildNumber, module, Project, npmDetailedSummary, xrayScan, xrOutput,
+		BuildName, BuildNumber, module, Project, npmDetailedSummary, xrayScan, xrOutput, runNative,
 	},
 	PnpmConfig: {
 		global, serverIdResolve, repoResolve,
@@ -695,7 +708,7 @@ var commandFlags = map[string][]string{
 		global, serverIdDeploy, repoDeploy,
 	},
 	Terraform: {
-		namespace, provider, tag, exclusions,
+		namespace, provider, Tag, exclusions,
 		BuildName, BuildNumber, module, Project,
 	},
 	Twine: {
@@ -800,6 +813,7 @@ var flagsMap = map[string]components.Flag{
 	bundle:            components.NewStringFlag(bundle, "[Optional] If specified, only artifacts of the specified bundle are matched. The value format is bundle-name/bundle-version.", components.SetMandatoryFalse()),
 	imageFile:         components.NewStringFlag(imageFile, "[Mandatory] Path to a file which includes one line in the following format: <IMAGE-TAG>@sha256:<MANIFEST-SHA256>.", components.SetMandatoryTrue()),
 	ocStartBuildRepo:  components.NewStringFlag(repo, "[Mandatory] The name of the repository to which the image was pushed.", components.SetMandatoryTrue()),
+	runNative:         components.NewBoolFlag(runNative, "[Default: false] Set to true if you'd like to use the native client configurations. Note: This flag would invoke native client behind the scenes, has performance implications and does not support deployment view and detailed summary.", components.WithBoolDefaultValueFalse()),
 
 	// Config specific commands flags
 	interactive:       components.NewBoolFlag(interactive, "[Default: true, unless $CI is true] Set to false if you do not want the config command to be interactive. If true, the --url option becomes optional.", components.WithBoolDefaultValueFalse()),
@@ -824,7 +838,7 @@ var flagsMap = map[string]components.Flag{
 	sortOrder:               components.NewStringFlag(sortOrder, "[Default: asc] The order by which fields in the 'sort-by' option should be sorted. Accepts 'asc' or 'desc'.", components.SetMandatoryFalse()),
 	limit:                   components.NewStringFlag(limit, "[Optional] The maximum number of items to fetch. Usually used with the 'sort-by' option.", components.SetMandatoryFalse()),
 	offset:                  components.NewStringFlag(offset, "[Optional] The offset from which to fetch items (i.e. how many items should be skipped). Usually used with the 'sort-by' option.", components.SetMandatoryFalse()),
-	downloadRecursive:       components.NewBoolFlag(recursive, "[Default: true] Set to false if you do not wish to include the download of artifacts inside sub-folders in Artifactory.", components.WithBoolDefaultValueFalse()),
+	downloadRecursive:       components.NewBoolFlag(Recursive, "[Default: true] Set to false if you do not wish to include the download of artifacts inside sub-folders in Artifactory.", components.WithBoolDefaultValueFalse()),
 	downloadFlat:            components.NewBoolFlag(flat, "[Default: false] Set to true if you do not wish to have the Artifactory repository path structure created locally for your downloaded files.", components.WithBoolDefaultValueFalse()),
 	build:                   components.NewStringFlag(build, "[Optional] If specified, only artifacts of the specified build are matched. The property format is build-name/build-number. If you do not specify the build number, the artifacts are filtered by the latest build number. If the build is assigned to a specific project please provide the project key using the --project flag.", components.SetMandatoryFalse()),
 	includeDeps:             components.NewStringFlag(includeDeps, "[Default: false] If specified, also dependencies of the specified build are matched. Used together with the --build flag.", components.SetMandatoryFalse()),
@@ -846,7 +860,7 @@ var flagsMap = map[string]components.Flag{
 	uploadTargetProps: components.NewStringFlag(targetProps, "[Optional] List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Those properties will be attached to the uploaded artifacts.", components.SetMandatoryFalse()),
 	uploadExclusions:  components.NewStringFlag(exclusions, "[Optional] List of semicolon-separated(;) exclude patterns. Exclude patterns may contain the * and the ? wildcards or a regex pattern, according to the value of the 'regexp' option.", components.SetMandatoryFalse()),
 	deb:               components.NewStringFlag(deb, "[Optional] Used for Debian packages in the form of distribution/component/architecture. If the value for distribution, component or architecture includes a slash, the slash should be escaped with a back-slash.", components.SetMandatoryFalse()),
-	uploadRecursive:   components.NewBoolFlag(recursive, "[Default: true] Set to false if you do not wish to collect artifacts in sub-folders to be uploaded to Artifactory.", components.WithBoolDefaultValueFalse()),
+	uploadRecursive:   components.NewBoolFlag(Recursive, "[Default: true] Set to false if you do not wish to collect artifacts in sub-folders to be uploaded to Artifactory.", components.WithBoolDefaultValueFalse()),
 	uploadFlat:        components.NewBoolFlag(flat, "[Default: false] If set to false, files are uploaded according to their file system hierarchy.", components.WithBoolDefaultValueFalse()),
 	uploadRegexp:      components.NewBoolFlag(regexpFlag, "[Default: false] Set to true to use a regular expression instead of wildcards expression to collect files to upload.", components.WithBoolDefaultValueFalse()),
 	uploadExplode:     components.NewBoolFlag(explode, "[Default: false] Set to true to extract an archive after it is deployed to Artifactory.", components.WithBoolDefaultValueFalse()),
@@ -859,25 +873,25 @@ var flagsMap = map[string]components.Flag{
 	chunkSize:         components.NewStringFlag(chunkSize, "[Default: "+strconv.Itoa(UploadChunkSizeMb)+"] The upload chunk size in MiB that can be concurrently uploaded during a multi-part upload. This option, as well as the functionality of multi-part upload, requires Artifactory with S3 or GCP storage.", components.SetMandatoryFalse()),
 
 	// Move specific commands flags
-	moveRecursive:    components.NewBoolFlag(recursive, "[Default: true] Set to false if you do not wish to move artifacts inside sub-folders in Artifactory.", components.WithBoolDefaultValueFalse()),
+	moveRecursive:    components.NewBoolFlag(Recursive, "[Default: true] Set to false if you do not wish to move artifacts inside sub-folders in Artifactory.", components.WithBoolDefaultValueFalse()),
 	moveFlat:         components.NewBoolFlag(flat, "[Default: false] If set to false, files are moved according to their file system hierarchy.", components.WithBoolDefaultValueFalse()),
 	moveProps:        components.NewStringFlag(props, "[Optional] List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts with these properties will be moved.", components.SetMandatoryFalse()),
 	moveExcludeProps: components.NewStringFlag(excludeProps, "[Optional] List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts without the specified properties will be moved.", components.SetMandatoryFalse()),
 
 	// Copy specific commands flags
-	copyRecursive:    components.NewBoolFlag(recursive, "[Default: true] Set to false if you do not wish to copy artifacts inside sub-folders in Artifactory.", components.WithBoolDefaultValueFalse()),
+	copyRecursive:    components.NewBoolFlag(Recursive, "[Default: true] Set to false if you do not wish to copy artifacts inside sub-folders in Artifactory.", components.WithBoolDefaultValueFalse()),
 	copyFlat:         components.NewBoolFlag(flat, "[Default: false] If set to false, files are copied according to their file system hierarchy.", components.WithBoolDefaultValueFalse()),
 	copyProps:        components.NewStringFlag(props, "[Optional] List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts with these properties will be copied.", components.SetMandatoryFalse()),
 	copyExcludeProps: components.NewStringFlag(excludeProps, "[Optional] List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts without the specified properties will be copied.", components.SetMandatoryFalse()),
 
 	// Delete specific commands flags
-	deleteRecursive:    components.NewBoolFlag(recursive, "[Default: true] Set to false if you do not wish to delete artifacts inside sub-folders in Artifactory.", components.WithBoolDefaultValueFalse()),
+	deleteRecursive:    components.NewBoolFlag(Recursive, "[Default: true] Set to false if you do not wish to delete artifacts inside sub-folders in Artifactory.", components.WithBoolDefaultValueFalse()),
 	deleteQuiet:        components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip the delete confirmation message.", components.WithBoolDefaultValueFalse()),
 	deleteProps:        components.NewStringFlag(props, "[Optional] List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts with these properties will be deleted.", components.SetMandatoryFalse()),
 	deleteExcludeProps: components.NewStringFlag(excludeProps, "[Optional] List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts without the specified properties will be deleted.", components.SetMandatoryFalse()),
 
 	// Search specific commands flags
-	searchRecursive:    components.NewBoolFlag(recursive, "[Default: true] Set to false if you do not wish to search artifacts inside sub-folders in Artifactory.", components.WithBoolDefaultValueFalse()),
+	searchRecursive:    components.NewBoolFlag(Recursive, "[Default: true] Set to false if you do not wish to search artifacts inside sub-folders in Artifactory.", components.WithBoolDefaultValueFalse()),
 	count:              components.NewBoolFlag(count, "[Optional] Set to true to display only the total of files or folders found.", components.WithBoolDefaultValueFalse()),
 	searchProps:        components.NewStringFlag(props, "[Optional] List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts with these properties will be returned.", components.SetMandatoryFalse()),
 	searchExcludeProps: components.NewStringFlag(excludeProps, "[Optional] List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts without the specified properties will be returned.", components.SetMandatoryFalse()),
@@ -885,9 +899,10 @@ var flagsMap = map[string]components.Flag{
 	searchInclude:      components.NewStringFlag(searchInclude, "[Optional] List of semicolon-separated(;) fields in the form of \"value1;value2;...\". Only the path and the fields that are specified will be returned. The fields must be part of the 'items' AQL domain. For the full supported items list, check %sjfrog-artifactory-documentation/artifactory-query-language.", components.SetMandatoryFalse()),
 
 	// Properties specific commands flags
-	propsRecursive:    components.NewBoolFlag(recursive, "[Default: true] When false, artifacts inside sub-folders in Artifactory will not be affected.", components.WithBoolDefaultValueFalse()),
+	propsRecursive:    components.NewBoolFlag(Recursive, "[Default: true] When false, artifacts inside sub-folders in Artifactory will not be affected.", components.WithBoolDefaultValueFalse()),
 	propsProps:        components.NewStringFlag(props, "[Optional] List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts with these properties are affected.", components.SetMandatoryFalse()),
 	propsExcludeProps: components.NewStringFlag(excludeProps, "[Optional] List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts without the specified properties are affected.", components.SetMandatoryFalse()),
+	repoOnly:          components.NewBoolFlag(repoOnly, "When true, properties will be applicable only on repository level.", components.WithBoolDefaultValueFalse()),
 
 	// Build Publish and Append specific commands flags
 	buildUrl:          components.NewStringFlag(buildUrl, "[Optional] Can be used for setting the CI server build URL in the build-info.", components.SetMandatoryFalse()),
@@ -898,7 +913,7 @@ var flagsMap = map[string]components.Flag{
 	bpOverwrite:       components.NewBoolFlag(Overwrite, "[Default: false] Overwrites all existing occurrences of build infos with the provided name and number. Build artifacts will not be deleted.", components.WithBoolDefaultValueFalse()),
 
 	// Build Add Dependencies specific commands flags
-	badRecursive: components.NewBoolFlag(recursive, "[Default: true] Set to false if you do not wish to collect artifacts in sub-folders to be added to the build info.", components.WithBoolDefaultValueFalse()),
+	badRecursive: components.NewBoolFlag(Recursive, "[Default: true] Set to false if you do not wish to collect artifacts in sub-folders to be added to the build info.", components.WithBoolDefaultValueFalse()),
 	badRegexp:    components.NewBoolFlag(regexpFlag, "[Default: false] Set to true to use a regular expression instead of wildcards expression to collect files to be added to the build info."),
 	badDryRun:    components.NewBoolFlag(dryRun, "[Default: false] Set to true to only get a summary of the dependencies that will be added to the build info.", components.WithBoolDefaultValueFalse()),
 	badFromRt:    components.NewBoolFlag(fromRt, "[Default: false] Set true to search the files in Artifactory, rather than on the local file system. The --regexp option is not supported when --from-rt is set to true.", components.WithBoolDefaultValueFalse()),
@@ -963,6 +978,7 @@ var flagsMap = map[string]components.Flag{
 
 	// Docker specific commands flags
 	skipLogin:           components.NewBoolFlag(skipLogin, "[Default: false] Set to true if you'd like the command to skip performing docker login.", components.WithBoolDefaultValueFalse()),
+	validateSha:         components.NewBoolFlag(validateSha, "[Default: false] Set to true to enable SHA validation during Docker push.", components.WithBoolDefaultValueFalse()),
 	watches:             components.NewStringFlag(watches, "[Optional] A comma-separated(,) list of Xray watches, to determine Xray's violations creation.", components.SetMandatoryFalse()),
 	repoPath:            components.NewStringFlag(repoPath, "[Optional] Target repo path, to enable Xray to determine watches accordingly.", components.SetMandatoryFalse()),
 	licenses:            components.NewBoolFlag(licenses, "[Default: false] Set to true if you'd like to receive licenses from Xray scanning.", components.WithBoolDefaultValueFalse()),
@@ -989,7 +1005,7 @@ var flagsMap = map[string]components.Flag{
 	// Terraform specific commands flags
 	namespace:       components.NewStringFlag(namespace, "[Mandatory] Terraform namespace.", components.SetMandatoryTrue()),
 	provider:        components.NewStringFlag(provider, "[Mandatory] Terraform provider.", components.SetMandatoryTrue()),
-	tag:             components.NewStringFlag(tag, "[Mandatory] Terraform package tag.", components.SetMandatoryTrue()),
+	Tag:             components.NewStringFlag(Tag, "[Mandatory] Terraform package tag.", components.SetMandatoryTrue()),
 	IncludeProjects: components.NewStringFlag(IncludeProjects, "[Optional] List of semicolon-separated(;) JFrog Project keys to include in the transfer. You can use wildcards to specify patterns for the JFrog Project keys.", components.SetMandatoryFalse()),
 	ExcludeProjects: components.NewStringFlag(ExcludeProjects, "[Optional] List of semicolon-separated(;) JFrog Projects to exclude from the transfer. You can use wildcards to specify patterns for the project keys.", components.SetMandatoryFalse()),
 
@@ -1044,9 +1060,14 @@ var flagsMap = map[string]components.Flag{
 	lcDryRun: components.NewBoolFlag(dryRun, "Set to true to only simulate the distribution of the release bundle.", components.WithBoolDefaultValueFalse()),
 	lcIncludeRepos: components.NewStringFlag(IncludeRepos, "List of semicolon-separated(;) repositories to include in the promotion. If this property is left undefined, all repositories (except those specifically excluded) are included in the promotion. "+
 		"If one or more repositories are specifically included, all other repositories are excluded.` `", components.SetMandatoryFalse()),
-	lcExcludeRepos: components.NewStringFlag(ExcludeRepos, "List of semicolon-separated(;) repositories to exclude from the promotion.` `", components.SetMandatoryFalse()),
-	platformUrl:    components.NewStringFlag(url, "JFrog platform URL. (example: https://acme.jfrog.io)` `", components.SetMandatoryFalse()),
-	PromotionType:  components.NewStringFlag(PromotionType, "The promotion type. Can be one of 'copy' or 'move'.", components.WithStrDefaultValue("copy")),
+	lcExcludeRepos:           components.NewStringFlag(ExcludeRepos, "List of semicolon-separated(;) repositories to exclude from the promotion.` `", components.SetMandatoryFalse()),
+	platformUrl:              components.NewStringFlag(url, "JFrog platform URL. (example: https://acme.jfrog.io)` `", components.SetMandatoryFalse()),
+	PromotionType:            components.NewStringFlag(PromotionType, "The promotion type. Can be one of 'copy' or 'move'.", components.WithStrDefaultValue("copy")),
+	lcTag:                    components.NewStringFlag(Tag, "Tag to put on Release Bundle version.", components.SetMandatoryFalse()),
+	lcProperties:             components.NewStringFlag(Properties, "Properties to put on the of Manifest Release Bundle version.", components.SetMandatoryFalse()),
+	lcDeleteProperties:       components.NewStringFlag(DeleteProperty, "Properties to be deleted on the of Manifest Release Bundle version.", components.SetMandatoryFalse()),
+	SourceTypeReleaseBundles: components.NewStringFlag(SourceTypeReleaseBundles, "List of semicolon-seperated(;) release bundles in the form of 'name=releaseBundleName1, version=version1; name=releaseBundleName2, version=version2' to be included in the new bundle.", components.SetMandatoryFalse()),
+	SourceTypeBuilds:         components.NewStringFlag(SourceTypeBuilds, "List of semicolon-separated(;) builds in the form of 'name=buildName1, id=runID1, include-deps=true; name=buildName2, id=runID2' to be included in the new bundle.", components.SetMandatoryFalse()),
 }
 
 func GetCommandFlags(cmdKey string) []components.Flag {

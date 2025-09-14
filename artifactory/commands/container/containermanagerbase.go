@@ -19,6 +19,7 @@ type ContainerCommandBase struct {
 	repo               string
 	buildConfiguration *build.BuildConfiguration
 	serverDetails      *config.ServerDetails
+	validateSha        bool
 }
 
 func (ccb *ContainerCommandBase) ImageTag() string {
@@ -28,6 +29,15 @@ func (ccb *ContainerCommandBase) ImageTag() string {
 func (ccb *ContainerCommandBase) SetImageTag(imageTag string) *ContainerCommandBase {
 	ccb.image = container.NewImage(imageTag)
 	return ccb
+}
+
+func (ccb *ContainerCommandBase) SetValidateSha(validateSha bool) *ContainerCommandBase {
+	ccb.validateSha = validateSha
+	return ccb
+}
+
+func (ccb *ContainerCommandBase) IsValidateSha() bool {
+	return ccb.validateSha
 }
 
 // Returns the repository name that contains this image.

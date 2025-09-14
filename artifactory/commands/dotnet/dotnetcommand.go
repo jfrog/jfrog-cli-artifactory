@@ -210,13 +210,11 @@ func RemoveSourceFromNugetConfigIfExists(cmdType dotnet.ToolchainType) error {
 		cmd.CommandFlags = append(cmd.CommandFlags, "-name", SourceName)
 	}
 
-	stdOut, stdErr, _, err := frogio.RunCmdWithOutputParser(cmd, false)
-	if err != nil {
-		if strings.Contains(stdOut+stdErr, "Unable to find") || strings.Contains(stdOut+stdErr, "does not exist") {
-			return nil
-		}
-		return errorutils.CheckErrorf("%s\nfailed to remove source: %s", stdErr, err.Error())
-	}
+	// nolint:errcheck
+	// Ignore errors since this is just a cleanup function.
+	// We don't want cleanup failures to break the main flow.
+	// It's also fine if the source doesn't exist.
+	_, _, _, _ = frogio.RunCmdWithOutputParser(cmd, false)
 	return nil
 }
 

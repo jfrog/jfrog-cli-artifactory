@@ -1,6 +1,10 @@
 package cli
 
 import (
+	"os"
+	"strconv"
+	"strings"
+
 	ioutils "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/buildinfo"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/container"
@@ -59,7 +63,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	buildinfocmd "github.com/jfrog/jfrog-client-go/artifactory/buildinfo"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
@@ -67,9 +71,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/pkg/errors"
-	"os"
-	"strconv"
-	"strings"
 )
 
 const (
@@ -82,7 +83,7 @@ const (
 )
 
 func GetCommands() []components.Command {
-	return []components.Command{
+	commands := []components.Command{
 		{
 			Name:        "upload",
 			Flags:       flagkit.GetCommandFlags(flagkit.Upload),
@@ -403,6 +404,8 @@ func GetCommands() []components.Command {
 			Category:    replicCategory,
 		},
 	}
+
+	return commands
 }
 
 func getRetries(c *components.Context) (retries int, err error) {
@@ -450,7 +453,7 @@ func getRetryWaitTime(c *components.Context) (waitMilliSecs int, err error) {
 }
 
 func getRetryWaitTimeVerificationError() error {
-	return errorutils.CheckErrorf("The '--retry-wait-time' option should have a numeric value with 's'/'ms' suffix. " + common.GetDocumentationMessage())
+	return errorutils.CheckError(errors.New("The '--retry-wait-time' option should have a numeric value with 's'/'ms' suffix. " + common.GetDocumentationMessage()))
 }
 
 func dockerPromoteCmd(c *components.Context) error {
@@ -483,6 +486,7 @@ func containerPushCmd(c *components.Context, containerManagerType containerutils
 	imageTag := c.GetArgumentAt(0)
 	targetRepo := c.GetArgumentAt(1)
 	skipLogin := c.GetBoolFlagValue("skip-login")
+	validateSha := c.GetBoolFlagValue("validate-sha")
 
 	buildConfiguration, err := common.CreateBuildConfigurationWithModule(c)
 	if err != nil {
@@ -494,7 +498,7 @@ func containerPushCmd(c *components.Context, containerManagerType containerutils
 		return
 	}
 	printDeploymentView, detailedSummary := log.IsStdErrTerminal(), c.GetBoolFlagValue("detailed-summary")
-	dockerPushCommand.SetThreads(threads).SetDetailedSummary(detailedSummary || printDeploymentView).SetCmdParams([]string{"push", imageTag}).SetSkipLogin(skipLogin).SetBuildConfiguration(buildConfiguration).SetRepo(targetRepo).SetServerDetails(artDetails).SetImageTag(imageTag)
+	dockerPushCommand.SetThreads(threads).SetDetailedSummary(detailedSummary || printDeploymentView).SetCmdParams([]string{"push", imageTag}).SetSkipLogin(skipLogin).SetBuildConfiguration(buildConfiguration).SetRepo(targetRepo).SetServerDetails(artDetails).SetImageTag(imageTag).SetValidateSha(validateSha)
 	err = commandWrappers.ShowDockerDeprecationMessageIfNeeded(containerManagerType, dockerPushCommand.IsGetRepoSupported)
 	if err != nil {
 		return
@@ -726,7 +730,7 @@ func checkRbExistenceInV2(c *components.Context) (bool, error) {
 	return lcServicesManager.IsReleaseBundleExist(rbName, rbVersion, c.GetStringFlagValue("project"))
 }
 
-func createLifecycleDetailsByFlags(c *components.Context) (*coreConfig.ServerDetails, error) {
+func createLifecycleDetailsByFlags(c *components.Context) (*config.ServerDetails, error) {
 	lcDetails, err := common.CreateServerDetailsWithConfigOffer(c, true, commonCliUtils.Platform)
 	if err != nil {
 		return nil, err
@@ -738,7 +742,7 @@ func createLifecycleDetailsByFlags(c *components.Context) (*coreConfig.ServerDet
 	return lcDetails, nil
 }
 
-func PlatformToLifecycleUrls(lcDetails *coreConfig.ServerDetails) {
+func PlatformToLifecycleUrls(lcDetails *config.ServerDetails) {
 	// For tests only. in prod - this "if" will always return false
 	if strings.Contains(lcDetails.Url, "artifactory/") {
 		lcDetails.ArtifactoryUrl = clientutils.AddTrailingSlashIfNeeded(lcDetails.Url)
@@ -1080,7 +1084,7 @@ func setPropsCmd(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-	propsCmd := generic.NewSetPropsCommand().SetPropsCommand(*cmd)
+	propsCmd := generic.NewSetPropsCommand().SetPropsCommand(*cmd).SetRepoOnly(c.GetBoolFlagValue("repo-only"))
 	propsCmd.SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
 	err = commands.Exec(propsCmd)
 	result := propsCmd.Result()
@@ -1100,7 +1104,7 @@ func deletePropsCmd(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-	propsCmd := generic.NewDeletePropsCommand().DeletePropsCommand(*cmd)
+	propsCmd := generic.NewDeletePropsCommand().DeletePropsCommand(*cmd).SetRepoOnly(c.GetBoolFlagValue("repo-only"))
 	propsCmd.SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
 	err = commands.Exec(propsCmd)
 	result := propsCmd.Result()
@@ -1166,7 +1170,7 @@ func buildAddDependenciesCmd(c *components.Context) error {
 	}
 
 	var dependenciesSpec *spec.SpecFiles
-	var rtDetails *coreConfig.ServerDetails
+	var rtDetails *config.ServerDetails
 	var err error
 	if c.IsFlagSet("spec") {
 		dependenciesSpec, err = commonCliUtils.GetSpec(c, true, true)
@@ -1556,6 +1560,7 @@ func createDefaultPropertiesSpec(c *components.Context) (*spec.SpecFiles, error)
 		Exclusions(c.GetStringsArrFlagValue("exclusions")).
 		IncludeDirs(c.GetBoolFlagValue("include-dirs")).
 		ArchiveEntries(c.GetStringFlagValue("archive-entries")).
+		RepoOnly(c.GetBoolTFlagValue("repo-only")).
 		BuildSpec(), nil
 }
 

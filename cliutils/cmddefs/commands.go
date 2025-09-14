@@ -16,4 +16,5 @@ const (
 	ReleaseBundleDeleteRemote = "release-bundle-delete-remote"
 	ReleaseBundleExport       = "release-bundle-export"
 	ReleaseBundleImport       = "release-bundle-import"
+	ReleaseBundleAnnotate     = "release-bundle-annotate"
 )

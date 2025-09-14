@@ -15,8 +15,9 @@ import (
 )
 
 type PropsCommand struct {
-	props   string
-	threads int
+	props    string
+	threads  int
+	repoOnly bool
 	GenericCommand
 }
 
@@ -39,6 +40,11 @@ func (pc *PropsCommand) Props() string {
 
 func (pc *PropsCommand) SetProps(props string) *PropsCommand {
 	pc.props = props
+	return pc
+}
+
+func (pc *PropsCommand) SetRepoOnlyFlag(repoOnly bool) *PropsCommand {
+	pc.repoOnly = repoOnly
 	return pc
 }
 
@@ -98,9 +104,10 @@ func searchItems(spec *spec.SpecFiles, servicesManager artifactory.ArtifactorySe
 	return
 }
 
-func GetPropsParams(reader *content.ContentReader, properties string) (propsParams services.PropsParams) {
+func GetPropsParams(reader *content.ContentReader, properties string, repoOnly bool) (propsParams services.PropsParams) {
 	propsParams = services.NewPropsParams()
 	propsParams.Reader = reader
 	propsParams.Props = properties
+	propsParams.RepoOnly = repoOnly
 	return
 }

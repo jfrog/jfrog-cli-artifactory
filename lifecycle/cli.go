@@ -3,10 +3,15 @@ package lifecycle
 import (
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
+
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/cmddefs"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/distribution"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	lifecycle "github.com/jfrog/jfrog-cli-artifactory/lifecycle/commands"
+	rbAnnotate "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/annotate"
 	rbCreate "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/create"
 	rbDeleteLocal "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/deletelocal"
 	rbDeleteRemote "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/deleteremote"
@@ -15,26 +20,22 @@ import (
 	rbImport "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/importbundle"
 	rbPromote "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/promote"
 	artifactoryUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
-	"github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
-	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	speccore "github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	artClientUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/lifecycle/services"
 	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
-	"os"
-	"strconv"
-	"strings"
 )
 
 const (
-	lcCategory = "Lifecycle"
+	lcCategory                                 = "Lifecycle"
+	minArtifactoryVersionForMultiSourceSupport = "7.114.0"
 )
 
 func GetCommands() []components.Command {
@@ -102,6 +103,15 @@ func GetCommands() []components.Command {
 			Category:    lcCategory,
 			Action:      releaseBundleImport,
 		},
+		{
+			Name:        "release-bundle-annotate",
+			Aliases:     []string{"rba"},
+			Flags:       flagkit.GetCommandFlags(cmddefs.ReleaseBundleAnnotate),
+			Description: rbAnnotate.GetDescription(),
+			Arguments:   rbAnnotate.GetArguments(),
+			Category:    lcCategory,
+			Action:      annotate,
+		},
 	}
 }
 
@@ -119,14 +129,24 @@ func validateCreateReleaseBundleContext(c *components.Context) error {
 
 func assertValidCreationMethod(c *components.Context) error {
 	// Determine the methods provided
-	methods := []bool{
+	monoReleaseBundleSource := []bool{
 		c.IsFlagSet("spec"),
 		c.IsFlagSet(flagkit.Builds),
 		c.IsFlagSet(flagkit.ReleaseBundles),
 	}
-	methodCount := coreutils.SumTrueValues(methods)
+	methodCount := coreutils.SumTrueValues(monoReleaseBundleSource)
 
-	// Validate that only one creation method is provided
+	multiReleaseBundleSources := []bool{
+		c.IsFlagSet(flagkit.SourceTypeReleaseBundles),
+		c.IsFlagSet(flagkit.SourceTypeBuilds),
+	}
+
+	multiReleaseBundleSourcesCount := coreutils.SumTrueValues(multiReleaseBundleSources)
+
+	return validateCreationMethods(c, methodCount, multiReleaseBundleSourcesCount)
+}
+
+func validateRegularMethods(c *components.Context, methodCount int) error {
 	if err := validateSingleCreationMethod(methodCount); err != nil {
 		return err
 	}
@@ -135,6 +155,23 @@ func assertValidCreationMethod(c *components.Context) error {
 		return err
 	}
 	return nil
+}
+
+func validateCreationMethods(c *components.Context, regularMethodsCount int, multiSrcMethodsCount int) error {
+	if multiSrcMethodsCount > 0 {
+		if err := multipleSourcesSupported(c); err != nil {
+			return err
+		}
+		if regularMethodsCount > 0 {
+			errMsg := fmt.Sprintf("only multiple sources must be supplied: --%s, --%s,\n"+
+				"or one of: --%s, --%s or --%s",
+				flagkit.SourceTypeReleaseBundles, flagkit.SourceTypeBuilds,
+				"spec", flagkit.Builds, flagkit.ReleaseBundles)
+			return errorutils.CheckError(errors.New(errMsg))
+		}
+		return nil
+	}
+	return validateRegularMethods(c, regularMethodsCount)
 }
 
 func validateSingleCreationMethod(methodCount int) error {
@@ -181,21 +218,44 @@ func create(c *components.Context) (err error) {
 		return
 	}
 	createCmd := lifecycle.NewReleaseBundleCreateCommand().SetServerDetails(lcDetails).SetReleaseBundleName(c.GetArgumentAt(0)).
-		SetReleaseBundleVersion(c.GetArgumentAt(1)).SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey)).SetSync(c.GetBoolFlagValue(flagkit.Sync)).
+		SetReleaseBundleVersion(c.GetArgumentAt(1)).SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey)).
+		SetSync(c.GetBoolFlagValue(flagkit.Sync)).
 		SetReleaseBundleProject(pluginsCommon.GetProject(c)).SetSpec(creationSpec).
 		SetBuildsSpecPath(c.GetStringFlagValue(flagkit.Builds)).SetReleaseBundlesSpecPath(c.GetStringFlagValue(flagkit.ReleaseBundles))
+
+	err = lifecycle.ValidateFeatureSupportedVersion(lcDetails, minArtifactoryVersionForMultiSourceSupport)
+	// err == nil means new flags are supported and may be added to createCmd
+	if err == nil {
+		createCmd.SetReleaseBundlesSources(c.GetStringFlagValue(flagkit.SourceTypeReleaseBundles)).
+			SetBuildsSources(c.GetStringFlagValue(flagkit.SourceTypeBuilds))
+	}
+
 	return commands.Exec(createCmd)
 }
 
-func getReleaseBundleCreationSpec(c *components.Context) (*spec.SpecFiles, error) {
+// the function validates that the current artifactory version supports multiple source feature
+func multipleSourcesSupported(c *components.Context) error {
+	lcDetails, err := createLifecycleDetailsByFlags(c)
+	if err != nil {
+		return err
+	}
+
+	return lifecycle.ValidateFeatureSupportedVersion(lcDetails, minArtifactoryVersionForMultiSourceSupport)
+}
+
+func getReleaseBundleCreationSpec(c *components.Context) (*speccore.SpecFiles, error) {
 	// Checking if the "builds" or "release-bundles" flags are set - if so, the spec flag should be ignored
 	if c.IsFlagSet(flagkit.Builds) || c.IsFlagSet(flagkit.ReleaseBundles) {
 		return nil, nil
 	}
 
+	if c.IsFlagSet(flagkit.SourceTypeReleaseBundles) || c.IsFlagSet(flagkit.SourceTypeBuilds) {
+		return nil, nil
+	}
+
 	// Check if the "spec" flag is set - if so, return the spec
 	if c.IsFlagSet("spec") {
-		return cliutils.GetSpec(c, true, false)
+		return commonCliUtils.GetSpec(c, true, false)
 	}
 
 	// Else - create a spec from the buildName and buildnumber flags or env vars
@@ -235,7 +295,8 @@ func promote(c *components.Context) error {
 	promoteCmd := lifecycle.NewReleaseBundlePromoteCommand().SetServerDetails(lcDetails).SetReleaseBundleName(c.GetArgumentAt(0)).
 		SetReleaseBundleVersion(c.GetArgumentAt(1)).SetEnvironment(c.GetArgumentAt(2)).SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey)).
 		SetSync(c.GetBoolFlagValue(flagkit.Sync)).SetReleaseBundleProject(pluginsCommon.GetProject(c)).
-		SetIncludeReposPatterns(splitRepos(c, flagkit.IncludeRepos)).SetExcludeReposPatterns(splitRepos(c, flagkit.ExcludeRepos))
+		SetIncludeReposPatterns(splitRepos(c, flagkit.IncludeRepos)).SetExcludeReposPatterns(splitRepos(c, flagkit.ExcludeRepos)).
+		SetPromotionType(c.GetStringFlagValue(flagkit.PromotionType))
 	return commands.Exec(promoteCmd)
 }
 
@@ -290,7 +351,7 @@ func deleteLocal(c *components.Context) error {
 	deleteCmd := lifecycle.NewReleaseBundleDeleteCommand().
 		SetServerDetails(lcDetails).
 		SetReleaseBundleName(c.GetArgumentAt(0)).
-		SetReleaseBundleVersion(c.GetArgumentAt(0)).
+		SetReleaseBundleVersion(c.GetArgumentAt(1)).
 		SetEnvironment(environment).
 		SetQuiet(pluginsCommon.GetQuietValue(c)).
 		SetReleaseBundleProject(pluginsCommon.GetProject(c)).
@@ -320,7 +381,7 @@ func deleteRemote(c *components.Context) error {
 	deleteCmd := lifecycle.NewReleaseBundleRemoteDeleteCommand().
 		SetServerDetails(lcDetails).
 		SetReleaseBundleName(c.GetArgumentAt(0)).
-		SetReleaseBundleVersion(c.GetArgumentAt(0)).
+		SetReleaseBundleVersion(c.GetArgumentAt(1)).
 		SetDistributionRules(distributionRules).
 		SetDryRun(c.GetBoolFlagValue("dry-run")).
 		SetMaxWaitMinutes(maxWaitMinutes).
@@ -379,6 +440,46 @@ func releaseBundleImport(c *components.Context) error {
 	return commands.Exec(importCmd)
 }
 
+func annotate(c *components.Context) error {
+	if show, err := pluginsCommon.ShowCmdHelpIfNeeded(c, c.Arguments); show || err != nil {
+		return err
+	}
+
+	if c.GetNumberOfArgs() < 2 {
+		return pluginsCommon.WrongNumberOfArgumentsHandler(c)
+	}
+
+	rtDetails, err := createLifecycleDetailsByFlags(c)
+	if err != nil {
+		return err
+	}
+	annotateCmd := lifecycle.NewReleaseBundleAnnotateCommand()
+
+	project := pluginsCommon.GetProject(c)
+	if project == "" {
+		project = "default"
+	}
+
+	tagExist := c.IsFlagSet(flagkit.Tag)
+	propsExist := c.IsFlagSet(flagkit.Properties)
+	deleteProps := c.IsFlagSet(flagkit.DeleteProperty)
+
+	if !tagExist && !propsExist && !deleteProps {
+		return errors.New("action is not specified. One of tag/properties/del-prop should be specified")
+	}
+
+	annotateCmd.
+		SetServerDetails(rtDetails).
+		SetReleaseBundleProject(project).
+		SetReleaseBundleName(c.GetArgumentAt(0)).
+		SetReleaseBundleVersion(c.GetArgumentAt(1)).
+		SetTag(c.GetStringFlagValue(flagkit.Tag), tagExist).
+		SetProps(c.GetStringFlagValue(flagkit.Properties)).
+		DeleteProps(c.GetStringFlagValue(flagkit.DeleteProperty)).
+		SetRecursive(c.GetBoolFlagValue(flagkit.Recursive), c.IsFlagSet(flagkit.Recursive))
+	return commands.Exec(annotateCmd)
+}
+
 func validateDistributeCommand(c *components.Context) error {
 	if err := distribution.ValidateReleaseBundleDistributeCmd(c); err != nil {
 		return err
@@ -393,7 +494,7 @@ func validateDistributeCommand(c *components.Context) error {
 	return nil
 }
 
-func createLifecycleDetailsByFlags(c *components.Context) (*coreConfig.ServerDetails, error) {
+func createLifecycleDetailsByFlags(c *components.Context) (*config.ServerDetails, error) {
 	lcDetails, err := pluginsCommon.CreateServerDetailsWithConfigOffer(c, true, commonCliUtils.Platform)
 	if err != nil {
 		return nil, err
@@ -484,7 +585,7 @@ func getDocumentationMessage() string {
 	return "You can read the documentation at " + coreutils.JFrogHelpUrl + "jfrog-cli"
 }
 
-func PlatformToLifecycleUrls(lcDetails *coreConfig.ServerDetails) {
+func PlatformToLifecycleUrls(lcDetails *config.ServerDetails) {
 	lcDetails.ArtifactoryUrl = utils.AddTrailingSlashIfNeeded(lcDetails.Url) + "artifactory/"
 	lcDetails.LifecycleUrl = utils.AddTrailingSlashIfNeeded(lcDetails.Url) + "lifecycle/"
 	lcDetails.Url = ""

@@ -2,6 +2,14 @@ package setup
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
 	cmdutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
@@ -15,11 +23,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
-	"testing"
 )
 
 // #nosec G101 -- Dummy token for tests
@@ -323,6 +326,34 @@ func TestSetupCommand_Go(t *testing.T) {
 	}
 }
 
+// Test that configureGo unsets any existing GOPROXY env var before configuring.
+func TestConfigureGo_UnsetEnv(t *testing.T) {
+	testCmd := createTestSetupCommand(project.Go)
+	// Simulate existing GOPROXY in environment
+	t.Setenv("GOPROXY", "user:pass@dummy")
+	// Ensure server details have credentials so configureGo proceeds
+	testCmd.serverDetails.SetAccessToken(dummyToken)
+
+	// Invoke configureGo directly
+	require.NoError(t, testCmd.configureGo())
+	// After calling, the GOPROXY env var should be cleared
+	assert.Empty(t, os.Getenv("GOPROXY"), "GOPROXY should be unset by configureGo to avoid env override")
+}
+
+// Test that configureGo unsets any existing multi-entry GOPROXY env var before configuring.
+func TestConfigureGo_UnsetEnv_MultiEntry(t *testing.T) {
+	testCmd := createTestSetupCommand(project.Go)
+	// Simulate existing multi-entry GOPROXY in environment
+	t.Setenv("GOPROXY", "user:pass@dummy,goproxy2")
+	// Ensure server details have credentials so configureGo proceeds
+	testCmd.serverDetails.SetAccessToken(dummyToken)
+
+	// Invoke configureGo directly
+	require.NoError(t, testCmd.configureGo())
+	// After calling, the GOPROXY env var should be cleared
+	assert.Empty(t, os.Getenv("GOPROXY"), "GOPROXY should be unset by configureGo to avoid env override for multi-entry lists")
+}
+
 func TestSetupCommand_Gradle(t *testing.T) {
 	testGradleUserHome := t.TempDir()
 	t.Setenv(gradle.UserHomeEnv, testGradleUserHome)
@@ -437,6 +468,24 @@ func TestIsSupportedPackageManager(t *testing.T) {
 	assert.False(t, IsSupportedPackageManager(project.Cocoapods), "Package manager Cocoapods should not be supported")
 }
 
+func TestGetRepositoryPackageType(t *testing.T) {
+	// Test supported package managers
+	for projectType, packageType := range packageManagerToRepositoryPackageType {
+		t.Run("Supported - "+projectType.String(), func(t *testing.T) {
+			actualType, err := GetRepositoryPackageType(projectType)
+			require.NoError(t, err)
+			assert.Equal(t, packageType, actualType)
+		})
+	}
+
+	// Test unsupported package manager
+	t.Run("Unsupported", func(t *testing.T) {
+		_, err := GetRepositoryPackageType(project.Cocoapods)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported package manager")
+	})
+}
+
 func TestSetupCommand_Maven(t *testing.T) {
 	// Retrieve the home directory and construct the settings.xml file path.
 	homeDir, err := os.UserHomeDir()
@@ -489,4 +538,114 @@ func TestSetupCommand_Maven(t *testing.T) {
 			assert.NoError(t, os.Remove(settingsXml))
 		})
 	}
+}
+
+func TestSetupCommand_Twine(t *testing.T) {
+	// Retrieve the home directory and construct the .pypirc file path.
+	homeDir, err := os.UserHomeDir()
+	assert.NoError(t, err)
+	pypircFilePath := filepath.Join(homeDir, ".pypirc")
+
+	// Back up the existing .pypirc file and ensure restoration after the test.
+	restorePypircFunc, err := ioutils.BackupFile(pypircFilePath, ".pypirc.backup")
+	require.NoError(t, err)
+	defer func() {
+		assert.NoError(t, restorePypircFunc())
+	}()
+
+	twineLoginCmd := createTestSetupCommand(project.Twine)
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Set up server details for the current test case's authentication type.
+			twineLoginCmd.serverDetails.SetUser(testCase.user)
+			twineLoginCmd.serverDetails.SetPassword(testCase.password)
+			twineLoginCmd.serverDetails.SetAccessToken(testCase.accessToken)
+
+			// Run the login command and ensure no errors occur.
+			require.NoError(t, twineLoginCmd.Run())
+
+			// Read the contents of the .pypirc file.
+			pypircContentBytes, err := os.ReadFile(pypircFilePath)
+			assert.NoError(t, err)
+			pypircContent := string(pypircContentBytes)
+
+			// Check that the repository URL is correctly set in .pypirc.
+			assert.Contains(t, pypircContent, "[distutils]")
+			assert.Contains(t, pypircContent, "index-servers")
+			assert.Contains(t, pypircContent, "pypi")
+
+			// Check that the pypi section is correctly set in .pypirc.
+			assert.Contains(t, pypircContent, "[pypi]")
+
+			// Since the exact URL can vary (especially with extra paths),
+			// just check that it contains the essential parts
+			assert.Contains(t, pypircContent, "repository")
+			assert.Contains(t, pypircContent, "https://acme.jfrog.io/artifactory/api")
+			assert.Contains(t, pypircContent, "test-repo")
+
+			// Validate credentials in the pypi section.
+			if testCase.accessToken != "" {
+				// Access token is set as password with token username
+				username := auth.ExtractUsernameFromAccessToken(testCase.accessToken)
+				assert.Contains(t, pypircContent, "username")
+				assert.Contains(t, pypircContent, username)
+				assert.Contains(t, pypircContent, "password")
+				// The token might be formatted differently in the output, so just check
+				// for a portion that should be unique
+				tokenSubstring := testCase.accessToken[:20] // First part of the token should be sufficient
+				assert.Contains(t, pypircContent, tokenSubstring)
+			} else if testCase.user != "" && testCase.password != "" {
+				// Basic authentication with username and password
+				assert.Contains(t, pypircContent, "username")
+				assert.Contains(t, pypircContent, testCase.user)
+				assert.Contains(t, pypircContent, "password")
+				assert.Contains(t, pypircContent, testCase.password)
+			}
+
+			// Clean up the temporary .pypirc file after the test.
+			assert.NoError(t, os.Remove(pypircFilePath))
+		})
+	}
+}
+
+func TestSetupCommand_Helm(t *testing.T) {
+	// Create a mock server to simulate Helm registry login
+	mockServer := setupMockHelmServer()
+	defer mockServer.Close()
+
+	// Initialize Helm setup command with mock server URLs
+	helmCmd := createTestSetupCommand(project.Helm)
+	helmCmd.serverDetails.Url = mockServer.URL
+	helmCmd.serverDetails.ArtifactoryUrl = mockServer.URL + "/artifactory"
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			helmCmd.serverDetails.SetUser(testCase.user)
+			helmCmd.serverDetails.SetPassword(testCase.password)
+			helmCmd.serverDetails.SetAccessToken(testCase.accessToken)
+			err := helmCmd.Run()
+			if testCase.name == "Anonymous Access" {
+				require.Error(t, err, "Helm registry login should fail for anonymous access")
+				assert.Contains(t, err.Error(), "credentials are required")
+			} else {
+				require.NoError(t, err, "Helm registry login should succeed with credentials")
+			}
+		})
+	}
+}
+
+// setupMockHelmServer creates a mock HTTP server that responds to Helm registry login requests
+func setupMockHelmServer() *httptest.Server {
+	// Create a test server that properly responds to OCI registry auth requests
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// For any registry-related request, simply return a 200 OK
+		// This simulates a successful registry login without triggering external auth requests
+		w.WriteHeader(http.StatusOK)
+		_, err := w.Write([]byte(`{"token": "fake-token"}`))
+		if err != nil {
+			http.Error(w, "Failed to write response", http.StatusInternalServerError)
+			return
+		}
+	}))
 }

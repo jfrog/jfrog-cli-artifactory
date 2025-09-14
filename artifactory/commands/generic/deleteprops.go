@@ -17,6 +17,11 @@ func (dp *DeletePropsCommand) DeletePropsCommand(command PropsCommand) *DeletePr
 	return dp
 }
 
+func (dp *DeletePropsCommand) SetRepoOnly(repoOnly bool) *DeletePropsCommand {
+	dp.PropsCommand.repoOnly = repoOnly
+	return dp
+}
+
 func (dp *DeletePropsCommand) CommandName() string {
 	return "rt_delete_properties"
 }
@@ -35,7 +40,7 @@ func (dp *DeletePropsCommand) Run() error {
 		return err
 	}
 	defer reader.Close()
-	propsParams := GetPropsParams(reader, dp.props)
+	propsParams := GetPropsParams(reader, dp.props, dp.repoOnly)
 	success, err := servicesManager.DeleteProps(propsParams)
 	result := dp.Result()
 	result.SetSuccessCount(success)

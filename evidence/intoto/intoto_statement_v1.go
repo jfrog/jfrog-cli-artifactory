@@ -2,10 +2,9 @@ package intoto
 
 import (
 	"encoding/json"
-	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"time"
 
-	"github.com/jfrog/jfrog-client-go/artifactory"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
 const (
@@ -22,6 +21,7 @@ type Statement struct {
 	CreatedAt     string               `json:"createdAt"`
 	CreatedBy     string               `json:"createdBy"`
 	Markdown      string               `json:"markdown,omitempty"`
+	Stage         string               `json:"stage,omitempty"`
 }
 
 type ResourceDescriptor struct {
@@ -32,7 +32,7 @@ type Digest struct {
 	Sha256 string `json:"sha256"`
 }
 
-func NewStatement(predicate []byte, predicateType string, user string) *Statement {
+func NewStatement(predicate []byte, predicateType, user string) *Statement {
 	return &Statement{
 		Type:          StatementType,
 		PredicateType: predicateType,
@@ -42,21 +42,18 @@ func NewStatement(predicate []byte, predicateType string, user string) *Statemen
 	}
 }
 
-func (s *Statement) SetSubject(servicesManager artifactory.ArtifactoryServicesManager, subject, subjectSha256 string) error {
+func (s *Statement) SetSubject(subjectSha256 string) error {
 	s.Subject = make([]ResourceDescriptor, 1)
-	res, err := servicesManager.FileInfo(subject)
-	if err != nil {
-		return err
-	}
-	if subjectSha256 != "" && res.Checksums.Sha256 != subjectSha256 {
-		return errorutils.CheckErrorf("provided sha256 does not match the file's sha256")
-	}
-	s.Subject[0].Digest.Sha256 = res.Checksums.Sha256
+	s.Subject[0].Digest.Sha256 = subjectSha256
 	return nil
 }
 
 func (s *Statement) SetMarkdown(markdown []byte) {
 	s.Markdown = string(markdown)
+}
+
+func (s *Statement) SetStage(stage string) {
+	s.Stage = stage
 }
 
 func (s *Statement) Marshal() ([]byte, error) {

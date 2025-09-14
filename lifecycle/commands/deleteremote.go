@@ -3,9 +3,11 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/jfrog/gofrog/version"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/lifecycle"
 	"github.com/jfrog/jfrog-client-go/lifecycle/services"
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
@@ -14,7 +16,10 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-const avoidConfirmationMsg = "You can avoid this confirmation message by adding --quiet to the command."
+const (
+	avoidConfirmationMsg                           = "You can avoid this confirmation message by adding --quiet to the command."
+	minimumVersionForSupportingNewReleaseBundleApi = "7.63.2"
+)
 
 type ReleaseBundleRemoteDeleteCommand struct {
 	releaseBundleCmd
@@ -156,4 +161,9 @@ func (rbd *ReleaseBundleRemoteDeleteCommand) getAggregatedDistRules() (aggregate
 		}
 	}
 	return
+}
+
+func (rbd *ReleaseBundleRemoteDeleteCommand) IsNewReleaseBundleApiSupported(artifactoryServiceManager artifactory.ArtifactoryServicesManager) bool {
+	artifactoryVersion, _ := artifactoryServiceManager.GetVersion()
+	return version.NewVersion(artifactoryVersion).AtLeast(minimumVersionForSupportingNewReleaseBundleApi)
 }

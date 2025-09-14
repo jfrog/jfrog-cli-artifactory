@@ -18,6 +18,11 @@ func (setProps *SetPropsCommand) SetPropsCommand(command PropsCommand) *SetProps
 	return setProps
 }
 
+func (setProps *SetPropsCommand) SetRepoOnly(repoOnly bool) *SetPropsCommand {
+	setProps.PropsCommand.repoOnly = repoOnly
+	return setProps
+}
+
 func (setProps *SetPropsCommand) CommandName() string {
 	return "rt_set_properties"
 }
@@ -39,7 +44,7 @@ func (setProps *SetPropsCommand) Run() (err error) {
 	defer func() {
 		err = errors.Join(err, reader.Close())
 	}()
-	propsParams := GetPropsParams(reader, setProps.props)
+	propsParams := GetPropsParams(reader, setProps.props, setProps.repoOnly)
 	success, err := servicesManager.SetProps(propsParams)
 
 	result := setProps.Result()
