@@ -179,11 +179,36 @@ func GetPypiRepoUrl(serverDetails *config.ServerDetails, repository string, isCu
 	return rtUrl.String(), err
 }
 
+// getAvailablePipExecutable returns the available pip executable name (pip or pip3)
+func getAvailablePipExecutable() (string, error) {
+	if _, err := exec.LookPath("pip"); err == nil {
+		return "pip", nil
+	}
+	if _, err := exec.LookPath("pip3"); err == nil {
+		return "pip3", nil
+	}
+
+	return "", errorutils.CheckErrorf("neither pip nor pip3 executable found in PATH")
+}
+
 func RunConfigCommand(buildTool project.ProjectType, args []string) error {
-	log.Debug("Running", buildTool.String(), "config command...")
-	configCmd := gofrogcmd.NewCommand(buildTool.String(), "config", args)
+	var execName string
+	var err error
+
+	// For pip, detect available executable (pip or pip3), for others use build tool name directly
+	if buildTool == project.Pip {
+		execName, err = getAvailablePipExecutable()
+		if err != nil {
+			return err
+		}
+	} else {
+		execName = buildTool.String()
+	}
+
+	log.Debug("Running", execName, "config command...")
+	configCmd := gofrogcmd.NewCommand(execName, "config", args)
 	if err := gofrogcmd.RunCmd(configCmd); err != nil {
-		return errorutils.CheckErrorf("%s config command failed with: %q", buildTool.String(), err)
+		return errorutils.CheckErrorf("%s config command failed with: %q", execName, err)
 	}
 	return nil
 }
