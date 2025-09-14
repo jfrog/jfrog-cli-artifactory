@@ -179,30 +179,29 @@ func GetPypiRepoUrl(serverDetails *config.ServerDetails, repository string, isCu
 	return rtUrl.String(), err
 }
 
-// getAvailablePipExecutable returns the available pip executable name (pip or pip3)
-func getAvailablePipExecutable() (string, error) {
-	if _, err := exec.LookPath("pip"); err == nil {
-		return "pip", nil
+// getExecutable returns the available executable name for the given build tool
+// For pip, it detects between pip and pip3. For other tools, returns the tool name directly.
+func getExecutable(buildTool project.ProjectType) (string, error) {
+	switch buildTool {
+	case project.Pip:
+		// Try pip first, then pip3 as fallback
+		if _, err := exec.LookPath("pip"); err == nil {
+			return "pip", nil
+		}
+		if _, err := exec.LookPath("pip3"); err == nil {
+			return "pip3", nil
+		}
+		return "", errorutils.CheckErrorf("neither pip nor pip3 executable found in PATH")
+	default:
+		// For all other build tools, use the name directly
+		return buildTool.String(), nil
 	}
-	if _, err := exec.LookPath("pip3"); err == nil {
-		return "pip3", nil
-	}
-
-	return "", errorutils.CheckErrorf("neither pip nor pip3 executable found in PATH")
 }
 
 func RunConfigCommand(buildTool project.ProjectType, args []string) error {
-	var execName string
-	var err error
-
-	// For pip, detect available executable (pip or pip3), for others use build tool name directly
-	if buildTool == project.Pip {
-		execName, err = getAvailablePipExecutable()
-		if err != nil {
-			return err
-		}
-	} else {
-		execName = buildTool.String()
+	execName, err := getExecutable(buildTool)
+	if err != nil {
+		return err
 	}
 
 	log.Debug("Running", execName, "config command...")
