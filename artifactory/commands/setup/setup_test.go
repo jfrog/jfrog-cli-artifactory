@@ -578,11 +578,9 @@ func TestSetupCommand_Twine(t *testing.T) {
 			// Check that the pypi section is correctly set in .pypirc.
 			assert.Contains(t, pypircContent, "[pypi]")
 
-			// Since the exact URL can vary (especially with extra paths),
-			// just check that it contains the essential parts
-			assert.Contains(t, pypircContent, "repository")
-			assert.Contains(t, pypircContent, "https://acme.jfrog.io/artifactory/api")
-			assert.Contains(t, pypircContent, "test-repo")
+			// Check that the repository URL is correctly set in .pypirc.
+			expectedRepoUrl := "https://acme.jfrog.io/artifactory/api/pypi/test-repo/"
+			assert.Contains(t, pypircContent, fmt.Sprintf("repository = %s", expectedRepoUrl))
 
 			// Validate credentials in the pypi section.
 			if testCase.accessToken != "" {

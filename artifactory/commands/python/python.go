@@ -3,6 +3,11 @@ package python
 import (
 	"bytes"
 	"errors"
+	"io"
+	"net/url"
+	"os"
+	"os/exec"
+
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/entities"
 	buildInfoUtils "github.com/jfrog/build-info-go/utils"
@@ -17,10 +22,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"io"
-	"net/url"
-	"os"
-	"os/exec"
 )
 
 const (
@@ -178,11 +179,35 @@ func GetPypiRepoUrl(serverDetails *config.ServerDetails, repository string, isCu
 	return rtUrl.String(), err
 }
 
+// getExecutable returns the available executable name for the given build tool
+// For pip, it detects between pip and pip3. For other tools, returns the tool name directly.
+func getExecutable(buildTool project.ProjectType) (string, error) {
+	switch buildTool {
+	case project.Pip:
+		// Try pip first, then pip3 as fallback
+		if _, err := exec.LookPath("pip"); err == nil {
+			return "pip", nil
+		}
+		if _, err := exec.LookPath("pip3"); err == nil {
+			return "pip3", nil
+		}
+		return "", errorutils.CheckErrorf("neither pip nor pip3 executable found in PATH")
+	default:
+		// For all other build tools, use the name directly
+		return buildTool.String(), nil
+	}
+}
+
 func RunConfigCommand(buildTool project.ProjectType, args []string) error {
-	log.Debug("Running", buildTool.String(), "config command...")
-	configCmd := gofrogcmd.NewCommand(buildTool.String(), "config", args)
+	execName, err := getExecutable(buildTool)
+	if err != nil {
+		return err
+	}
+
+	log.Debug("Running", execName, "config command...")
+	configCmd := gofrogcmd.NewCommand(execName, "config", args)
 	if err := gofrogcmd.RunCmd(configCmd); err != nil {
-		return errorutils.CheckErrorf("%s config command failed with: %q", buildTool.String(), err)
+		return errorutils.CheckErrorf("%s config command failed with: %q", execName, err)
 	}
 	return nil
 }

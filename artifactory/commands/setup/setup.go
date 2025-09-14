@@ -221,14 +221,20 @@ func (sc *SetupCommand) promptUserToSelectRepository() (err error) {
 func (sc *SetupCommand) configurePip() error {
 	repoWithCredsUrl, err := python.GetPypiRepoUrl(sc.serverDetails, sc.repoName, false)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get PyPI repository URL: %w", err)
 	}
 	// If PIP_CONFIG_FILE is set, write the configuration to the custom config file manually.
 	// Using 'pip config set' native command is not supported together with PIP_CONFIG_FILE.
 	if customPipConfigPath := os.Getenv("PIP_CONFIG_FILE"); customPipConfigPath != "" {
-		return python.CreatePipConfigManually(customPipConfigPath, repoWithCredsUrl)
+		if err := python.CreatePipConfigManually(customPipConfigPath, repoWithCredsUrl); err != nil {
+			return fmt.Errorf("failed to create pip config file at %s: %w", customPipConfigPath, err)
+		}
+		return nil
 	}
-	return python.RunConfigCommand(project.Pip, []string{"set", "global.index-url", repoWithCredsUrl})
+	if err := python.RunConfigCommand(project.Pip, []string{"set", "global.index-url", repoWithCredsUrl}); err != nil {
+		return fmt.Errorf("failed to configure pip index-url: %w", err)
+	}
+	return nil
 }
 
 // configurePoetry configures Poetry to use the specified repository and authentication credentials.
@@ -241,9 +247,12 @@ func (sc *SetupCommand) configurePip() error {
 func (sc *SetupCommand) configurePoetry() error {
 	repoUrl, username, password, err := python.GetPypiRepoUrlWithCredentials(sc.serverDetails, sc.repoName, false)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get PyPI repository URL with credentials: %w", err)
 	}
-	return python.RunPoetryConfig(repoUrl.String(), username, password, sc.repoName)
+	if err := python.RunPoetryConfig(repoUrl.String(), username, password, sc.repoName); err != nil {
+		return fmt.Errorf("failed to configure Poetry repository: %w", err)
+	}
+	return nil
 }
 
 // configureTwine configures Twine to use the specified Artifactory PyPI repository.
@@ -269,8 +278,8 @@ func (sc *SetupCommand) configureTwine() error {
 	if err != nil {
 		return err
 	}
-	// Strip "/simple" to get the correct upload endpoint for Twine.
-	trimmedUrl := strings.TrimSuffix(repoUrl.String(), "/simple")
+	// Strip "simple" from url as its not needed for Twine.
+	trimmedUrl := strings.TrimSuffix(repoUrl.String(), "simple")
 
 	// Configure Twine using the .pypirc file
 	return python.ConfigurePypirc(trimmedUrl, sc.repoName, username, password)
@@ -348,9 +357,12 @@ func (sc *SetupCommand) configureGo() error {
 	}
 	repoWithCredsUrl, err := golang.GetArtifactoryRemoteRepoUrl(sc.serverDetails, sc.repoName, golang.GoProxyUrlParams{Direct: true})
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get Go repository URL: %w", err)
 	}
-	return biutils.RunGo([]string{"env", "-w", "GOPROXY=" + repoWithCredsUrl}, "")
+	if err := biutils.RunGo([]string{"env", "-w", "GOPROXY=" + repoWithCredsUrl}, ""); err != nil {
+		return fmt.Errorf("failed to set GOPROXY environment variable: %w", err)
+	}
+	return nil
 }
 
 // configureDotnetNuget configures NuGet or .NET Core to use the specified Artifactory repository with credentials.
@@ -407,14 +419,17 @@ func (sc *SetupCommand) configureContainer() error {
 	// Parse the URL to remove the scheme (https:// or http://)
 	parsedPlatformURL, err := url.Parse(sc.serverDetails.GetUrl())
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to parse server URL: %w", err)
 	}
 	urlWithoutScheme := parsedPlatformURL.Host + parsedPlatformURL.Path
-	return container.ContainerManagerLogin(
-		strings.TrimPrefix(urlWithoutScheme, "/"),
+	if err := container.ContainerManagerLogin(
+		strings.TrimSuffix(urlWithoutScheme, "/"),
 		&container.ContainerManagerLoginConfig{ServerDetails: sc.serverDetails},
 		containerManagerType,
-	)
+	); err != nil {
+		return fmt.Errorf("failed to login to container registry: %w", err)
+	}
+	return nil
 }
 
 // configureMaven updates the Maven settings.xml file to use the repo Url as mirror.
@@ -456,10 +471,13 @@ func (sc *SetupCommand) configureGradle() error {
 	}
 	initScript, err := gradle.GenerateInitScript(initScriptAuthConfig)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to generate Gradle init script: %w", err)
 	}
 
-	return gradle.WriteInitScript(initScript)
+	if err := gradle.WriteInitScript(initScript); err != nil {
+		return fmt.Errorf("failed to write Gradle init script: %w", err)
+	}
+	return nil
 }
 
 // configureHelm configures Helm to use Artifactory as an OCI registry.
