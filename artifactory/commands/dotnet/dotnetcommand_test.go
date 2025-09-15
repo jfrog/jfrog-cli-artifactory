@@ -255,16 +255,16 @@ func TestSetDefaultPushSource(t *testing.T) {
 				if len(originalValue) > 0 {
 					// Restore original value if it existed
 					if test.toolchainType == dotnet.DotnetCore {
-						exec.Command("dotnet", "nuget", "config", "set", "defaultPushSource", strings.TrimSpace(string(originalValue))).Run()
+						assert.NoError(t, exec.Command("dotnet", "nuget", "config", "set", "defaultPushSource", strings.TrimSpace(string(originalValue))).Run())
 					} else {
-						exec.Command("nuget", "config", "-Set", "defaultPushSource="+strings.TrimSpace(string(originalValue))).Run()
+						assert.NoError(t, exec.Command("nuget", "config", "-Set", "defaultPushSource="+strings.TrimSpace(string(originalValue))).Run())
 					}
 				} else {
-					// Unset if no original value existed
 					if test.toolchainType == dotnet.DotnetCore {
-						exec.Command("dotnet", "nuget", "config", "unset", "defaultPushSource").Run()
+						assert.NoError(t, exec.Command("dotnet", "nuget", "config", "unset", "defaultPushSource").Run())
 					} else {
-						// Note: nuget.exe doesn't have an unset command, so we skip cleanup for nuget.exe
+						// nuget.exe doesn't have unset, so set to empty value as workaround
+						assert.NoError(t, exec.Command("nuget", "config", "-Set", "defaultPushSource=").Run())
 					}
 				}
 			}()
