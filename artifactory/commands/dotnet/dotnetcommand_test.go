@@ -2,6 +2,7 @@ package dotnet
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	testsutils "github.com/jfrog/jfrog-client-go/utils/tests"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetFlagValueExists(t *testing.T) {
@@ -222,4 +224,65 @@ func createNewDotnetModule(t *testing.T, tmpDir string) *build.DotnetModule {
 	module, err := dotnetBuild.AddDotnetModules("")
 	assert.NoError(t, err)
 	return module
+}
+
+func TestSetDefaultPushSource(t *testing.T) {
+	tests := []struct {
+		name          string
+		toolchainType dotnet.ToolchainType
+		getCommand    []string
+	}{
+		{
+			name:          "DotnetCore",
+			toolchainType: dotnet.DotnetCore,
+			getCommand:    []string{"dotnet", "nuget", "config", "get", "defaultPushSource"},
+		},
+		{
+			name:          "Nuget",
+			toolchainType: dotnet.Nuget,
+			getCommand:    []string{"nuget", "config", "defaultPushSource"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Backup any existing defaultPushSource setting
+			backupCmd := exec.Command(test.getCommand[0], test.getCommand[1:]...)
+			originalValue, _ := backupCmd.Output()
+
+			// Clean up: restore original value after test
+			defer func() {
+				if len(originalValue) > 0 {
+					// Restore original value if it existed
+					if test.toolchainType == dotnet.DotnetCore {
+						assert.NoError(t, exec.Command("dotnet", "nuget", "config", "set", "defaultPushSource", strings.TrimSpace(string(originalValue))).Run())
+					} else {
+						assert.NoError(t, exec.Command("nuget", "config", "-Set", "defaultPushSource="+strings.TrimSpace(string(originalValue))).Run())
+					}
+				} else {
+					if test.toolchainType == dotnet.DotnetCore {
+						assert.NoError(t, exec.Command("dotnet", "nuget", "config", "unset", "defaultPushSource").Run())
+					} else {
+						// nuget.exe doesn't have unset, so set to empty value as workaround
+						assert.NoError(t, exec.Command("nuget", "config", "-Set", "defaultPushSource=").Run())
+					}
+				}
+			}()
+
+			// Run the actual SetDefaultPushSource function
+			err := SetDefaultPushSource(test.toolchainType)
+
+			// Verify the function succeeded
+			require.NoError(t, err, "SetDefaultPushSource should succeed")
+
+			// Verify the default push source was actually set by running the get command
+			getCmd := exec.Command(test.getCommand[0], test.getCommand[1:]...)
+			output, err := getCmd.Output()
+			require.NoError(t, err, "Should be able to get defaultPushSource config")
+
+			// Verify the value was set to our SourceName
+			actualValue := strings.TrimSpace(string(output))
+			assert.Equal(t, SourceName, actualValue, "defaultPushSource should be set to %s", SourceName)
+		})
+	}
 }

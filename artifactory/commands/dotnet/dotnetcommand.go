@@ -3,6 +3,11 @@ package dotnet
 import (
 	"errors"
 	"fmt"
+	"net/url"
+	"os"
+	"path"
+	"strings"
+
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/build/utils/dotnet"
 	frogio "github.com/jfrog/gofrog/io"
@@ -12,10 +17,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"net/url"
-	"os"
-	"path"
-	"strings"
 )
 
 const (
@@ -352,4 +353,24 @@ func GetSourceDetails(details *config.ServerDetails, repoName string, useNugetV2
 		password = details.AccessToken
 	}
 	return
+}
+
+// SetDefaultPushSource sets the JFrogCli source as the default push source using native config commands.
+func SetDefaultPushSource(cmdType dotnet.ToolchainType) error {
+	cmd, err := dotnet.NewToolchainCmd(cmdType)
+	if err != nil {
+		return err
+	}
+
+	if cmdType == dotnet.DotnetCore {
+		cmd.Command = append(cmd.Command, "nuget", "config", "set", "defaultPushSource", SourceName)
+	} else {
+		cmd.Command = append(cmd.Command, "config", "-Set", "defaultPushSource="+SourceName)
+	}
+
+	stdOut, errOut, _, err := frogio.RunCmdWithOutputParser(cmd, false)
+	if err != nil {
+		return fmt.Errorf("%s\n%s\nfailed to set default push source: %w", stdOut, errOut, err)
+	}
+	return nil
 }

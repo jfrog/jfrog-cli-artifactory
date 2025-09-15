@@ -313,6 +313,7 @@ func (sc *SetupCommand) configureNpmPnpm() error {
 }
 
 // configureYarn configures Yarn to use the specified Artifactory repository and sets authentication.
+// Supports both Yarn Classic (v1.x) and Yarn Berry (v2.x+).
 // Runs the following commands:
 //
 //	yarn config set registry https://<your-artifactory-url>/artifactory/api/npm/<repo-name>
@@ -340,7 +341,7 @@ func (sc *SetupCommand) configureYarn() (err error) {
 // configureGo configures Go to use the Artifactory repository for GOPROXY.
 // Runs the following command:
 //
-//	go env -w GOPROXY=https://<user>:<token>@<your-artifactory-url>/artifactory/go/<repo-name>,direct
+//	go env -w GOPROXY=https://<user>:<token>@<your-artifactory-url>/artifactory/go/<repo-name>
 func (sc *SetupCommand) configureGo() error {
 	if goProxyVal := os.Getenv("GOPROXY"); goProxyVal != "" {
 		// Remove the variable so it won't override the newly configured proxy (temporarily).
@@ -355,7 +356,7 @@ func (sc *SetupCommand) configureGo() error {
 		log.Warn(fmt.Sprintf("A local GOPROXY='%s' is set and will override the global setting.\n"+
 			"Unset it in your shell config (e.g., .zshrc, .bashrc).", goProxyVal))
 	}
-	repoWithCredsUrl, err := golang.GetArtifactoryRemoteRepoUrl(sc.serverDetails, sc.repoName, golang.GoProxyUrlParams{Direct: true})
+	repoWithCredsUrl, err := golang.GetArtifactoryRemoteRepoUrl(sc.serverDetails, sc.repoName, golang.GoProxyUrlParams{Direct: false})
 	if err != nil {
 		return fmt.Errorf("failed to get Go repository URL: %w", err)
 	}
@@ -393,7 +394,12 @@ func (sc *SetupCommand) configureDotnetNuget() error {
 	}
 
 	// Add the repository as a source in the NuGet configuration with credentials for authentication
-	return dotnet.AddSourceToNugetConfig(toolchainType, sourceUrl, user, password)
+	if err = dotnet.AddSourceToNugetConfig(toolchainType, sourceUrl, user, password); err != nil {
+		return err
+	}
+
+	// Set source as the default push source to eliminate the need for --source flag
+	return dotnet.SetDefaultPushSource(toolchainType)
 }
 
 // configureContainer configures container managers like Docker or Podman to authenticate with JFrog Artifactory.
