@@ -313,6 +313,7 @@ func (sc *SetupCommand) configureNpmPnpm() error {
 }
 
 // configureYarn configures Yarn to use the specified Artifactory repository and sets authentication.
+// Supports both Yarn Classic (v1.x) and Yarn Berry (v2.x+).
 // Runs the following commands:
 //
 //	yarn config set registry https://<your-artifactory-url>/artifactory/api/npm/<repo-name>
@@ -393,7 +394,12 @@ func (sc *SetupCommand) configureDotnetNuget() error {
 	}
 
 	// Add the repository as a source in the NuGet configuration with credentials for authentication
-	return dotnet.AddSourceToNugetConfig(toolchainType, sourceUrl, user, password)
+	if err = dotnet.AddSourceToNugetConfig(toolchainType, sourceUrl, user, password); err != nil {
+		return err
+	}
+
+	// Set source as the default push source to eliminate the need for --source flag
+	return dotnet.SetDefaultPushSource(toolchainType)
 }
 
 // configureContainer configures container managers like Docker or Podman to authenticate with JFrog Artifactory.

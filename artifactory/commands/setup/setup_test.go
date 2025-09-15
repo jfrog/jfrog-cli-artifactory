@@ -440,6 +440,9 @@ func testBuildToolLoginCommandConfigureDotnetNuget(t *testing.T, packageManager 
 
 			assert.Contains(t, nugetConfigContent, fmt.Sprintf("add key=\"%s\" value=\"https://acme.jfrog.io/artifactory/api/nuget/v3/test-repo/index.json\"", dotnet.SourceName))
 
+			// Validate that the default push source was set correctly
+			assert.Contains(t, nugetConfigContent, fmt.Sprintf("<add key=\"defaultPushSource\" value=\"%s\" />", dotnet.SourceName))
+
 			if testCase.accessToken != "" {
 				// Validate token-based authentication (The token is encoded so we can't test it)
 				assert.Contains(t, nugetConfigContent, fmt.Sprintf("<add key=\"Username\" value=\"%s\" />", auth.ExtractUsernameFromAccessToken(testCase.accessToken)))
