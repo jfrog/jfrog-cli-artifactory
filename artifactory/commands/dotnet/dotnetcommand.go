@@ -368,9 +368,9 @@ func SetDefaultPushSource(cmdType dotnet.ToolchainType) error {
 		cmd.Command = append(cmd.Command, "config", "-Set", "defaultPushSource="+SourceName)
 	}
 
-	_, errOut, _, err := frogio.RunCmdWithOutputParser(cmd, false)
+	stdOut, errOut, _, err := frogio.RunCmdWithOutputParser(cmd, false)
 	if err != nil {
-		return fmt.Errorf("%s\nfailed to set default push source: %w", errOut, err)
+		return fmt.Errorf("%s\n%s\nfailed to set default push source: %w", stdOut, errOut, err)
 	}
 	return nil
 }
