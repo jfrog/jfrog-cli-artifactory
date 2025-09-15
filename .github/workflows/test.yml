@@ -39,17 +39,17 @@ jobs:
         with:
           version: 'latest'
 
-      - name: Install NuGet
+      - name: Install NuGet 6.x
         uses: nuget/setup-nuget@v2
         with:
           nuget-version: 6.x
 
-      - name: Install dotnet
+      - name: Install dotnet 8.x
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '6.x'
+          dotnet-version: '8.x'
 
-      - name: Install pnpm
+      - name: Install pnpm 9.x
         uses: pnpm/action-setup@v4
         with:
           version: 9
