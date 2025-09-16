@@ -313,7 +313,7 @@ func (sc *SetupCommand) configureNpmPnpm() error {
 }
 
 // configureYarn configures Yarn to use the specified Artifactory repository and sets authentication.
-// Supports both Yarn Classic (v1.x) and Yarn Berry (v2.x+).
+// Supports Yarn Classic (v1.x),  Yarn Berry (v2+) is project-specific
 // Runs the following commands:
 //
 //	yarn config set registry https://<your-artifactory-url>/artifactory/api/npm/<repo-name>
