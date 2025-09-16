@@ -16,6 +16,7 @@ const (
 
 type ContainerCommandBase struct {
 	image              *container.Image
+	loginRegistry      string
 	repo               string
 	buildConfiguration *build.BuildConfiguration
 	serverDetails      *config.ServerDetails
@@ -109,4 +110,13 @@ func (ccb *ContainerCommandBase) init() error {
 		return errorutils.CheckErrorf("Collecting docker build-info with this command requires Artifactory version %s or higher", MinRtVersionForRepoFetching)
 	}
 	return nil
+}
+
+func (ccb *ContainerCommandBase) SetLoginRegistry(registry string) *ContainerCommandBase {
+	ccb.loginRegistry = registry
+	return ccb
+}
+
+func (ccb *ContainerCommandBase) LoginRegistry() string {
+	return ccb.loginRegistry
 }
