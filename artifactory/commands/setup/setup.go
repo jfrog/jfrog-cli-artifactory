@@ -461,7 +461,7 @@ func (sc *SetupCommand) configureMaven() error {
 	return nil
 }
 
-// configureGradle configures Gradle to use the specified Artifactory repository.
+// configureGradle configures Gradle to use the specified Artifactory repository for both dependency resolution and publishing.
 func (sc *SetupCommand) configureGradle() error {
 	password := sc.serverDetails.GetPassword()
 	username := sc.serverDetails.GetUser()

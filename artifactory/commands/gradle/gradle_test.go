@@ -21,6 +21,34 @@ func TestGenerateInitScript(t *testing.T) {
 	assert.Contains(t, script, "example-repo")
 	assert.Contains(t, script, "user")
 	assert.Contains(t, script, "token")
+	// Verify publishing configuration is included
+	assert.Contains(t, script, "maven-publish")
+	assert.Contains(t, script, "publishing {")
+
+	// Verify Maven repository configuration
+	assert.Contains(t, script, "repositories {")
+	assert.Contains(t, script, "maven {")
+
+	// Verify repository names are included for better logging
+	assert.Contains(t, script, `name = "Artifactory"`)
+
+	// Verify modern uri() function usage
+	assert.Contains(t, script, "url = uri(")
+	assert.Contains(t, script, "url uri(")
+
+	// Verify exclusive publishing with clear()
+	assert.Contains(t, script, "clear()")
+	assert.Contains(t, script, "Clear any existing repositories")
+
+	// Verify metadataSources is not included (uses Gradle defaults)
+	assert.NotContains(t, script, "metadataSources")
+	assert.NotContains(t, script, "artifact()")
+	assert.NotContains(t, script, "mavenPom()")
+
+	// Verify credentials and security configuration
+	assert.Contains(t, script, "credentials {")
+	assert.Contains(t, script, "allowInsecureProtocol")
+	assert.Contains(t, script, "gradleVersion >= GradleVersion.version")
 }
 
 func TestWriteInitScript(t *testing.T) {

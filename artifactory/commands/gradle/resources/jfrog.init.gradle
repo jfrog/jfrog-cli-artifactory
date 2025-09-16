@@ -9,7 +9,8 @@ def allowInsecure = gradleVersion >= GradleVersion.version("6.2") && artifactory
 
 void configureMavenRepo(repositories, String rtUrl, String rtUser, String rtPass, boolean allowInsecure) {
     repositories.maven {
-        url rtUrl
+        name = "Artifactory"
+        url uri(rtUrl)
         credentials {
             username = rtUser
             password = rtPass
@@ -17,11 +18,6 @@ void configureMavenRepo(repositories, String rtUrl, String rtUser, String rtPass
         // This is used when Artifactory is running in HTTP mode
         if (allowInsecure) {
             allowInsecureProtocol = true
-        }
-        
-        metadataSources {
-            artifact()
-            mavenPom()
         }
     }
 }
@@ -40,5 +36,27 @@ gradle.settingsEvaluated { settings ->
 allprojects { project ->
     project.repositories {
         configureMavenRepo(it, "${artifactoryUrl}/${gradleRepoName}", artifactoryUsername, artifactoryAccessToken, allowInsecure)
+    }
+    
+    // Configure publishing for projects that apply maven-publish plugin
+    project.plugins.withId('maven-publish') {
+        project.publishing {
+            repositories {
+                // Clear any existing repositories to ensure Artifactory is the only publishing destination
+                clear()
+                maven {
+                    name = "Artifactory"
+                    url = uri("${artifactoryUrl}/${gradleRepoName}")
+                    credentials {
+                        username = artifactoryUsername
+                        password = artifactoryAccessToken
+                    }
+                    // This is used when Artifactory is running in HTTP mode
+                    if (allowInsecure) {
+                        allowInsecureProtocol = true
+                    }
+                }
+            }
+        }
     }
 }
