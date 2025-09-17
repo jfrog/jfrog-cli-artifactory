@@ -1125,6 +1125,10 @@ func buildPublishCmd(c *components.Context) error {
 		return err
 	}
 	buildPublishCmd := buildinfo.NewBuildPublishCommand().SetServerDetails(rtDetails).SetBuildConfiguration(buildConfiguration).SetConfig(buildInfoConfiguration).SetDetailedSummary(common.GetDetailedSummary(c))
+	buildPublishCmd.SetCollectEnv(c.GetBoolFlagValue("collect-env"))
+	buildPublishCmd.SetCollectGitInfo(c.GetBoolFlagValue("collect-git-info"))
+	buildPublishCmd.SetDotGitPath(c.GetStringFlagValue("dot-git-path"))
+	buildPublishCmd.SetConfigFilePath(c.GetStringFlagValue("git-config-file-path"))
 
 	err = commands.Exec(buildPublishCmd)
 	if buildPublishCmd.IsDetailedSummary() {

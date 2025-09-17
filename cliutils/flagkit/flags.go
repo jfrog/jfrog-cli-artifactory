@@ -255,6 +255,10 @@ const (
 	buildUrl           = "build-url"
 	Project            = "project"
 	bpOverwrite        = "bpOverwrite"
+	collectEnv         = "collect-env"
+	collectGitInfo     = "collect-git-info"
+	dotGitPath         = "dot-git-path"
+	gitConfigFilePath  = "git-config-file-path"
 
 	// Unique build-add-dependencies flags
 	badPrefix    = "bad-"
@@ -584,7 +588,7 @@ var commandFlags = map[string][]string{
 	},
 	BuildPublish: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, buildUrl, bpDryRun,
-		envInclude, envExclude, InsecureTls, Project, bpDetailedSummary, bpOverwrite,
+		envInclude, envExclude, InsecureTls, Project, bpDetailedSummary, bpOverwrite, collectEnv, collectGitInfo, gitConfigFilePath, dotGitPath,
 	},
 	BuildAppend: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, buildUrl, bpDryRun,
@@ -803,9 +807,9 @@ var flagsMap = map[string]components.Flag{
 	retries:           components.NewStringFlag(retries, "[Default: "+strconv.Itoa(Retries)+"] Number of HTTP retries.", components.SetMandatoryFalse()),
 	retryWaitTime:     components.NewStringFlag(retryWaitTime, "[Default: 0] Number of seconds or milliseconds to wait between retries. The numeric value should either end with s for seconds or ms for milliseconds (for example: 10s or 100ms).", components.SetMandatoryFalse()),
 	dryRun:            components.NewBoolFlag(dryRun, "[Default: false] Set to true to disable communication with Artifactory.", components.WithBoolDefaultValueFalse()),
-	InsecureTls:       components.NewBoolFlag(InsecureTls, "[Default: false] Set to true to skip TLS certificates verification.", components.WithBoolDefaultValueFalse()),
-	detailedSummary:   components.NewBoolFlag(detailedSummary, "[Default: false] Set to true to include a list of the affected files in the command summary.", components.WithBoolDefaultValueFalse()),
-	Project:           components.NewStringFlag(Project, "[Optional] JFrog Artifactory project key.", components.SetMandatoryFalse()),
+	InsecureTls:       components.NewBoolFlag(InsecureTls, "Set to true to skip TLS certificates verification.", components.WithBoolDefaultValueFalse()),
+	detailedSummary:   components.NewBoolFlag(detailedSummary, "Set to true to include a list of the affected files in the command summary.", components.WithBoolDefaultValueFalse()),
+	Project:           components.NewStringFlag(Project, "JFrog Artifactory project key.", components.SetMandatoryFalse()),
 	failNoOp:          components.NewBoolFlag(failNoOp, "[Default: false] Set to true if you'd like the command to return exit code 2 in case of no files are affected.", components.WithBoolDefaultValueFalse()),
 	threads:           components.NewStringFlag(threads, "[Default: "+strconv.Itoa(commonCliUtils.Threads)+"] Number of working threads.", components.SetMandatoryFalse()),
 	syncDeletesQuiet:  components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip the sync-deletes confirmation message.", components.WithBoolDefaultValueFalse()),
@@ -905,12 +909,16 @@ var flagsMap = map[string]components.Flag{
 	repoOnly:          components.NewBoolFlag(repoOnly, "When true, properties will be applicable only on repository level.", components.WithBoolDefaultValueFalse()),
 
 	// Build Publish and Append specific commands flags
-	buildUrl:          components.NewStringFlag(buildUrl, "[Optional] Can be used for setting the CI server build URL in the build-info.", components.SetMandatoryFalse()),
-	bpDryRun:          components.NewBoolFlag(dryRun, "[Default: false] Set to true to get a preview of the recorded build info, without publishing it to Artifactory.", components.WithBoolDefaultValueFalse()),
+	buildUrl:          components.NewStringFlag(buildUrl, "Can be used for setting the CI server build URL in the build-info.", components.SetMandatoryFalse()),
+	bpDryRun:          components.NewBoolFlag(dryRun, "Set to true to get a preview of the recorded build info, without publishing it to Artifactory.", components.WithBoolDefaultValueFalse()),
 	envInclude:        components.NewStringFlag(envInclude, "[Default: *] List of patterns in the form of \"value1;value2;...\" Only environment variables match those patterns will be included.", components.SetMandatoryFalse()),
 	envExclude:        components.NewStringFlag(envExclude, "[Default: *password*;*psw*;*secret*;*key*;*token*;*auth*] List of case insensitive patterns in the form of \"value1;value2;...\". Environment variables match those patterns will be excluded.", components.SetMandatoryFalse()),
-	bpDetailedSummary: components.NewBoolFlag(detailedSummary, "[Default: false] Set to true to get a command summary with details about the build info artifact.", components.WithBoolDefaultValueFalse()),
-	bpOverwrite:       components.NewBoolFlag(Overwrite, "[Default: false] Overwrites all existing occurrences of build infos with the provided name and number. Build artifacts will not be deleted.", components.WithBoolDefaultValueFalse()),
+	bpDetailedSummary: components.NewBoolFlag(detailedSummary, "Set to true to get a command summary with details about the build info artifact.", components.WithBoolDefaultValueFalse()),
+	bpOverwrite:       components.NewBoolFlag(Overwrite, "Overwrites all existing occurrences of build infos with the provided name and number. Build artifacts will not be deleted.", components.WithBoolDefaultValueFalse()),
+	collectEnv:        components.NewBoolFlag(collectEnv, "Set to true to collect all environment variables and add them to the build-info.", components.WithBoolDefaultValueFalse()),
+	collectGitInfo:    components.NewBoolFlag(collectGitInfo, "Set to true to collect Git revision and URL from the local .git directory and adds it to the build-info.", components.WithBoolDefaultValueFalse()),
+	dotGitPath:        components.NewStringFlag(dotGitPath, "Path to the .git directory. If not provided, the .git directory will be searched in the current working directory or its parent directories. Only respected when collect-git-info is enabled.", components.SetMandatoryFalse()),
+	gitConfigFilePath: components.NewStringFlag(gitConfigFilePath, "Path to the git configuration file. Only respected when collect-git-info is enabled.", components.SetMandatoryFalse()),
 
 	// Build Add Dependencies specific commands flags
 	badRecursive: components.NewBoolFlag(Recursive, "[Default: true] Set to false if you do not wish to collect artifacts in sub-folders to be added to the build info.", components.WithBoolDefaultValueFalse()),
