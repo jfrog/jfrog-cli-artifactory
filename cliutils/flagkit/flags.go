@@ -29,6 +29,7 @@ const (
 	// Artifactory's Commands Keys
 	Upload                 = "upload"
 	Download               = "download"
+	DirectDownload         = "direct-download"
 	Move                   = "move"
 	Copy                   = "copy"
 	Delete                 = "delete"
@@ -551,6 +552,12 @@ var commandFlags = map[string][]string{
 		retries, retryWaitTime, dryRun, downloadExplode, bypassArchiveInspection, validateSymlinks, bundle, publicGpgKey, includeDirs,
 		downloadProps, downloadExcludeProps, failNoOp, threads, archiveEntries, downloadSyncDeletes, syncDeletesQuiet, InsecureTls, detailedSummary, Project,
 		skipChecksum,
+	},
+	DirectDownload: {
+		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
+		ClientCertKeyPath, specFlag, specVars, BuildName, BuildNumber, module, exclusions,
+		downloadRecursive, downloadFlat, build, includeDeps, excludeArtifacts, downloadMinSplit, downloadSplitCount,
+		retries, retryWaitTime, dryRun, downloadExplode, threads, downloadSyncDeletes, skipChecksum, failNoOp, detailedSummary, Project,
 	},
 	Move: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
