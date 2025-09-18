@@ -310,11 +310,11 @@ func setupGoProxyCleanup(t *testing.T, goProxyEnv string) func() {
 
 func TestSetupCommand_Go(t *testing.T) {
 	goProxyEnv := "GOPROXY"
+	// Setup cleanup to restore original GOPROXY state BEFORE any modifications
+	defer setupGoProxyCleanup(t, goProxyEnv)()
+	
 	// Clear the GOPROXY environment variable for this test to avoid interference.
 	t.Setenv(goProxyEnv, "")
-
-	// Setup cleanup to restore original GOPROXY state
-	defer setupGoProxyCleanup(t, goProxyEnv)()
 
 	// Assuming createTestSetupCommand initializes your Go login command
 	goLoginCmd := createTestSetupCommand(project.Go)
@@ -356,7 +356,7 @@ func TestSetupCommand_Go(t *testing.T) {
 // Test that configureGo unsets any existing GOPROXY env var before configuring.
 func TestConfigureGo_UnsetEnv(t *testing.T) {
 	goProxyEnv := "GOPROXY"
-	// Setup cleanup to restore original GOPROXY state
+	// Setup cleanup to restore original GOPROXY state BEFORE any modifications
 	defer setupGoProxyCleanup(t, goProxyEnv)()
 
 	testCmd := createTestSetupCommand(project.Go)
@@ -374,7 +374,7 @@ func TestConfigureGo_UnsetEnv(t *testing.T) {
 // Test that configureGo unsets any existing multi-entry GOPROXY env var before configuring.
 func TestConfigureGo_UnsetEnv_MultiEntry(t *testing.T) {
 	goProxyEnv := "GOPROXY"
-	// Setup cleanup to restore original GOPROXY state
+	// Setup cleanup to restore original GOPROXY state BEFORE any modifications
 	defer setupGoProxyCleanup(t, goProxyEnv)()
 
 	testCmd := createTestSetupCommand(project.Go)
