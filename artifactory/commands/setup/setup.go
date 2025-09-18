@@ -455,7 +455,7 @@ func (sc *SetupCommand) configureMaven() error {
 	if err != nil {
 		return fmt.Errorf("failed to create a new Maven settings.xml manager: %w", err)
 	}
-	if err = settingsXml.ConfigureArtifactoryMirror(sc.serverDetails.GetArtifactoryUrl(), sc.repoName, username, password); err != nil {
+	if err = settingsXml.ConfigureArtifactoryRepository(sc.serverDetails.GetArtifactoryUrl(), sc.repoName, username, password); err != nil {
 		return fmt.Errorf("failed to update Artifactory mirror in Maven settings.xml: %w", err)
 	}
 	return nil
