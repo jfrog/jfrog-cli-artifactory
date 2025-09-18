@@ -288,16 +288,16 @@ func TestSetupCommand_configurePoetry(t *testing.T) {
 	}
 }
 
-func TestSetupCommand_Go(t *testing.T) {
-	goProxyEnv := "GOPROXY"
-	// Clear the GOPROXY environment variable for this test to avoid interference.
-	t.Setenv(goProxyEnv, "")
-
+// setupGoProxyCleanup captures the current GOPROXY value and returns a cleanup function
+// that restores the original state when called. This ensures tests don't leave the system
+// in a modified state.
+func setupGoProxyCleanup(t *testing.T, goProxyEnv string) func() {
 	// Store original GOPROXY value and ensure cleanup of global Go env setting
 	originalGoProxyBytes, err := exec.Command("go", "env", goProxyEnv).Output()
 	require.NoError(t, err)
 	originalGoProxy := strings.TrimSpace(string(originalGoProxyBytes))
-	defer func() {
+
+	return func() {
 		if originalGoProxy != "" {
 			// Restore original value
 			assert.NoError(t, exec.Command("go", "env", "-w", goProxyEnv+"="+originalGoProxy).Run())
@@ -305,7 +305,16 @@ func TestSetupCommand_Go(t *testing.T) {
 			// Unset the GOPROXY if it wasn't set originally
 			assert.NoError(t, exec.Command("go", "env", "-u", goProxyEnv).Run())
 		}
-	}()
+	}
+}
+
+func TestSetupCommand_Go(t *testing.T) {
+	goProxyEnv := "GOPROXY"
+	// Clear the GOPROXY environment variable for this test to avoid interference.
+	t.Setenv(goProxyEnv, "")
+
+	// Setup cleanup to restore original GOPROXY state
+	defer setupGoProxyCleanup(t, goProxyEnv)()
 
 	// Assuming createTestSetupCommand initializes your Go login command
 	goLoginCmd := createTestSetupCommand(project.Go)
@@ -347,22 +356,8 @@ func TestSetupCommand_Go(t *testing.T) {
 // Test that configureGo unsets any existing GOPROXY env var before configuring.
 func TestConfigureGo_UnsetEnv(t *testing.T) {
 	goProxyEnv := "GOPROXY"
-	// Store original GOPROXY value and ensure cleanup of global Go env setting
-	originalGoProxyBytes, err := exec.Command("go", "env", goProxyEnv).Output()
-	require.NoError(t, err)
-	originalGoProxy := strings.TrimSpace(string(originalGoProxyBytes))
-	defer func() {
-		var cleanupErr error
-		if originalGoProxy != "" {
-			// Restore original value
-			cleanupErr = exec.Command("go", "env", "-w", goProxyEnv+"="+originalGoProxy).Run()
-			assert.NoError(t, cleanupErr, "Failed to restore original GOPROXY value")
-		} else {
-			// Unset the GOPROXY if it wasn't set originally
-			cleanupErr = exec.Command("go", "env", "-u", goProxyEnv).Run()
-			assert.NoError(t, cleanupErr, "Failed to unset GOPROXY")
-		}
-	}()
+	// Setup cleanup to restore original GOPROXY state
+	defer setupGoProxyCleanup(t, goProxyEnv)()
 
 	testCmd := createTestSetupCommand(project.Go)
 	// Simulate existing GOPROXY in environment
@@ -379,22 +374,8 @@ func TestConfigureGo_UnsetEnv(t *testing.T) {
 // Test that configureGo unsets any existing multi-entry GOPROXY env var before configuring.
 func TestConfigureGo_UnsetEnv_MultiEntry(t *testing.T) {
 	goProxyEnv := "GOPROXY"
-	// Store original GOPROXY value and ensure cleanup of global Go env setting
-	originalGoProxyBytes, err := exec.Command("go", "env", goProxyEnv).Output()
-	require.NoError(t, err)
-	originalGoProxy := strings.TrimSpace(string(originalGoProxyBytes))
-	defer func() {
-		var cleanupErr error
-		if originalGoProxy != "" {
-			// Restore original value
-			cleanupErr = exec.Command("go", "env", "-w", goProxyEnv+"="+originalGoProxy).Run()
-			assert.NoError(t, cleanupErr, "Failed to restore original GOPROXY value")
-		} else {
-			// Unset the GOPROXY if it wasn't set originally
-			cleanupErr = exec.Command("go", "env", "-u", goProxyEnv).Run()
-			assert.NoError(t, cleanupErr, "Failed to unset GOPROXY")
-		}
-	}()
+	// Setup cleanup to restore original GOPROXY state
+	defer setupGoProxyCleanup(t, goProxyEnv)()
 
 	testCmd := createTestSetupCommand(project.Go)
 	// Simulate existing multi-entry GOPROXY in environment
