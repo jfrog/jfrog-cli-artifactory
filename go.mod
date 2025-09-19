@@ -7,6 +7,7 @@ require (
 	github.com/distribution/reference v0.6.0
 	github.com/forPelevin/gomoji v1.3.1
 	github.com/gookit/color v1.6.0
+	github.com/jedib0t/go-pretty/v6 v6.6.8
 	github.com/jfrog/build-info-go v1.11.0
 	github.com/jfrog/froggit-go v1.20.3
 	github.com/jfrog/gofrog v1.7.6
@@ -91,7 +92,6 @@ require (
 	github.com/in-toto/in-toto-golang v0.9.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
-	github.com/jedib0t/go-pretty/v6 v6.6.8 // indirect
 	github.com/jedisct1/go-minisign v0.0.0-20211028175153-1c139d1cc84b // indirect
 	github.com/jfrog/archiver/v3 v3.6.1 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
@@ -186,4 +186,4 @@ require (
 
 replace github.com/jfrog/jfrog-cli-core/v2 => github.com/naveenku-jfrog/jfrog-cli-core/v2 v2.0.0-20250918043710-ee0ae26a79a4
 
-replace github.com/jfrog/jfrog-client-go => github.com/naveenku-jfrog/jfrog-client-go v1.54.2-0.20250917035803-0202e6d9775b
+replace github.com/jfrog/jfrog-client-go => github.com/naveenku-jfrog/jfrog-client-go v1.54.2-0.20250919081841-59d05ef23724
