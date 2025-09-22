@@ -51,8 +51,16 @@ func (npu *npmPublish) upload() (err error) {
 	return
 }
 
-func (npu *npmPublish) getBuildArtifacts() ([]buildinfo.Artifact, error) {
-	return utils.ConvertArtifactsSearchDetailsToBuildInfoArtifacts(npu.artifactsDetailsReader)
+func (npu *npmPublish) getBuildArtifacts() []buildinfo.Artifact {
+	buildArtifacts := make([]buildinfo.Artifact, 0, len(npu.artifactsDetailsReader))
+	for _, artifactReader := range npu.artifactsDetailsReader {
+		buildArtifact, err := utils.ConvertArtifactsSearchDetailsToBuildInfoArtifacts(artifactReader)
+		if err != nil {
+			log.Warn("Failed converting artifact details to build info artifacts: ", err.Error())
+		}
+		buildArtifacts = append(buildArtifacts, buildArtifact...)
+	}
+	return buildArtifacts
 }
 
 func (npu *npmPublish) publishPackage(executablePath, filePath string, serverDetails *config.ServerDetails, target string) error {
@@ -96,7 +104,7 @@ func (npu *npmPublish) publishPackage(executablePath, filePath string, serverDet
 		if err != nil {
 			log.Warn("Unable to set build properties: ", err, "\nThis may cause build to not properly link with artifact, please add build name and build number properties on the tarball artifact manually")
 		}
-		npu.artifactsDetailsReader = searchReader
+		npu.artifactsDetailsReader = append(npu.artifactsDetailsReader, searchReader)
 	}
 	return nil
 }

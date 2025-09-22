@@ -11,7 +11,7 @@ import (
 
 type Publisher interface {
 	upload() error
-	getBuildArtifacts() ([]buildinfo.Artifact, error)
+	getBuildArtifacts() []buildinfo.Artifact
 }
 
 type NpmPublishStrategy struct {
@@ -37,7 +37,7 @@ func (nps *NpmPublishStrategy) Publish() error {
 	return nps.strategy.upload()
 }
 
-func (nps *NpmPublishStrategy) GetBuildArtifacts() ([]buildinfo.Artifact, error) {
+func (nps *NpmPublishStrategy) GetBuildArtifacts() []buildinfo.Artifact {
 	log.Debug("Using strategy for build info: ", nps.strategyName)
 	return nps.strategy.getBuildArtifacts()
 }

@@ -11,6 +11,7 @@ import (
 	specutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 type npmRtUpload struct {
@@ -35,8 +36,16 @@ func (nru *npmRtUpload) upload() (err error) {
 	return
 }
 
-func (nru *npmRtUpload) getBuildArtifacts() ([]buildinfo.Artifact, error) {
-	return specutils.ConvertArtifactsDetailsToBuildInfoArtifacts(nru.artifactsDetailsReader)
+func (nru *npmRtUpload) getBuildArtifacts() []buildinfo.Artifact {
+	buildArtifacts := make([]buildinfo.Artifact, 0, len(nru.artifactsDetailsReader))
+	for _, artifactReader := range nru.artifactsDetailsReader {
+		buildArtifact, err := specutils.ConvertArtifactsDetailsToBuildInfoArtifacts(artifactReader)
+		if err != nil {
+			log.Warn("Failed converting artifact details to build info artifacts: ", err.Error())
+		}
+		buildArtifacts = append(buildArtifacts, buildArtifact...)
+	}
+	return buildArtifacts
 }
 
 func (nru *npmRtUpload) doDeploy(target string, artDetails *config.ServerDetails, packedFilePath string) error {
@@ -63,7 +72,7 @@ func (nru *npmRtUpload) doDeploy(target string, artDetails *config.ServerDetails
 		}
 		totalFailed = summary.TotalFailed
 		if nru.collectBuildInfo {
-			nru.artifactsDetailsReader = summary.ArtifactsDetailsReader
+			nru.artifactsDetailsReader = append(nru.artifactsDetailsReader, summary.ArtifactsDetailsReader)
 		} else {
 			err = summary.ArtifactsDetailsReader.Close()
 			if err != nil {
