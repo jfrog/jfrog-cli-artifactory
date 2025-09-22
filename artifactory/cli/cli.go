@@ -675,8 +675,92 @@ func prepareDownloadCommand(c *components.Context) (*spec.SpecFiles, error) {
 	return downloadSpec, nil
 }
 
+func prepareDirectDownloadCommand(c *components.Context) (*spec.SpecFiles, error) {
+	if c.GetNumberOfArgs() > 0 && c.IsFlagSet("spec") {
+		return nil, common.PrintHelpAndReturnError("No arguments should be sent when the spec option is used.", c)
+	}
+	if !(c.GetNumberOfArgs() == 1 || c.GetNumberOfArgs() == 2 || (c.GetNumberOfArgs() == 0 && (c.IsFlagSet("spec") || c.IsFlagSet("build")))) {
+		return nil, common.WrongNumberOfArgumentsHandler(c)
+	}
+
+	var downloadSpec *spec.SpecFiles
+	var err error
+
+	if c.IsFlagSet("spec") {
+		downloadSpec, err = commonCliUtils.GetSpec(c, true, true)
+	} else {
+		downloadSpec, err = createDirectDownloadSpec(c)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	err = spec.ValidateSpec(downloadSpec.Files, false, true)
+	if err != nil {
+		return nil, err
+	}
+	return downloadSpec, nil
+}
+
+func createDirectDownloadSpec(c *components.Context) (*spec.SpecFiles, error) {
+	excludeArtifactsString := c.GetStringFlagValue("exclude-artifacts")
+	if excludeArtifactsString == "" {
+		excludeArtifactsString = "false"
+	}
+	excludeArtifacts, err := strconv.ParseBool(excludeArtifactsString)
+	if err != nil {
+		log.Warn("Could not parse exclude-artifacts flag. Setting exclude-artifacts as false, error: ", err.Error())
+		excludeArtifacts = false
+	}
+
+	includeArtifactsString := c.GetStringFlagValue("include-deps")
+	if includeArtifactsString == "" {
+		includeArtifactsString = "false"
+	}
+	includeDeps, err := strconv.ParseBool(includeArtifactsString)
+	if err != nil {
+		log.Warn("Could not parse include-deps flag. Setting include-deps as false, error: ", err.Error())
+		includeDeps = false
+	}
+
+	return spec.NewBuilder().
+		Pattern(strings.TrimPrefix(c.GetArgumentAt(0), "/")).
+		Build(c.GetStringFlagValue("build")).
+		Project(common.GetProject(c)).
+		ExcludeArtifacts(excludeArtifacts).
+		IncludeDeps(includeDeps).
+		Recursive(c.GetBoolTFlagValue("recursive")).
+		Exclusions(c.GetStringsArrFlagValue("exclusions")).
+		Flat(c.GetBoolFlagValue("flat")).
+		Explode(strconv.FormatBool(c.GetBoolFlagValue("explode"))).
+		Target(c.GetArgumentAt(1)).
+		BuildSpec(), nil
+}
+
+func validateDirectDownloadFlags(c *components.Context) error {
+	incompatibleFlags := []string{
+		"sort-by", "sort-order", "limit", "offset",
+		"props", "exclude-props", "archive-entries",
+		"bundle", "gpg-key", "include-dirs",
+		"bypass-archive-inspection", "validate-symlinks",
+	}
+
+	for _, flag := range incompatibleFlags {
+		if c.IsFlagSet(flag) {
+			return errorutils.CheckErrorf("The --%s flag is not supported with direct download", flag)
+		}
+	}
+
+	return nil
+}
+
 func directDownloadCmd(c *components.Context) error {
-	downloadSpec, err := prepareDownloadCommand(c)
+	if err := validateDirectDownloadFlags(c); err != nil {
+		return err
+	}
+
+	downloadSpec, err := prepareDirectDownloadCommand(c)
 	if err != nil {
 		return err
 	}

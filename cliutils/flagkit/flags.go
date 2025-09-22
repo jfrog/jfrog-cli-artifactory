@@ -557,7 +557,9 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
 		ClientCertKeyPath, specFlag, specVars, BuildName, BuildNumber, module, exclusions,
 		downloadRecursive, downloadFlat, build, includeDeps, excludeArtifacts, downloadMinSplit, downloadSplitCount,
-		retries, retryWaitTime, dryRun, downloadExplode, threads, downloadSyncDeletes, skipChecksum, failNoOp, detailedSummary, Project,
+		retries, retryWaitTime, dryRun, downloadExplode, threads, downloadSyncDeletes, syncDeletesQuiet, skipChecksum, failNoOp, detailedSummary, Project,
+		sortBy, sortOrder, limit, offset, downloadProps, downloadExcludeProps, archiveEntries,
+		bundle, publicGpgKey, includeDirs, bypassArchiveInspection, validateSymlinks,
 	},
 	Move: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,

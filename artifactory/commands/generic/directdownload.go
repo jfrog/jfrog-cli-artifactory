@@ -1,13 +1,23 @@
 package generic
 
 import (
+	"fmt"
+	goio "io"
+	"os"
+	"path/filepath"
+
+	"github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	serviceutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/io/content"
+	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 type DirectDownloadCommand struct {
@@ -22,6 +32,10 @@ func NewDirectDownloadCommand() *DirectDownloadCommand {
 
 func (ddc *DirectDownloadCommand) CommandName() string {
 	return "rt_direct_download"
+}
+
+func (ddc *DirectDownloadCommand) ShouldPrompt() bool {
+	return !ddc.DryRun() && ddc.SyncDeletesPath() != "" && !ddc.Quiet()
 }
 
 func (ddc *DirectDownloadCommand) Run() error {
@@ -85,37 +99,76 @@ func (ddc *DirectDownloadCommand) directDownload() error {
 	ddc.result.SetSuccessCount(summary.TotalSucceeded)
 	ddc.result.SetFailCount(summary.TotalFailed)
 
-	return nil
-}
+	if summary.TransferDetailsReader != nil {
+		ddc.result.SetReader(summary.TransferDetailsReader)
+	}
 
-func (ddc *DirectDownloadCommand) ValidateFlags() error {
-	for i := 0; i < len(ddc.Spec().Files); i++ {
-		fileSpec := ddc.Spec().Get(i)
-
-		if fileSpec.SortBy != nil && len(fileSpec.SortBy) > 0 {
-			return errorutils.CheckErrorf("The --sort-by flag is not supported with direct download")
-		}
-		if fileSpec.SortOrder != "" {
-			return errorutils.CheckErrorf("The --sort-order flag is not supported with direct download")
-		}
-		if fileSpec.Limit > 0 {
-			return errorutils.CheckErrorf("The --limit flag is not supported with direct download")
-		}
-		if fileSpec.Offset > 0 {
-			return errorutils.CheckErrorf("The --offset flag is not supported with direct download")
-		}
-		if fileSpec.Props != "" {
-			return errorutils.CheckErrorf("The --props flag is not supported with direct download")
-		}
-		if fileSpec.ExcludeProps != "" {
-			return errorutils.CheckErrorf("The --exclude-props flag is not supported with direct download")
-		}
-		if fileSpec.ArchiveEntries != "" {
-			return errorutils.CheckErrorf("The --archive-entries flag is not supported with direct download")
+	if !ddc.DryRun() && ddc.SyncDeletesPath() != "" && summary.TransferDetailsReader != nil {
+		if err = ddc.handleSyncDeletes(summary.TransferDetailsReader); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+func (ddc *DirectDownloadCommand) handleSyncDeletes(reader *content.ContentReader) error {
+	reader.Reset()
+
+	absSyncDeletesPath, err := filepath.Abs(ddc.SyncDeletesPath())
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+
+	if _, err = os.Stat(absSyncDeletesPath); err != nil {
+		if os.IsNotExist(err) {
+			log.Info("Sync-deletes path", absSyncDeletesPath, "does not exist.")
+			return nil
+		}
+		return errorutils.CheckError(err)
+	}
+
+	tmpRoot, err := fileutils.CreateTempDir()
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	defer func() {
+		if removeErr := fileutils.RemoveTempDir(tmpRoot); removeErr != nil {
+			log.Error("Failed to remove temp directory:", removeErr)
+		}
+	}()
+
+	fileCount := 0
+
+	for transferDetails := new(clientutils.FileTransferDetails); ; transferDetails = new(clientutils.FileTransferDetails) {
+		err := reader.NextRecord(transferDetails)
+		if err == goio.EOF {
+			break
+		}
+		if err != nil {
+			log.Error("Error reading transfer details:", err)
+			log.Error("Error type:", fmt.Sprintf("%T", err))
+			return err
+		}
+		fileCount++
+		if transferDetails.TargetPath != "" {
+			tempPath := createLegalPathDDL(tmpRoot, transferDetails.TargetPath)
+
+			parentDir := filepath.Dir(tempPath)
+			if err = os.MkdirAll(parentDir, 0755); err != nil {
+				return errorutils.CheckError(err)
+			}
+
+			file, err := os.Create(tempPath)
+			if err != nil {
+				return errorutils.CheckError(err)
+			}
+			file.Close()
+		}
+	}
+
+	walkFn := createSyncDeletesWalkFunctionDDL(tmpRoot, absSyncDeletesPath, ddc.SyncDeletesPath())
+	return io.Walk(ddc.SyncDeletesPath(), walkFn, false)
 }
 
 func (ddc *DirectDownloadCommand) SetServerDetails(serverDetails *config.ServerDetails) *DirectDownloadCommand {
@@ -166,4 +219,47 @@ func (ddc *DirectDownloadCommand) SetRetries(retries int) *DirectDownloadCommand
 func (ddc *DirectDownloadCommand) SetRetryWaitMilliSecs(retryWaitMilliSecs int) *DirectDownloadCommand {
 	ddc.retryWaitTimeMilliSecs = retryWaitMilliSecs
 	return ddc
+}
+
+func createLegalPathDDL(root, path string) string {
+	volumeName := filepath.VolumeName(path)
+	if volumeName != "" && filepath.IsAbs(path) {
+		alternativeVolumeName := "VolumeName" + string(volumeName[0])
+		path = filepath.Clean(path)
+		path = alternativeVolumeName + path[len(volumeName):]
+	}
+	path = filepath.Join(root, path)
+	return path
+}
+
+func createSyncDeletesWalkFunctionDDL(tempRoot string, syncDeletesRoot string, syncDeletesPath string) io.WalkFunc {
+	return func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		absPath, err := filepath.Abs(path)
+		if errorutils.CheckError(err) != nil {
+			return err
+		}
+
+		if absPath == syncDeletesRoot && info.IsDir() {
+			return nil
+		}
+
+		pathToCheck := filepath.Join(tempRoot, path)
+
+		if fileutils.IsPathExists(pathToCheck, false) {
+			return nil
+		}
+		if info.IsDir() {
+			err = fileutils.RemoveTempDir(absPath)
+			if err == nil {
+				return io.ErrSkipDir
+			}
+		} else {
+			err = os.Remove(absPath)
+		}
+
+		return errorutils.CheckError(err)
+	}
 }
