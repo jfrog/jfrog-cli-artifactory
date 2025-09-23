@@ -349,6 +349,7 @@ const (
 	npmPrefix          = "npm-"
 	npmDetailedSummary = npmPrefix + detailedSummary
 	runNative          = "run-native"
+	npmWorkspaces      = "workspaces"
 
 	// Unique nuget/dotnet config flags
 	nugetV2                  = "nuget-v2"
@@ -676,7 +677,7 @@ var commandFlags = map[string][]string{
 		BuildName, BuildNumber, module, Project, runNative,
 	},
 	NpmPublish: {
-		BuildName, BuildNumber, module, Project, npmDetailedSummary, xrayScan, xrOutput, runNative,
+		BuildName, BuildNumber, module, Project, npmDetailedSummary, xrayScan, xrOutput, runNative, npmWorkspaces,
 	},
 	PnpmConfig: {
 		global, serverIdResolve, repoResolve,
@@ -817,7 +818,8 @@ var flagsMap = map[string]components.Flag{
 	bundle:            components.NewStringFlag(bundle, "[Optional] If specified, only artifacts of the specified bundle are matched. The value format is bundle-name/bundle-version.", components.SetMandatoryFalse()),
 	imageFile:         components.NewStringFlag(imageFile, "[Mandatory] Path to a file which includes one line in the following format: <IMAGE-TAG>@sha256:<MANIFEST-SHA256>.", components.SetMandatoryTrue()),
 	ocStartBuildRepo:  components.NewStringFlag(repo, "[Mandatory] The name of the repository to which the image was pushed.", components.SetMandatoryTrue()),
-	runNative:         components.NewBoolFlag(runNative, "[Default: false] Set to true if you'd like to use the native client configurations. Note: This flag would invoke native client behind the scenes, has performance implications and does not support deployment view and detailed summary.", components.WithBoolDefaultValueFalse()),
+	runNative:         components.NewBoolFlag(runNative, "Set to true if you'd like to use the native client configurations. Note: This flag would invoke native client behind the scenes, has performance implications and does not support deployment view and detailed summary.", components.WithBoolDefaultValueFalse()),
+	npmWorkspaces:     components.NewBoolFlag(npmWorkspaces, "Set to true if you'd like to use npm workspaces.", components.WithBoolDefaultValueFalse()),
 
 	// Config specific commands flags
 	interactive:       components.NewBoolFlag(interactive, "[Default: true, unless $CI is true] Set to false if you do not want the config command to be interactive. If true, the --url option becomes optional.", components.WithBoolDefaultValueFalse()),
