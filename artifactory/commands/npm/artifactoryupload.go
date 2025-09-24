@@ -3,6 +3,7 @@ package npm
 import (
 	"errors"
 	"fmt"
+
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -11,7 +12,6 @@ import (
 	specutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
-	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 type npmRtUpload struct {
@@ -37,15 +37,7 @@ func (nru *npmRtUpload) upload() (err error) {
 }
 
 func (nru *npmRtUpload) getBuildArtifacts() []buildinfo.Artifact {
-	buildArtifacts := make([]buildinfo.Artifact, 0, len(nru.artifactsDetailsReader))
-	for _, artifactReader := range nru.artifactsDetailsReader {
-		buildArtifact, err := specutils.ConvertArtifactsDetailsToBuildInfoArtifacts(artifactReader)
-		if err != nil {
-			log.Warn("Failed converting artifact details to build info artifacts: ", err.Error())
-		}
-		buildArtifacts = append(buildArtifacts, buildArtifact...)
-	}
-	return buildArtifacts
+	return ConvertArtifactsDetailsToBuildInfoArtifacts(nru.artifactsDetailsReader, specutils.ConvertArtifactsDetailsToBuildInfoArtifacts)
 }
 
 func (nru *npmRtUpload) doDeploy(target string, artDetails *config.ServerDetails, packedFilePath string) error {

@@ -52,15 +52,7 @@ func (npu *npmPublish) upload() (err error) {
 }
 
 func (npu *npmPublish) getBuildArtifacts() []buildinfo.Artifact {
-	buildArtifacts := make([]buildinfo.Artifact, 0, len(npu.artifactsDetailsReader))
-	for _, artifactReader := range npu.artifactsDetailsReader {
-		buildArtifact, err := utils.ConvertArtifactsSearchDetailsToBuildInfoArtifacts(artifactReader)
-		if err != nil {
-			log.Warn("Failed converting artifact details to build info artifacts: ", err.Error())
-		}
-		buildArtifacts = append(buildArtifacts, buildArtifact...)
-	}
-	return buildArtifacts
+	return ConvertArtifactsDetailsToBuildInfoArtifacts(npu.artifactsDetailsReader, utils.ConvertArtifactsSearchDetailsToBuildInfoArtifacts)
 }
 
 func (npu *npmPublish) publishPackage(executablePath, filePath string, serverDetails *config.ServerDetails, target string) error {
