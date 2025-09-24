@@ -13,6 +13,7 @@ func exec(command commands.Command) error {
 var subjectTypes = []string{
 	subjectRepoPath,
 	releaseBundle,
+	applicationKey,
 	buildName,
 	packageName,
 	typeFlag,

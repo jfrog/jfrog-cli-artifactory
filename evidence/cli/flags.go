@@ -31,6 +31,8 @@ const (
 	packageVersion       = "package-version"
 	packageRepoName      = "package-repo-name"
 	typeFlag             = "type"
+	applicationKey       = "application-key"
+	applicationVersion   = "application-version"
 
 	// Unique evidence flags
 	predicate          = "predicate"
@@ -68,6 +70,8 @@ var flagsMap = map[string]components.Flag{
 	packageVersion:       components.NewStringFlag(packageVersion, "Package version.", func(f *components.StringFlag) { f.Mandatory = false }),
 	packageRepoName:      components.NewStringFlag(packageRepoName, "Package repository Name.", func(f *components.StringFlag) { f.Mandatory = false }),
 	typeFlag:             components.NewStringFlag(typeFlag, "Type can contain 'gh-commiter' value.", func(f *components.StringFlag) { f.Mandatory = false }),
+	applicationKey:       components.NewStringFlag(applicationKey, "Application key.", func(f *components.StringFlag) { f.Mandatory = false }),
+	applicationVersion:   components.NewStringFlag(applicationVersion, "Application version.", func(f *components.StringFlag) { f.Mandatory = false }),
 
 	predicate:        components.NewStringFlag(predicate, "Path to the predicate, arbitrary JSON. Mandatory unless --"+sigstoreBundle+" is used", func(f *components.StringFlag) { f.Mandatory = false }),
 	predicateType:    components.NewStringFlag(predicateType, "Type of the predicate. Mandatory unless --"+sigstoreBundle+" is used", func(f *components.StringFlag) { f.Mandatory = false }),
@@ -95,6 +99,8 @@ var commandFlags = map[string][]string{
 		project,
 		releaseBundle,
 		releaseBundleVersion,
+		applicationKey,
+		applicationVersion,
 		buildName,
 		buildNumber,
 		packageName,
