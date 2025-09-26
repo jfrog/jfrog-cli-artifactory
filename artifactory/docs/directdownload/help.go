@@ -3,7 +3,7 @@ package directdownload
 import "github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 
 func GetDescription() string {
-	return "Download files from Artifactory using direct API, bypassing AQL."
+	return "Download files using direct API respecting Artifactory's native resolution order and bypassing AQL."
 }
 
 func GetArguments() []components.Argument {

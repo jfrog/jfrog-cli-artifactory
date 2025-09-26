@@ -81,11 +81,12 @@ func (ddc *DirectDownloadCommand) directDownload() error {
 	}
 
 	var summary *serviceutils.OperationSummary
+	// We need the detailed summary when either showing detailed output or performing sync-deletes
 	if ddc.DetailedSummary() || ddc.SyncDeletesPath() != "" {
-		summary, err = servicesManager.DirectDownloadFilesWithSummary(downloadParamsArray...)
+		summary, err = servicesManager.DownloadFilesWithoutAQLWithSummary(downloadParamsArray...)
 	} else {
 		var totalDownloaded, totalFailed int
-		totalDownloaded, totalFailed, err = servicesManager.DirectDownloadFiles(downloadParamsArray...)
+		totalDownloaded, totalFailed, err = servicesManager.DownloadFilesWithoutAQL(downloadParamsArray...)
 		summary = &serviceutils.OperationSummary{
 			TotalSucceeded: totalDownloaded,
 			TotalFailed:    totalFailed,
@@ -112,6 +113,7 @@ func (ddc *DirectDownloadCommand) directDownload() error {
 	return nil
 }
 
+// handleSyncDeletes removes local files that weren't part of the current download operation.
 func (ddc *DirectDownloadCommand) handleSyncDeletes(reader *content.ContentReader) error {
 	reader.Reset()
 

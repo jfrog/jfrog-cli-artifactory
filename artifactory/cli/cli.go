@@ -104,9 +104,9 @@ func GetCommands() []components.Command {
 			Category:    filesCategory,
 		},
 		{
-			Name:        "direct-download",
-			Flags:       flagkit.GetCommandFlags(flagkit.DirectDownload),
-			Aliases:     []string{"ddl"},
+			Name:        "native-download",
+			Flags:       flagkit.GetCommandFlags(flagkit.NativeDownload),
+			Aliases:     []string{"ndl"},
 			Description: directdownload.GetDescription(),
 			Arguments:   directdownload.GetArguments(),
 			Action:      directDownloadCmd,
@@ -680,7 +680,7 @@ func prepareDirectDownloadCommand(c *components.Context) (*spec.SpecFiles, error
 		return nil, common.PrintHelpAndReturnError("No arguments should be sent when the spec option is used.", c)
 	}
 	if !(c.GetNumberOfArgs() == 1 || c.GetNumberOfArgs() == 2 || (c.GetNumberOfArgs() == 0 && (c.IsFlagSet("spec") || c.IsFlagSet("build")))) {
-		return nil, common.WrongNumberOfArgumentsHandler(c)
+		return nil, common.PrintHelpAndReturnError("Wrong number of arguments. Expected: <source-pattern> [target-path] OR --spec=<spec-file> OR --build=<build-name>/<build-number>", c)
 	}
 
 	var downloadSpec *spec.SpecFiles
@@ -748,7 +748,7 @@ func validateDirectDownloadFlags(c *components.Context) error {
 
 	for _, flag := range incompatibleFlags {
 		if c.IsFlagSet(flag) {
-			return errorutils.CheckErrorf("The --%s flag is not supported with direct download", flag)
+			return errorutils.CheckErrorf("The --%s flag is not supported with native download", flag)
 		}
 	}
 
