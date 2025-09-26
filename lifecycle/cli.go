@@ -411,7 +411,8 @@ func export(c *components.Context) error {
 	exportCmd.
 		SetServerDetails(lcDetails).
 		SetReleaseBundleExportModifications(modifications).
-		SetDownloadConfiguration(*downloadConfig)
+		SetDownloadConfiguration(*downloadConfig).
+		SetExportOnly(c.GetBoolFlagValue(flagkit.ExportOnly))
 
 	return commands.Exec(exportCmd)
 }

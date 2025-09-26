@@ -479,6 +479,7 @@ const (
 	lcDeleteProperties       = lifecyclePrefix + DeleteProperty
 	SourceTypeReleaseBundles = "source-type-release-bundles"
 	SourceTypeBuilds         = "source-type-builds"
+	ExportOnly               = "export-only"
 )
 
 var commandFlags = map[string][]string{
@@ -523,7 +524,7 @@ var commandFlags = map[string][]string{
 	},
 	cmddefs.ReleaseBundleExport: {
 		platformUrl, user, password, accessToken, serverId, lcPathMappingTarget, lcPathMappingPattern, Project,
-		downloadMinSplit, downloadSplitCount,
+		downloadMinSplit, downloadSplitCount, ExportOnly,
 	},
 	cmddefs.ReleaseBundleImport: {
 		user, password, accessToken, serverId, platformUrl,
@@ -1078,6 +1079,7 @@ var flagsMap = map[string]components.Flag{
 	lcDeleteProperties:       components.NewStringFlag(DeleteProperty, "Properties to be deleted on the of Manifest Release Bundle version.", components.SetMandatoryFalse()),
 	SourceTypeReleaseBundles: components.NewStringFlag(SourceTypeReleaseBundles, "List of semicolon-seperated(;) release bundles in the form of 'name=releaseBundleName1, version=version1; name=releaseBundleName2, version=version2' to be included in the new bundle.", components.SetMandatoryFalse()),
 	SourceTypeBuilds:         components.NewStringFlag(SourceTypeBuilds, "List of semicolon-separated(;) builds in the form of 'name=buildName1, id=runID1, include-deps=true; name=buildName2, id=runID2' to be included in the new bundle.", components.SetMandatoryFalse()),
+	ExportOnly:               components.NewBoolFlag(ExportOnly, "Set to true to only trigger the export process without downloading the bundle.", components.WithBoolDefaultValueFalse()),
 }
 
 func GetCommandFlags(cmdKey string) []components.Flag {

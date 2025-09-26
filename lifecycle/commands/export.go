@@ -19,6 +19,7 @@ type ReleaseBundleExportCommand struct {
 	modifications          services.Modifications
 	downloadConfigurations artUtils.DownloadConfiguration
 	targetPath             string
+	exportOnly             bool
 }
 
 func (rbe *ReleaseBundleExportCommand) Run() (err error) {
@@ -29,19 +30,30 @@ func (rbe *ReleaseBundleExportCommand) Run() (err error) {
 	if err != nil {
 		return errorutils.CheckErrorf("Failed getting prerequisites for exporting command, error: '%s'", err.Error())
 	}
-	// Start the Export process and wait for completion
+	// Start the Export process
 	log.Info("Exporting Release Bundle archive...")
-	exportResponse, err := servicesManager.ExportReleaseBundle(rbDetails, rbe.modifications, queryParams)
-	if err != nil {
-		return errorutils.CheckErrorf("Failed exporting release bundle, error: '%s'", err.Error())
+	var exportResponse services.ReleaseBundleExportedStatusResponse
+	if rbe.exportOnly {
+		// Only trigger export, don't wait for completion
+		exportResponse, err = servicesManager.ExportReleaseBundleOnly(rbDetails, rbe.modifications, queryParams)
+		if err != nil {
+			return errorutils.CheckErrorf("Failed exporting release bundle, error: '%s'", err.Error())
+		}
+		log.Info("Release Bundle export triggered successfully")
+	} else {
+		// Export and wait for completion, then download
+		exportResponse, err = servicesManager.ExportReleaseBundle(rbDetails, rbe.modifications, queryParams)
+		if err != nil {
+			return errorutils.CheckErrorf("Failed exporting release bundle, error: '%s'", err.Error())
+		}
+		// Download the exported bundle
+		log.Debug("Downloading the exported bundle...")
+		downloaded, failed, downloadErr := rbe.downloadReleaseBundle(exportResponse, rbe.downloadConfigurations)
+		if downloadErr != nil || failed > 0 || downloaded < 1 {
+			return downloadErr
+		}
+		log.Info("Successfully Downloaded Release Bundle archive")
 	}
-	// Download the exported bundle
-	log.Debug("Downloading the exported bundle...")
-	downloaded, failed, err := rbe.downloadReleaseBundle(exportResponse, rbe.downloadConfigurations)
-	if err != nil || failed > 0 || downloaded < 1 {
-		return
-	}
-	log.Info("Successfully Downloaded Release Bundle archive")
 	return
 }
 
@@ -108,6 +120,11 @@ func (rbe *ReleaseBundleExportCommand) SetTargetPath(target string) *ReleaseBund
 		target += "./"
 	}
 	rbe.targetPath = target
+	return rbe
+}
+
+func (rbe *ReleaseBundleExportCommand) SetExportOnly(exportOnly bool) *ReleaseBundleExportCommand {
+	rbe.exportOnly = exportOnly
 	return rbe
 }
 

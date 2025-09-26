@@ -5,7 +5,7 @@ import "github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 var Usage = []string{"rbe <release bundle name> <release bundle version> [target pattern]"}
 
 func GetDescription() string {
-	return "Triggers the Export process and downloads the Release Bundle archive"
+	return "Triggers the Export process and downloads the Release Bundle archive. Use --export-only to only trigger the export without downloading."
 }
 
 func GetArguments() []components.Argument {
