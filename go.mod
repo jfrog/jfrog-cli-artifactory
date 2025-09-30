@@ -13,7 +13,7 @@ require (
 	github.com/jfrog/jfrog-cli-core/v2 v2.60.0
 	github.com/jfrog/jfrog-client-go v1.55.0
 	github.com/pkg/errors v0.9.1
-	github.com/secure-systems-lab/go-securesystemslib v0.9.0
+	github.com/secure-systems-lab/go-securesystemslib v0.9.1
 	github.com/sigstore/protobuf-specs v0.5.0
 	github.com/sigstore/sigstore-go v1.0.0
 	github.com/spf13/viper v1.21.0
