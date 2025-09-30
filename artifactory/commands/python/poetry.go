@@ -118,7 +118,7 @@ func (pc *PoetryCommand) publish(buildConfiguration *buildUtils.BuildConfigurati
 
 	// Use FlexPack to collect dependencies with checksums
 	if buildName != "" && buildNumber != "" {
-		log.Info("Using FlexPack to collect Poetry dependencies...")
+		log.Info("Using native approach to collect Poetry dependencies...")
 
 		// Create FlexPack Poetry configuration
 		config := flexpack.PoetryConfig{

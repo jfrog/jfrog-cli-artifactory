@@ -3,10 +3,12 @@ package mvn
 import (
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/jfrog/build-info-go/build"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/flexpack"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -15,6 +17,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/dependencies"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/spf13/viper"
 )
 
@@ -75,6 +78,55 @@ func (mu *MvnUtils) SetOutputWriter(writer io.Writer) *MvnUtils {
 }
 
 func RunMvn(mu *MvnUtils) error {
+	// FlexPack completely bypasses traditional Maven Build Info Extractor
+	if os.Getenv("JFROG_RUN_NATIVE") == "true" {
+		log.Debug("Maven native implementation activated")
+		// Execute native Maven command directly (no JFrog Maven plugin)
+		cmd := exec.Command("mvn", mu.goals...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		err := cmd.Run()
+		if err != nil {
+			log.Error("Failed to execute package manager command: " + err.Error())
+			return errorutils.CheckError(err)
+		}
+
+		// Collect build info if build configuration is provided
+		if mu.buildConf != nil {
+			isCollectedBuildInfo, err := mu.buildConf.IsCollectBuildInfo()
+			if err != nil {
+				return err
+			}
+			if isCollectedBuildInfo {
+				log.Info("Collecting build info for executed command...")
+
+				buildName, err := mu.buildConf.GetBuildName()
+				if err != nil {
+					return err
+				}
+				buildNumber, err := mu.buildConf.GetBuildNumber()
+				if err != nil {
+					return err
+				}
+
+				// Get working directory
+				workingDir, err := os.Getwd()
+				if err != nil {
+					return errorutils.CheckError(err)
+				}
+
+				// Use FlexPack to collect Maven build info
+				err = flexpack.CollectMavenBuildInfoWithFlexPack(workingDir, buildName, buildNumber, mu.buildConf)
+				if err != nil {
+					return errorutils.CheckError(err)
+				}
+			}
+		}
+
+		log.Info("Maven build completed successfully")
+		return nil
+	}
+
 	buildInfoService := buildUtils.CreateBuildInfoService()
 	buildName, err := mu.buildConf.GetBuildName()
 	if err != nil {
