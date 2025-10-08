@@ -104,9 +104,9 @@ func GetCommands() []components.Command {
 			Category:    filesCategory,
 		},
 		{
-			Name:        "native-download",
-			Flags:       flagkit.GetCommandFlags(flagkit.NativeDownload),
-			Aliases:     []string{"ndl"},
+			Name:        "direct-download",
+			Flags:       flagkit.GetCommandFlags(flagkit.DirectDownload),
+			Aliases:     []string{"ddl"},
 			Description: directdownload.GetDescription(),
 			Arguments:   directdownload.GetArguments(),
 			Action:      directDownloadCmd,
@@ -738,28 +738,7 @@ func createDirectDownloadSpec(c *components.Context) (*spec.SpecFiles, error) {
 		BuildSpec(), nil
 }
 
-func validateDirectDownloadFlags(c *components.Context) error {
-	incompatibleFlags := []string{
-		"sort-by", "sort-order", "limit", "offset",
-		"props", "exclude-props", "archive-entries",
-		"bundle", "gpg-key", "include-dirs",
-		"bypass-archive-inspection", "validate-symlinks",
-	}
-
-	for _, flag := range incompatibleFlags {
-		if c.IsFlagSet(flag) {
-			return errorutils.CheckErrorf("The --%s flag is not supported with native download", flag)
-		}
-	}
-
-	return nil
-}
-
 func directDownloadCmd(c *components.Context) error {
-	if err := validateDirectDownloadFlags(c); err != nil {
-		return err
-	}
-
 	downloadSpec, err := prepareDirectDownloadCommand(c)
 	if err != nil {
 		return err

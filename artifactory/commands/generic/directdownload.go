@@ -46,7 +46,13 @@ func (ddc *DirectDownloadCommand) Run() error {
 }
 
 func (ddc *DirectDownloadCommand) directDownload() error {
-	servicesManager, err := utils.CreateServiceManager(ddc.serverDetails, -1, 0, ddc.DryRun())
+	// Use the threads configuration from the download command
+	threads := 3 // Default threads
+	if ddc.configuration != nil && ddc.configuration.Threads > 0 {
+		threads = ddc.configuration.Threads
+	}
+
+	servicesManager, err := utils.CreateServiceManager(ddc.serverDetails, threads, 0, ddc.DryRun())
 	if err != nil {
 		return err
 	}
@@ -77,16 +83,23 @@ func (ddc *DirectDownloadCommand) directDownload() error {
 		downloadParams.SetSyncDeletesPath(ddc.SyncDeletesPath())
 		downloadParams.SetQuiet(ddc.quiet)
 
+		// Set split download parameters from configuration
+		if ddc.configuration != nil {
+			downloadParams.MinSplitSizeMB = ddc.configuration.MinSplitSize / 1024 // Convert KB to MB
+			downloadParams.SplitCount = ddc.configuration.SplitCount
+		}
+
 		downloadParamsArray = append(downloadParamsArray, *downloadParams)
 	}
 
 	var summary *serviceutils.OperationSummary
 	// We need the detailed summary when either showing detailed output or performing sync-deletes
+	// (sync-deletes needs the file list to know what to keep)
 	if ddc.DetailedSummary() || ddc.SyncDeletesPath() != "" {
-		summary, err = servicesManager.DownloadFilesWithoutAQLWithSummary(downloadParamsArray...)
+		summary, err = servicesManager.DirectDownloadFilesWithSummary(downloadParamsArray...)
 	} else {
 		var totalDownloaded, totalFailed int
-		totalDownloaded, totalFailed, err = servicesManager.DownloadFilesWithoutAQL(downloadParamsArray...)
+		totalDownloaded, totalFailed, err = servicesManager.DirectDownloadFiles(downloadParamsArray...)
 		summary = &serviceutils.OperationSummary{
 			TotalSucceeded: totalDownloaded,
 			TotalFailed:    totalFailed,
@@ -114,6 +127,8 @@ func (ddc *DirectDownloadCommand) directDownload() error {
 }
 
 // handleSyncDeletes removes local files that weren't part of the current download operation.
+// It creates a temporary directory structure mirroring downloaded files, then walks the target
+// directory to identify and delete files that don't exist in the download set.
 func (ddc *DirectDownloadCommand) handleSyncDeletes(reader *content.ContentReader) error {
 	reader.Reset()
 
