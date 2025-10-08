@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"path"
 
+	containerutils "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
-	containerutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/container"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	servicesutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
