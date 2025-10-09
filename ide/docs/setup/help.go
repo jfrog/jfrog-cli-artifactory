@@ -5,13 +5,14 @@ import (
 )
 
 var Usage = []string{
+	"ide setup <IDE_NAME>",
 	"ide s <IDE_NAME>",
 }
 
 func GetDescription() string {
 	return `Setup IDE integration with JFrog Artifactory.
 
-Supported Actions:
+Supported Action:
   setup    Configure your IDE to use JFrog Artifactory
 
 Supported IDEs:

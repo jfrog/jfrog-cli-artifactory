@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jfrog/jfrog-cli-artifactory/ide/commands"
 	"github.com/jfrog/jfrog-cli-artifactory/ide/docs/setup"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 const ideCategory = "IDE Integration"
@@ -33,7 +33,6 @@ func setupCmd(c *components.Context) error {
 		}
 		return errors.New(errorMsg)
 	}
-
 	ideName := c.GetArgumentAt(0)
 	if !isValidIDE(ideName) {
 		errorMsg := fmt.Sprintf("error: Invalid IDE name '%s'. Supported IDEs are 'vscode' or 'jetbrains'", ideName)
@@ -42,17 +41,7 @@ func setupCmd(c *components.Context) error {
 		}
 		return errors.New(errorMsg)
 	}
-
-	switch ideName {
-	case "vscode":
-		log.Info("VSCode setup selected.")
-		return nil
-	case "jetbrains":
-		log.Info("JetBrains setup selected.")
-		return nil
-	}
-
-	return nil
+	return commands.SetupCmd(c, ideName)
 }
 
 func isValidIDE(name string) bool {

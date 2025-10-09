@@ -48,10 +48,9 @@ func TestSetupCmd(t *testing.T) {
 			err := setupCmd(ctx)
 			if tt.expectedError == nil {
 				assert.NoError(t, err, "Expected no error for %s", tt.name)
-			} else {
-				if assert.Error(t, err, "Expected an error for %s", tt.name) {
-					assert.True(t, strings.Contains(err.Error(), tt.expectedError.Error()), "Expected error :\n%s\nbut got:\n%s", tt.expectedError, err.Error())
-				}
+			} else if assert.Error(t, err, "Expected an error for %s", tt.name) {
+				assert.True(t, strings.Contains(err.Error(), tt.expectedError.Error()),
+					"Expected error :\n%s\nbut got:\n%s", tt.expectedError, err.Error())
 			}
 		})
 	}
