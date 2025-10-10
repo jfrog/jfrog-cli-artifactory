@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"errors"
 	"fmt"
+	rbsearch "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/rbsearch"
 	"os"
 	"strconv"
 	"strings"
@@ -111,6 +112,15 @@ func GetCommands() []components.Command {
 			Arguments:   rbAnnotate.GetArguments(),
 			Category:    lcCategory,
 			Action:      annotate,
+		},
+		{
+			Name:        "release-bundle-search",
+			Aliases:     []string{"rbs"},
+			Flags:       flagkit.GetCommandFlags(flagkit.RbSearch),
+			Description: rbsearch.GetDescription(),
+			Arguments:   rbsearch.GetArguments(),
+			Category:    lcCategory,
+			Action:      search,
 		},
 	}
 }
@@ -589,4 +599,53 @@ func PlatformToLifecycleUrls(lcDetails *config.ServerDetails) {
 	lcDetails.ArtifactoryUrl = utils.AddTrailingSlashIfNeeded(lcDetails.Url) + "artifactory/"
 	lcDetails.LifecycleUrl = utils.AddTrailingSlashIfNeeded(lcDetails.Url) + "lifecycle/"
 	lcDetails.Url = ""
+}
+
+func search(c *components.Context) error {
+	if show, err := pluginsCommon.ShowCmdHelpIfNeeded(c, c.Arguments); show || err != nil {
+		return err
+	}
+	lcDetails, err := createLifecycleDetailsByFlags(c)
+	if err != nil {
+		return err
+	}
+	subCmdName := c.Arguments[0]
+	offset, _ := c.GetDefaultIntFlagValueIfNotSet(flagkit.Offset, 0)
+	limit, _ := c.GetDefaultIntFlagValueIfNotSet(flagkit.Limit, 0)
+	switch subCmdName {
+	case "names":
+		return GetReleaseBundleGroupCmd(c, lcDetails, offset, limit)
+	case "versions":
+		return GetReleaseBundleVersionsCmd(c, lcDetails, offset, limit)
+	default:
+		return errors.New("Unsupported sub-command : " + subCmdName)
+	}
+}
+
+func GetReleaseBundleGroupCmd(c *components.Context, lcDetails *config.ServerDetails, offset, limit int) (err error) {
+	if len(c.Arguments) != 1 {
+		return pluginsCommon.WrongNumberOfArgumentsHandler(c)
+	}
+	rbSearchCmd := lifecycle.NewSearchGroupCommand().
+		SetServerDetails(lcDetails).SetOffset(offset).SetLimit(limit).
+		SetFilterBy(c.GetStringFlagValue(flagkit.FilterBy)).
+		SetOrderBy(c.GetStringFlagValue(flagkit.OrderBy)).
+		SetOrderAsc(c.GetBoolFlagValue(flagkit.OrderAsc)).
+		SetOutputFormat(c.GetStringFlagValue(flagkit.Format))
+	return commands.Exec(rbSearchCmd)
+}
+
+func GetReleaseBundleVersionsCmd(c *components.Context, lcDetails *config.ServerDetails, offset, limit int) (err error) {
+	if len(c.Arguments) != 2 {
+		return pluginsCommon.WrongNumberOfArgumentsHandler(c)
+	}
+	rbSearchCmd := lifecycle.NewSearchVersionsCommand().
+		SetServerDetails(lcDetails).SetOffset(offset).SetLimit(limit).
+		SetFilterBy(c.GetStringFlagValue(flagkit.FilterBy)).
+		SetOrderBy(c.GetStringFlagValue(flagkit.OrderBy)).
+		SetOrderAsc(c.GetBoolFlagValue(flagkit.OrderAsc)).
+		SetIncludes(c.GetStringFlagValue(flagkit.Includes)).
+		SetReleaseBundleName(c.Arguments[1]).
+		SetOutputFormat(c.GetStringFlagValue(flagkit.Format))
+	return commands.Exec(rbSearchCmd)
 }
