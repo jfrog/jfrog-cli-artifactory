@@ -34,12 +34,12 @@ func TestSetupCmd(t *testing.T) {
 		{
 			name:          "Valid IDE vscode",
 			args:          []string{"vscode"},
-			expectedError: nil,
+			expectedError: errors.New("--repo-key flag is required"),
 		},
 		{
 			name:          "Valid IDE jetbrains",
 			args:          []string{"jetbrains"},
-			expectedError: nil,
+			expectedError: errors.New("--repo-key flag is required"),
 		},
 	}
 	for _, tt := range tests {

@@ -1,8 +1,9 @@
-package jetbrains
+package commands
 
 import (
 	"bufio"
 	"fmt"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,10 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ide"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -58,7 +57,7 @@ func NewJetbrainsCommand(repositoryURL, repoKey string) *JetbrainsCommand {
 		repositoryURL: repositoryURL,
 		repoKey:       repoKey,
 		backupPaths:   make(map[string]string),
-		isDirectURL:   false, // default to false, will be set explicitly
+		isDirectURL:   false, // default to false will be set explicitly
 	}
 }
 
@@ -260,9 +259,9 @@ func (jc *JetbrainsCommand) parseIDEFromDirName(dirName string) *IDEInstallation
 func (jc *JetbrainsCommand) createBackup(ide IDEInstallation) error {
 	backupPath := ide.PropertiesPath + ".backup." + time.Now().Format("20060102-150405")
 
-	// If properties file doesn't exist, create an empty backup
+	// If a properties file doesn't exist, create an empty backup
 	if _, err := os.Stat(ide.PropertiesPath); os.IsNotExist(err) {
-		// Create empty file for backup record
+		// Create an empty file for backup record
 		if err := os.WriteFile(backupPath, []byte("# Empty properties file backup\n"), 0644); err != nil {
 			return fmt.Errorf("failed to create backup marker: %w", err)
 		}
@@ -270,7 +269,7 @@ func (jc *JetbrainsCommand) createBackup(ide IDEInstallation) error {
 		return nil
 	}
 
-	// Read existing properties file
+	// Read an existing properties file
 	data, err := os.ReadFile(ide.PropertiesPath)
 	if err != nil {
 		return fmt.Errorf("failed to read properties file: %w", err)
@@ -320,7 +319,7 @@ func (jc *JetbrainsCommand) modifyPropertiesFile(ide IDEInstallation, repository
 	var lines []string
 	var pluginsHostSet bool
 
-	// Read existing properties if file exists
+	// Read existing properties if a file exists
 	if _, err := os.Stat(ide.PropertiesPath); err == nil {
 		data, err := os.ReadFile(ide.PropertiesPath)
 		if err != nil {
@@ -363,7 +362,7 @@ func (jc *JetbrainsCommand) modifyPropertiesFile(ide IDEInstallation, repository
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	// Write modified properties file
+	// Write a modified properties file
 	content := strings.Join(lines, "\n") + "\n"
 	if err := os.WriteFile(ide.PropertiesPath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("failed to write properties file: %w", err)
@@ -386,5 +385,5 @@ func (jc *JetbrainsCommand) getManualSetupInstructions(repositoryURL string) str
 		configPath = "[JetBrains config directory]/[IDE][VERSION]/idea.properties"
 	}
 
-	return fmt.Sprintf(ide.JetbrainsManualInstructionsTemplate, configPath, repositoryURL, repositoryURL)
+	return fmt.Sprintf(JetbrainsManualInstructionsTemplate, configPath, repositoryURL, repositoryURL)
 }

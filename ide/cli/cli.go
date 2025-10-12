@@ -18,6 +18,7 @@ func GetCommands() []components.Command {
 			Name:        "setup",
 			Description: setup.GetDescription(),
 			Arguments:   setup.GetArguments(),
+			Flags:       commands.GetSetupFlags(),
 			Action:      setupCmd,
 			Aliases:     []string{"s"},
 			Category:    ideCategory,

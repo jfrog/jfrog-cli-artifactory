@@ -1,4 +1,4 @@
-package ide
+package commands
 
 const JetbrainsManualInstructionsTemplate = `
 Manual JetBrains IDE Setup Instructions:

@@ -1,4 +1,4 @@
-package vscode
+package commands
 
 import (
 	"encoding/json"

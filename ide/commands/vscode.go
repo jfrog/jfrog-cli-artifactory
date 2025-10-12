@@ -1,7 +1,10 @@
-package vscode
+package commands
 
 import (
 	"fmt"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,12 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ide"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
-	"github.com/jfrog/jfrog-client-go/utils/errorutils"
-	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -150,9 +149,9 @@ func (vc *VscodeCommand) handlePermissionError() error {
 		if user := os.Getenv("USER"); user != "" {
 			userInfo = user
 		}
-		return fmt.Errorf(ide.VscodeMacOSPermissionError, vc.serviceURL, vc.productPath, userInfo)
+		return fmt.Errorf(VscodeMacOSPermissionError, vc.serviceURL, vc.productPath, userInfo)
 	}
-	return fmt.Errorf(ide.VscodeGenericPermissionError, vc.serviceURL)
+	return fmt.Errorf(VscodeGenericPermissionError, vc.serviceURL)
 }
 
 // detectVSCodeInstallation attempts to auto-detect VSCode installation
@@ -330,5 +329,5 @@ func (vc *VscodeCommand) modifyWithPowerShell(repoURL string) error {
 
 // getManualSetupInstructions returns manual setup instructions
 func (vc *VscodeCommand) getManualSetupInstructions(serviceURL string) string {
-	return fmt.Sprintf(ide.VscodeManualInstructionsTemplate, serviceURL, serviceURL)
+	return fmt.Sprintf(VscodeManualInstructionsTemplate, serviceURL, serviceURL)
 }
