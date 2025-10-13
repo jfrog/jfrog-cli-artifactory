@@ -97,20 +97,6 @@ func SetupJetbrains(c *components.Context) error {
 	return jetbrainsCmd.Run()
 }
 
-// GetJetbrainsSetupFlags returns the flags for the jetbrains setup command
-func GetJetbrainsSetupFlags() []components.Flag {
-	return []components.Flag{
-		components.NewStringFlag(repoKeyFlag, "Repository key for the JetBrains plugins repository. [Required]", components.SetMandatoryFalse()),
-		components.NewStringFlag(urlSuffixFlag, "Suffix for the JetBrains plugins repository URL. Default: (empty)", components.SetMandatoryFalse()),
-		// Server configuration flags
-		components.NewStringFlag("url", "JFrog Artifactory URL. (example: https://acme.jfrog.io/artifactory)", components.SetMandatoryFalse()),
-		components.NewStringFlag("user", "JFrog username.", components.SetMandatoryFalse()),
-		components.NewStringFlag("password", "JFrog password.", components.SetMandatoryFalse()),
-		components.NewStringFlag("access-token", "JFrog access token.", components.SetMandatoryFalse()),
-		components.NewStringFlag("server-id", "Server ID configured using the 'jf config' command.", components.SetMandatoryFalse()),
-	}
-}
-
 // getServerDetails retrieves server configuration from flags or default config
 func getServerDetails(c *components.Context) (*config.ServerDetails, error) {
 	if hasServerConfigFlags(c) {
@@ -138,7 +124,7 @@ func hasServerConfigFlags(c *components.Context) bool {
 		(c.IsFlagSet("password") && (c.IsFlagSet("url") || c.IsFlagSet("server-id")))
 }
 
-// validateRepository validates that the repository exists and is type 'aieditorextensions'
+// validateRepository validates that the repository exists and is type 'aieditorextension'
 func validateRepository(repoKey string, rtDetails *config.ServerDetails) error {
 	log.Debug("Validating repository...")
 
@@ -168,38 +154,23 @@ func getBaseUrl(rtDetails *config.ServerDetails) string {
 	return strings.TrimRight(baseUrl, "/")
 }
 
-// GetVscodeSetupFlags returns the flags for the vscode setup command
-func GetVscodeSetupFlags() []components.Flag {
-	return []components.Flag{
-		components.NewStringFlag(repoKeyFlag, "Repository key for the VSCode extensions repository. [Required]", components.SetMandatoryFalse()),
-		components.NewStringFlag(productJsonPath, "Path to VSCode product.json file. If not provided, auto-detects VSCode installation.", components.SetMandatoryFalse()),
-		components.NewStringFlag(urlSuffixFlag, "Suffix for the VSCode extensions service URL. Default: _apis/public/gallery", components.SetMandatoryFalse()),
-		// Server configuration flags
+// GetSetupFlags returns the combined flags for all ide setup commands
+func GetSetupFlags() []components.Flag {
+	// common server flags
+	commonServerFlags := []components.Flag{
 		components.NewStringFlag("url", "JFrog Artifactory URL. (example: https://acme.jfrog.io/artifactory)", components.SetMandatoryFalse()),
 		components.NewStringFlag("user", "JFrog username.", components.SetMandatoryFalse()),
 		components.NewStringFlag("password", "JFrog password.", components.SetMandatoryFalse()),
 		components.NewStringFlag("access-token", "JFrog access token.", components.SetMandatoryFalse()),
 		components.NewStringFlag("server-id", "Server ID configured using the 'jf config' command.", components.SetMandatoryFalse()),
 	}
-}
 
-// GetSetupFlags returns the combined flags for all ide setup commands
-// Deduplicates common flags between ide's
-func GetSetupFlags() []components.Flag {
-	vscodeFlags := GetVscodeSetupFlags()
-	jetbrainsFlags := GetJetbrainsSetupFlags()
-
-	// Use a map to deduplicate common flags (server config flags are shared)
-	flagMap := make(map[string]components.Flag)
-	for _, flag := range append(vscodeFlags, jetbrainsFlags...) {
-		flagMap[flag.GetName()] = flag
+	// IDE-specific flags
+	ideSpecificFlags := []components.Flag{
+		components.NewStringFlag(repoKeyFlag, "Repository key for the AI Editor Extensions repository. [Required]", components.SetMandatoryFalse()),
+		components.NewStringFlag(productJsonPath, "Path to VSCode product.json file. If not provided, auto-detects VSCode installation. (VSCode only)", components.SetMandatoryFalse()),
+		components.NewStringFlag(urlSuffixFlag, "Suffix for the repository URL. Default: _apis/public/gallery for VSCode, empty for JetBrains", components.SetMandatoryFalse()),
 	}
 
-	// Convert map back to slice
-	uniqueFlags := make([]components.Flag, 0, len(flagMap))
-	for _, flag := range flagMap {
-		uniqueFlags = append(uniqueFlags, flag)
-	}
-
-	return uniqueFlags
+	return append(commonServerFlags, ideSpecificFlags...)
 }
