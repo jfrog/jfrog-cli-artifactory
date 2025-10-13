@@ -106,8 +106,8 @@ func (vc *VscodeCommand) validateRepository() error {
 	if err := utils.ValidateRepoExists(vc.repoKey, artDetails); err != nil {
 		return fmt.Errorf("repository validation failed: %w", err)
 	}
-	// Validate repository type is 'vscode'
-	if err := utils.ValidateRepoType(vc.repoKey, artDetails, "vscode"); err != nil {
+	// Validate repository type is 'aieditorextension'
+	if err := utils.ValidateRepoType(vc.repoKey, artDetails, ApiType); err != nil {
 		return fmt.Errorf("repository type validation failed: %w", err)
 	}
 

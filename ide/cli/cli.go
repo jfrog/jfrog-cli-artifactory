@@ -46,5 +46,5 @@ func setupCmd(c *components.Context) error {
 }
 
 func isValidIDE(name string) bool {
-	return name == "vscode" || name == "jetbrains"
+	return name == commands.IdeVSCode || name == commands.IdeJetBrains
 }

@@ -13,20 +13,20 @@ import (
 )
 
 const (
-	ideVSCode       = "vscode"
-	ideJetBrains    = "jetbrains"
+	IdeVSCode       = "vscode"
+	IdeJetBrains    = "jetbrains"
 	repoKeyFlag     = "repo-key"
 	urlSuffixFlag   = "url-suffix"
 	productJsonPath = "product-json-path"
-	apiType         = "aieditorextensions"
+	ApiType         = "aieditorextension"
 )
 
 // SetupCmd routes the setup command to the appropriate IDE handler
 func SetupCmd(c *components.Context, ideName string) error {
 	switch ideName {
-	case ideVSCode:
+	case IdeVSCode:
 		return SetupVscode(c)
-	case ideJetBrains:
+	case IdeJetBrains:
 		return SetupJetbrains(c)
 	default:
 		return fmt.Errorf("unsupported IDE: %s", ideName)
@@ -57,7 +57,7 @@ func SetupVscode(c *components.Context) error {
 	}
 
 	baseUrl := getBaseUrl(rtDetails)
-	serviceURL := fmt.Sprintf("%s/api/%s/%s/%s", baseUrl, apiType, repoKey, strings.TrimLeft(urlSuffix, "/"))
+	serviceURL := fmt.Sprintf("%s/api/%s/%s/%s", baseUrl, ApiType, repoKey, strings.TrimLeft(urlSuffix, "/"))
 
 	vscodeCmd := NewVscodeCommand(repoKey, productPath, serviceURL)
 	vscodeCmd.SetServerDetails(rtDetails)
@@ -88,7 +88,7 @@ func SetupJetbrains(c *components.Context) error {
 	if urlSuffix != "" {
 		urlSuffix = "/" + strings.TrimLeft(urlSuffix, "/")
 	}
-	repositoryURL := fmt.Sprintf("%s/api/%s/%s%s", baseUrl, apiType, repoKey, urlSuffix)
+	repositoryURL := fmt.Sprintf("%s/api/%s/%s%s", baseUrl, ApiType, repoKey, urlSuffix)
 
 	jetbrainsCmd := NewJetbrainsCommand(repositoryURL, repoKey)
 	jetbrainsCmd.SetServerDetails(rtDetails)
@@ -151,8 +151,8 @@ func validateRepository(repoKey string, rtDetails *config.ServerDetails) error {
 		return fmt.Errorf("repository '%s' does not exist or is not accessible: %w", repoKey, err)
 	}
 
-	if err := utils.ValidateRepoType(repoKey, artDetails, apiType); err != nil {
-		return fmt.Errorf("error: repository '%s' is not of type '%s'. Using other repo types is not supported. Please ensure you're using an AI Editor Extensions repository", repoKey, apiType)
+	if err := utils.ValidateRepoType(repoKey, artDetails, ApiType); err != nil {
+		return fmt.Errorf("error: repository '%s' is not of type '%s'. Using other repo types is not supported. Please ensure you're using an AI Editor Extensions repository", repoKey, ApiType)
 	}
 
 	log.Info("Repository validation successful")
