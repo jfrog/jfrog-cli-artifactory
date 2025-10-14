@@ -24,7 +24,8 @@ type VscodeCommand struct {
 	backupPath    string
 	serverDetails *config.ServerDetails
 	repoKey       string
-	isDirectURL   bool // true if URL was provided directly, false if constructed from server-id + repo-key
+	isDirectURL   bool   // true if URL was provided directly, false if constructed from server-id + repo-key
+	updateMode    string // VSCode update mode: "default", "manual", "none", or empty to skip
 }
 
 // NewVscodeCommand creates a new VSCode configuration command
@@ -53,6 +54,12 @@ func (vc *VscodeCommand) CommandName() string {
 // SetDirectURL marks this command as using a direct URL (skip validation)
 func (vc *VscodeCommand) SetDirectURL(isDirect bool) *VscodeCommand {
 	vc.isDirectURL = isDirect
+	return vc
+}
+
+// SetUpdateMode sets the VSCode update mode to configure in settings.json
+func (vc *VscodeCommand) SetUpdateMode(mode string) *VscodeCommand {
+	vc.updateMode = mode
 	return vc
 }
 
@@ -86,7 +93,17 @@ func (vc *VscodeCommand) Run() error {
 		return errorutils.CheckError(fmt.Errorf("failed to modify product.json: %w\n\nManual setup instructions:\n%s", err, vc.getManualSetupInstructions(vc.serviceURL)))
 	}
 
-	log.Info("VSCode configuration updated successfully. Repository URL:", vc.serviceURL, "- Please restart VSCode to apply changes")
+	log.Info("VSCode configuration updated successfully. Repository URL:", vc.serviceURL)
+
+	// Configure update mode if specified
+	if vc.updateMode != "" {
+		if err := SetUpdateMode(UpdateMode(vc.updateMode)); err != nil {
+			log.Warn("Failed to set update mode:", err)
+			log.Warn("You can manually add '\"update.mode\": \"%s\"' to your settings.json", vc.updateMode)
+		}
+	}
+
+	log.Info("✅ Configuration complete! Please restart VSCode to apply changes")
 	return nil
 }
 

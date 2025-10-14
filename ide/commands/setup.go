@@ -51,6 +51,12 @@ func SetupVscode(c *components.Context) error {
 		productPath := c.GetStringFlagValue(productJsonPath)
 		vscodeCmd := NewVscodeCommand(repoKey, productPath, directURL)
 		vscodeCmd.SetDirectURL(true)
+		
+		// Set update mode if specified
+		if updateMode := c.GetStringFlagValue("update-mode"); updateMode != "" {
+			vscodeCmd.SetUpdateMode(updateMode)
+		}
+		
 		return vscodeCmd.Run()
 	}
 
@@ -77,6 +83,12 @@ func SetupVscode(c *components.Context) error {
 	vscodeCmd := NewVscodeCommand(repoKey, productPath, serviceURL)
 	vscodeCmd.SetServerDetails(rtDetails)
 	vscodeCmd.SetDirectURL(false)
+	
+	// Set update mode if specified
+	if updateMode := c.GetStringFlagValue("update-mode"); updateMode != "" {
+		vscodeCmd.SetUpdateMode(updateMode)
+	}
+	
 	return vscodeCmd.Run()
 }
 
@@ -188,6 +200,7 @@ func GetSetupFlags() []components.Flag {
 		components.NewStringFlag(repoKeyFlag, "Repository key for the AI Editor Extensions repository. [Required]", components.SetMandatoryFalse()),
 		components.NewStringFlag(productJsonPath, "Path to VSCode product.json file. If not provided, auto-detects VSCode installation. (VSCode only)", components.SetMandatoryFalse()),
 		components.NewStringFlag(urlSuffixFlag, "Suffix for the repository URL. Default: _apis/public/gallery for VSCode, empty for JetBrains", components.SetMandatoryFalse()),
+		components.NewStringFlag("update-mode", "VSCode update mode: 'default' (auto-update), 'manual' (prompt), or 'none' (disable). This prevents VSCode updates from resetting marketplace configuration. (VSCode only)", components.SetMandatoryFalse()),
 	}
 
 	return append(commonServerFlags, ideSpecificFlags...)
