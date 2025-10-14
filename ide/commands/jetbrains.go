@@ -57,7 +57,7 @@ func NewJetbrainsCommand(repositoryURL, repoKey string) *JetbrainsCommand {
 		repositoryURL: repositoryURL,
 		repoKey:       repoKey,
 		backupPaths:   make(map[string]string),
-		isDirectURL:   false, // default to false will be set explicitly
+		isDirectURL:   false,
 	}
 }
 

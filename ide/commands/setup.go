@@ -29,7 +29,8 @@ func SetupCmd(c *components.Context, ideName string) error {
 	case IdeJetBrains:
 		return SetupJetbrains(c)
 	default:
-		return fmt.Errorf("unsupported IDE: %s", ideName)
+		errorMsg := fmt.Sprintf("unsupported IDE: %s", ideName)
+		return pluginsCommon.PrintHelpAndReturnError(errorMsg, c)
 	}
 }
 
