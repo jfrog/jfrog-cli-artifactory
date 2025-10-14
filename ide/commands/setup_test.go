@@ -42,7 +42,11 @@ func TestSetupCmd(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &components.Context{}
+			ctx := &components.Context{
+				PrintCommandHelp: func(commandName string) error {
+					return nil
+				},
+			}
 			err := SetupCmd(ctx, tt.ideName)
 
 			if tt.expectError {
