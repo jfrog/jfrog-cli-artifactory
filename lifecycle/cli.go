@@ -3,6 +3,9 @@ package lifecycle
 import (
 	"errors"
 	"fmt"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/cli"
+	rbsearch "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/rbsearch"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"os"
 	"strconv"
 	"strings"
@@ -111,6 +114,15 @@ func GetCommands() []components.Command {
 			Arguments:   rbAnnotate.GetArguments(),
 			Category:    lcCategory,
 			Action:      annotate,
+		},
+		{
+			Name:        "release-bundle-search",
+			Aliases:     []string{"rbs"},
+			Flags:       flagkit.GetCommandFlags(flagkit.ReleaseBundleSearch),
+			Description: rbsearch.GetDescription(),
+			Arguments:   rbsearch.GetArguments(),
+			Category:    lcCategory,
+			Action:      releaseBundleSearch,
 		},
 	}
 }
@@ -589,4 +601,60 @@ func PlatformToLifecycleUrls(lcDetails *config.ServerDetails) {
 	lcDetails.ArtifactoryUrl = utils.AddTrailingSlashIfNeeded(lcDetails.Url) + "artifactory/"
 	lcDetails.LifecycleUrl = utils.AddTrailingSlashIfNeeded(lcDetails.Url) + "lifecycle/"
 	lcDetails.Url = ""
+}
+
+func releaseBundleSearch(c *components.Context) error {
+	if show, err := pluginsCommon.ShowCmdHelpIfNeeded(c, c.Arguments); show || err != nil {
+		return err
+	}
+	lcDetails, err := createLifecycleDetailsByFlags(c)
+	if err != nil {
+		return err
+	}
+	if len(c.Arguments) == 0 {
+		return pluginsCommon.WrongNumberOfArgumentsHandler(c)
+	}
+	option := c.Arguments[0]
+	offset, limit, err := cli.GetOffsetAndLimitValues(c)
+	if err != nil {
+		return err
+	}
+	log.Output("Option:", option)
+	log.Output("Offset:", offset, "Limit:", limit)
+	switch option {
+	case "names":
+		return GetReleaseBundleGroupCmd(c, lcDetails, offset, limit)
+	case "versions":
+		return GetReleaseBundleVersionsCmd(c, lcDetails, offset, limit)
+	default:
+		return errors.New("Option '" + option + "' is not supported.")
+	}
+}
+
+func GetReleaseBundleGroupCmd(c *components.Context, lcDetails *config.ServerDetails, offset, limit int) (err error) {
+	if len(c.Arguments) != 1 {
+		return pluginsCommon.WrongNumberOfArgumentsHandler(c)
+	}
+	rbSearchCmd := lifecycle.NewSearchGroupCommand().
+		SetServerDetails(lcDetails).SetOffset(offset).SetLimit(limit).
+		SetFilterBy(c.GetStringFlagValue(flagkit.FilterBy)).
+		SetOrderBy(c.GetStringFlagValue(flagkit.OrderBy)).
+		SetOrderAsc(c.GetBoolFlagValue(flagkit.OrderAsc)).
+		SetOutputFormat(c.GetStringFlagValue(flagkit.Format))
+	return commands.Exec(rbSearchCmd)
+}
+
+func GetReleaseBundleVersionsCmd(c *components.Context, lcDetails *config.ServerDetails, offset, limit int) (err error) {
+	if len(c.Arguments) != 2 {
+		return pluginsCommon.WrongNumberOfArgumentsHandler(c)
+	}
+	rbSearchCmd := lifecycle.NewSearchVersionsCommand().
+		SetServerDetails(lcDetails).SetOffset(offset).SetLimit(limit).
+		SetFilterBy(c.GetStringFlagValue(flagkit.FilterBy)).
+		SetOrderBy(c.GetStringFlagValue(flagkit.OrderBy)).
+		SetOrderAsc(c.GetBoolFlagValue(flagkit.OrderAsc)).
+		SetIncludes(c.GetStringFlagValue(flagkit.Includes)).
+		SetReleaseBundleName(c.Arguments[1]).
+		SetOutputFormat(c.GetStringFlagValue(flagkit.Format))
+	return commands.Exec(rbSearchCmd)
 }

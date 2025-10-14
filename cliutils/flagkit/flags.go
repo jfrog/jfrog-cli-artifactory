@@ -94,6 +94,14 @@ const (
 	GroupAddUsers                = "group-add-users"
 	GroupDelete                  = "group-delete"
 	passphrase                   = "passphrase"
+	ReleaseBundleSearch          = "release-bundle-search"
+	FilterBy                     = "filter-by"
+	OrderAsc                     = "order-asc"
+	OrderBy                      = "order-by"
+	Includes                     = "includes"
+	Offset                       = "offset"
+	Limit                        = "limit"
+	Format                       = "format"
 
 	// Config commands keys
 	AddConfig    = "config-add"
@@ -786,6 +794,9 @@ var commandFlags = map[string][]string{
 	GroupDelete: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, deleteQuiet,
 	},
+	ReleaseBundleSearch: {
+		xrOutput, OrderBy, FilterBy, OrderAsc, limit, Includes,
+	},
 }
 
 var flagsMap = map[string]components.Flag{
@@ -814,7 +825,11 @@ var flagsMap = map[string]components.Flag{
 	failNoOp:          components.NewBoolFlag(failNoOp, "[Default: false] Set to true if you'd like the command to return exit code 2 in case of no files are affected.", components.WithBoolDefaultValueFalse()),
 	threads:           components.NewStringFlag(threads, "[Default: "+strconv.Itoa(commonCliUtils.Threads)+"] Number of working threads.", components.SetMandatoryFalse()),
 	syncDeletesQuiet:  components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip the sync-deletes confirmation message.", components.WithBoolDefaultValueFalse()),
-	sortBy:            components.NewStringFlag(sortBy, "[Optional] List of semicolon-separated(;) fields to sort by. The fields must be part of the 'items' AQL domain. For more information, see %sjfrog-artifactory-documentation/artifactory-query-language.", components.SetMandatoryFalse()),
+	sortBy:            components.NewStringFlag(sortBy, "List of semicolon-separated(;) fields to sort by. The fields must be part of the 'items' AQL domain. For more information, see %sjfrog-artifactory-documentation/artifactory-query-language.", components.SetMandatoryFalse()),
+	FilterBy:          components.NewStringFlag(FilterBy, "Filter by Defines a filter using a prefix of the Release Bundle name.", components.SetMandatoryFalse()),
+	OrderAsc:          components.NewBoolFlag(OrderAsc, "If set to true then the ascending order will be followed for displaying results.", components.WithBoolDefaultValueFalse()),
+	OrderBy:           components.NewStringFlag(OrderBy, "Defines the criterion by which to order the list of promotions: created (standard timestamp or milliseconds), createdBy", components.SetMandatoryFalse()),
+	Includes:          components.NewStringFlag(Includes, "Either messages: Returns any error messages generated when creating the Release Bundle version.or permissions: Returns the permission settings for promoting, distributing, and deleting these Release Bundle versions.", components.SetMandatoryFalse()),
 	bundle:            components.NewStringFlag(bundle, "[Optional] If specified, only artifacts of the specified bundle are matched. The value format is bundle-name/bundle-version.", components.SetMandatoryFalse()),
 	imageFile:         components.NewStringFlag(imageFile, "[Mandatory] Path to a file which includes one line in the following format: <IMAGE-TAG>@sha256:<MANIFEST-SHA256>.", components.SetMandatoryTrue()),
 	ocStartBuildRepo:  components.NewStringFlag(repo, "[Mandatory] The name of the repository to which the image was pushed.", components.SetMandatoryTrue()),

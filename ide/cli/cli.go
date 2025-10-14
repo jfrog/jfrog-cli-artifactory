@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+
 	"github.com/jfrog/jfrog-cli-artifactory/ide/commands"
 	"github.com/jfrog/jfrog-cli-artifactory/ide/docs/setup"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/common"

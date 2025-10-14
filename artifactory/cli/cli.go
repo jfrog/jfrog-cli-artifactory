@@ -1805,3 +1805,7 @@ func getOffsetAndLimitValues(c *components.Context) (offset, limit int, err erro
 
 	return
 }
+
+func GetOffsetAndLimitValues(c *components.Context) (offset, limit int, err error) {
+	return getOffsetAndLimitValues(c)
+}
