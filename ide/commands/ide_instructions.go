@@ -61,7 +61,7 @@ VSCode is installed in /Applications/ which requires elevated privileges to modi
 
 To fix this, run the command with sudo:
 
-    sudo jf vscode set service-url '%s'
+    sudo jf ide setup vscode '%s'
 
 This is the same approach that works with manual editing:
     sudo nano "%s"
@@ -74,6 +74,6 @@ Alternative: Install VSCode in a user-writable location like ~/Applications/`
 const VscodeGenericPermissionError = `insufficient permissions to modify VSCode configuration.
 
 To fix this, try running the command with elevated privileges:
-    sudo jf vscode set service-url '%s'
+    sudo jf ide setup vscode '%s'
 
 Or use the manual setup instructions provided in the error output.`

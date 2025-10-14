@@ -26,7 +26,8 @@ func GetCommands() []components.Command {
 }
 
 func setupCmd(c *components.Context) error {
-	if c.GetNumberOfArgs() != 1 {
+	numArgs := c.GetNumberOfArgs()
+	if numArgs < 1 {
 		errorMsg := fmt.Sprintf("error: Missing mandatory argument 'IDE_NAME'. Please specify ide name. Supported IDEs are %s", supportedIDEs())
 		if c.PrintCommandHelp != nil {
 			return common.WrongNumberOfArgumentsHandler(c)

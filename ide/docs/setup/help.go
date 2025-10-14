@@ -5,8 +5,8 @@ import (
 )
 
 var Usage = []string{
-	"ide setup <IDE_NAME>",
-	"ide s <IDE_NAME>",
+	"ide setup <IDE_NAME> [SERVICE_URL]",
+	"ide s <IDE_NAME> [SERVICE_URL]",
 }
 
 func GetDescription() string {
@@ -21,10 +21,10 @@ Supported IDEs:
 
 Examples:
   # Setup VSCode 
-  jf ide setup vscode
+  jf ide setup vscode --repo-key=https://mycompany.org
 
   # Setup JetBrains   
-  jf ide setup jetbrains`
+  jf ide setup jetbrains --repo-key=https://mycompany.org`
 }
 
 func GetArguments() []components.Argument {
@@ -32,6 +32,11 @@ func GetArguments() []components.Argument {
 		{
 			Name:        "IDE_NAME",
 			Description: "The name of the IDE to setup. Supported IDEs are 'vscode' and 'jetbrains'.",
+		},
+		{
+			Name:        "SERVICE_URL",
+			Description: "(Optional) Full marketplace service URL. If provided, --repo-key is not required.",
+			Optional:    true,
 		},
 	}
 }

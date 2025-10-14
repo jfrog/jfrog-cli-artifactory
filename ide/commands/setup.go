@@ -3,6 +3,7 @@ package commands
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -18,7 +19,7 @@ const (
 	repoKeyFlag     = "repo-key"
 	urlSuffixFlag   = "url-suffix"
 	productJsonPath = "product-json-path"
-	ApiType         = "aieditorextension"
+	ApiType         = "aieditorextensions"
 )
 
 // SetupCmd routes the setup command to the appropriate IDE handler
@@ -36,6 +37,22 @@ func SetupCmd(c *components.Context, ideName string) error {
 
 func SetupVscode(c *components.Context) error {
 	log.Info("Setting up VSCode IDE integration...")
+	// If a direct repository URL is provided as the 2nd positional arg, use it as-is
+	if c.GetNumberOfArgs() > 1 && IsValidUrl(c.GetArgumentAt(1)) {
+		directURL := c.GetArgumentAt(1)
+		repoKey := ""
+		parts := strings.Split(directURL, "/")
+		for i, p := range parts {
+			if p == ApiType && i+1 < len(parts) {
+				repoKey = parts[i+1]
+				break
+			}
+		}
+		productPath := c.GetStringFlagValue(productJsonPath)
+		vscodeCmd := NewVscodeCommand(repoKey, productPath, directURL)
+		vscodeCmd.SetDirectURL(true)
+		return vscodeCmd.Run()
+	}
 
 	repoKey := c.GetStringFlagValue(repoKeyFlag)
 	productPath := c.GetStringFlagValue(productJsonPath)
@@ -47,19 +64,16 @@ func SetupVscode(c *components.Context) error {
 	if repoKey == "" {
 		return errors.New("--repo-key flag is required. Please specify the repository key for your VSCode extensions repository")
 	}
-
 	rtDetails, err := getServerDetails(c)
 	if err != nil {
 		return fmt.Errorf("failed to get server configuration: %w. Please run 'jf config add' first", err)
 	}
-
 	if err := validateRepository(repoKey, rtDetails); err != nil {
 		return err
 	}
 
 	baseUrl := getBaseUrl(rtDetails)
 	serviceURL := fmt.Sprintf("%s/api/%s/%s/%s", baseUrl, ApiType, repoKey, strings.TrimLeft(urlSuffix, "/"))
-
 	vscodeCmd := NewVscodeCommand(repoKey, productPath, serviceURL)
 	vscodeCmd.SetServerDetails(rtDetails)
 	vscodeCmd.SetDirectURL(false)
@@ -68,6 +82,21 @@ func SetupVscode(c *components.Context) error {
 
 func SetupJetbrains(c *components.Context) error {
 	log.Info("Setting up JetBrains IDEs integration...")
+	// If a direct repository URL is provided as the 2nd positional arg, use it as-is
+	if c.GetNumberOfArgs() > 1 && IsValidUrl(c.GetArgumentAt(1)) {
+		directURL := c.GetArgumentAt(1)
+		repoKey := ""
+		parts := strings.Split(directURL, "/")
+		for i, p := range parts {
+			if p == ApiType && i+1 < len(parts) {
+				repoKey = parts[i+1]
+				break
+			}
+		}
+		jetbrainsCmd := NewJetbrainsCommand(directURL, repoKey)
+		jetbrainsCmd.SetDirectURL(true)
+		return jetbrainsCmd.Run()
+	}
 
 	repoKey := c.GetStringFlagValue(repoKeyFlag)
 	urlSuffix := c.GetStringFlagValue(urlSuffixFlag)
@@ -75,26 +104,21 @@ func SetupJetbrains(c *components.Context) error {
 	if repoKey == "" {
 		return errors.New("--repo-key flag is required. Please specify the repository key for your JetBrains plugins repository")
 	}
-
 	rtDetails, err := getServerDetails(c)
 	if err != nil {
 		return fmt.Errorf("failed to get server configuration: %w. Please run 'jf config add' first", err)
 	}
-
 	if err := validateRepository(repoKey, rtDetails); err != nil {
 		return err
 	}
-
 	baseUrl := getBaseUrl(rtDetails)
 	if urlSuffix != "" {
 		urlSuffix = "/" + strings.TrimLeft(urlSuffix, "/")
 	}
 	repositoryURL := fmt.Sprintf("%s/api/%s/%s%s", baseUrl, ApiType, repoKey, urlSuffix)
-
 	jetbrainsCmd := NewJetbrainsCommand(repositoryURL, repoKey)
 	jetbrainsCmd.SetServerDetails(rtDetails)
 	jetbrainsCmd.SetDirectURL(false)
-
 	return jetbrainsCmd.Run()
 }
 
@@ -103,16 +127,13 @@ func getServerDetails(c *components.Context) (*config.ServerDetails, error) {
 	if hasServerConfigFlags(c) {
 		return pluginsCommon.CreateArtifactoryDetailsByFlags(c)
 	}
-
 	rtDetails, err := config.GetDefaultServerConf()
 	if err != nil {
 		return nil, fmt.Errorf("no default server configured")
 	}
-
 	if rtDetails.ArtifactoryUrl == "" && rtDetails.Url == "" {
 		return nil, fmt.Errorf("no Artifactory URL configured")
 	}
-
 	return rtDetails, nil
 }
 
@@ -128,20 +149,16 @@ func hasServerConfigFlags(c *components.Context) bool {
 // validateRepository validates that the repository exists and is type 'aieditorextension'
 func validateRepository(repoKey string, rtDetails *config.ServerDetails) error {
 	log.Debug("Validating repository...")
-
 	artDetails, err := rtDetails.CreateArtAuthConfig()
 	if err != nil {
 		return fmt.Errorf("failed to create auth config: %w", err)
 	}
-
 	if err := utils.ValidateRepoExists(repoKey, artDetails); err != nil {
 		return fmt.Errorf("repository '%s' does not exist or is not accessible: %w", repoKey, err)
 	}
-
 	if err := utils.ValidateRepoType(repoKey, artDetails, ApiType); err != nil {
 		return fmt.Errorf("error: repository '%s' is not of type '%s'. Using other repo types is not supported. Please ensure you're using an AI Editor Extensions repository", repoKey, ApiType)
 	}
-
 	log.Info("Repository validation successful")
 	return nil
 }
@@ -174,4 +191,10 @@ func GetSetupFlags() []components.Flag {
 	}
 
 	return append(commonServerFlags, ideSpecificFlags...)
+}
+
+// IsValidUrl checks if a string is a valid URL with scheme and host
+func IsValidUrl(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && u.Scheme != "" && u.Host != ""
 }
