@@ -1,6 +1,7 @@
 package flexpack
 
 import (
+	"encoding/xml"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,6 +20,34 @@ import (
 	specutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
+
+// PomProject represents the Maven POM XML structure for parsing
+type PomProject struct {
+	XMLName                xml.Name               `xml:"project"`
+	GroupId                string                 `xml:"groupId"`
+	ArtifactId             string                 `xml:"artifactId"`
+	Version                string                 `xml:"version"`
+	Packaging              string                 `xml:"packaging"`
+	Parent                 PomParent              `xml:"parent"`
+	Properties             map[string]string      `xml:"properties"`
+	DistributionManagement DistributionManagement `xml:"distributionManagement"`
+}
+
+type PomParent struct {
+	GroupId    string `xml:"groupId"`
+	ArtifactId string `xml:"artifactId"`
+	Version    string `xml:"version"`
+}
+
+type DistributionManagement struct {
+	Repository         Repository `xml:"repository"`
+	SnapshotRepository Repository `xml:"snapshotRepository"`
+}
+
+type Repository struct {
+	Id  string `xml:"id"`
+	URL string `xml:"url"`
+}
 
 // CollectMavenBuildInfoWithFlexPack collects Maven build info using FlexPack
 // This follows the same pattern as Poetry FlexPack in poetry.go
@@ -89,7 +118,8 @@ func saveMavenFlexPackBuildInfo(buildInfo *entities.BuildInfo) error {
 func wasDeployCommand() bool {
 	args := os.Args
 	for _, arg := range args {
-		if arg == "deploy" {
+		// Match standalone "deploy" goal or plugin notation "maven-deploy-plugin:deploy"
+		if arg == "deploy" || strings.HasSuffix(arg, ":deploy") {
 			return true
 		}
 	}
@@ -124,9 +154,16 @@ func setMavenBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber strin
 		return fmt.Errorf("failed to get Maven artifact coordinates: %w", err)
 	}
 
-	// Create search pattern for the specific deployed artifacts
-	// Search for artifacts in maven-flexpack-local repository with the specific coordinates
-	artifactPath := fmt.Sprintf("maven-flexpack-local/%s/%s/%s/%s-*",
+	// Get the repository Maven deployed to from settings.xml or pom.xml
+	targetRepo, err := getMavenDeployRepository(workingDir)
+	if err != nil {
+		log.Warn("Could not determine Maven deploy repository, skipping build properties: " + err.Error())
+		return nil
+	}
+
+	// Create search pattern for the specific deployed artifacts in the target repository
+	artifactPath := fmt.Sprintf("%s/%s/%s/%s/%s-*",
+		targetRepo,
 		strings.ReplaceAll(groupId, ".", "/"), artifactId, version, artifactId)
 
 	log.Debug("Searching for deployed artifacts with pattern: " + artifactPath)
@@ -166,39 +203,85 @@ func setMavenBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber strin
 	return nil
 }
 
+// getMavenDeployRepository determines where Maven deployed artifacts
+// by parsing pom.xml distributionManagement
+func getMavenDeployRepository(workingDir string) (string, error) {
+	pomPath := filepath.Join(workingDir, "pom.xml")
+	pomData, err := os.ReadFile(pomPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read pom.xml: %w", err)
+	}
+
+	var pom PomProject
+	if err := xml.Unmarshal(pomData, &pom); err != nil {
+		return "", fmt.Errorf("failed to parse pom.xml: %w", err)
+	}
+
+	// Get repository URL from distributionManagement
+	var repoUrl string
+	if pom.DistributionManagement.Repository.URL != "" {
+		repoUrl = pom.DistributionManagement.Repository.URL
+	} else if pom.DistributionManagement.SnapshotRepository.URL != "" {
+		repoUrl = pom.DistributionManagement.SnapshotRepository.URL
+	}
+
+	if repoUrl == "" {
+		return "", fmt.Errorf("no distributionManagement repository found in pom.xml")
+	}
+
+	// Extract repository key from URL
+	// URL format: http://host:port/artifactory/REPO-KEY or http://host:port/artifactory/api/maven/REPO-KEY
+	repoUrl = strings.TrimSpace(repoUrl)
+
+	// Handle different URL patterns
+	if strings.Contains(repoUrl, "/api/maven/") {
+		// Format: http://host/artifactory/api/maven/REPO-KEY
+		parts := strings.Split(repoUrl, "/api/maven/")
+		if len(parts) == 2 {
+			repoKey := strings.Trim(parts[1], "/")
+			if repoKey != "" {
+				log.Debug("Found deploy repository from pom.xml: " + repoKey)
+				return repoKey, nil
+			}
+		}
+	}
+
+	// Standard format: http://host/artifactory/REPO-KEY
+	if idx := strings.LastIndex(repoUrl, "/"); idx != -1 {
+		repoKey := repoUrl[idx+1:]
+		if repoKey != "" {
+			log.Debug("Found deploy repository from pom.xml: " + repoKey)
+			return repoKey, nil
+		}
+	}
+
+	return "", fmt.Errorf("could not extract repository key from URL: %s", repoUrl)
+}
+
 // getMavenArtifactCoordinates extracts Maven coordinates from pom.xml
 func getMavenArtifactCoordinates(workingDir string) (groupId, artifactId, version string, err error) {
-	// Read pom.xml to get project information
 	pomPath := filepath.Join(workingDir, "pom.xml")
 	pomData, err := os.ReadFile(pomPath)
 	if err != nil {
 		return "", "", "", fmt.Errorf("failed to read pom.xml: %w", err)
 	}
 
-	pomContent := string(pomData)
-
-	// Extract groupId
-	if start := strings.Index(pomContent, "<groupId>"); start != -1 {
-		start += len("<groupId>")
-		if end := strings.Index(pomContent[start:], "</groupId>"); end != -1 {
-			groupId = strings.TrimSpace(pomContent[start : start+end])
-		}
+	var pom PomProject
+	if err := xml.Unmarshal(pomData, &pom); err != nil {
+		return "", "", "", fmt.Errorf("failed to parse pom.xml: %w", err)
 	}
 
-	// Extract artifactId
-	if start := strings.Index(pomContent, "<artifactId>"); start != -1 {
-		start += len("<artifactId>")
-		if end := strings.Index(pomContent[start:], "</artifactId>"); end != -1 {
-			artifactId = strings.TrimSpace(pomContent[start : start+end])
-		}
+	// Use project values, fallback to parent if missing
+	groupId = pom.GroupId
+	if groupId == "" {
+		groupId = pom.Parent.GroupId
 	}
 
-	// Extract version
-	if start := strings.Index(pomContent, "<version>"); start != -1 {
-		start += len("<version>")
-		if end := strings.Index(pomContent[start:], "</version>"); end != -1 {
-			version = strings.TrimSpace(pomContent[start : start+end])
-		}
+	artifactId = pom.ArtifactId
+
+	version = pom.Version
+	if version == "" {
+		version = pom.Parent.Version
 	}
 
 	if groupId == "" || artifactId == "" || version == "" {
@@ -225,26 +308,50 @@ func addDeployedArtifactsToBuildInfo(buildInfo *entities.BuildInfo, workingDir s
 		return fmt.Errorf("failed to get Maven artifact coordinates: %w", err)
 	}
 
+	// Get packaging type from pom.xml
+	packagingType := getPackagingType(workingDir)
+
 	// Create artifacts for the deployed files
 	var artifacts []entities.Artifact
 
-	// Add main artifact (jar/war/etc)
-	mainArtifactName := fmt.Sprintf("%s-%s.jar", artifactId, version)
-	mainArtifactPath := filepath.Join(targetDir, mainArtifactName)
+	// Scan target directory for all artifacts matching the pattern: artifactId-version*
+	artifactPrefix := fmt.Sprintf("%s-%s", artifactId, version)
+	entries, err := os.ReadDir(targetDir)
+	if err != nil {
+		return fmt.Errorf("failed to read target directory: %w", err)
+	}
 
-	if _, err := os.Stat(mainArtifactPath); err == nil {
-		artifact := createArtifactFromFile(mainArtifactPath, groupId, artifactId, version, "jar")
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		fileName := entry.Name()
+
+		// Only process files that match the artifact pattern
+		if !strings.HasPrefix(fileName, artifactPrefix) {
+			continue
+		}
+
+		// Determine artifact type from file extension
+		ext := filepath.Ext(fileName)
+		if ext == "" {
+			continue
+		}
+
+		artifactType := strings.TrimPrefix(ext, ".")
+		filePath := filepath.Join(targetDir, fileName)
+
+		artifact := createArtifactFromFile(filePath, groupId, artifactId, version, artifactType)
 		artifacts = append(artifacts, artifact)
 	}
 
-	// Add POM artifact
+	// Add POM artifact (from project root, not target)
 	pomArtifactName := fmt.Sprintf("%s-%s.pom", artifactId, version)
-	// POM is usually in the project root, not target directory for deployment
 	pomArtifactPath := filepath.Join(workingDir, "pom.xml")
 
 	if _, err := os.Stat(pomArtifactPath); err == nil {
 		artifact := createArtifactFromFile(pomArtifactPath, groupId, artifactId, version, "pom")
-		// Set the correct name and path for the deployed POM
 		artifact.Name = pomArtifactName
 		artifact.Path = fmt.Sprintf("%s/%s/%s/%s", strings.ReplaceAll(groupId, ".", "/"), artifactId, version, pomArtifactName)
 		artifacts = append(artifacts, artifact)
@@ -253,12 +360,32 @@ func addDeployedArtifactsToBuildInfo(buildInfo *entities.BuildInfo, workingDir s
 	// Add artifacts to the first module (Maven projects typically have one module)
 	if len(buildInfo.Modules) > 0 {
 		buildInfo.Modules[0].Artifacts = artifacts
-		log.Debug(fmt.Sprintf("Added %d artifacts to build info", len(artifacts)))
+		log.Debug(fmt.Sprintf("Added %d artifacts to build info (main packaging: %s)", len(artifacts), packagingType))
 	} else {
 		log.Warn("No modules found in build info, cannot add artifacts")
 	}
 
 	return nil
+}
+
+// getPackagingType extracts packaging type from pom.xml
+func getPackagingType(workingDir string) string {
+	pomPath := filepath.Join(workingDir, "pom.xml")
+	pomData, err := os.ReadFile(pomPath)
+	if err != nil {
+		return "jar" // Default to jar
+	}
+
+	var pom PomProject
+	if err := xml.Unmarshal(pomData, &pom); err != nil {
+		return "jar"
+	}
+
+	if pom.Packaging == "" {
+		return "jar" // Maven default
+	}
+
+	return pom.Packaging
 }
 
 // createArtifactFromFile creates an entities.Artifact from a file path
