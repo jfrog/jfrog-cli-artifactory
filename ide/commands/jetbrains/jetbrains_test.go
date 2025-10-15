@@ -1,4 +1,4 @@
-package commands
+package jetbrains
 
 import (
 	"os"

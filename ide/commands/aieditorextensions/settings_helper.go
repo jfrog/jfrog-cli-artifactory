@@ -1,4 +1,4 @@
-package vscode
+package aieditorextensions
 
 import (
 	"encoding/json"
@@ -42,8 +42,8 @@ func SetUpdateMode(mode UpdateMode) error {
 		return fmt.Errorf("failed to write settings.json: %w", err)
 	}
 
-	log.Info("✅ VSCode update mode set to:", string(mode))
-	log.Info("📝 Configuration file:", settingsPath)
+	log.Info("VSCode update mode set to:", string(mode))
+	log.Info("Configuration file:", settingsPath)
 
 	return nil
 }
@@ -62,19 +62,16 @@ func detectSettingsPath() (string, error) {
 	case "darwin":
 		possiblePaths = []string{
 			filepath.Join(homeDir, "Library", "Application Support", "Code", "User", "settings.json"),
-			filepath.Join(homeDir, "Library", "Application Support", "VSCodium", "User", "settings.json"),
 			filepath.Join(homeDir, "Library", "Application Support", "Code - Insiders", "User", "settings.json"),
 		}
 	case "linux":
 		possiblePaths = []string{
 			filepath.Join(homeDir, ".config", "Code", "User", "settings.json"),
-			filepath.Join(homeDir, ".config", "VSCodium", "User", "settings.json"),
 			filepath.Join(homeDir, ".config", "Code - Insiders", "User", "settings.json"),
 		}
 	case "windows":
 		possiblePaths = []string{
 			filepath.Join(homeDir, "AppData", "Roaming", "Code", "User", "settings.json"),
-			filepath.Join(homeDir, "AppData", "Roaming", "VSCodium", "User", "settings.json"),
 			filepath.Join(homeDir, "AppData", "Roaming", "Code - Insiders", "User", "settings.json"),
 		}
 	default:

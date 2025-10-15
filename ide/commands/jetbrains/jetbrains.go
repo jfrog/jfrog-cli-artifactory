@@ -1,15 +1,16 @@
-package commands
+package jetbrains
 
 import (
 	"bufio"
 	"fmt"
-	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -148,7 +149,7 @@ func (jc *JetbrainsCommand) validateRepository() error {
 	if err := utils.ValidateRepoExists(jc.repoKey, artDetails); err != nil {
 		return fmt.Errorf("repository validation failed: %w", err)
 	}
-	// Validate repository type is 'aieditorextension'
+	// Validate repository type is 'jetbrainsplugins'
 	if err := utils.ValidateRepoType(jc.repoKey, artDetails, ApiType); err != nil {
 		return fmt.Errorf("repository type validation failed: %w", err)
 	}

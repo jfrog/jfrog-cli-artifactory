@@ -1,4 +1,4 @@
-package vscode
+package aieditorextensions
 
 import (
 	"encoding/json"
@@ -20,7 +20,8 @@ func TestSetUpdateMode(t *testing.T) {
 		"editor.fontSize": 14,
 		"files.autoSave":  "afterDelay",
 	}
-	data, _ := json.MarshalIndent(initialSettings, "", "    ")
+	data, err := json.MarshalIndent(initialSettings, "", "    ")
+	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(settingsPath, data, 0644))
 
 	// Test setting update mode
@@ -48,7 +49,8 @@ func TestReadWriteSettings(t *testing.T) {
 	initialSettings := map[string]interface{}{
 		"editor.fontSize": 12,
 	}
-	initialData, _ := json.Marshal(initialSettings)
+	initialData, err := json.Marshal(initialSettings)
+	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(settingsPath, initialData, 0644))
 
 	// Write settings (this should create backup)
@@ -58,7 +60,7 @@ func TestReadWriteSettings(t *testing.T) {
 		"files.autoSave":  "onFocusChange",
 	}
 
-	err := writeSettings(settingsPath, settings)
+	err = writeSettings(settingsPath, settings)
 	require.NoError(t, err)
 
 	// Read settings
