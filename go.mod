@@ -11,7 +11,7 @@ require (
 	github.com/jfrog/build-info-go v1.12.0
 	github.com/jfrog/froggit-go v1.20.3
 	github.com/jfrog/gofrog v1.7.6
-	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251007110407-2348aea7acd0
+	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251015045218-1a38c9e47097
 	github.com/jfrog/jfrog-client-go v1.55.1-0.20251015041910-ef0fe832b111
 	github.com/pkg/errors v0.9.1
 	github.com/secure-systems-lab/go-securesystemslib v0.9.0
@@ -184,7 +184,7 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251015045218-1a38c9e47097
+//replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251015045218-1a38c9e47097
 
 //replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.54.2-0.20251014090501-c86c986ac6da
 
