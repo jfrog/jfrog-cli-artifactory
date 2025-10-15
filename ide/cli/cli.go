@@ -56,5 +56,5 @@ func isValidIDE(name string) bool {
 }
 
 func supportedIDEs() []string {
-	return []string{"vscode", "jetbrains"}
+	return []string{commands.IdeVSCode, commands.IdeJetBrains}
 }

@@ -21,10 +21,10 @@ Supported IDEs:
 
 Examples:
   # Setup VSCode 
-  jf ide setup vscode --repo-key=https://mycompany.org
+  jf ide setup vscode --repo-key=vscode-remote
 
   # Setup JetBrains   
-  jf ide setup jetbrains --repo-key=https://mycompany.org`
+  jf ide setup jetbrains --repo-key=jetbrains-remote`
 }
 
 func GetArguments() []components.Argument {
@@ -35,7 +35,7 @@ func GetArguments() []components.Argument {
 		},
 		{
 			Name:        "SERVICE_URL",
-			Description: "(Optional) Full marketplace service URL. If provided, --repo-key is not required.",
+			Description: "Description: \"(Optional) Direct repository service URL. When provided, --repo-key and server config are not required. Example: https://host/api/aieditorextensions/repo/_apis/public/gallery\",",
 			Optional:    true,
 		},
 	}
