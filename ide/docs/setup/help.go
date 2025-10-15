@@ -35,7 +35,7 @@ func GetArguments() []components.Argument {
 		},
 		{
 			Name:        "SERVICE_URL",
-			Description: "Description: \"(Optional) Direct repository service URL. When provided, --repo-key and server config are not required. Example: https://host/api/aieditorextensions/repo/_apis/public/gallery\",",
+			Description: "(Optional) Direct repository service URL. When provided, --repo-key and server config are not required. Example: https://host/api/aieditorextensions/repo/_apis/public/gallery",
 			Optional:    true,
 		},
 	}
