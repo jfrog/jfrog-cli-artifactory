@@ -96,7 +96,7 @@ func (pc *PushCommand) Run() error {
 	if err != nil {
 		return err
 	}
-	if !toCollect && !pc.IsDetailedSummary() {
+	if !toCollect {
 		return nil
 	}
 	buildName, err := pc.buildConfiguration.GetBuildName()
