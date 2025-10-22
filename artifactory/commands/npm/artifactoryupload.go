@@ -3,6 +3,7 @@ package npm
 import (
 	"errors"
 	"fmt"
+
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -35,8 +36,8 @@ func (nru *npmRtUpload) upload() (err error) {
 	return
 }
 
-func (nru *npmRtUpload) getBuildArtifacts() ([]buildinfo.Artifact, error) {
-	return specutils.ConvertArtifactsDetailsToBuildInfoArtifacts(nru.artifactsDetailsReader)
+func (nru *npmRtUpload) getBuildArtifacts() []buildinfo.Artifact {
+	return ConvertArtifactsDetailsToBuildInfoArtifacts(nru.artifactsDetailsReader, specutils.ConvertArtifactsDetailsToBuildInfoArtifacts)
 }
 
 func (nru *npmRtUpload) doDeploy(target string, artDetails *config.ServerDetails, packedFilePath string) error {
@@ -63,7 +64,7 @@ func (nru *npmRtUpload) doDeploy(target string, artDetails *config.ServerDetails
 		}
 		totalFailed = summary.TotalFailed
 		if nru.collectBuildInfo {
-			nru.artifactsDetailsReader = summary.ArtifactsDetailsReader
+			nru.artifactsDetailsReader = append(nru.artifactsDetailsReader, summary.ArtifactsDetailsReader)
 		} else {
 			err = summary.ArtifactsDetailsReader.Close()
 			if err != nil {

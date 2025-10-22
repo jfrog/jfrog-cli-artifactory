@@ -12,6 +12,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/oc"
+	containerutils "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/replication"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/repository"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/buildadddependencies"
@@ -55,7 +56,6 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	coregeneric "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/generic"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
-	containerutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/container"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/cliutils/summary"
@@ -1244,6 +1244,10 @@ func buildPublishCmd(c *components.Context) error {
 		return err
 	}
 	buildPublishCmd := buildinfo.NewBuildPublishCommand().SetServerDetails(rtDetails).SetBuildConfiguration(buildConfiguration).SetConfig(buildInfoConfiguration).SetDetailedSummary(common.GetDetailedSummary(c))
+	buildPublishCmd.SetCollectEnv(c.GetBoolFlagValue("collect-env"))
+	buildPublishCmd.SetCollectGitInfo(c.GetBoolFlagValue("collect-git-info"))
+	buildPublishCmd.SetDotGitPath(c.GetStringFlagValue("dot-git-path"))
+	buildPublishCmd.SetConfigFilePath(c.GetStringFlagValue("git-config-file-path"))
 
 	err = commands.Exec(buildPublishCmd)
 	if buildPublishCmd.IsDetailedSummary() {
@@ -1919,4 +1923,8 @@ func getOffsetAndLimitValues(c *components.Context) (offset, limit int, err erro
 	}
 
 	return
+}
+
+func GetOffsetAndLimitValues(c *components.Context) (offset, limit int, err error) {
+	return getOffsetAndLimitValues(c)
 }

@@ -6,12 +6,13 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/common/format"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 type Publisher interface {
 	upload() error
-	getBuildArtifacts() ([]buildinfo.Artifact, error)
+	getBuildArtifacts() []buildinfo.Artifact
 }
 
 type NpmPublishStrategy struct {
@@ -37,9 +38,23 @@ func (nps *NpmPublishStrategy) Publish() error {
 	return nps.strategy.upload()
 }
 
-func (nps *NpmPublishStrategy) GetBuildArtifacts() ([]buildinfo.Artifact, error) {
+func (nps *NpmPublishStrategy) GetBuildArtifacts() []buildinfo.Artifact {
 	log.Debug("Using strategy for build info: ", nps.strategyName)
 	return nps.strategy.getBuildArtifacts()
+}
+
+// ConvertArtifactsDetailsToBuildInfoArtifacts converts artifact details readers to build info artifacts
+// using the provided conversion function
+func ConvertArtifactsDetailsToBuildInfoArtifacts(artifactsDetailsReader []*content.ContentReader, convertFunc func(*content.ContentReader) ([]buildinfo.Artifact, error)) []buildinfo.Artifact {
+	buildArtifacts := make([]buildinfo.Artifact, 0, len(artifactsDetailsReader))
+	for _, artifactReader := range artifactsDetailsReader {
+		buildArtifact, err := convertFunc(artifactReader)
+		if err != nil {
+			log.Warn("Failed converting artifact details to build info artifacts: ", err.Error())
+		}
+		buildArtifacts = append(buildArtifacts, buildArtifact...)
+	}
+	return buildArtifacts
 }
 
 func performXrayScan(filePath string, repo string, serverDetails *config.ServerDetails, scanOutputFormat format.OutputFormat) error {

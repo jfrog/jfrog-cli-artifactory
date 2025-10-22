@@ -30,6 +30,9 @@ type BuildPublishCommand struct {
 	config             *biconf.Configuration
 	detailedSummary    bool
 	summary            *clientutils.Sha256Summary
+	collectGitInfo     bool
+	collectEnv         bool
+	BuildAddGitCommand
 }
 
 func NewBuildPublishCommand() *BuildPublishCommand {
@@ -80,6 +83,24 @@ func (bpc *BuildPublishCommand) CommandName() string {
 	return "rt_build_publish"
 }
 
+func (bpc *BuildPublishCommand) CollectGitInfo() bool {
+	return bpc.collectGitInfo
+}
+
+func (bpc *BuildPublishCommand) SetCollectGitInfo(collectGitInfo bool) *BuildPublishCommand {
+	bpc.collectGitInfo = collectGitInfo
+	return bpc
+}
+
+func (bpc *BuildPublishCommand) CollectEnv() bool {
+	return bpc.collectEnv
+}
+
+func (bpc *BuildPublishCommand) SetCollectEnv(collectEnv bool) *BuildPublishCommand {
+	bpc.collectEnv = collectEnv
+	return bpc
+}
+
 func (bpc *BuildPublishCommand) ServerDetails() (*config.ServerDetails, error) {
 	return bpc.serverDetails, nil
 }
@@ -99,6 +120,29 @@ func (bpc *BuildPublishCommand) Run() error {
 	if err != nil {
 		return err
 	}
+
+	// add build related information from git
+	if bpc.CollectGitInfo() {
+		buildAddGitConfigurationCmd := NewBuildAddGitCommand().SetBuildConfiguration(bpc.buildConfiguration).SetConfigFilePath(bpc.configFilePath).SetServerId(bpc.serverDetails.ServerId)
+		if bpc.dotGitPath != "" {
+			buildAddGitConfigurationCmd.SetDotGitPath(bpc.dotGitPath)
+		}
+		err = buildAddGitConfigurationCmd.Run()
+		if err != nil {
+			log.Warn(fmt.Sprintf("Failed to collect git information for build '%s/%s': %v", buildName, buildNumber, err))
+		}
+		log.Info("Collected git information.")
+	}
+
+	// add environment variables to build info
+	if bpc.CollectEnv() {
+		buildCollectEnvCmd := NewBuildCollectEnvCommand().SetBuildConfiguration(bpc.buildConfiguration)
+		err = buildCollectEnvCmd.Run()
+		if err != nil {
+			log.Warn(fmt.Sprintf("Failed to collect environment variables for build '%s/%s': %v", buildName, buildNumber, err))
+		}
+	}
+
 	build, err := buildInfoService.GetOrCreateBuildWithProject(buildName, buildNumber, bpc.buildConfiguration.GetProject())
 	if errorutils.CheckError(err) != nil {
 		return err

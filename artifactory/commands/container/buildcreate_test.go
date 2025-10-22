@@ -2,7 +2,7 @@ package container_test
 
 import (
 	buildCreate "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/container"
-	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/container"
+	container "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )

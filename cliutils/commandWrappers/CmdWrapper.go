@@ -1,7 +1,7 @@
 package commandWrappers
 
 import (
-	containerutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/container"
+	containerutils "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"

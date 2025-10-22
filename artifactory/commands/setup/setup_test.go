@@ -25,6 +25,10 @@ import (
 	"golang.org/x/exp/slices"
 )
 
+const (
+	goProxyEnv = "GOPROXY"
+)
+
 // #nosec G101 -- Dummy token for tests
 var dummyToken = "eyJ2ZXIiOiIyIiwidHlwIjoiSldUIiwiYWxnIjoiUlMyNTYiLCJraWQiOiJIcnU2VHctZk1yOTV3dy12TDNjV3ZBVjJ3Qm9FSHpHdGlwUEFwOE1JdDljIn0.eyJzdWIiOiJqZnJ0QDAxYzNnZmZoZzJlOHc2MTQ5ZTNhMnEwdzk3XC91c2Vyc1wvYWRtaW4iLCJzY3AiOiJtZW1iZXItb2YtZ3JvdXBzOnJlYWRlcnMgYXBpOioiLCJhdWQiOiJqZnJ0QDAxYzNnZmZoZzJlOHc2MTQ5ZTNhMnEwdzk3IiwiaXNzIjoiamZydEAwMWMzZ2ZmaGcyZTh3NjE0OWUzYTJxMHc5NyIsImV4cCI6MTU1NjAzNzc2NSwiaWF0IjoxNTU2MDM0MTY1LCJqdGkiOiI1M2FlMzgyMy05NGM3LTQ0OGItOGExOC1iZGVhNDBiZjFlMjAifQ.Bp3sdvppvRxysMlLgqT48nRIHXISj9sJUCXrm7pp8evJGZW1S9hFuK1olPmcSybk2HNzdzoMcwhUmdUzAssiQkQvqd_HanRcfFbrHeg5l1fUQ397ECES-r5xK18SYtG1VR7LNTVzhJqkmRd3jzqfmIK2hKWpEgPfm8DRz3j4GGtDRxhb3oaVsT2tSSi_VfT3Ry74tzmO0GcCvmBE2oh58kUZ4QfEsalgZ8IpYHTxovsgDx_M7ujOSZx_hzpz-iy268-OkrU22PQPCfBmlbEKeEUStUO9n0pj4l1ODL31AGARyJRy46w4yzhw7Fk5P336WmDMXYs5LAX2XxPFNLvNzA"
 
@@ -288,9 +292,32 @@ func TestSetupCommand_configurePoetry(t *testing.T) {
 	}
 }
 
+// setupGoProxyCleanup captures the current GOPROXY value and returns a cleanup function
+// that restores the original state when called. This ensures tests don't leave the system
+// in a modified state.
+func setupGoProxyCleanup(t *testing.T, goProxyEnv string) func() {
+	// Store original GOPROXY value and ensure cleanup of global Go env setting
+	originalGoProxyBytes, err := exec.Command("go", "env", goProxyEnv).Output()
+	require.NoError(t, err)
+	originalGoProxy := strings.TrimSpace(string(originalGoProxyBytes))
+
+	return func() {
+		if originalGoProxy != "" {
+			// Restore original value
+			assert.NoError(t, exec.Command("go", "env", "-w", goProxyEnv+"="+originalGoProxy).Run())
+		} else {
+			// Unset the GOPROXY if it wasn't set originally
+			assert.NoError(t, exec.Command("go", "env", "-u", goProxyEnv).Run())
+		}
+	}
+}
+
 func TestSetupCommand_Go(t *testing.T) {
-	goProxyEnv := "GOPROXY"
-	// Restore the original value of the GOPROXY environment variable after the test.
+	// Capture original GOPROXY state immediately, defer only the cleanup
+	cleanup := setupGoProxyCleanup(t, goProxyEnv)
+	defer cleanup()
+
+	// Clear the GOPROXY environment variable for this test to avoid interference.
 	t.Setenv(goProxyEnv, "")
 
 	// Assuming createTestSetupCommand initializes your Go login command
@@ -322,36 +349,48 @@ func TestSetupCommand_Go(t *testing.T) {
 				// Validate anonymous access.
 				assert.Contains(t, goProxy, "https://acme.jfrog.io/artifactory/api/go/test-repo")
 			}
+
+			// Clean up the global GOPROXY setting after each test case
+			err = exec.Command("go", "env", "-u", goProxyEnv).Run()
+			assert.NoError(t, err, "Failed to unset GOPROXY after test case")
 		})
 	}
 }
 
 // Test that configureGo unsets any existing GOPROXY env var before configuring.
 func TestConfigureGo_UnsetEnv(t *testing.T) {
+	// Capture original GOPROXY state immediately, defer only the cleanup
+	cleanup := setupGoProxyCleanup(t, goProxyEnv)
+	defer cleanup()
+
 	testCmd := createTestSetupCommand(project.Go)
 	// Simulate existing GOPROXY in environment
-	t.Setenv("GOPROXY", "user:pass@dummy")
+	t.Setenv(goProxyEnv, "user:pass@dummy")
 	// Ensure server details have credentials so configureGo proceeds
 	testCmd.serverDetails.SetAccessToken(dummyToken)
 
 	// Invoke configureGo directly
 	require.NoError(t, testCmd.configureGo())
 	// After calling, the GOPROXY env var should be cleared
-	assert.Empty(t, os.Getenv("GOPROXY"), "GOPROXY should be unset by configureGo to avoid env override")
+	assert.Empty(t, os.Getenv(goProxyEnv), "GOPROXY should be unset by configureGo to avoid env override")
 }
 
 // Test that configureGo unsets any existing multi-entry GOPROXY env var before configuring.
 func TestConfigureGo_UnsetEnv_MultiEntry(t *testing.T) {
+	// Capture original GOPROXY state immediately, defer only the cleanup
+	cleanup := setupGoProxyCleanup(t, goProxyEnv)
+	defer cleanup()
+
 	testCmd := createTestSetupCommand(project.Go)
 	// Simulate existing multi-entry GOPROXY in environment
-	t.Setenv("GOPROXY", "user:pass@dummy,goproxy2")
+	t.Setenv(goProxyEnv, "user:pass@dummy,goproxy2")
 	// Ensure server details have credentials so configureGo proceeds
 	testCmd.serverDetails.SetAccessToken(dummyToken)
 
 	// Invoke configureGo directly
 	require.NoError(t, testCmd.configureGo())
 	// After calling, the GOPROXY env var should be cleared
-	assert.Empty(t, os.Getenv("GOPROXY"), "GOPROXY should be unset by configureGo to avoid env override for multi-entry lists")
+	assert.Empty(t, os.Getenv(goProxyEnv), "GOPROXY should be unset by configureGo to avoid env override for multi-entry lists")
 }
 
 func TestSetupCommand_Gradle(t *testing.T) {

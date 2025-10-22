@@ -3,6 +3,11 @@ package gradle
 import (
 	_ "embed"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"text/template"
+
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -17,10 +22,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/spf13/viper"
-	"os"
-	"path/filepath"
-	"strings"
-	"text/template"
 )
 
 //go:embed resources/jfrog.init.gradle

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/utils/pythonutils"
@@ -215,9 +217,10 @@ func (tc *TwineCommand) uploadAndCollectBuildInfo() error {
 		return err
 	}
 
+	timestamp := strconv.FormatInt(buildInfo.GetBuildTimestamp().UnixNano()/int64(time.Millisecond), 10)
 	propsParams := services.PropsParams{
 		Reader: searchReader,
-		Props:  fmt.Sprintf("build.name=%s;build.number=%s", buildName, buildNumber),
+		Props:  fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp),
 	}
 
 	_, err = servicesManager.SetProps(propsParams)

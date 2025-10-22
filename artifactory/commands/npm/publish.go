@@ -44,7 +44,7 @@ type NpmPublishCommandArgs struct {
 	packageInfo            *biutils.PackageInfo
 	publishPath            string
 	tarballProvided        bool
-	artifactsDetailsReader *content.ContentReader
+	artifactsDetailsReader []*content.ContentReader
 	xrayScan               bool
 	scanOutputFormat       format.OutputFormat
 	distTag                string
@@ -220,11 +220,10 @@ func (npc *NpmPublishCommand) Run() (err error) {
 		npmModule.SetName(npc.buildConfiguration.GetModule())
 	}
 
-	buildArtifacts, err := publishStrategy.GetBuildArtifacts()
-	if err != nil {
-		return err
+	buildArtifacts := publishStrategy.GetBuildArtifacts()
+	for _, artifactReader := range npc.artifactsDetailsReader {
+		gofrogcmd.Close(artifactReader, &err)
 	}
-	defer gofrogcmd.Close(npc.artifactsDetailsReader, &err)
 	err = npmModule.AddArtifacts(buildArtifacts...)
 	if err != nil {
 		return errorutils.CheckError(err)

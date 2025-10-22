@@ -10,13 +10,6 @@ import (
 func TestGetJfrogCliArtifactoryApp(t *testing.T) {
 	app := GetJfrogCliArtifactoryApp()
 
-	// Verify app has top-level IDE commands
-	ideCommands := []string{"vscode-config", "jetbrains-config"}
-	for _, cmdName := range ideCommands {
-		cmd := findCommandByName(app.Commands, cmdName)
-		assert.NotNil(t, cmd, "Top-level command %s should be found", cmdName)
-	}
-
 	// Verify rt namespace doesn't have IDE commands anymore
 	rtNamespace := findNamespaceByName(app.Subcommands, "rt")
 	assert.NotNil(t, rtNamespace, "rt namespace should exist")

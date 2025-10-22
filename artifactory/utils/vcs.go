@@ -4,7 +4,6 @@ import (
 	"errors"
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	gofrogcmd "github.com/jfrog/gofrog/io"
-	utils2 "github.com/jfrog/jfrog-cli-artifactory/evidence/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	utilsconfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -294,7 +293,7 @@ func getPreviousBuildsCommit(serverDetails *utilsconfig.ServerDetails, buildConf
 }
 
 func convertToUiLink(info *buildinfo.PublishedBuildInfo) (string, error) {
-	datetime, err := utils2.ParseIsoTimestamp(info.BuildInfo.Started)
+	datetime, err := ParseIsoTimestamp(info.BuildInfo.Started)
 	if err != nil {
 		return "", err
 	}

@@ -49,6 +49,9 @@ func TestPrintBuildInfoLink(t *testing.T) {
 			nil,
 			true,
 			nil,
+			false,
+			false,
+			BuildAddGitCommand{},
 		}
 		buildPubComService, err := buildPubConf.getBuildInfoUiUrl(linkTypes[i].majorVersion, linkTypes[i].buildTime)
 		assert.NoError(t, err)

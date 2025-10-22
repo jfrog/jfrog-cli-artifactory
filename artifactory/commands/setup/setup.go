@@ -15,11 +15,11 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/golang"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
+	container "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/python"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/repository"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
-	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/container"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/maven"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/npm"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/yarn"
@@ -313,7 +313,7 @@ func (sc *SetupCommand) configureNpmPnpm() error {
 }
 
 // configureYarn configures Yarn to use the specified Artifactory repository and sets authentication.
-// Supports both Yarn Classic (v1.x) and Yarn Berry (v2.x+).
+// Supports Yarn Classic (v1.x),  Yarn Berry (v2+) is project-specific
 // Runs the following commands:
 //
 //	yarn config set registry https://<your-artifactory-url>/artifactory/api/npm/<repo-name>
@@ -455,13 +455,13 @@ func (sc *SetupCommand) configureMaven() error {
 	if err != nil {
 		return fmt.Errorf("failed to create a new Maven settings.xml manager: %w", err)
 	}
-	if err = settingsXml.ConfigureArtifactoryMirror(sc.serverDetails.GetArtifactoryUrl(), sc.repoName, username, password); err != nil {
+	if err = settingsXml.ConfigureArtifactoryRepository(sc.serverDetails.GetArtifactoryUrl(), sc.repoName, username, password); err != nil {
 		return fmt.Errorf("failed to update Artifactory mirror in Maven settings.xml: %w", err)
 	}
 	return nil
 }
 
-// configureGradle configures Gradle to use the specified Artifactory repository.
+// configureGradle configures Gradle to use the specified Artifactory repository for both dependency resolution and publishing.
 func (sc *SetupCommand) configureGradle() error {
 	password := sc.serverDetails.GetPassword()
 	username := sc.serverDetails.GetUser()
