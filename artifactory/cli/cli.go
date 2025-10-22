@@ -29,6 +29,7 @@ import (
 	curldocs "github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/curl"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/delete"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/deleteprops"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/directdownload"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/dockerpromote"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/dockerpull"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/docs/dockerpush"
@@ -100,6 +101,15 @@ func GetCommands() []components.Command {
 			Description: download.GetDescription(),
 			Arguments:   download.GetArguments(),
 			Action:      downloadCmd,
+			Category:    filesCategory,
+		},
+		{
+			Name:        "direct-download",
+			Flags:       flagkit.GetCommandFlags(flagkit.DirectDownload),
+			Aliases:     []string{"ddl"},
+			Description: directdownload.GetDescription(),
+			Arguments:   directdownload.GetArguments(),
+			Action:      directDownloadCmd,
 			Category:    filesCategory,
 		},
 		{
@@ -663,6 +673,115 @@ func prepareDownloadCommand(c *components.Context) (*spec.SpecFiles, error) {
 		return nil, err
 	}
 	return downloadSpec, nil
+}
+
+func prepareDirectDownloadCommand(c *components.Context) (*spec.SpecFiles, error) {
+	if c.GetNumberOfArgs() > 0 && c.IsFlagSet("spec") {
+		return nil, common.PrintHelpAndReturnError("No arguments should be sent when the spec option is used.", c)
+	}
+	if !(c.GetNumberOfArgs() == 1 || c.GetNumberOfArgs() == 2 || (c.GetNumberOfArgs() == 0 && (c.IsFlagSet("spec") || c.IsFlagSet("build")))) {
+		return nil, common.PrintHelpAndReturnError("Wrong number of arguments. Expected: <source-pattern> [target-path] OR --spec=<spec-file> OR --build=<build-name>/<build-number>", c)
+	}
+
+	var downloadSpec *spec.SpecFiles
+	var err error
+
+	if c.IsFlagSet("spec") {
+		downloadSpec, err = commonCliUtils.GetSpec(c, true, true)
+	} else {
+		downloadSpec, err = createDirectDownloadSpec(c)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	err = spec.ValidateSpec(downloadSpec.Files, false, true)
+	if err != nil {
+		return nil, err
+	}
+	return downloadSpec, nil
+}
+
+func createDirectDownloadSpec(c *components.Context) (*spec.SpecFiles, error) {
+	excludeArtifactsString := c.GetStringFlagValue("exclude-artifacts")
+	if excludeArtifactsString == "" {
+		excludeArtifactsString = "false"
+	}
+	excludeArtifacts, err := strconv.ParseBool(excludeArtifactsString)
+	if err != nil {
+		log.Warn("Could not parse exclude-artifacts flag. Setting exclude-artifacts as false, error: ", err.Error())
+		excludeArtifacts = false
+	}
+
+	includeArtifactsString := c.GetStringFlagValue("include-deps")
+	if includeArtifactsString == "" {
+		includeArtifactsString = "false"
+	}
+	includeDeps, err := strconv.ParseBool(includeArtifactsString)
+	if err != nil {
+		log.Warn("Could not parse include-deps flag. Setting include-deps as false, error: ", err.Error())
+		includeDeps = false
+	}
+
+	return spec.NewBuilder().
+		Pattern(strings.TrimPrefix(c.GetArgumentAt(0), "/")).
+		Build(c.GetStringFlagValue("build")).
+		Project(common.GetProject(c)).
+		ExcludeArtifacts(excludeArtifacts).
+		IncludeDeps(includeDeps).
+		Recursive(c.GetBoolTFlagValue("recursive")).
+		Exclusions(c.GetStringsArrFlagValue("exclusions")).
+		Flat(c.GetBoolFlagValue("flat")).
+		Explode(strconv.FormatBool(c.GetBoolFlagValue("explode"))).
+		Target(c.GetArgumentAt(1)).
+		BuildSpec(), nil
+}
+
+func directDownloadCmd(c *components.Context) error {
+	downloadSpec, err := prepareDirectDownloadCommand(c)
+	if err != nil {
+		return err
+	}
+	fixWinPathsForDownloadCmd(downloadSpec, c)
+	configuration, err := artifactoryUtils.CreateDownloadConfiguration(c)
+	if err != nil {
+		return err
+	}
+	serverDetails, err := common.CreateArtifactoryDetailsByFlags(c)
+	if err != nil {
+		return err
+	}
+	buildConfiguration, err := common.CreateBuildConfigurationWithModule(c)
+	if err != nil {
+		return err
+	}
+	retries, err := getRetries(c)
+	if err != nil {
+		return err
+	}
+	retryWaitTime, err := getRetryWaitTime(c)
+	if err != nil {
+		return err
+	}
+
+	directDownloadCommand := generic.NewDirectDownloadCommand()
+	directDownloadCommand.SetConfiguration(configuration).SetBuildConfiguration(buildConfiguration).SetSpec(downloadSpec).SetServerDetails(serverDetails).SetDryRun(c.GetBoolFlagValue("dry-run")).SetSyncDeletesPath(c.GetStringFlagValue("sync-deletes")).SetQuiet(common.GetQuietValue(c)).SetDetailedSummary(c.GetBoolFlagValue("detailed-summary")).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
+
+	if directDownloadCommand.ShouldPrompt() && !coreutils.AskYesNo("Sync-deletes may delete some files in your local file system. Are you sure you want to continue?\n"+
+		"You can avoid this confirmation message by adding --quiet to the command.", false) {
+		return nil
+	}
+
+	err = progressbar.ExecWithProgress(directDownloadCommand)
+	result := directDownloadCommand.Result()
+	defer common.CleanupResult(result, &err)
+	basicSummary, err := common.CreateSummaryReportString(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+	if err != nil {
+		return err
+	}
+	err = common.PrintDetailedSummaryReport(basicSummary, result.Reader(), false, err)
+	return common.GetCliError(err, result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c))
 }
 
 func downloadCmd(c *components.Context) error {
