@@ -12,7 +12,7 @@ import (
 
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 
-	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-artifactory/ide/common"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
@@ -135,27 +135,11 @@ func (jc *JetbrainsCommand) Run() error {
 
 // validateRepository uses the established pattern for repository validation
 func (jc *JetbrainsCommand) validateRepository() error {
-	log.Debug("Validating repository...")
-
 	if jc.serverDetails == nil {
 		return fmt.Errorf("server details not configured")
 	}
 
-	artDetails, err := jc.serverDetails.CreateArtAuthConfig()
-	if err != nil {
-		return fmt.Errorf("failed to create auth config: %w", err)
-	}
-
-	if err := utils.ValidateRepoExists(jc.repoKey, artDetails); err != nil {
-		return fmt.Errorf("repository validation failed: %w", err)
-	}
-	// Validate repository type is 'jetbrainsplugins'
-	if err := utils.ValidateRepoType(jc.repoKey, artDetails, ApiType); err != nil {
-		return fmt.Errorf("repository type validation failed: %w", err)
-	}
-
-	log.Info("Repository validation successful")
-	return nil
+	return common.ValidateRepository(jc.repoKey, jc.serverDetails, ApiType)
 }
 
 // detectJetBrainsIDEs attempts to auto-detect JetBrains IDE installations

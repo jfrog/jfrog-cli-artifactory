@@ -26,21 +26,20 @@ type BaseSetupConfig struct {
 	IsDirectURL   bool
 }
 
-// ParseBaseSetupConfig extracts common setup configuration from the context
-func ParseBaseSetupConfig(c *components.Context) (*BaseSetupConfig, error) {
+func ParseBaseSetupConfig(ctx *components.Context) (*BaseSetupConfig, error) {
 	cfg := &BaseSetupConfig{}
 
 	// Check for direct URL first (argument position 1, position 0 is IDE name)
-	if c.GetNumberOfArgs() > 1 && common.IsValidUrl(c.GetArgumentAt(1)) {
-		cfg.ServiceURL = c.GetArgumentAt(1)
+	if ctx.GetNumberOfArgs() > 1 && common.IsValidUrl(ctx.GetArgumentAt(1)) {
+		cfg.ServiceURL = ctx.GetArgumentAt(1)
 		cfg.RepoKey = common.ExtractRepoKeyFromURL(cfg.ServiceURL, ApiType)
 		cfg.IsDirectURL = true
 		return cfg, nil
 	}
 
 	// Parse flags
-	cfg.RepoKey = c.GetStringFlagValue(RepoKeyFlag)
-	cfg.URLSuffix = c.GetStringFlagValue(URLSuffixFlag)
+	cfg.RepoKey = ctx.GetStringFlagValue(RepoKeyFlag)
+	cfg.URLSuffix = ctx.GetStringFlagValue(URLSuffixFlag)
 	if cfg.URLSuffix == "" {
 		cfg.URLSuffix = DefaultURLSuffix
 	}
@@ -50,7 +49,7 @@ func ParseBaseSetupConfig(c *components.Context) (*BaseSetupConfig, error) {
 	}
 
 	// Get server details
-	rtDetails, err := common.GetServerDetails(c)
+	rtDetails, err := common.GetServerDetails(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get server configuration: %w. Please run 'jf config add' first", err)
 	}

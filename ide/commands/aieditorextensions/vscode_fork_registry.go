@@ -2,16 +2,14 @@ package aieditorextensions
 
 import "runtime"
 
-// VSCodeForkConfig contains configuration for a VSCode-based IDE
 type VSCodeForkConfig struct {
-	Name         string              // Internal name (e.g., "vscode", "cursor")
-	DisplayName  string              // User-facing name (e.g., "Visual Studio Code", "Cursor")
-	InstallPaths map[string][]string // OS -> possible installation paths
-	ProductJson  string              // Relative path to product.json (usually just "product.json")
-	SettingsDir  string              // Settings directory name (e.g., "Code", "Cursor")
+	Name         string
+	DisplayName  string
+	InstallPaths map[string][]string
+	ProductJson  string
+	SettingsDir  string
 }
 
-// GetDefaultInstallPath returns the most common install path for the current OS
 func (c *VSCodeForkConfig) GetDefaultInstallPath() string {
 	paths := c.InstallPaths[runtime.GOOS]
 	if len(paths) > 0 {
@@ -20,12 +18,10 @@ func (c *VSCodeForkConfig) GetDefaultInstallPath() string {
 	return ""
 }
 
-// GetAllInstallPaths returns all possible install paths for the current OS
 func (c *VSCodeForkConfig) GetAllInstallPaths() []string {
 	return c.InstallPaths[runtime.GOOS]
 }
 
-// VSCodeForks is the registry of all supported VSCode-based IDEs
 var VSCodeForks = map[string]*VSCodeForkConfig{
 	"vscode": {
 		Name:        "vscode",
@@ -90,13 +86,11 @@ var VSCodeForks = map[string]*VSCodeForkConfig{
 	},
 }
 
-// GetVSCodeFork retrieves a VSCode fork configuration by name
 func GetVSCodeFork(name string) (*VSCodeForkConfig, bool) {
 	config, exists := VSCodeForks[name]
 	return config, exists
 }
 
-// GetSupportedForks returns a list of all supported VSCode fork names
 func GetSupportedForks() []string {
 	forks := make([]string, 0, len(VSCodeForks))
 	for name := range VSCodeForks {

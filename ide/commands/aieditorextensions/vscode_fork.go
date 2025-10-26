@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-artifactory/ide/common"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
@@ -149,7 +149,7 @@ func (vc *VSCodeForkCommand) checkWritePermissions() error {
 
 // createBackup creates a backup of product.json
 func (vc *VSCodeForkCommand) createBackup() error {
-	timestamp := time.Now().Format("20060102_150405")
+	timestamp := time.Now().Format("20060102-150405")
 	vc.backupPath = fmt.Sprintf("%s.backup_%s", vc.productPath, timestamp)
 
 	// Read source file
@@ -245,27 +245,11 @@ func (vc *VSCodeForkCommand) modifyProductJson() error {
 
 // validateRepository validates that the repository exists and is the correct type
 func (vc *VSCodeForkCommand) validateRepository() error {
-	log.Debug("Validating repository...")
-
 	if vc.serverDetails == nil {
 		return fmt.Errorf("server details not configured")
 	}
 
-	artDetails, err := vc.serverDetails.CreateArtAuthConfig()
-	if err != nil {
-		return fmt.Errorf("failed to create auth config: %w", err)
-	}
-
-	if err := utils.ValidateRepoExists(vc.repoKey, artDetails); err != nil {
-		return fmt.Errorf("repository validation failed: %w", err)
-	}
-
-	if err := utils.ValidateRepoType(vc.repoKey, artDetails, ApiType); err != nil {
-		return fmt.Errorf("repository type validation failed: %w", err)
-	}
-
-	log.Info("Repository validation successful")
-	return nil
+	return common.ValidateRepository(vc.repoKey, vc.serverDetails, ApiType)
 }
 
 // handlePermissionError handles permission-related errors
