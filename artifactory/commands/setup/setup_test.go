@@ -537,7 +537,9 @@ func TestSetupCommand_Maven(t *testing.T) {
 	}()
 
 	// Temporarily override the user's home directory to isolate the test.
+	// Set both HOME (Unix) and USERPROFILE (Windows) for cross-platform compatibility.
 	t.Setenv("HOME", tempHomeDir)
+	t.Setenv("USERPROFILE", tempHomeDir)
 
 	settingsXmlPath := filepath.Join(tempHomeDir, ".m2", "settings.xml")
 
@@ -699,7 +701,9 @@ func TestSetupCommand_MavenWithComplexExistingSettings(t *testing.T) {
 	}()
 
 	// Temporarily override the user's home directory to isolate the test.
+	// Set both HOME (Unix) and USERPROFILE (Windows) for cross-platform compatibility.
 	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
 
 	// Copy the complex settings.xml to the test directory
 	settingsXmlPath := filepath.Join(tempDir, ".m2", "settings.xml")
@@ -783,7 +787,9 @@ func TestSetupCommand_MavenCorrupted(t *testing.T) {
 	}()
 
 	// Temporarily override the user's home directory to isolate the test.
+	// Set both HOME (Unix) and USERPROFILE (Windows) for cross-platform compatibility.
 	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
 
 	mavenLoginCmd := createTestSetupCommand(project.Maven)
 	settingsXmlPath := filepath.Join(tempDir, ".m2", "settings.xml")

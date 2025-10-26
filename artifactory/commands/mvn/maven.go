@@ -66,8 +66,14 @@ func NewSettingsXmlManager() (*SettingsXmlManager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user home directory: %w", err)
 	}
+	return NewSettingsXmlManagerWithPath(filepath.Join(homeDir, ".m2", "settings.xml"))
+}
+
+// NewSettingsXmlManagerWithPath creates a new SettingsXmlManager with a custom settings.xml path.
+// This is useful for testing or when using a non-standard Maven settings location.
+func NewSettingsXmlManagerWithPath(settingsPath string) (*SettingsXmlManager, error) {
 	manager := &SettingsXmlManager{
-		path: filepath.Join(homeDir, ".m2", "settings.xml"),
+		path: settingsPath,
 		doc:  etree.NewDocument(),
 	}
 
