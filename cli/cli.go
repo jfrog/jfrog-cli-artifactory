@@ -3,7 +3,6 @@ package cli
 import (
 	artifactoryCLI "github.com/jfrog/jfrog-cli-artifactory/artifactory/cli"
 	distributionCLI "github.com/jfrog/jfrog-cli-artifactory/distribution/cli"
-	evidenceCLI "github.com/jfrog/jfrog-cli-artifactory/evidence/cli"
 	ideCLI "github.com/jfrog/jfrog-cli-artifactory/ide/cli"
 	"github.com/jfrog/jfrog-cli-artifactory/lifecycle"
 	"github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
@@ -19,12 +18,6 @@ func GetJfrogCliArtifactoryApp() components.App {
 		Name:        string(cliutils.Ds),
 		Description: "Distribution V1 commands.",
 		Commands:    distributionCLI.GetCommands(),
-		Category:    "Command Namespaces",
-	})
-	app.Subcommands = append(app.Subcommands, components.Namespace{
-		Name:        "evd",
-		Description: "Evidence commands.",
-		Commands:    evidenceCLI.GetCommands(),
 		Category:    "Command Namespaces",
 	})
 	app.Subcommands = append(app.Subcommands, components.Namespace{
