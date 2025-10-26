@@ -3,7 +3,6 @@ module github.com/jfrog/jfrog-cli-artifactory
 go 1.24.6
 
 require (
-	github.com/beevik/etree v1.6.0
 	github.com/c-bata/go-prompt v0.2.6
 	github.com/forPelevin/gomoji v1.4.0
 	github.com/jedib0t/go-pretty/v6 v6.6.8
@@ -30,6 +29,7 @@ require (
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d // indirect
 	github.com/andybalholm/brotli v1.2.0 // indirect
+	github.com/beevik/etree v1.6.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/chzyer/readline v1.5.1 // indirect
 	github.com/cloudflare/circl v1.6.1 // indirect
@@ -101,3 +101,6 @@ require (
 //replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.54.2-0.20251014090501-c86c986ac6da
 
 //replace github.com/jfrog/build-info-go => github.com/jfrog/build-info-go v1.8.9-0.20251006061821-8b1be6a65215
+
+
+replace github.com/jfrog/jfrog-cli-core/v2 => /Users/michaelsv/IdeaProjects/cli/jfrog-cli-core
