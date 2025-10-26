@@ -1,7 +1,7 @@
 package container
 
 import (
-	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/container"
+	container "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
 

@@ -288,3 +288,76 @@ func TestIntegrationSavePypirc(t *testing.T) {
 	assert.Contains(t, contentStr, testUsername, "Username not found in saved file")
 	assert.Contains(t, contentStr, testPassword, "Password not found in saved file")
 }
+
+// TestConfigurePypircWithMultilineIndexServers tests handling of Python-style multi-line index-servers format
+func TestConfigurePypircWithMultilineIndexServers(t *testing.T) {
+	// Create a temp directory for the test
+	tempDir := t.TempDir()
+
+	// Mock the home directory
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+
+	// Create an existing .pypirc file with multi-line index-servers format
+	pypircPath := filepath.Join(tempDir, ".pypirc")
+	existingContent := `[distutils]
+index-servers =
+    dev-repo
+    prod-repo
+    test-repo
+
+[dev-repo]
+repository = https://example.com/artifactory/api/pypi/dev-pypi
+username = devuser
+password = devpass
+
+[prod-repo]
+repository = https://example.com/artifactory/api/pypi/prod-pypi
+username = produser
+password = prodpass
+
+[test-repo]
+repository = https://example.com/artifactory/api/pypi/test-pypi
+username = testuser
+password = testpass
+`
+	err := os.WriteFile(pypircPath, []byte(existingContent), 0600)
+	require.NoError(t, err, "Error creating existing .pypirc file with multi-line format")
+
+	// Test parameters
+	testRepoURL := "https://artifactory.example.com/artifactory/api/pypi/pypi-virtual/"
+	testRepoName := "pypi-virtual"
+	testUsername := "newuser"
+	testPassword := "newpass"
+
+	// Call the function to be tested - should handle multi-line format without errors
+	err = ConfigurePypirc(testRepoURL, testRepoName, testUsername, testPassword)
+	require.NoError(t, err, "ConfigurePypirc failed with multi-line index-servers format")
+
+	// Parse the updated file
+	cfg, err := ini.LoadSources(ini.LoadOptions{
+		Loose:                      true,
+		Insensitive:                true,
+		IgnoreInlineComment:        true,
+		AllowPythonMultilineValues: true,
+	}, pypircPath)
+	require.NoError(t, err, "Error loading INI file after update")
+
+	// Verify all existing repositories are still present
+	for _, repoName := range []string{"dev-repo", "prod-repo", "test-repo"} {
+		section, err := cfg.GetSection(repoName)
+		require.NoError(t, err, "%s section not found after update", repoName)
+		assert.NotEmpty(t, section.Key("repository").String(), "%s repository URL is empty", repoName)
+	}
+
+	// Verify pypi section has been added with correct values
+	pypi, err := cfg.GetSection("pypi")
+	require.NoError(t, err, "pypi section not found")
+	assert.Equal(t, testRepoURL, pypi.Key("repository").String())
+	assert.Equal(t, testUsername, pypi.Key("username").String())
+	assert.Equal(t, testPassword, pypi.Key("password").String())
+
+	// Verify index-servers includes pypi
+	indexServers := cfg.Section("distutils").Key("index-servers").String()
+	assert.Contains(t, indexServers, "pypi", "pypi not found in index-servers after update")
+}

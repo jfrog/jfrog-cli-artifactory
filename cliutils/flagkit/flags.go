@@ -95,6 +95,16 @@ const (
 	GroupDelete                  = "group-delete"
 	passphrase                   = "passphrase"
 
+	// ReleaseBundleSearch command flags
+	ReleaseBundleSearch = "release-bundle-search"
+	FilterBy            = "filter-by"
+	OrderAsc            = "order-asc"
+	OrderBy             = "order-by"
+	Includes            = "includes"
+	Format              = "format"
+	Limit               = "limit"
+	Offset              = "offset"
+
 	// Config commands keys
 	AddConfig    = "config-add"
 	EditConfig   = "config-edit"
@@ -349,6 +359,7 @@ const (
 	npmPrefix          = "npm-"
 	npmDetailedSummary = npmPrefix + detailedSummary
 	runNative          = "run-native"
+	npmWorkspaces      = "workspaces"
 
 	// Unique nuget/dotnet config flags
 	nugetV2                  = "nuget-v2"
@@ -676,7 +687,7 @@ var commandFlags = map[string][]string{
 		BuildName, BuildNumber, module, Project, runNative,
 	},
 	NpmPublish: {
-		BuildName, BuildNumber, module, Project, npmDetailedSummary, xrayScan, xrOutput, runNative,
+		BuildName, BuildNumber, module, Project, npmDetailedSummary, xrayScan, xrOutput, runNative, npmWorkspaces,
 	},
 	PnpmConfig: {
 		global, serverIdResolve, repoResolve,
@@ -785,6 +796,9 @@ var commandFlags = map[string][]string{
 	GroupDelete: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, deleteQuiet,
 	},
+	ReleaseBundleSearch: {
+		Format, OrderBy, FilterBy, OrderAsc, Limit, Offset, Includes,
+	},
 }
 
 var flagsMap = map[string]components.Flag{
@@ -813,11 +827,16 @@ var flagsMap = map[string]components.Flag{
 	failNoOp:          components.NewBoolFlag(failNoOp, "[Default: false] Set to true if you'd like the command to return exit code 2 in case of no files are affected.", components.WithBoolDefaultValueFalse()),
 	threads:           components.NewStringFlag(threads, "[Default: "+strconv.Itoa(commonCliUtils.Threads)+"] Number of working threads.", components.SetMandatoryFalse()),
 	syncDeletesQuiet:  components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip the sync-deletes confirmation message.", components.WithBoolDefaultValueFalse()),
-	sortBy:            components.NewStringFlag(sortBy, "[Optional] List of semicolon-separated(;) fields to sort by. The fields must be part of the 'items' AQL domain. For more information, see %sjfrog-artifactory-documentation/artifactory-query-language.", components.SetMandatoryFalse()),
+	sortBy:            components.NewStringFlag(sortBy, "List of semicolon-separated(;) fields to sort by. The fields must be part of the 'items' AQL domain. For more information, see %sjfrog-artifactory-documentation/artifactory-query-language.", components.SetMandatoryFalse()),
+	FilterBy:          components.NewStringFlag(FilterBy, "Filter by Defines a filter using a prefix of the Release Bundle name.", components.SetMandatoryFalse()),
+	OrderAsc:          components.NewBoolFlag(OrderAsc, "If set to true then the ascending order will be followed for displaying results.", components.WithBoolDefaultValueFalse()),
+	OrderBy:           components.NewStringFlag(OrderBy, "Defines the criterion by which to order the list of promotions: created (standard timestamp or milliseconds), createdBy", components.SetMandatoryFalse()),
+	Includes:          components.NewStringFlag(Includes, "Either messages: Returns any error messages generated when creating the Release Bundle version.or permissions: Returns the permission settings for promoting, distributing, and deleting these Release Bundle versions.", components.SetMandatoryFalse()),
 	bundle:            components.NewStringFlag(bundle, "[Optional] If specified, only artifacts of the specified bundle are matched. The value format is bundle-name/bundle-version.", components.SetMandatoryFalse()),
 	imageFile:         components.NewStringFlag(imageFile, "[Mandatory] Path to a file which includes one line in the following format: <IMAGE-TAG>@sha256:<MANIFEST-SHA256>.", components.SetMandatoryTrue()),
 	ocStartBuildRepo:  components.NewStringFlag(repo, "[Mandatory] The name of the repository to which the image was pushed.", components.SetMandatoryTrue()),
-	runNative:         components.NewBoolFlag(runNative, "[Default: false] Set to true if you'd like to use the native client configurations. Note: This flag would invoke native client behind the scenes, has performance implications and does not support deployment view and detailed summary.", components.WithBoolDefaultValueFalse()),
+	runNative:         components.NewBoolFlag(runNative, "Set to true if you'd like to use the native client configurations. Note: This flag would invoke native client behind the scenes, has performance implications and does not support deployment view and detailed summary.", components.WithBoolDefaultValueFalse()),
+	npmWorkspaces:     components.NewBoolFlag(npmWorkspaces, "Set to true if you'd like to use npm workspaces.", components.WithBoolDefaultValueFalse()),
 
 	// Config specific commands flags
 	interactive:       components.NewBoolFlag(interactive, "[Default: true, unless $CI is true] Set to false if you do not want the config command to be interactive. If true, the --url option becomes optional.", components.WithBoolDefaultValueFalse()),
