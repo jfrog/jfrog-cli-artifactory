@@ -15,12 +15,12 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/golang"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/mvn"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/python"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/repository"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/container"
-	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/maven"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/npm"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/yarn"
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
@@ -451,7 +451,7 @@ func (sc *SetupCommand) configureMaven() error {
 		password = sc.serverDetails.GetAccessToken()
 	}
 
-	settingsXml, err := maven.NewSettingsXmlManager()
+	settingsXml, err := mvn.NewSettingsXmlManager()
 	if err != nil {
 		return fmt.Errorf("failed to create a new Maven settings.xml manager: %w", err)
 	}

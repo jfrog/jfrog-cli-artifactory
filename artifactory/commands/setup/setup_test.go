@@ -12,8 +12,8 @@ import (
 
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/mvn"
 	cmdutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
-	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/maven"
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
@@ -529,17 +529,17 @@ func TestGetRepositoryPackageType(t *testing.T) {
 }
 
 func TestSetupCommand_Maven(t *testing.T) {
-	// Retrieve the home directory and construct the settings.xml file path.
-	homeDir, err := os.UserHomeDir()
-	assert.NoError(t, err)
-	settingsXml := filepath.Join(homeDir, ".m2", "settings.xml")
-
-	// Back up the existing settings.xml file and ensure restoration after the test.
-	restoreSettingsXml, err := ioutils.BackupFile(settingsXml, ".settings.xml.backup")
+	// Create a temporary directory to represent the user's home directory.
+	tempHomeDir, err := os.MkdirTemp("", "m2home")
 	require.NoError(t, err)
 	defer func() {
-		assert.NoError(t, restoreSettingsXml())
+		assert.NoError(t, os.RemoveAll(tempHomeDir))
 	}()
+
+	// Temporarily override the user's home directory to isolate the test.
+	t.Setenv("HOME", tempHomeDir)
+
+	settingsXmlPath := filepath.Join(tempHomeDir, ".m2", "settings.xml")
 
 	mavenLoginCmd := createTestSetupCommand(project.Maven)
 
@@ -554,7 +554,7 @@ func TestSetupCommand_Maven(t *testing.T) {
 			require.NoError(t, mavenLoginCmd.Run())
 
 			// Read the contents of the temporary settings.xml file.
-			settingsXmlContentBytes, err := os.ReadFile(settingsXml)
+			settingsXmlContentBytes, err := os.ReadFile(settingsXmlPath)
 			assert.NoError(t, err)
 			settingsXmlContent := string(settingsXmlContentBytes)
 
@@ -562,7 +562,7 @@ func TestSetupCommand_Maven(t *testing.T) {
 			assert.Contains(t, settingsXmlContent, fmt.Sprintf("<url>%s</url>", mavenLoginCmd.serverDetails.ArtifactoryUrl+"/"+mavenLoginCmd.repoName))
 
 			// Validate the mirror ID and name are set correctly.
-			assert.Contains(t, settingsXmlContent, fmt.Sprintf("<id>%s</id>", maven.ArtifactoryMirrorID))
+			assert.Contains(t, settingsXmlContent, fmt.Sprintf("<id>%s</id>", mvn.ArtifactoryMirrorID))
 			assert.Contains(t, settingsXmlContent, fmt.Sprintf("<name>%s</name>", mavenLoginCmd.repoName))
 
 			// Validate authentication credentials in the server section.
@@ -577,7 +577,7 @@ func TestSetupCommand_Maven(t *testing.T) {
 			}
 
 			// Clean up the temporary settings.xml file after the test.
-			assert.NoError(t, os.Remove(settingsXml))
+			assert.NoError(t, os.Remove(settingsXmlPath))
 		})
 	}
 }
@@ -688,4 +688,163 @@ func setupMockHelmServer() *httptest.Server {
 			return
 		}
 	}))
+}
+
+func TestSetupCommand_MavenWithComplexExistingSettings(t *testing.T) {
+	// Create a temporary directory to store the settings.xml file.
+	tempDir, err := os.MkdirTemp("", "m2-complex")
+	require.NoError(t, err)
+	defer func() {
+		assert.NoError(t, os.RemoveAll(tempDir))
+	}()
+
+	// Temporarily override the user's home directory to isolate the test.
+	t.Setenv("HOME", tempDir)
+
+	// Copy the complex settings.xml to the test directory
+	settingsXmlPath := filepath.Join(tempDir, ".m2", "settings.xml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(settingsXmlPath), 0o755))
+
+	// Read the complex settings from testdata
+	complexSettingsContent, err := os.ReadFile("../mvn/testdata/complex-settings.xml")
+	require.NoError(t, err, "Failed to read complex-settings.xml testdata")
+	require.NoError(t, os.WriteFile(settingsXmlPath, complexSettingsContent, 0o644))
+
+	mavenLoginCmd := createTestSetupCommand(project.Maven)
+	mavenLoginCmd.serverDetails.SetUser("artifactory-user")
+	mavenLoginCmd.serverDetails.SetPassword("artifactory-pass")
+
+	// Run the setup command
+	require.NoError(t, mavenLoginCmd.Run())
+
+	// Read the modified settings.xml
+	modifiedContent, err := os.ReadFile(settingsXmlPath)
+	require.NoError(t, err)
+	content := string(modifiedContent)
+
+	// Verify ALL original content is preserved
+	assert.Contains(t, content, "<localRepository>/custom/maven/repo</localRepository>")
+	assert.Contains(t, content, "<interactiveMode>true</interactiveMode>")
+	assert.Contains(t, content, "<offline>false</offline>")
+
+	// Verify pluginGroups preserved
+	assert.Contains(t, content, "<pluginGroup>org.mortbay.jetty</pluginGroup>")
+	assert.Contains(t, content, "<pluginGroup>org.jvnet.jax-ws-commons</pluginGroup>")
+
+	// Verify original servers preserved
+	assert.Contains(t, content, "<id>my-company-server</id>")
+	assert.Contains(t, content, "<username>deployment</username>")
+	assert.Contains(t, content, "<password>secret123</password>")
+	assert.Contains(t, content, "<id>another-server</id>")
+	assert.Contains(t, content, "<privateKey>${user.home}/.ssh/id_rsa</privateKey>")
+
+	// Verify original mirrors preserved
+	assert.Contains(t, content, "<id>company-mirror</id>")
+	assert.Contains(t, content, "<name>Company Maven Mirror</name>")
+	assert.Contains(t, content, "<mirrorOf>external:*</mirrorOf>")
+
+	// Verify proxies preserved
+	assert.Contains(t, content, "<id>my-proxy</id>")
+	assert.Contains(t, content, "<protocol>http</protocol>")
+	assert.Contains(t, content, "<host>proxy.example.com</host>")
+	assert.Contains(t, content, "<nonProxyHosts>localhost|127.0.0.1</nonProxyHosts>")
+
+	// Verify original profiles preserved
+	assert.Contains(t, content, "<id>development</id>")
+	assert.Contains(t, content, "<jdk>1.8</jdk>")
+	assert.Contains(t, content, "<name>Windows</name>")
+	assert.Contains(t, content, "<maven.compiler.source>1.8</maven.compiler.source>")
+	assert.Contains(t, content, "<id>company-repo</id>")
+	assert.Contains(t, content, "<id>company-plugin-repo</id>")
+	assert.Contains(t, content, "<id>production</id>")
+
+	// Verify activeProfiles preserved
+	assert.Contains(t, content, "<activeProfile>development</activeProfile>")
+
+	// Verify NEW Artifactory configuration was added
+	assert.Contains(t, content, "<id>"+mvn.ArtifactoryMirrorID+"</id>")
+	assert.Contains(t, content, "<username>artifactory-user</username>")
+	assert.Contains(t, content, "<password>artifactory-pass</password>")
+	assert.Contains(t, content, "<id>"+mvn.ArtifactoryDeployProfileID+"</id>")
+	assert.Contains(t, content, "<"+mvn.AltDeploymentRepositoryProperty+">")
+
+	// Verify counts - should have 3 servers (2 original + 1 new), 2 mirrors (1 original + 1 new), 3 profiles (2 original + 1 new)
+	assert.Equal(t, 3, strings.Count(content, "<server>"), "Should have 3 servers")
+	assert.Equal(t, 2, strings.Count(content, "<mirror>"), "Should have 2 mirrors")
+	assert.Equal(t, 3, strings.Count(content, "<profile>"), "Should have 3 profiles")
+}
+
+func TestSetupCommand_MavenCorrupted(t *testing.T) {
+	// Create a temporary directory to store the settings.xml file.
+	tempDir, err := os.MkdirTemp("", "m2")
+	require.NoError(t, err)
+	defer func() {
+		assert.NoError(t, os.RemoveAll(tempDir))
+	}()
+
+	// Temporarily override the user's home directory to isolate the test.
+	t.Setenv("HOME", tempDir)
+
+	mavenLoginCmd := createTestSetupCommand(project.Maven)
+	settingsXmlPath := filepath.Join(tempDir, ".m2", "settings.xml")
+
+	// --- First run: Create the settings.xml file ---
+	t.Run("Create settings.xml", func(t *testing.T) {
+		// Set server details for token authentication.
+		mavenLoginCmd.serverDetails.SetAccessToken(dummyToken)
+
+		// Run the login command to generate the settings.xml file.
+		require.NoError(t, mavenLoginCmd.Run())
+
+		// Read and verify the contents of the generated settings.xml file.
+		settingsXmlContent, err := os.ReadFile(settingsXmlPath)
+		require.NoError(t, err)
+		content := string(settingsXmlContent)
+
+		// Verify namespace is present
+		assert.Contains(t, content, `xmlns="http://maven.apache.org/SETTINGS/1.2.0"`)
+
+		// Verify mirror exists
+		assert.Contains(t, content, "<mirror>")
+		assert.Contains(t, content, "<id>"+mvn.ArtifactoryMirrorID+"</id>")
+		assert.Contains(t, content, "<name>test-repo</name>")
+
+		// Verify server exists with credentials
+		assert.Contains(t, content, "<server>")
+		assert.Contains(t, content, "<username>"+auth.ExtractUsernameFromAccessToken(dummyToken)+"</username>")
+		assert.Contains(t, content, "<password>"+dummyToken+"</password>")
+
+		// Verify deployment profile exists
+		assert.Contains(t, content, "<profile>")
+		assert.Contains(t, content, "<id>"+mvn.ArtifactoryDeployProfileID+"</id>")
+		assert.Contains(t, content, "<activeByDefault>true</activeByDefault>")
+		assert.Contains(t, content, "<"+mvn.AltDeploymentRepositoryProperty+">")
+	})
+
+	// --- Second run: Modify the existing settings.xml file ---
+	t.Run("Modify settings.xml", func(t *testing.T) {
+		// Update server details for basic authentication.
+		mavenLoginCmd.serverDetails.SetUser("test-user")
+		mavenLoginCmd.serverDetails.SetPassword("test-password")
+		mavenLoginCmd.serverDetails.SetAccessToken("") // Unset the token
+
+		// Run the login command again to modify the existing settings.xml file.
+		require.NoError(t, mavenLoginCmd.Run())
+
+		// Read and verify the contents of the modified settings.xml file.
+		settingsXmlContent, err := os.ReadFile(settingsXmlPath)
+		require.NoError(t, err)
+		content := string(settingsXmlContent)
+
+		// Verify that the configuration was updated, not duplicated.
+		assert.Equal(t, 1, strings.Count(content, `xmlns="http://maven.apache.org/SETTINGS/1.2.0"`), "Should have exactly one xmlns declaration")
+		assert.Equal(t, 1, strings.Count(content, "<mirror>"), "Should have exactly one mirror")
+		assert.Equal(t, 1, strings.Count(content, "<server>"), "Should have exactly one server")
+		assert.Equal(t, 1, strings.Count(content, "<profile>"), "Should have exactly one profile")
+
+		// Verify credentials were updated
+		assert.Contains(t, content, "<username>test-user</username>")
+		assert.Contains(t, content, "<password>test-password</password>")
+		assert.NotContains(t, content, dummyToken, "Old token should be replaced")
+	})
 }

@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0 http://maven.apache.org/xsd/settings-1.2.0.xsd">
+  <localRepository>/custom/maven/repo</localRepository>
+  <interactiveMode>true</interactiveMode>
+  <offline>false</offline>
+  
+  <pluginGroups>
+    <pluginGroup>org.mortbay.jetty</pluginGroup>
+    <pluginGroup>org.jvnet.jax-ws-commons</pluginGroup>
+  </pluginGroups>
+  
+  <servers>
+    <server>
+      <id>my-company-server</id>
+      <username>deployment</username>
+      <password>secret123</password>
+    </server>
+    <server>
+      <id>another-server</id>
+      <username>admin</username>
+      <password>admin123</password>
+      <privateKey>${user.home}/.ssh/id_rsa</privateKey>
+      <passphrase>optional-passphrase</passphrase>
+    </server>
+  </servers>
+  
+  <mirrors>
+    <mirror>
+      <id>company-mirror</id>
+      <name>Company Maven Mirror</name>
+      <url>https://company.example.com/maven</url>
+      <mirrorOf>external:*</mirrorOf>
+    </mirror>
+  </mirrors>
+  
+  <proxies>
+    <proxy>
+      <id>my-proxy</id>
+      <active>true</active>
+      <protocol>http</protocol>
+      <host>proxy.example.com</host>
+      <port>8080</port>
+      <username>proxyuser</username>
+      <password>proxypass</password>
+      <nonProxyHosts>localhost|127.0.0.1</nonProxyHosts>
+    </proxy>
+  </proxies>
+  
+  <profiles>
+    <profile>
+      <id>development</id>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+        <jdk>1.8</jdk>
+        <os>
+          <name>Windows</name>
+          <family>windows</family>
+        </os>
+        <property>
+          <name>env</name>
+          <value>dev</value>
+        </property>
+      </activation>
+      <properties>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+        <custom.property>custom-value</custom.property>
+      </properties>
+      <repositories>
+        <repository>
+          <id>company-repo</id>
+          <name>Company Repository</name>
+          <url>https://company.example.com/repo</url>
+          <layout>default</layout>
+          <releases>
+            <enabled>true</enabled>
+            <updatePolicy>never</updatePolicy>
+            <checksumPolicy>fail</checksumPolicy>
+          </releases>
+          <snapshots>
+            <enabled>false</enabled>
+            <updatePolicy>always</updatePolicy>
+            <checksumPolicy>warn</checksumPolicy>
+          </snapshots>
+        </repository>
+      </repositories>
+      <pluginRepositories>
+        <pluginRepository>
+          <id>company-plugin-repo</id>
+          <name>Company Plugin Repository</name>
+          <url>https://company.example.com/plugin-repo</url>
+          <releases>
+            <enabled>true</enabled>
+          </releases>
+          <snapshots>
+            <enabled>false</enabled>
+          </snapshots>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>
+    <profile>
+      <id>production</id>
+      <properties>
+        <env>prod</env>
+        <skip.tests>false</skip.tests>
+      </properties>
+    </profile>
+  </profiles>
+  
+  <activeProfiles>
+    <activeProfile>development</activeProfile>
+  </activeProfiles>
+</settings>
+
