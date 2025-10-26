@@ -696,6 +696,7 @@ func prepareDirectDownloadCommand(c *components.Context) (*spec.SpecFiles, error
 		return nil, err
 	}
 
+	setTransitiveInDownloadSpec(downloadSpec)
 	err = spec.ValidateSpec(downloadSpec.Files, false, true)
 	if err != nil {
 		return nil, err
@@ -705,29 +706,20 @@ func prepareDirectDownloadCommand(c *components.Context) (*spec.SpecFiles, error
 
 func createDirectDownloadSpec(c *components.Context) (*spec.SpecFiles, error) {
 	excludeArtifactsString := c.GetStringFlagValue("exclude-artifacts")
-	if excludeArtifactsString == "" {
-		excludeArtifactsString = "false"
-	}
-	excludeArtifacts, err := strconv.ParseBool(excludeArtifactsString)
+	excludeArtifacts, err := parseStringToBool(excludeArtifactsString)
 	if err != nil {
 		log.Warn("Could not parse exclude-artifacts flag. Setting exclude-artifacts as false, error: ", err.Error())
-		excludeArtifacts = false
 	}
 
-	includeArtifactsString := c.GetStringFlagValue("include-deps")
-	if includeArtifactsString == "" {
-		includeArtifactsString = "false"
-	}
-	includeDeps, err := strconv.ParseBool(includeArtifactsString)
+	includeDepsString := c.GetStringFlagValue("include-deps")
+	includeDeps, err := parseStringToBool(includeDepsString)
 	if err != nil {
 		log.Warn("Could not parse include-deps flag. Setting include-deps as false, error: ", err.Error())
-		includeDeps = false
 	}
 
 	return spec.NewBuilder().
 		Pattern(strings.TrimPrefix(c.GetArgumentAt(0), "/")).
 		Build(c.GetStringFlagValue("build")).
-		Project(common.GetProject(c)).
 		ExcludeArtifacts(excludeArtifacts).
 		IncludeDeps(includeDeps).
 		Recursive(c.GetBoolTFlagValue("recursive")).
@@ -736,6 +728,19 @@ func createDirectDownloadSpec(c *components.Context) (*spec.SpecFiles, error) {
 		Explode(strconv.FormatBool(c.GetBoolFlagValue("explode"))).
 		Target(c.GetArgumentAt(1)).
 		BuildSpec(), nil
+}
+
+func parseStringToBool(value string) (bool, error) {
+	if value == "" {
+		return false, nil
+	}
+
+	boolValue, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, err
+	}
+
+	return boolValue, nil
 }
 
 func directDownloadCmd(c *components.Context) error {
