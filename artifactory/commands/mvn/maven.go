@@ -72,16 +72,13 @@ func NewSettingsXmlManager() (*SettingsXmlManager, error) {
 	}
 
 	// Load existing settings from file
-	err = manager.loadSettings()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load settings from %s: %w", manager.path, err)
-	}
+	manager.loadSettings()
 
 	return manager, nil
 }
 
 // loadSettings reads the settings.xml file or creates a new one if it doesn't exist.
-func (sxm *SettingsXmlManager) loadSettings() error {
+func (sxm *SettingsXmlManager) loadSettings() {
 	if err := sxm.doc.ReadFromFile(sxm.path); err != nil {
 		// If file doesn't exist, create a new settings document with proper structure
 		sxm.doc = etree.NewDocument()
@@ -92,7 +89,6 @@ func (sxm *SettingsXmlManager) loadSettings() error {
 		root.CreateAttr("xsi:schemaLocation", xsiSchemaLocationURL)
 	}
 	sxm.doc.Indent(2)
-	return nil
 }
 
 // ConfigureArtifactoryRepository configures Maven to use Artifactory for both downloading and deployment.
@@ -128,39 +124,31 @@ func (sxm *SettingsXmlManager) ConfigureArtifactoryRepository(artifactoryUrl, re
 
 	// Configure server credentials
 	if username != "" && password != "" {
-		if err := sxm.configureServer(root, username, password); err != nil {
-			return fmt.Errorf("failed to configure server credentials: %w", err)
-		}
+		sxm.configureServer(root, username, password)
 	}
 
 	// Configure mirror
-	if err := sxm.configureMirror(root, repoUrl, repoName); err != nil {
-		return fmt.Errorf("failed to configure Artifactory download mirror: %w", err)
-	}
+	sxm.configureMirror(root, repoUrl, repoName)
 
 	// Configure deployment profile
-	if err := sxm.configureDeploymentProfile(root, repoUrl); err != nil {
-		return fmt.Errorf("failed to configure Artifactory deployment: %w", err)
-	}
+	sxm.configureDeploymentProfile(root, repoUrl)
 
 	// Write settings to file
 	return sxm.writeSettingsToFile()
 }
 
 // configureServer updates or creates the server entry for authentication.
-func (sxm *SettingsXmlManager) configureServer(root *etree.Element, username, password string) error {
+func (sxm *SettingsXmlManager) configureServer(root *etree.Element, username, password string) {
 	servers := getOrCreateElement(root, xmlElementServers)
 	server := findOrCreateElementByID(servers, xmlElementServer, ArtifactoryMirrorID)
 
 	setOrCreateChildElement(server, xmlElementID, ArtifactoryMirrorID)
 	setOrCreateChildElement(server, xmlElementUsername, username)
 	setOrCreateChildElement(server, xmlElementPassword, password)
-
-	return nil
 }
 
 // configureMirror updates or creates the mirror entry.
-func (sxm *SettingsXmlManager) configureMirror(root *etree.Element, repoUrl, repoName string) error {
+func (sxm *SettingsXmlManager) configureMirror(root *etree.Element, repoUrl, repoName string) {
 	mirrors := getOrCreateElement(root, xmlElementMirrors)
 	mirror := findOrCreateElementByID(mirrors, xmlElementMirror, ArtifactoryMirrorID)
 
@@ -168,12 +156,10 @@ func (sxm *SettingsXmlManager) configureMirror(root *etree.Element, repoUrl, rep
 	setOrCreateChildElement(mirror, xmlElementName, repoName)
 	setOrCreateChildElement(mirror, xmlElementURL, repoUrl)
 	setOrCreateChildElement(mirror, xmlElementMirrorOf, mirrorOfAllRepositories)
-
-	return nil
 }
 
 // configureDeploymentProfile updates or creates the deployment profile.
-func (sxm *SettingsXmlManager) configureDeploymentProfile(root *etree.Element, repoUrl string) error {
+func (sxm *SettingsXmlManager) configureDeploymentProfile(root *etree.Element, repoUrl string) {
 	altDeploymentRepo := fmt.Sprintf("%s::default::%s", ArtifactoryMirrorID, repoUrl)
 
 	profiles := getOrCreateElement(root, xmlElementProfiles)
@@ -186,8 +172,6 @@ func (sxm *SettingsXmlManager) configureDeploymentProfile(root *etree.Element, r
 
 	properties := getOrCreateElement(profile, xmlElementProperties)
 	setOrCreateChildElement(properties, AltDeploymentRepositoryProperty, altDeploymentRepo)
-
-	return nil
 }
 
 // getOrCreateElement finds a child element or creates it if it doesn't exist.
