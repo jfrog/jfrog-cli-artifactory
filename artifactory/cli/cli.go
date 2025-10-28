@@ -683,13 +683,15 @@ func prepareDirectDownloadCommand(c *components.Context) (*spec.SpecFiles, error
 		return nil, common.PrintHelpAndReturnError("Wrong number of arguments. Expected: <source-pattern> [target-path] OR --spec=<spec-file> OR --build=<build-name>/<build-number>", c)
 	}
 
-	var downloadSpec *spec.SpecFiles
-	var err error
+	var (
+		downloadSpec *spec.SpecFiles
+		err          error
+	)
 
 	if c.IsFlagSet("spec") {
 		downloadSpec, err = commonCliUtils.GetSpec(c, true, true)
 	} else {
-		downloadSpec, err = createDirectDownloadSpec(c)
+		downloadSpec = createDirectDownloadSpec(c)
 	}
 
 	if err != nil {
@@ -704,7 +706,7 @@ func prepareDirectDownloadCommand(c *components.Context) (*spec.SpecFiles, error
 	return downloadSpec, nil
 }
 
-func createDirectDownloadSpec(c *components.Context) (*spec.SpecFiles, error) {
+func createDirectDownloadSpec(c *components.Context) *spec.SpecFiles {
 	excludeArtifactsString := c.GetStringFlagValue("exclude-artifacts")
 	excludeArtifacts, err := parseStringToBool(excludeArtifactsString)
 	if err != nil {
@@ -727,7 +729,7 @@ func createDirectDownloadSpec(c *components.Context) (*spec.SpecFiles, error) {
 		Flat(c.GetBoolFlagValue("flat")).
 		Explode(strconv.FormatBool(c.GetBoolFlagValue("explode"))).
 		Target(c.GetArgumentAt(1)).
-		BuildSpec(), nil
+		BuildSpec()
 }
 
 func parseStringToBool(value string) (bool, error) {

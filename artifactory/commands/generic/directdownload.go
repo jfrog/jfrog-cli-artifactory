@@ -2,12 +2,13 @@ package generic
 
 import (
 	"errors"
-	buildinfo "github.com/jfrog/build-info-go/entities"
-	gofrog "github.com/jfrog/gofrog/io"
-	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"os"
 	"path/filepath"
 	"strconv"
+
+	buildinfo "github.com/jfrog/build-info-go/entities"
+	gofrog "github.com/jfrog/gofrog/io"
+	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -66,7 +67,7 @@ func (ddc *DirectDownloadCommand) directDownload() error {
 		}
 	}
 
-	//var downloadParamsArray []services.DirectDownloadParams
+	// var downloadParamsArray []services.DirectDownloadParams
 	var errorOccurred = false
 	var downloadParamsArray []services.DirectDownloadParams
 	// Create DownloadParams for all File-Spec groups.
