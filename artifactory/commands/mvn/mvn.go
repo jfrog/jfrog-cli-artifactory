@@ -112,7 +112,8 @@ func (mc *MvnCommand) init() (vConfig *viper.Viper, err error) {
 		return
 	}
 	// Maven's extractor deploys build artifacts. This should be disabled since there is no intent to deploy anything or deploy upon Xray scan results.
-	mc.deploymentDisabled = mc.IsXrayScan() || !vConfig.IsSet("deployer")
+	// Also disable deployment if the user didn't explicitly request it (no "deploy" goal in the command).
+	mc.deploymentDisabled = mc.IsXrayScan() || !vConfig.IsSet("deployer") || !mc.isDeploymentRequested()
 	if mc.shouldCreateBuildArtifactsFile() {
 		// Created a file that will contain all the details about the build's artifacts
 		tempFile, err := fileutils.CreateTempFile()
@@ -126,6 +127,17 @@ func (mc *MvnCommand) init() (vConfig *viper.Viper, err error) {
 		}
 	}
 	return
+}
+
+// isDeploymentRequested checks if the user explicitly requested deployment
+// by looking for "deploy" goal in the Maven command goals.
+func (mc *MvnCommand) isDeploymentRequested() bool {
+	for _, goal := range mc.goals {
+		if goal == "deploy" {
+			return true
+		}
+	}
+	return false
 }
 
 // Maven extractor generates the details of the build's artifacts.
