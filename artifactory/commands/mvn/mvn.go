@@ -16,6 +16,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/spf13/viper"
 )
 
@@ -112,8 +113,16 @@ func (mc *MvnCommand) init() (vConfig *viper.Viper, err error) {
 		return
 	}
 	// Maven's extractor deploys build artifacts. This should be disabled since there is no intent to deploy anything or deploy upon Xray scan results.
-	// Also disable deployment if the user didn't explicitly request it (no "deploy" goal in the command).
+	// Deployment is enabled only for "install" and "deploy" goals when deployer is configured.
 	mc.deploymentDisabled = mc.IsXrayScan() || !vConfig.IsSet("deployer") || !mc.isDeploymentRequested()
+	
+	// Warn if deployer is configured but we're not deploying
+	if !mc.deploymentDisabled && mc.IsDetailedSummary() {
+		log.Debug("Deployer repository is configured and deployment goal detected - artifacts will be deployed")
+	} else if vConfig.IsSet("deployer") && mc.deploymentDisabled && !mc.IsXrayScan() {
+		log.Warn("Deployer repository is configured but Maven goal does not trigger deployment. Only 'install' and 'deploy' goals will deploy artifacts to Artifactory.")
+	}
+	
 	if mc.shouldCreateBuildArtifactsFile() {
 		// Created a file that will contain all the details about the build's artifacts
 		tempFile, err := fileutils.CreateTempFile()
@@ -130,10 +139,12 @@ func (mc *MvnCommand) init() (vConfig *viper.Viper, err error) {
 }
 
 // isDeploymentRequested checks if the user explicitly requested deployment
-// by looking for "deploy" goal in the Maven command goals.
+// by looking for "install" or "deploy" goals in the Maven command.
+// These are the only goals that should trigger artifact deployment to Artifactory.
 func (mc *MvnCommand) isDeploymentRequested() bool {
 	for _, goal := range mc.goals {
-		if goal == "deploy" {
+		// Allow deployment for both "install" and "deploy" goals
+		if goal == "install" || goal == "deploy" {
 			return true
 		}
 	}
