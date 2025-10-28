@@ -115,14 +115,12 @@ func (mc *MvnCommand) init() (vConfig *viper.Viper, err error) {
 	// Maven's extractor deploys build artifacts. This should be disabled since there is no intent to deploy anything or deploy upon Xray scan results.
 	// Deployment is enabled only for "install" and "deploy" goals when deployer is configured.
 	mc.deploymentDisabled = mc.IsXrayScan() || !vConfig.IsSet("deployer") || !mc.isDeploymentRequested()
-	
-	// Warn if deployer is configured but we're not deploying
-	if !mc.deploymentDisabled && mc.IsDetailedSummary() {
-		log.Debug("Deployer repository is configured and deployment goal detected - artifacts will be deployed")
-	} else if vConfig.IsSet("deployer") && mc.deploymentDisabled && !mc.IsXrayScan() {
+
+	// Warn if deployer is configured but Maven goal does not trigger deployment
+	if vConfig.IsSet("deployer") && !mc.IsXrayScan() && mc.deploymentDisabled {
 		log.Warn("Deployer repository is configured but Maven goal does not trigger deployment. Only 'install' and 'deploy' goals will deploy artifacts to Artifactory.")
 	}
-	
+
 	if mc.shouldCreateBuildArtifactsFile() {
 		// Created a file that will contain all the details about the build's artifacts
 		tempFile, err := fileutils.CreateTempFile()
