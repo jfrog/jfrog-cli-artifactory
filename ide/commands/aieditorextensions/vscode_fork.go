@@ -122,10 +122,10 @@ func (vc *VSCodeForkCommand) detectInstallation() (string, error) {
 		log.Info(fmt.Sprintf("[%d/%d] Original path: %s", i+1, len(paths), path))
 		expandedPath := expandPath(path)
 		log.Info(fmt.Sprintf("[%d/%d] Expanded path: %s", i+1, len(paths), expandedPath))
-		
+
 		productJsonPath := filepath.Join(expandedPath, vc.forkConfig.ProductJson)
 		log.Info(fmt.Sprintf("[%d/%d] Checking: %s", i+1, len(paths), productJsonPath))
-		
+
 		if fileutils.IsPathExists(productJsonPath, false) {
 			log.Info(fmt.Sprintf("[%d/%d] ✓ FOUND at: %s", i+1, len(paths), productJsonPath))
 			return productJsonPath, nil
@@ -140,7 +140,7 @@ func (vc *VSCodeForkCommand) detectInstallation() (string, error) {
 // Handles both Unix-style ($VAR, ~) and Windows-style (%VAR%) variables
 func expandPath(path string) string {
 	originalPath := path
-	
+
 	// Handle home directory expansion
 	if strings.HasPrefix(path, "~") {
 		if home, err := os.UserHomeDir(); err == nil {
