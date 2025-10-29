@@ -1,4 +1,4 @@
-package commands
+package jetbrains
 
 import (
 	"os"
@@ -12,7 +12,7 @@ import (
 )
 
 func TestNewJetbrainsCommand(t *testing.T) {
-	repositoryURL := "https://company.jfrog.io/artifactory/api/jetbrainsplugins/repo"
+	repositoryURL := "https://company.jfrog.io/artifactory/api/aieditorextensions/repo"
 	repoKey := "repo"
 
 	cmd := NewJetbrainsCommand(repositoryURL, repoKey)
@@ -241,7 +241,7 @@ ide.config.path=${user.home}/.config/JetBrains/IntelliJIdea2023.3
 	// Create modified properties file
 	modifiedContent := []byte(`# IDE Configuration
 ide.config.path=${user.home}/.config/JetBrains/IntelliJIdea2023.3
-idea.plugins.host=https://company.jfrog.io/artifactory/api/jetbrainsplugins/repo
+idea.plugins.host=https://company.jfrog.io/artifactory/api/aieditorextensions/repo
 `)
 	err = os.WriteFile(propertiesPath, modifiedContent, 0644)
 	require.NoError(t, err)
@@ -277,7 +277,7 @@ func TestJetbrainsCommand_RestoreBackup_EmptyFile(t *testing.T) {
 
 	// Create properties file
 	modifiedContent := []byte(`# IDE Configuration
-idea.plugins.host=https://company.jfrog.io/artifactory/api/jetbrainsplugins/repo
+idea.plugins.host=https://company.jfrog.io/artifactory/api/aieditorextensions/repo
 `)
 	err = os.WriteFile(propertiesPath, modifiedContent, 0644)
 	require.NoError(t, err)
@@ -303,7 +303,7 @@ func TestJetbrainsCommand_ModifyPropertiesFile_NewFile(t *testing.T) {
 	// Test creating a new properties file
 	tempDir := t.TempDir()
 	propertiesPath := filepath.Join(tempDir, "idea.properties")
-	repositoryURL := "https://company.jfrog.io/artifactory/api/jetbrainsplugins/repo"
+	repositoryURL := "https://company.jfrog.io/artifactory/api/aieditorextensions/repo"
 
 	cmd := NewJetbrainsCommand("", "")
 	ide := IDEInstallation{
@@ -331,7 +331,7 @@ func TestJetbrainsCommand_ModifyPropertiesFile_ExistingFile(t *testing.T) {
 	// Test modifying an existing properties file
 	tempDir := t.TempDir()
 	propertiesPath := filepath.Join(tempDir, "idea.properties")
-	repositoryURL := "https://company.jfrog.io/artifactory/api/jetbrainsplugins/repo"
+	repositoryURL := "https://company.jfrog.io/artifactory/api/aieditorextensions/repo"
 
 	// Create existing properties file
 	originalContent := `# IDE Configuration
@@ -365,7 +365,7 @@ func TestJetbrainsCommand_ModifyPropertiesFile_UpdateExisting(t *testing.T) {
 	// Test updating an existing idea.plugins.host entry
 	tempDir := t.TempDir()
 	propertiesPath := filepath.Join(tempDir, "idea.properties")
-	repositoryURL := "https://company.jfrog.io/artifactory/api/jetbrainsplugins/repo"
+	repositoryURL := "https://company.jfrog.io/artifactory/api/aieditorextensions/repo"
 
 	// Create existing properties file with plugins host
 	originalContent := `# IDE Configuration
@@ -397,7 +397,7 @@ ide.system.path=${user.home}/.local/share/JetBrains/IntelliJIdea2023.3
 
 func TestJetbrainsCommand_GetManualSetupInstructions(t *testing.T) {
 	cmd := NewJetbrainsCommand("", "")
-	repositoryURL := "https://company.jfrog.io/artifactory/api/jetbrainsplugins/repo"
+	repositoryURL := "https://company.jfrog.io/artifactory/api/aieditorextensions/repo"
 
 	instructions := cmd.getManualSetupInstructions(repositoryURL)
 
