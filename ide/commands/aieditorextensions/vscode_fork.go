@@ -115,22 +115,13 @@ func (vc *VSCodeForkCommand) Run() error {
 func (vc *VSCodeForkCommand) detectInstallation() (string, error) {
 	paths := vc.forkConfig.GetAllInstallPaths()
 
-	log.Info(fmt.Sprintf("Searching for %s installation...", vc.forkConfig.DisplayName))
-	log.Info(fmt.Sprintf("Number of paths to check: %d", len(paths)))
-
-	for i, path := range paths {
-		log.Info(fmt.Sprintf("[%d/%d] Original path: %s", i+1, len(paths), path))
+	for _, path := range paths {
 		expandedPath := expandPath(path)
-		log.Info(fmt.Sprintf("[%d/%d] Expanded path: %s", i+1, len(paths), expandedPath))
-
 		productJsonPath := filepath.Join(expandedPath, vc.forkConfig.ProductJson)
-		log.Info(fmt.Sprintf("[%d/%d] Checking: %s", i+1, len(paths), productJsonPath))
-
+		
 		if fileutils.IsPathExists(productJsonPath, false) {
-			log.Info(fmt.Sprintf("[%d/%d] ✓ FOUND at: %s", i+1, len(paths), productJsonPath))
 			return productJsonPath, nil
 		}
-		log.Info(fmt.Sprintf("[%d/%d] ✗ Not found", i+1, len(paths)))
 	}
 
 	return "", fmt.Errorf("%s installation not found in standard locations", vc.forkConfig.DisplayName)
@@ -139,45 +130,21 @@ func (vc *VSCodeForkCommand) detectInstallation() (string, error) {
 // expandPath expands environment variables and home directory in a path
 // Handles both Unix-style ($VAR, ~) and Windows-style (%VAR%) variables
 func expandPath(path string) string {
-	originalPath := path
-
 	// Handle home directory expansion
 	if strings.HasPrefix(path, "~") {
 		if home, err := os.UserHomeDir(); err == nil {
 			path = filepath.Join(home, path[2:])
-			log.Info(fmt.Sprintf("  Expanded ~ to: %s", home))
 		}
 	}
 
 	// On Windows, manually expand common environment variables for reliability
 	// os.ExpandEnv() can be unreliable with %VAR% syntax on some Windows systems
 	if runtime.GOOS == "windows" {
-		// Log environment variables for debugging
-		if strings.Contains(originalPath, "%LOCALAPPDATA%") {
-			localAppData := os.Getenv("LOCALAPPDATA")
-			log.Info(fmt.Sprintf("  LOCALAPPDATA = %s", localAppData))
-			path = strings.ReplaceAll(path, "%LOCALAPPDATA%", localAppData)
-		}
-		if strings.Contains(originalPath, "%APPDATA%") {
-			appData := os.Getenv("APPDATA")
-			log.Info(fmt.Sprintf("  APPDATA = %s", appData))
-			path = strings.ReplaceAll(path, "%APPDATA%", appData)
-		}
-		if strings.Contains(originalPath, "%PROGRAMFILES%") {
-			programFiles := os.Getenv("PROGRAMFILES")
-			log.Info(fmt.Sprintf("  PROGRAMFILES = %s", programFiles))
-			path = strings.ReplaceAll(path, "%PROGRAMFILES%", programFiles)
-		}
-		if strings.Contains(originalPath, "%PROGRAMFILES(X86)%") {
-			programFilesX86 := os.Getenv("PROGRAMFILES(X86)")
-			log.Info(fmt.Sprintf("  PROGRAMFILES(X86) = %s", programFilesX86))
-			path = strings.ReplaceAll(path, "%PROGRAMFILES(X86)%", programFilesX86)
-		}
-		if strings.Contains(originalPath, "%USERPROFILE%") {
-			userProfile := os.Getenv("USERPROFILE")
-			log.Info(fmt.Sprintf("  USERPROFILE = %s", userProfile))
-			path = strings.ReplaceAll(path, "%USERPROFILE%", userProfile)
-		}
+		path = strings.ReplaceAll(path, "%LOCALAPPDATA%", os.Getenv("LOCALAPPDATA"))
+		path = strings.ReplaceAll(path, "%APPDATA%", os.Getenv("APPDATA"))
+		path = strings.ReplaceAll(path, "%PROGRAMFILES%", os.Getenv("PROGRAMFILES"))
+		path = strings.ReplaceAll(path, "%PROGRAMFILES(X86)%", os.Getenv("PROGRAMFILES(X86)"))
+		path = strings.ReplaceAll(path, "%USERPROFILE%", os.Getenv("USERPROFILE"))
 	}
 
 	// Try standard expansion for any remaining variables (Unix-style $VAR)
