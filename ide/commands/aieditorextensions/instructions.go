@@ -9,30 +9,18 @@ Manual %s Setup Instructions:
 =================================
 
 1. Close %s completely
-
-2. Locate your %s installation directory and find product.json:
-   • Windows User Install: %%LOCALAPPDATA%%\Programs\%s\resources\app\product.json
-   • Windows System Install: C:\Program Files\%s\resources\app\product.json
-   • macOS: /Applications/%s.app/Contents/Resources/app/product.json
-   • Linux: /usr/share/%s/resources/app/product.json
-
-3. Open the product.json file in a text editor with appropriate permissions:
-   • Windows: Right-click Notepad → "Run as Administrator" → Open file
-   • macOS: sudo nano "<path-to-app>/Contents/Resources/app/product.json"
-   • Linux: sudo nano /path/to/resources/app/product.json
-
-4. Find the "extensionsGallery" section and modify the "serviceUrl":
+2. Find product.json in your %s installation directory
+3. Edit the "extensionsGallery" section:
    {
      "extensionsGallery": {
        "serviceUrl": "%s",
        ...
      }
    }
-
-5. Save the file and restart %s
+4. Save and restart %s
 
 Service URL: %s
-`, ideName, ideName, ideName, ideName, ideName, ideName, ideName, serviceURL, ideName, serviceURL)
+`, ideName, ideName, ideName, serviceURL, ideName, serviceURL)
 }
 
 // GetMacOSPermissionError returns macOS-specific permission error message
@@ -63,17 +51,10 @@ Alternative: Install %s in a user-writable location like ~/Applications/`,
 func GetGenericPermissionError(ideName, serviceURL string) string {
 	return fmt.Sprintf(`insufficient permissions to modify %s configuration.
 
-To fix this, try running the command with elevated privileges:
+Try running with elevated privileges:
+  • Linux/macOS: sudo jf ide setup %s '%s'
+  • Windows: Run PowerShell as Administrator
 
-    Linux/macOS:
-        sudo jf ide setup %s --repo-key <your-repo-key>
-        sudo jf ide setup %s '%s'
-
-    Windows:
-        Run PowerShell or Command Prompt as Administrator, then run:
-        jf ide setup %s --repo-key <your-repo-key>
-        jf ide setup %s '%s'
-
-Or use the manual setup instructions provided in the error output.`,
-		ideName, ideName, ideName, serviceURL, ideName, ideName, serviceURL)
+Or use the manual setup instructions.`,
+		ideName, ideName, serviceURL)
 }
