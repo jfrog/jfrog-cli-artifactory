@@ -70,9 +70,10 @@ func loadOrCreatePypirc(pypircPath string) (*ini.File, error) {
 	if exists {
 		// Load ini file with necessary options for cross-platform compatibility
 		pypirc, err = ini.LoadSources(ini.LoadOptions{
-			Loose:               true, // Required for handling non-standard formatting
-			Insensitive:         true, // Required for case-insensitive keys
-			IgnoreInlineComment: true, // Required for values containing special chars
+			Loose:                      true, // Required for handling non-standard formatting
+			Insensitive:                true, // Required for case-insensitive keys
+			IgnoreInlineComment:        true, // Required for values containing special chars
+			AllowPythonMultilineValues: true, // Required for Python-style multi-line values
 		}, pypircPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load .pypirc file: %w", err)
