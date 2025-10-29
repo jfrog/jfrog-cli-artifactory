@@ -211,8 +211,25 @@ func createMvnRunProps(vConfig *viper.Viper, buildArtifactsDetailsFile string, t
 		vConfig.Set("buildInfoConfig.artifactoryResolutionEnabled", "true")
 	}
 	buildInfoProps, err := buildUtils.CreateBuildInfoProps(buildArtifactsDetailsFile, vConfig, project.Maven)
+	if err != nil {
+		return nil, useWrapper, err
+	}
 
-	return buildInfoProps, useWrapper, err
+	// Set publish.add.deployable.artifacts based on the scenario:
+	// - mvn verify/compile/package (disableDeploy=true, no buildArtifactsDetailsFile): false (preserve fix)
+	// - mvn deploy/install (disableDeploy=false): true (need deployable artifacts)
+	// - Conditional upload (disableDeploy=true, buildArtifactsDetailsFile set): true (for XRay scan)
+	if disableDeploy && buildArtifactsDetailsFile == "" {
+		// Non-deployment goals (verify, compile, package) - preserve mvn verify fix
+		buildInfoProps["publish.add.deployable.artifacts"] = "false"
+		log.Debug("Artifact deployment disabled for non-deployment Maven goals")
+	} else {
+		// Deployment goals (deploy, install) or conditional upload - need deployable artifacts
+		buildInfoProps["publish.add.deployable.artifacts"] = "true"
+		log.Debug("Artifact deployment enabled for Maven deployment or conditional upload")
+	}
+
+	return buildInfoProps, useWrapper, nil
 }
 
 func setDeployFalse(vConfig *viper.Viper) {
