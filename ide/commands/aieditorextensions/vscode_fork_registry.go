@@ -32,8 +32,11 @@ var VSCodeForks = map[string]*VSCodeForkConfig{
 				"~/Applications/Visual Studio Code.app/Contents/Resources/app",
 			},
 			"windows": {
-				`C:\Program Files\Microsoft VS Code\resources\app`,
 				`%LOCALAPPDATA%\Programs\Microsoft VS Code\resources\app`,
+				`C:\Program Files\Microsoft VS Code\resources\app`,
+				`C:\Program Files (x86)\Microsoft VS Code\resources\app`,
+				`%PROGRAMFILES%\Microsoft VS Code\resources\app`,
+				`%LOCALAPPDATA%\Code\resources\app`,
 			},
 			"linux": {
 				"/usr/share/code/resources/app",
@@ -54,7 +57,9 @@ var VSCodeForks = map[string]*VSCodeForkConfig{
 			},
 			"windows": {
 				`%LOCALAPPDATA%\Programs\Cursor\resources\app`,
+				`%LOCALAPPDATA%\Programs\cursor\resources\app`,
 				`C:\Program Files\Cursor\resources\app`,
+				`%LOCALAPPDATA%\Cursor\resources\app`,
 			},
 			"linux": {
 				"/usr/share/cursor/resources/app",
@@ -74,7 +79,9 @@ var VSCodeForks = map[string]*VSCodeForkConfig{
 			},
 			"windows": {
 				`%LOCALAPPDATA%\Programs\Windsurf\resources\app`,
+				`%LOCALAPPDATA%\Programs\windsurf\resources\app`,
 				`C:\Program Files\Windsurf\resources\app`,
+				`%LOCALAPPDATA%\Windsurf\resources\app`,
 			},
 			"linux": {
 				"/usr/share/windsurf/resources/app",
