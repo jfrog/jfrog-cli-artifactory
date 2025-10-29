@@ -101,7 +101,7 @@ func (vc *VSCodeForkCommand) Run() error {
 
 	// Step 5: Configure update mode if specified
 	if vc.updateMode != "" {
-		if err := SetUpdateMode(UpdateMode(vc.updateMode)); err != nil {
+		if err := SetUpdateMode(UpdateMode(vc.updateMode), vc.forkConfig.SettingsDir); err != nil {
 			log.Warn("Failed to set update mode:", err)
 			log.Warn(fmt.Sprintf("You can manually add '\"update.mode\": \"%s\"' to your settings.json", vc.updateMode))
 		}

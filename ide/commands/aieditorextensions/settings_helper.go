@@ -19,14 +19,14 @@ const (
 	UpdateModeNone    UpdateMode = "none"    // Disable updates
 )
 
-// SetUpdateMode sets the VSCode update mode in user settings.json
-func SetUpdateMode(mode UpdateMode) error {
-	settingsPath, err := detectSettingsPath()
+// SetUpdateMode sets the VSCode-based IDE update mode in user settings.json
+func SetUpdateMode(mode UpdateMode, settingsDir string) error {
+	settingsPath, err := detectSettingsPath(settingsDir)
 	if err != nil {
 		return fmt.Errorf("failed to locate settings.json: %w", err)
 	}
 
-	log.Info("Configuring VSCode update mode in settings.json...")
+	log.Info("Configuring IDE update mode in settings.json...")
 
 	// Read existing settings
 	settings, err := readSettings(settingsPath)
@@ -42,14 +42,14 @@ func SetUpdateMode(mode UpdateMode) error {
 		return fmt.Errorf("failed to write settings.json: %w", err)
 	}
 
-	log.Info("VSCode update mode set to:", string(mode))
+	log.Info("Update mode set to:", string(mode))
 	log.Info("Configuration file:", settingsPath)
 
 	return nil
 }
 
-// detectSettingsPath finds the VSCode settings.json file
-func detectSettingsPath() (string, error) {
+// detectSettingsPath finds the IDE's settings.json file based on the settings directory name
+func detectSettingsPath(settingsDir string) (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
@@ -61,18 +61,15 @@ func detectSettingsPath() (string, error) {
 	switch runtime.GOOS {
 	case "darwin":
 		possiblePaths = []string{
-			filepath.Join(homeDir, "Library", "Application Support", "Code", "User", "settings.json"),
-			filepath.Join(homeDir, "Library", "Application Support", "Code - Insiders", "User", "settings.json"),
+			filepath.Join(homeDir, "Library", "Application Support", settingsDir, "User", "settings.json"),
 		}
 	case "linux":
 		possiblePaths = []string{
-			filepath.Join(homeDir, ".config", "Code", "User", "settings.json"),
-			filepath.Join(homeDir, ".config", "Code - Insiders", "User", "settings.json"),
+			filepath.Join(homeDir, ".config", settingsDir, "User", "settings.json"),
 		}
 	case "windows":
 		possiblePaths = []string{
-			filepath.Join(homeDir, "AppData", "Roaming", "Code", "User", "settings.json"),
-			filepath.Join(homeDir, "AppData", "Roaming", "Code - Insiders", "User", "settings.json"),
+			filepath.Join(homeDir, "AppData", "Roaming", settingsDir, "User", "settings.json"),
 		}
 	default:
 		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
