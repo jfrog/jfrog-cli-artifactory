@@ -112,6 +112,52 @@ func (pc *PushCommand) Run() error {
 	if err != nil {
 		return err
 	}
+	if !toCollect && pc.IsDetailedSummary() {
+		repo, err := pc.image.ExtractArtifactoryRepoKey()
+		if err != nil {
+			return err
+		}
+		if pc.IsValidateSha() {
+			log.Info("Performing SHA-based validation for Docker push...")
+			// Get image SHA from the container manager
+			imageSha256, err := cm.Id(pc.image)
+			if err != nil {
+				return err
+			}
+			log.Debug("Using image SHA256 for validation: " + imageSha256)
+
+			// Use RemoteAgentBuildInfoBuilder for SHA-based validation
+			remoteBuilder, err := containerutils.NewRemoteAgentBuildInfoBuilder(pc.image, repo, "", "", pc.BuildConfiguration().GetProject(), serviceManager, imageSha256)
+			if err != nil {
+				return err
+			}
+			if pc.IsDetailedSummary() {
+				// No build info collection triggered yet, build it now for the summary
+				if _, err = remoteBuilder.Build(""); err != nil {
+					return errorutils.CheckError(fmt.Errorf("failed to build summary info: %w", err))
+				}
+				return pc.layersMapToFileTransferDetails(serverDetails.ArtifactoryUrl, remoteBuilder.GetLayers())
+			}
+			return nil
+		}
+
+		builder, err := containerutils.NewLocalAgentBuildInfoBuilder(pc.image, repo, "", "", pc.BuildConfiguration().GetProject(), serviceManager, containerutils.Push, cm)
+		if err != nil {
+			return err
+		}
+		if pc.IsDetailedSummary() {
+			// The build-info collection hasn't been triggered at this point, and we do need it for handling the detailed summary.
+			// We are therefore skipping setting image build name/number props before running build-info collection.
+			builder.SetSkipTaggingLayers(true)
+			_, err = builder.Build("")
+			if err != nil {
+				return err
+			}
+			return pc.layersMapToFileTransferDetails(serverDetails.ArtifactoryUrl, builder.GetLayers())
+		}
+		return nil
+	}
+
 	repo, err := pc.GetRepo()
 	if err != nil {
 		if !toCollect && strings.Contains(err.Error(), "Artifactory response:  403") {

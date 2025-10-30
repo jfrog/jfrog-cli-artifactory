@@ -2,6 +2,7 @@ package ocicontainer
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"path"
 	"strconv"
@@ -180,4 +181,16 @@ func getStatusForbiddenErrorMessage() string {
 		", Possible causes include: \n- Xray scan in progress \n- Xray policy violations \n- insufficient permissions\n- invalid authentication method\n- disabled anonymous access\n- missing Docker manifests." +
 		"\nPlease verify the above factors to resolve the issue."
 	return errorMessage
+}
+
+func (image *Image) ExtractArtifactoryRepoKey() (string, error) {
+	imageName, err := image.GetImageLongName()
+	if err != nil {
+		return "", err
+	}
+	parts := strings.SplitN(imageName, "/", 2)
+	if len(parts) < 2 {
+		return "", fmt.Errorf("invalid image name format: %q. Expected <repo-key>/<image-name>:<image-tag>", imageName)
+	}
+	return parts[0], nil
 }
