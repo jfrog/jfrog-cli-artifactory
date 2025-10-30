@@ -118,7 +118,7 @@ func (vc *VSCodeForkCommand) detectInstallation() (string, error) {
 	for _, path := range paths {
 		expandedPath := expandPath(path)
 		productJsonPath := filepath.Join(expandedPath, vc.forkConfig.ProductJson)
-		
+
 		// Handle glob patterns (e.g., for .vscode-server/bin/*)
 		if strings.Contains(productJsonPath, "*") {
 			matches, err := filepath.Glob(productJsonPath)
@@ -128,7 +128,7 @@ func (vc *VSCodeForkCommand) detectInstallation() (string, error) {
 			}
 			continue
 		}
-		
+
 		if fileutils.IsPathExists(productJsonPath, false) {
 			return productJsonPath, nil
 		}
