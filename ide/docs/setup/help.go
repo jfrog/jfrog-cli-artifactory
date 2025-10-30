@@ -1,19 +1,14 @@
 package setup
 
-import (
-	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-)
+import "github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 
 var Usage = []string{
-	"ide setup <IDE_NAME> [SERVICE_URL]",
-	"ide s <IDE_NAME> [SERVICE_URL]",
+	"ide setup <ide-name> [url]",
+	"ide s <ide-name> [url]",
 }
 
 func GetDescription() string {
 	return `Setup IDE integration with JFrog Artifactory.
-
-Supported Action:
-  setup    Configure your IDE to use JFrog Artifactory
 
 Supported IDEs:
   vscode     Visual Studio Code
@@ -28,22 +23,19 @@ Examples:
   # Setup Cursor
   jf ide setup cursor --repo-key=cursor-remote
 
-  # Setup Windsurf
-  jf ide setup windsurf --repo-key=windsurf-remote
-
-  # Setup JetBrains   
-  jf ide setup jetbrains --repo-key=jetbrains-remote`
+  # Setup with direct URL
+  jf ide setup vscode "https://artifactory.example.com/artifactory/api/aieditorextensions/vscode-repo/_apis/public/gallery"`
 }
 
 func GetArguments() []components.Argument {
 	return []components.Argument{
 		{
-			Name:        "IDE_NAME",
-			Description: "The name of the IDE to setup. Supported IDEs are 'vscode', 'cursor', 'windsurf', and 'jetbrains'.",
+			Name:        "ide-name",
+			Description: "IDE to setup. Supported: vscode, cursor, windsurf, jetbrains",
 		},
 		{
-			Name:        "SERVICE_URL",
-			Description: "(Optional) Direct repository service URL. When provided, --repo-key and server config are not required. Example: https://host/api/aieditorextensions/repo/_apis/public/gallery",
+			Name:        "url",
+			Description: "[Optional] Direct repository/service URL. When provided, --repo-key and server config are not required.",
 			Optional:    true,
 		},
 	}

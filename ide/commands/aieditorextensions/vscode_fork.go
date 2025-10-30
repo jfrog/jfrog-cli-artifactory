@@ -116,22 +116,51 @@ func (vc *VSCodeForkCommand) detectInstallation() (string, error) {
 	paths := vc.forkConfig.GetAllInstallPaths()
 
 	for _, path := range paths {
-		// Expand environment variables and home directory
-		expandedPath := os.ExpandEnv(path)
-		if strings.HasPrefix(expandedPath, "~") {
-			home, err := os.UserHomeDir()
-			if err == nil {
-				expandedPath = filepath.Join(home, expandedPath[2:])
+		expandedPath := expandPath(path)
+		productJsonPath := filepath.Join(expandedPath, vc.forkConfig.ProductJson)
+
+		// Handle glob patterns (e.g., for .vscode-server/bin/*)
+		if strings.Contains(productJsonPath, "*") {
+			matches, err := filepath.Glob(productJsonPath)
+			if err == nil && len(matches) > 0 {
+				// Use the first match
+				return matches[0], nil
 			}
+			continue
 		}
 
-		productJsonPath := filepath.Join(expandedPath, vc.forkConfig.ProductJson)
 		if fileutils.IsPathExists(productJsonPath, false) {
 			return productJsonPath, nil
 		}
 	}
 
 	return "", fmt.Errorf("%s installation not found in standard locations", vc.forkConfig.DisplayName)
+}
+
+// expandPath expands environment variables and home directory in a path
+// Handles both Unix-style ($VAR, ~) and Windows-style (%VAR%) variables
+func expandPath(path string) string {
+	// Handle home directory expansion
+	if strings.HasPrefix(path, "~") {
+		if home, err := os.UserHomeDir(); err == nil {
+			path = filepath.Join(home, path[2:])
+		}
+	}
+
+	// On Windows, manually expand common environment variables for reliability
+	// os.ExpandEnv() can be unreliable with %VAR% syntax on some Windows systems
+	if runtime.GOOS == "windows" {
+		path = strings.ReplaceAll(path, "%LOCALAPPDATA%", os.Getenv("LOCALAPPDATA"))
+		path = strings.ReplaceAll(path, "%APPDATA%", os.Getenv("APPDATA"))
+		path = strings.ReplaceAll(path, "%PROGRAMFILES%", os.Getenv("PROGRAMFILES"))
+		path = strings.ReplaceAll(path, "%PROGRAMFILES(X86)%", os.Getenv("PROGRAMFILES(X86)"))
+		path = strings.ReplaceAll(path, "%USERPROFILE%", os.Getenv("USERPROFILE"))
+	}
+
+	// Try standard expansion for any remaining variables (Unix-style $VAR)
+	path = os.ExpandEnv(path)
+
+	return filepath.Clean(path)
 }
 
 // checkWritePermissions verifies write access to product.json

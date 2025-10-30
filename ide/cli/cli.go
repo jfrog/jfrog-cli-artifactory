@@ -6,7 +6,7 @@ import (
 
 	"github.com/jfrog/jfrog-cli-artifactory/ide/commands/aieditorextensions"
 	"github.com/jfrog/jfrog-cli-artifactory/ide/commands/jetbrains"
-	"github.com/jfrog/jfrog-cli-artifactory/ide/docs"
+	"github.com/jfrog/jfrog-cli-artifactory/ide/docs/setup"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
@@ -28,8 +28,8 @@ func GetCommands() []components.Command {
 	return []components.Command{
 		{
 			Name:        "setup",
-			Description: docs.GetDescription(),
-			Arguments:   docs.GetArguments(),
+			Description: setup.GetDescription(),
+			Arguments:   setup.GetArguments(),
 			Flags:       getSetupFlags(),
 			Action:      setupCmd,
 			Aliases:     []string{"s"},

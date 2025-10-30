@@ -9,23 +9,15 @@ Manual %s Setup Instructions:
 =================================
 
 1. Close %s completely
-
-2. Locate your %s installation directory and find product.json
-
-3. Open the product.json file in a text editor with appropriate permissions:
-   • macOS: sudo nano "<path-to-app>/Contents/Resources/app/product.json"
-   • Windows: Run editor as Administrator
-   • Linux: sudo nano /path/to/resources/app/product.json
-
-4. Find the "extensionsGallery" section and modify the "serviceUrl":
+2. Find product.json in your %s installation directory
+3. Edit the "extensionsGallery" section:
    {
      "extensionsGallery": {
        "serviceUrl": "%s",
        ...
      }
    }
-
-5. Save the file and restart %s
+4. Save and restart %s
 
 Service URL: %s
 `, ideName, ideName, ideName, serviceURL, ideName, serviceURL)
@@ -59,12 +51,10 @@ Alternative: Install %s in a user-writable location like ~/Applications/`,
 func GetGenericPermissionError(ideName, serviceURL string) string {
 	return fmt.Sprintf(`insufficient permissions to modify %s configuration.
 
-To fix this, try running the command with elevated privileges:
-    sudo jf ide setup %s --repo-key <your-repo-key>
+Try running with elevated privileges:
+  • Linux/macOS: sudo jf ide setup %s '%s'
+  • Windows: Run PowerShell as Administrator
 
-Or with direct URL:
-    sudo jf ide setup %s '%s'
-
-Or use the manual setup instructions provided in the error output.`,
-		ideName, ideName, ideName, serviceURL)
+Or use the manual setup instructions.`,
+		ideName, ideName, serviceURL)
 }
