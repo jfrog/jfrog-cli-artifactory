@@ -1,6 +1,11 @@
-package docs
+package setup
 
 import "github.com/jfrog/jfrog-cli-core/v2/plugins/components"
+
+var Usage = []string{
+	"ide setup <ide-name> [url]",
+	"ide s <ide-name> [url]",
+}
 
 func GetDescription() string {
 	return `Setup IDE integration with JFrog Artifactory.
@@ -35,3 +40,4 @@ func GetArguments() []components.Argument {
 		},
 	}
 }
+
