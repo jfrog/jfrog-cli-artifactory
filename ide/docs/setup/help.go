@@ -40,4 +40,3 @@ func GetArguments() []components.Argument {
 		},
 	}
 }
-
