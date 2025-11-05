@@ -707,21 +707,17 @@ func prepareDirectDownloadCommand(c *components.Context) (*spec.SpecFiles, error
 }
 
 func createDirectDownloadSpec(c *components.Context) *spec.SpecFiles {
-	excludeArtifactsString := c.GetStringFlagValue("exclude-artifacts")
-	excludeArtifacts, err := parseStringToBool(excludeArtifactsString)
-	if err != nil {
-		log.Warn("Could not parse exclude-artifacts flag. Setting exclude-artifacts as false, error: ", err.Error())
-	}
+	// exclude-artifacts and include-deps are bool flags with default value false
+	excludeArtifacts := c.GetBoolFlagValue("exclude-artifacts")
+	includeDeps := c.GetBoolFlagValue("include-deps")
 
-	includeDepsString := c.GetStringFlagValue("include-deps")
-	includeDeps, err := parseStringToBool(includeDepsString)
-	if err != nil {
-		log.Warn("Could not parse include-deps flag. Setting include-deps as false, error: ", err.Error())
-	}
+	// Get source pattern, handling bundle flag if present
+	sourcePattern := getSourcePattern(c)
 
 	return spec.NewBuilder().
-		Pattern(strings.TrimPrefix(c.GetArgumentAt(0), "/")).
+		Pattern(sourcePattern).
 		Build(c.GetStringFlagValue("build")).
+		Bundle(c.GetStringFlagValue("bundle")).
 		ExcludeArtifacts(excludeArtifacts).
 		IncludeDeps(includeDeps).
 		Recursive(c.GetBoolTFlagValue("recursive")).
@@ -730,19 +726,6 @@ func createDirectDownloadSpec(c *components.Context) *spec.SpecFiles {
 		Explode(strconv.FormatBool(c.GetBoolFlagValue("explode"))).
 		Target(c.GetArgumentAt(1)).
 		BuildSpec()
-}
-
-func parseStringToBool(value string) (bool, error) {
-	if value == "" {
-		return false, nil
-	}
-
-	boolValue, err := strconv.ParseBool(value)
-	if err != nil {
-		return false, err
-	}
-
-	return boolValue, nil
 }
 
 func directDownloadCmd(c *components.Context) error {
