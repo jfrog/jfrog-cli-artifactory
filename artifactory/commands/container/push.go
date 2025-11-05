@@ -3,6 +3,7 @@ package container
 import (
 	"fmt"
 	"path"
+	"strings"
 
 	containerutils "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
@@ -113,6 +114,9 @@ func (pc *PushCommand) Run() error {
 	}
 	repo, err := pc.GetRepo()
 	if err != nil {
+		if !toCollect && strings.Contains(err.Error(), "Artifactory response:  403") {
+			return nil
+		}
 		return err
 	}
 

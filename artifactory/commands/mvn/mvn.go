@@ -16,6 +16,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/spf13/viper"
 )
 
@@ -112,7 +113,14 @@ func (mc *MvnCommand) init() (vConfig *viper.Viper, err error) {
 		return
 	}
 	// Maven's extractor deploys build artifacts. This should be disabled since there is no intent to deploy anything or deploy upon Xray scan results.
-	mc.deploymentDisabled = mc.IsXrayScan() || !vConfig.IsSet("deployer")
+	// Deployment is enabled only for "install" and "deploy" goals when deployer is configured.
+	mc.deploymentDisabled = mc.IsXrayScan() || !vConfig.IsSet("deployer") || !mc.isDeploymentRequested()
+
+	// Warn if deployer is configured but Maven goal does not trigger deployment
+	if vConfig.IsSet("deployer") && !mc.IsXrayScan() && mc.deploymentDisabled {
+		log.Warn("Deployer repository is configured but Maven goal does not trigger deployment. Only 'install' and 'deploy' goals will deploy artifacts to Artifactory.")
+	}
+
 	if mc.shouldCreateBuildArtifactsFile() {
 		// Created a file that will contain all the details about the build's artifacts
 		tempFile, err := fileutils.CreateTempFile()
@@ -126,6 +134,19 @@ func (mc *MvnCommand) init() (vConfig *viper.Viper, err error) {
 		}
 	}
 	return
+}
+
+// isDeploymentRequested checks if the user explicitly requested deployment
+// by looking for "install" or "deploy" goals in the Maven command.
+// These are the only goals that should trigger artifact deployment to Artifactory.
+func (mc *MvnCommand) isDeploymentRequested() bool {
+	for _, goal := range mc.goals {
+		// Allow deployment for both "install" and "deploy" goals
+		if goal == "install" || goal == "deploy" {
+			return true
+		}
+	}
+	return false
 }
 
 // Maven extractor generates the details of the build's artifacts.
