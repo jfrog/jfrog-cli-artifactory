@@ -100,6 +100,8 @@ github.com/jfrog/gofrog v1.7.6 h1:QmfAiRzVyaI7JYGsB7cxfAJePAZTzFz0gRWZSE27c6s=
 github.com/jfrog/gofrog v1.7.6/go.mod h1:ntr1txqNOZtHplmaNd7rS4f8jpA5Apx8em70oYEe7+4=
 github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251026182600-8a8c0428f538 h1:WgpC3kE2LkgJ+58RFbCx/ivNJzEQ4Ue8Q5BhLWWJ3tA=
 github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251026182600-8a8c0428f538/go.mod h1:gtu43/QouMc0ENk6J/WH5glKH5S7wnPbMhFukN3FH8s=
+github.com/jfrog/jfrog-client-go v1.55.1-0.20251106114658-e01e86b037c8 h1:kSbJw3FRy7/tnQ25CSGnbut4iYQ8jXibRfBwUYrl6Vg=
+github.com/jfrog/jfrog-client-go v1.55.1-0.20251106114658-e01e86b037c8/go.mod h1:wsMEtoyAu/1bARUHxFdmgz83g96ml7ZWcFioIPiuz/U=
 github.com/kevinburke/ssh_config v1.2.0 h1:x584FjTGwHzMwvHx18PXxbBVzfnxogHaAReU4gf13a4=
 github.com/kevinburke/ssh_config v1.2.0/go.mod h1:CT57kijsi8u/K/BOFA39wgDQJ9CxiF4nAY/ojJ6r6mM=
 github.com/klauspost/compress v1.4.1/go.mod h1:RyIbtBH6LamlWaDj8nUwkbUhJ87Yi3uG0guNDohfE1A=
@@ -157,8 +159,6 @@ github.com/pkg/term v1.2.0-beta.2/go.mod h1:E25nymQcrSllhX42Ok8MRm1+hyBdHY0dCeiK
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 h1:Jamvg5psRIccs7FGNTlIRMkT8wgtp5eCXdBlqhYGL6U=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/reshmifrog/jfrog-client-go v1.52.1-0.20251106084548-32ebbc830138 h1:QKs2zFoxBOHsvE8IjXkiNDyRyfH6cb0NzmonvVl+M0A=
-github.com/reshmifrog/jfrog-client-go v1.52.1-0.20251106084548-32ebbc830138/go.mod h1:wsMEtoyAu/1bARUHxFdmgz83g96ml7ZWcFioIPiuz/U=
 github.com/rivo/uniseg v0.2.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJtxc=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
 github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
