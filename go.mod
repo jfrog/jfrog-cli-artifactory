@@ -4,7 +4,7 @@ go 1.24.6
 
 require (
 	github.com/c-bata/go-prompt v0.2.6
-	github.com/forPelevin/gomoji v1.4.0
+	github.com/forPelevin/gomoji v1.4.1
 	github.com/jedib0t/go-pretty/v6 v6.6.8
 	github.com/jfrog/build-info-go v1.12.2
 	github.com/jfrog/gofrog v1.7.6
@@ -98,7 +98,7 @@ require (
 
 //replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251015045218-1a38c9e47097
 
-replace github.com/jfrog/jfrog-client-go => github.com/reshmifrog/jfrog-client-go v1.52.1-0.20251028102546-27ae405f7592
+replace github.com/jfrog/jfrog-client-go => github.com/reshmifrog/jfrog-client-go v1.52.1-0.20251106084548-32ebbc830138
 
 // replace github.com/jfrog/build-info-go => github.com/jfrog/build-info-go v1.8.9-0.20251029074625-97faa661f1d4
 
