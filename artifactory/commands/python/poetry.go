@@ -11,7 +11,6 @@ import (
 
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/entities"
-	"github.com/jfrog/build-info-go/flexpack"
 	"github.com/jfrog/build-info-go/utils/pythonutils"
 	gofrogcmd "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/python/dependencies"
@@ -110,37 +109,6 @@ func (pc *PoetryCommand) publish(buildConfiguration *buildUtils.BuildConfigurati
 		return err
 	}
 
-	// Get current working directory
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-
-	// Use FlexPack to collect dependencies with checksums
-	if buildName != "" && buildNumber != "" {
-		log.Info("Using native approach to collect Poetry dependencies...")
-
-		// Create FlexPack Poetry configuration
-		config := flexpack.PoetryConfig{
-			WorkingDirectory: workingDir,
-		}
-
-		// Create Poetry FlexPack instance
-		poetryFlex, err := flexpack.NewPoetryFlexPack(config)
-		if err != nil {
-			return fmt.Errorf("failed to create Poetry FlexPack: %w", err)
-		}
-
-		// Collect build info using FlexPack
-		flexBuildInfo, err := poetryFlex.CollectBuildInfo(buildName, buildNumber)
-		if err != nil {
-			return fmt.Errorf("failed to collect build info with FlexPack: %w", err)
-		}
-
-		// Save FlexPack build info to be picked up by rt bp
-		return pc.saveFlexPackBuildInfo(flexBuildInfo)
-	}
-
 	// Run the publish command to upload artifacts
 	pc.args = publishCmdArgs
 	err = gofrogcmd.RunCmd(pc)
@@ -150,25 +118,14 @@ func (pc *PoetryCommand) publish(buildConfiguration *buildUtils.BuildConfigurati
 
 	// After successful publish, collect artifacts information
 	if buildName != "" && buildNumber != "" {
+		workingDir, err := os.Getwd()
+		if err != nil {
+			return err
+		}
 		return pc.collectPublishedArtifacts(buildConfiguration, pythonBuildInfo, workingDir)
 	}
 
 	return nil
-}
-
-// saveFlexPackBuildInfo saves FlexPack build info for jfrog-cli rt bp compatibility
-func (pc *PoetryCommand) saveFlexPackBuildInfo(buildInfo *entities.BuildInfo) error {
-	// Create build-info service
-	service := build.NewBuildInfoService()
-
-	// Create or get build
-	buildInstance, err := service.GetOrCreateBuildWithProject(buildInfo.Name, buildInfo.Number, "")
-	if err != nil {
-		return fmt.Errorf("failed to create build: %w", err)
-	}
-
-	// Save the complete build info (this will be loaded by rt bp)
-	return buildInstance.SaveBuildInfo(buildInfo)
 }
 
 // collectPublishedArtifacts collects information about artifacts that were published
