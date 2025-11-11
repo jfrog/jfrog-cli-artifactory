@@ -112,6 +112,27 @@ func (pc *PushCommand) Run() error {
 	if err != nil {
 		return err
 	}
+	if !toCollect && pc.IsDetailedSummary() {
+		repo, err := pc.image.ExtractArtifactoryRepoKey()
+		if err != nil {
+			return err
+		}
+		var imageSha256 string
+		if pc.IsValidateSha() {
+			log.Info("Performing SHA-based validation for Docker push...")
+			imageSha256, err = cm.Id(pc.image)
+			if err != nil {
+				return err
+			}
+			log.Debug("Using image SHA256 for validation: " + imageSha256)
+		}
+		layers, err := containerutils.SearchLayersForDetailedSummary(pc.image, repo, serviceManager, imageSha256)
+		if err != nil {
+			return errorutils.CheckError(fmt.Errorf("failed to search layers for detailed summary: %w", err))
+		}
+		return pc.layersMapToFileTransferDetails(serverDetails.ArtifactoryUrl, layers)
+	}
+
 	repo, err := pc.GetRepo()
 	if err != nil {
 		if !toCollect && strings.Contains(err.Error(), "Artifactory response:  403") {

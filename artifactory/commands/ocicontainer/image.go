@@ -142,12 +142,8 @@ func (image *Image) GetRemoteRepo(serviceManager artifactory.ArtifactoryServices
 	if err != nil {
 		return "", err
 	}
-	var isSecure bool
-	if rtUrl := serviceManager.GetConfig().GetServiceDetails().GetUrl(); strings.HasPrefix(rtUrl, "https") {
-		isSecure = true
-	}
 	// Build the request URL.
-	endpoint := buildRequestUrl(longImageName, imageTag, containerRegistryUrl, isSecure)
+	endpoint := buildRequestUrl(longImageName, imageTag, containerRegistryUrl)
 	artHttpDetails := serviceManager.GetConfig().GetServiceDetails().CreateHttpClientDetails()
 	artHttpDetails.Headers["accept"] = "application/vnd.docker.distribution.manifest.v1+prettyjws, application/json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.index.v1+json"
 	resp, _, err := serviceManager.Client().SendHead(endpoint, &artHttpDetails)
@@ -167,12 +163,9 @@ func (image *Image) GetRemoteRepo(serviceManager artifactory.ArtifactoryServices
 }
 
 // Returns the name of the repository containing the image in Artifactory.
-func buildRequestUrl(longImageName, imageTag, containerRegistryUrl string, https bool) string {
+func buildRequestUrl(longImageName, imageTag, containerRegistryUrl string) string {
 	endpoint := path.Join(containerRegistryUrl, "v2", longImageName, "manifests", imageTag)
-	if https {
-		return "https://" + endpoint
-	}
-	return "http://" + endpoint
+	return "https://" + endpoint
 }
 
 func getStatusForbiddenErrorMessage() string {
@@ -180,4 +173,18 @@ func getStatusForbiddenErrorMessage() string {
 		", Possible causes include: \n- Xray scan in progress \n- Xray policy violations \n- insufficient permissions\n- invalid authentication method\n- disabled anonymous access\n- missing Docker manifests." +
 		"\nPlease verify the above factors to resolve the issue."
 	return errorMessage
+}
+
+// ExtractArtifactoryRepoKey parses the repository key from the image's long name,
+// which is expected to be in the format "<repo-key>/<image-name>:<image-tag>".
+func (image *Image) ExtractArtifactoryRepoKey() (string, error) {
+	imageName, err := image.GetImageLongName()
+	if err != nil {
+		return "", err
+	}
+	repoName, _, ok := strings.Cut(imageName, "/")
+	if ok {
+		return repoName, nil
+	}
+	return "", errorutils.CheckErrorf("invalid image name format. Got '%s'", imageName)
 }
