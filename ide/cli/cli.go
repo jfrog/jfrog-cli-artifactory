@@ -16,12 +16,13 @@ const (
 	IDENameCode      = "code"
 	IDENameCursor    = "cursor"
 	IDENameWindsurf  = "windsurf"
+	IDENameKiro      = "kiro"
 	IDENameJetBrains = "jetbrains"
 	IDENameJB        = "jb"
 )
 
 func getSupportedIDEs() string {
-	return fmt.Sprintf("%s, %s, %s, %s", IDENameVSCode, IDENameCursor, IDENameWindsurf, IDENameJetBrains)
+	return fmt.Sprintf("%s, %s, %s, %s, %s", IDENameVSCode, IDENameCursor, IDENameWindsurf, IDENameKiro, IDENameJetBrains)
 }
 
 func GetCommands() []components.Command {
@@ -49,7 +50,7 @@ func getSetupFlags() []components.Flag {
 		components.NewStringFlag("url-suffix", "Suffix for the URL. Optional.", components.SetMandatoryFalse()),
 
 		// VSCode-specific flags
-		components.NewStringFlag("product-json-path", "Path to VSCode/Cursor/Windsurf product.json file. If not provided, auto-detects installation.", components.SetMandatoryFalse()),
+		components.NewStringFlag("product-json-path", "Path to VSCode/Cursor/Windsurf/Kiro product.json file. If not provided, auto-detects installation.", components.SetMandatoryFalse()),
 		components.NewStringFlag("update-mode", "VSCode update mode: 'default' (auto-update), 'manual' (prompt for updates), or 'none' (disable updates). Only for VSCode-based IDEs.", components.SetMandatoryFalse()),
 	}
 
@@ -71,6 +72,8 @@ func setupCmd(ctx *components.Context) error {
 		return aieditorextensions.SetupCursor(ctx)
 	case IDENameWindsurf:
 		return aieditorextensions.SetupWindsurf(ctx)
+	case IDENameKiro:
+		return aieditorextensions.SetupKiro(ctx)
 	case IDENameJetBrains, IDENameJB:
 		return jetbrains.SetupJetBrains(ctx)
 	default:

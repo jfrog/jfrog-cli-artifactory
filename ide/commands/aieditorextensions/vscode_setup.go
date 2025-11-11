@@ -21,6 +21,11 @@ func SetupWindsurf(c *components.Context) error {
 	return setupVSCodeFork(c, "windsurf")
 }
 
+// SetupKiro configures Kiro to use JFrog Artifactory
+func SetupKiro(c *components.Context) error {
+	return setupVSCodeFork(c, "kiro")
+}
+
 // setupVSCodeFork is a generic setup function for any VSCode-based IDE
 func setupVSCodeFork(c *components.Context, forkName string) error {
 	// Get fork configuration

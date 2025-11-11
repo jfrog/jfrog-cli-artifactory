@@ -10,7 +10,7 @@ func GetArguments() []components.Argument {
 	return []components.Argument{
 		{
 			Name:        "ide-name",
-			Description: "IDE to setup. Supported: vscode, cursor, windsurf, jetbrains",
+			Description: "IDE to setup. Supported: vscode, cursor, windsurf, kiro, jetbrains",
 		},
 		{
 			Name:        "url",

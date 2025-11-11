@@ -84,6 +84,26 @@ var VSCodeForks = map[string]*VSCodeForkConfig{
 		ProductJson: "product.json",
 		SettingsDir: "Windsurf",
 	},
+	"kiro": {
+		Name:        "kiro",
+		DisplayName: "Kiro",
+		InstallPaths: map[string][]string{
+			"darwin": {
+				"/Applications/Kiro.app/Contents/Resources/app",
+				"~/Applications/Kiro.app/Contents/Resources/app",
+			},
+			"windows": {
+				`%LOCALAPPDATA%\Programs\Kiro\resources\app`,
+				`C:\Program Files\Kiro\resources\app`,
+			},
+			"linux": {
+				"/usr/share/kiro/resources/app",
+				"~/.local/share/kiro/resources/app",
+			},
+		},
+		ProductJson: "product.json",
+		SettingsDir: "Kiro",
+	},
 }
 
 func GetVSCodeFork(name string) (*VSCodeForkConfig, bool) {

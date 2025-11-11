@@ -19,6 +19,7 @@ Supported IDEs:
   vscode     Visual Studio Code
   cursor     Cursor IDE
   windsurf   Windsurf IDE
+  kiro       Kiro IDE
   jetbrains  JetBrains IDEs (IntelliJ IDEA, PyCharm, WebStorm, etc.)
 
 Examples:
@@ -31,6 +32,9 @@ Examples:
   # Setup Windsurf
   jf ide setup windsurf --repo-key=windsurf-remote
 
+  # Setup Kiro
+  jf ide setup kiro --repo-key=kiro-remote
+
   # Setup JetBrains   
   jf ide setup jetbrains --repo-key=jetbrains-remote`
 }
@@ -39,7 +43,7 @@ func GetArguments() []components.Argument {
 	return []components.Argument{
 		{
 			Name:        "IDE_NAME",
-			Description: "The name of the IDE to setup. Supported IDEs are 'vscode', 'cursor', 'windsurf', and 'jetbrains'.",
+			Description: "The name of the IDE to setup. Supported IDEs are 'vscode', 'cursor', 'windsurf', 'kiro', and 'jetbrains'.",
 		},
 		{
 			Name:        "SERVICE_URL",

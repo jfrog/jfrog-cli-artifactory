@@ -31,6 +31,12 @@ func TestGetVSCodeFork(t *testing.T) {
 	assert.Equal(t, "windsurf", windsurfConfig.Name)
 	assert.Equal(t, "Windsurf", windsurfConfig.DisplayName)
 
+	// Test getting Kiro config
+	kiroConfig, exists := GetVSCodeFork("kiro")
+	assert.True(t, exists)
+	assert.Equal(t, "kiro", kiroConfig.Name)
+	assert.Equal(t, "Kiro", kiroConfig.DisplayName)
+
 	// Test non-existent fork
 	_, exists = GetVSCodeFork("nonexistent")
 	assert.False(t, exists)
@@ -77,6 +83,11 @@ func TestVSCodeForkCommand_CommandName(t *testing.T) {
 	windsurfConfig, _ := GetVSCodeFork("windsurf")
 	cmd = NewVSCodeForkCommand(windsurfConfig, "", "", "")
 	assert.Equal(t, "setup-windsurf", cmd.CommandName())
+
+	// Test Kiro command name
+	kiroConfig, _ := GetVSCodeFork("kiro")
+	cmd = NewVSCodeForkCommand(kiroConfig, "", "", "")
+	assert.Equal(t, "setup-kiro", cmd.CommandName())
 }
 
 func TestVSCodeForkCommand_SetServerDetails(t *testing.T) {
@@ -271,7 +282,7 @@ func TestVSCodeForkCommand_HandlePermissionError_macOS(t *testing.T) {
 func TestSetupVSCodeFork_AllForks(t *testing.T) {
 	// Test that all registered forks can be retrieved
 	forks := GetSupportedForks()
-	assert.GreaterOrEqual(t, len(forks), 3, "Should have at least 3 forks (vscode, cursor, windsurf)")
+	assert.GreaterOrEqual(t, len(forks), 4, "Should have at least 4 forks (vscode, cursor, windsurf, kiro)")
 
 	// Test that each fork has valid configuration
 	for _, forkName := range forks {
