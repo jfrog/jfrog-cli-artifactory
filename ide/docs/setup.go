@@ -1,6 +1,11 @@
 package docs
 
-import "github.com/jfrog/jfrog-cli-core/v2/plugins/components"
+import (
+	"fmt"
+
+	"github.com/jfrog/jfrog-cli-artifactory/ide/ideconsts"
+	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
+)
 
 func GetDescription() string {
 	return "Setup IDE integration with JFrog Artifactory."
@@ -10,7 +15,7 @@ func GetArguments() []components.Argument {
 	return []components.Argument{
 		{
 			Name:        "ide-name",
-			Description: "IDE to setup. Supported: vscode, cursor, windsurf, kiro, jetbrains",
+			Description: fmt.Sprintf("IDE to setup. Supported: %s", ideconsts.GetSupportedIDEsString()),
 		},
 		{
 			Name:        "url",

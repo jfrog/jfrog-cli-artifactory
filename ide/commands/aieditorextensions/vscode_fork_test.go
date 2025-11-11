@@ -282,7 +282,8 @@ func TestVSCodeForkCommand_HandlePermissionError_macOS(t *testing.T) {
 func TestSetupVSCodeFork_AllForks(t *testing.T) {
 	// Test that all registered forks can be retrieved
 	forks := GetSupportedForks()
-	assert.GreaterOrEqual(t, len(forks), 4, "Should have at least 4 forks (vscode, cursor, windsurf, kiro)")
+	// Expected number of VSCode-based IDE forks
+	assert.GreaterOrEqual(t, len(forks), 4, "Should have at least 4 VSCode-based IDE forks")
 
 	// Test that each fork has valid configuration
 	for _, forkName := range forks {

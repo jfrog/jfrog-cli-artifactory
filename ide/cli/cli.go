@@ -2,28 +2,14 @@ package cli
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/jfrog/jfrog-cli-artifactory/ide/commands/aieditorextensions"
 	"github.com/jfrog/jfrog-cli-artifactory/ide/commands/jetbrains"
 	"github.com/jfrog/jfrog-cli-artifactory/ide/docs"
+	"github.com/jfrog/jfrog-cli-artifactory/ide/ideconsts"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
-
-const (
-	IDENameVSCode    = "vscode"
-	IDENameCode      = "code"
-	IDENameCursor    = "cursor"
-	IDENameWindsurf  = "windsurf"
-	IDENameKiro      = "kiro"
-	IDENameJetBrains = "jetbrains"
-	IDENameJB        = "jb"
-)
-
-func getSupportedIDEs() string {
-	return fmt.Sprintf("%s, %s, %s, %s, %s", IDENameVSCode, IDENameCursor, IDENameWindsurf, IDENameKiro, IDENameJetBrains)
-}
 
 func GetCommands() []components.Command {
 	return []components.Command{
@@ -50,8 +36,8 @@ func getSetupFlags() []components.Flag {
 		components.NewStringFlag("url-suffix", "Suffix for the URL. Optional.", components.SetMandatoryFalse()),
 
 		// VSCode-specific flags
-		components.NewStringFlag("product-json-path", "Path to VSCode/Cursor/Windsurf/Kiro product.json file. If not provided, auto-detects installation.", components.SetMandatoryFalse()),
-		components.NewStringFlag("update-mode", "VSCode update mode: 'default' (auto-update), 'manual' (prompt for updates), or 'none' (disable updates). Only for VSCode-based IDEs.", components.SetMandatoryFalse()),
+		components.NewStringFlag("product-json-path", fmt.Sprintf("Path to %s product.json file. If not provided, auto-detects installation.", ideconsts.GetVSCodeBasedIDEsString()), components.SetMandatoryFalse()),
+		components.NewStringFlag("update-mode", "Update mode: 'default' (auto-update), 'manual' (prompt for updates), or 'none' (disable updates). Only for VSCode-based IDEs.", components.SetMandatoryFalse()),
 	}
 
 	return append(flags, ideSpecificFlags...)
@@ -59,24 +45,24 @@ func getSetupFlags() []components.Flag {
 
 func setupCmd(ctx *components.Context) error {
 	if ctx.GetNumberOfArgs() == 0 {
-		return fmt.Errorf("IDE_NAME is required. Usage: jf ide setup <IDE_NAME>\nSupported IDEs: %s", getSupportedIDEs())
+		return fmt.Errorf("IDE_NAME is required. Usage: jf ide setup <IDE_NAME>\nSupported IDEs: %s", ideconsts.GetSupportedIDEsString())
 	}
 
-	ideName := strings.ToLower(ctx.GetArgumentAt(0))
+	ideName := ctx.GetArgumentAt(0)
 	log.Debug(fmt.Sprintf("Setting up IDE: %s", ideName))
 
 	switch ideName {
-	case IDENameVSCode, IDENameCode:
+	case ideconsts.IDENameVSCode, ideconsts.IDENameCode:
 		return aieditorextensions.SetupVSCode(ctx)
-	case IDENameCursor:
+	case ideconsts.IDENameCursor:
 		return aieditorextensions.SetupCursor(ctx)
-	case IDENameWindsurf:
+	case ideconsts.IDENameWindsurf:
 		return aieditorextensions.SetupWindsurf(ctx)
-	case IDENameKiro:
+	case ideconsts.IDENameKiro:
 		return aieditorextensions.SetupKiro(ctx)
-	case IDENameJetBrains, IDENameJB:
+	case ideconsts.IDENameJetBrains, ideconsts.IDENameJB:
 		return jetbrains.SetupJetBrains(ctx)
 	default:
-		return fmt.Errorf("unsupported IDE: %s. Supported IDEs: %s", ideName, getSupportedIDEs())
+		return fmt.Errorf("unsupported IDE: %s. Supported IDEs: %s", ideName, ideconsts.GetSupportedIDEsString())
 	}
 }
