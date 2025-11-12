@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	ioutils "github.com/jfrog/gofrog/io"
+	"github.com/jfrog/jfrog-client-go/artifactory/services"
+	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"io"
 	"strings"
 	"sync"
@@ -22,21 +25,39 @@ import (
 
 // DockerBuildInfoBuilder is a simplified builder for docker build command
 type DockerBuildInfoBuilder struct {
-	buildName      string
-	buildNumber    string
-	project        string
-	module         string
-	serviceManager artifactory.ArtifactoryServicesManager
-	imageTag       string
-	baseImages     []string
-	isImagePushed  bool
-	configDigest   string
-	cmdArgs        []string
+	buildName         string
+	buildNumber       string
+	project           string
+	module            string
+	serviceManager    artifactory.ArtifactoryServicesManager
+	imageTag          string
+	baseImages        []string
+	isImagePushed     bool
+	configDigest      string
+	cmdArgs           []string
+	repositoryDetails dockerRepositoryDetails
+}
+
+type dockerRepositoryDetails struct {
+	Key                   string `json:"key"`
+	RepoType              string `json:"rclass"`
+	DefaultDeploymentRepo string `json:"defaultDeploymentRepo"`
 }
 
 // NewDockerBuildInfoBuilder creates a new builder for docker build command
 func NewDockerBuildInfoBuilder(buildName, buildNumber, project string, module string, serviceManager artifactory.ArtifactoryServicesManager,
 	imageTag string, baseImages []string, isImagePushed bool, cmdArgs []string) *DockerBuildInfoBuilder {
+
+	biImage := NewImage(imageTag)
+
+	var err error
+	if module == "" {
+		module, err = biImage.GetImageShortNameWithTag()
+		if err != nil {
+			log.Warn("Failed to extract module name from image tag '%s': %s. Using entire image tag as module name.", imageTag, err.Error())
+			module = imageTag
+		}
+	}
 
 	return &DockerBuildInfoBuilder{
 		buildName:      buildName,
@@ -106,6 +127,10 @@ func (dbib *DockerBuildInfoBuilder) Build() error {
 			log.Warn("failed to collect build info for the pushed image: %s", err.Error())
 		}
 		artifacts = dbib.createArtifactsFromResults(resultItems)
+		err = dbib.applyBuildProps(resultItems)
+		if err != nil {
+			log.Warn("failed to apply build info properties to pushed image layers: %s, Skipping....", err.Error())
+		}
 	}
 
 	buildInfo := &buildinfo.BuildInfo{Modules: []buildinfo.Module{{
@@ -123,19 +148,23 @@ func (dbib *DockerBuildInfoBuilder) Build() error {
 	return nil
 }
 
-func (dbib *DockerBuildInfoBuilder) collectArtifactDetailsForImage(imageRef string, includeConfigDetails bool) ([]utils.ResultItem, error) {
-	searchableRepository, err := dbib.getSearchableRepo(imageRef)
+func (dbib *DockerBuildInfoBuilder) collectArtifactDetailsForImage(imageRef string, includeConfigAndManifestDetails bool) ([]utils.ResultItem, error) {
+	err := dbib.getImageRepositoryDetails(imageRef)
 	if err != nil {
 		return []utils.ResultItem{}, err
 	}
-	manifest, err := dbib.fetchManifest(imageRef)
+	searchableRepository, err := dbib.getSearchableRepository()
+	if err != nil {
+		return []utils.ResultItem{}, err
+	}
+	manifest, manifestSha, err := dbib.fetchManifest(imageRef)
 	if err != nil {
 		return []utils.ResultItem{}, err
 	}
 
 	layersSHA := extractLayerSHAs(manifest)
-	if includeConfigDetails {
-		layersSHA = append(layersSHA, manifest.Config.Digest.String())
+	if includeConfigAndManifestDetails {
+		layersSHA = append(layersSHA, manifest.Config.Digest.String(), manifestSha)
 	}
 	resultItems, err := dbib.searchArtifactoryForFilesBySha(layersSHA, searchableRepository)
 	if err != nil {
@@ -146,24 +175,30 @@ func (dbib *DockerBuildInfoBuilder) collectArtifactDetailsForImage(imageRef stri
 }
 
 // fetchManifestAndExtractLayers fetches manifest from registry
-func (dbib *DockerBuildInfoBuilder) fetchManifest(imageRef string) (*v1.Manifest, error) {
+func (dbib *DockerBuildInfoBuilder) fetchManifest(imageRef string) (imageManifest *v1.Manifest, manifestSha string, err error) {
 	// Parse the image reference
 	ref, err := name.ParseReference(imageRef)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	image, err := remote.Image(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	imageManifest, err := image.Manifest()
+	imageManifest, err = image.Manifest()
 	if err != nil {
-		return nil, errorutils.CheckErrorf("failed to get manifest from image: %w", err)
+		return nil, "", errorutils.CheckErrorf("failed to get manifest from image: %w", err)
 	}
 
-	return imageManifest, nil
+	manifestShaHash, err := image.Digest()
+	if err != nil {
+		log.Warn("failed to get manifest sha from image: %s", err.Error())
+	}
+	manifestSha = manifestShaHash.String()
+
+	return imageManifest, manifestSha, nil
 }
 
 // extractLayerSHAs extracts layer SHAs from the manifest
@@ -198,7 +233,7 @@ func (dbib *DockerBuildInfoBuilder) searchArtifactoryForFilesBySha(shaCollection
     }
   ]
 })
-.include("name", "repo", "sha256", "actual_sha1", "actual_md5")`,
+.include("name", "repo", "path", "sha256", "actual_sha1", "actual_md5")`,
 		repository, strings.Join(shaConditions, ",\n        "))
 
 	log.Debug("Searching Artifactory with AQL:\n" + aqlQuery)
@@ -276,18 +311,30 @@ func (dbib *DockerBuildInfoBuilder) createArtifactsFromResults(results []utils.R
 	return artifacts
 }
 
-func (dbib *DockerBuildInfoBuilder) getSearchableRepo(imageRef string) (string, error) {
+func (dbib *DockerBuildInfoBuilder) getImageRepositoryDetails(imageRef string) error {
 	image := NewImage(imageRef)
 	repository, err := image.GetRemoteRepo(dbib.serviceManager)
 	if err != nil {
-		return "", err
+		return err
 	}
-	repositoryBuilder, err := newBuildInfoBuilder(image, repository, dbib.buildName, dbib.buildNumber, dbib.project, dbib.serviceManager)
+
+	repositoryDetails := &dockerRepositoryDetails{}
+	err = dbib.serviceManager.GetRepository(repository, &repositoryDetails)
 	if err != nil {
-		return "", err
+		return err
 	}
-	searchableRepo := repositoryBuilder.getSearchableRepo()
-	return searchableRepo, nil
+	dbib.repositoryDetails = *repositoryDetails
+	return nil
+}
+
+func (dbib *DockerBuildInfoBuilder) getSearchableRepository() (string, error) {
+	if dbib.repositoryDetails.RepoType == "" || dbib.repositoryDetails.Key == "" {
+		return "", errorutils.CheckErrorf("repository details are incomplete: %+v", dbib.repositoryDetails)
+	}
+	if dbib.repositoryDetails.RepoType == "remote" {
+		return dbib.repositoryDetails.Key + "-cache", nil
+	}
+	return dbib.repositoryDetails.Key, nil
 }
 
 func (dbib *DockerBuildInfoBuilder) getBiProperties() map[string]string {
@@ -302,4 +349,42 @@ func (dbib *DockerBuildInfoBuilder) getBiProperties() map[string]string {
 		properties["docker.build.command"] = strings.Join(dbib.cmdArgs, " ")
 	}
 	return properties
+}
+
+func (dbib *DockerBuildInfoBuilder) applyBuildProps(items []utils.ResultItem) (err error) {
+	props, err := build.CreateBuildProperties(dbib.buildName, dbib.buildNumber, dbib.project)
+	if err != nil {
+		return
+	}
+	pushedRepo := dbib.getPushedRepo()
+	filteredLayers := dbib.filterLayersFromVirtualRepo(items, pushedRepo)
+	pathToFile, err := writeLayersToFile(filteredLayers)
+	if err != nil {
+		return
+	}
+	reader := content.NewContentReader(pathToFile, content.DefaultKey)
+	defer ioutils.Close(reader, &err)
+	_, err = dbib.serviceManager.SetProps(services.PropsParams{Reader: reader, Props: props})
+	return err
+}
+
+// we need to keep in mind that pushing to remote repositories is not allowed
+// also pushing to a virtual repository without a default deployment repo is not allowed
+func (dbib *DockerBuildInfoBuilder) getPushedRepo() string {
+	if dbib.repositoryDetails.RepoType == "virtual" {
+		return dbib.repositoryDetails.DefaultDeploymentRepo
+	}
+	return dbib.repositoryDetails.Key
+}
+
+// it is necessary to filter out layers that are only available as part of the default deployment repo
+// since layers can be shared from a repository without writable permissions
+func (dbib *DockerBuildInfoBuilder) filterLayersFromVirtualRepo(items []utils.ResultItem, pushedRepo string) []utils.ResultItem {
+	filteredLayers := make([]utils.ResultItem, 0, len(items))
+	for _, item := range items {
+		if item.Repo == pushedRepo {
+			filteredLayers = append(filteredLayers, item)
+		}
+	}
+	return filteredLayers
 }
