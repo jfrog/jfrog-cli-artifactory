@@ -40,4 +40,35 @@ func TestSplitMultiTagDockerImageStringWithComma(t *testing.T) {
 
 		assert.Equal(t, 0, len(images))
 	})
+
+	t.Run("Docker Buildx Format - No Spaces", func(t *testing.T) {
+		// This is the exact format from docker buildx metadata file (issue #197)
+		img := container.NewImage("myorg.jfrog.io/myrepo/jfrog/myimage:tag1,myorg.jfrog.io/myrepo/jfrog/myimage:tag2")
+		images := buildCreate.SplitMultiTagDockerImageStringWithComma(img)
+
+		assert.Equal(t, 2, len(images))
+		assert.Equal(t, "myorg.jfrog.io/myrepo/jfrog/myimage:tag1", images[0].Name())
+		assert.Equal(t, "myorg.jfrog.io/myrepo/jfrog/myimage:tag2", images[1].Name())
+	})
+
+	t.Run("Multiple Tags With Registry", func(t *testing.T) {
+		img := container.NewImage("registry.example.com:5000/repo/image:v1,registry.example.com:5000/repo/image:v2,registry.example.com:5000/repo/image:latest")
+		images := buildCreate.SplitMultiTagDockerImageStringWithComma(img)
+
+		assert.Equal(t, 3, len(images))
+		assert.Equal(t, "registry.example.com:5000/repo/image:v1", images[0].Name())
+		assert.Equal(t, "registry.example.com:5000/repo/image:v2", images[1].Name())
+		assert.Equal(t, "registry.example.com:5000/repo/image:latest", images[2].Name())
+	})
+
+	t.Run("Mixed Spaces Format", func(t *testing.T) {
+		// Some tags with spaces, some without
+		img := container.NewImage("repo/image:tag1, repo/image:tag2,repo/image:tag3")
+		images := buildCreate.SplitMultiTagDockerImageStringWithComma(img)
+
+		assert.Equal(t, 3, len(images))
+		assert.Equal(t, "repo/image:tag1", images[0].Name())
+		assert.Equal(t, "repo/image:tag2", images[1].Name())
+		assert.Equal(t, "repo/image:tag3", images[2].Name())
+	})
 }

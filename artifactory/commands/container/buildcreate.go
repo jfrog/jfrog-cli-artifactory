@@ -1,9 +1,10 @@
 package container
 
 import (
-	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"strings"
 
+	"github.com/jfrog/jfrog-client-go/artifactory"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	container "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -49,16 +50,28 @@ func (bdc *BuildDockerCreateCommand) Run() error {
 	if err != nil {
 		return err
 	}
-	repo, err := bdc.GetRepo()
-	if err != nil {
-		return err
-	}
 	if err = build.SaveBuildGeneralDetails(buildName, buildNumber, project); err != nil {
 		return err
 	}
 
 	// Handle multiple tags from comma-separated image name
 	images := SplitMultiTagDockerImageStringWithComma(bdc.image)
+	if len(images) == 0 {
+		return errorutils.CheckErrorf("no valid images found in image file")
+	}
+	// Get repo - try GetRepo() first (will return immediately if repo is already set via SetRepo())
+	// If it fails because repo is not set and image has commas, get it from the first split image
+	repo, err := bdc. GetRepo()
+	if err != nil {
+		// Repo not set or GetRepo() failed (possibly due to comma-separated image name),
+		// get it from the first split image (all tags should be in the same repo)
+		repo, err = bdc.getRepoFromImage(images[0], serviceManager)
+		if err != nil {
+			return err
+		}
+		// Cache the repo for subsequent calls
+		bdc.SetRepo(repo)
+	}
 	for _, image := range images {
 		builder, err := container.NewRemoteAgentBuildInfoBuilder(image, repo, buildName, buildNumber, project, serviceManager, bdc.manifestSha256)
 		if err != nil {
@@ -81,6 +94,11 @@ func (bdc *BuildDockerCreateCommand) CommandName() string {
 
 func (bdc *BuildDockerCreateCommand) ServerDetails() (*config.ServerDetails, error) {
 	return bdc.serverDetails, nil
+}
+
+// getRepoFromImage gets the repository name from a single image using the service manager
+func (bdc *BuildDockerCreateCommand) getRepoFromImage(image *container.Image, serviceManager artifactory.ArtifactoryServicesManager) (string, error) {
+	return image.GetRemoteRepo(serviceManager)
 }
 
 func SplitMultiTagDockerImageStringWithComma(image *container.Image) []*container.Image {
