@@ -59,20 +59,22 @@ func (bdc *BuildDockerCreateCommand) Run() error {
 	if len(images) == 0 {
 		return errorutils.CheckErrorf("no valid images found in image file")
 	}
-	// Get repo - try GetRepo() first (will return immediately if repo is already set via SetRepo())
-	// If it fails because repo is not set and image has commas, get it from the first split image
-	repo, err := bdc. GetRepo()
-	if err != nil {
-		// Repo not set or GetRepo() failed (possibly due to comma-separated image name),
-		// get it from the first split image (all tags should be in the same repo)
-		repo, err = bdc.getRepoFromImage(images[0], serviceManager)
-		if err != nil {
-			return err
-		}
-		// Cache the repo for subsequent calls
-		bdc.SetRepo(repo)
-	}
+	
+	// Get the repo argument (if provided) to use as fallback
+	// The repo from each image takes precedence to handle cases where tags might be in different repositories
+	fallbackRepo, _ := bdc.GetRepo()
+	
 	for _, image := range images {
+		// Always try to get repo from the image first (takes precedence)
+		repo, err := bdc.getRepoFromImage(image, serviceManager)
+		if err != nil {
+			// If getting repo from image fails, fall back to the CLI argument
+			if fallbackRepo == "" {
+				return errorutils.CheckErrorf("failed to get repository for image '%s': %s", image.Name(), err.Error())
+			}
+			repo = fallbackRepo
+		}
+		
 		builder, err := container.NewRemoteAgentBuildInfoBuilder(image, repo, buildName, buildNumber, project, serviceManager, bdc.manifestSha256)
 		if err != nil {
 			return errorutils.CheckErrorf("build info creation failed: %s", err.Error())

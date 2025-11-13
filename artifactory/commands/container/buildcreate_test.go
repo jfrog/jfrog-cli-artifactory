@@ -71,4 +71,16 @@ func TestSplitMultiTagDockerImageStringWithComma(t *testing.T) {
 		assert.Equal(t, "repo/image:tag2", images[1].Name())
 		assert.Equal(t, "repo/image:tag3", images[2].Name())
 	})
+
+	t.Run("Tags In Different Repositories", func(t *testing.T) {
+		// Test case where tags are in different repositories
+		// This tests the scenario where repo from image should take precedence
+		img := container.NewImage("myorg.jfrog.io/repo1/image:tag1,myorg.jfrog.io/repo2/image:tag2,myorg.jfrog.io/repo1/image:tag3")
+		images := buildCreate.SplitMultiTagDockerImageStringWithComma(img)
+
+		assert.Equal(t, 3, len(images))
+		assert.Equal(t, "myorg.jfrog.io/repo1/image:tag1", images[0].Name())
+		assert.Equal(t, "myorg.jfrog.io/repo2/image:tag2", images[1].Name())
+		assert.Equal(t, "myorg.jfrog.io/repo1/image:tag3", images[2].Name())
+	})
 }
