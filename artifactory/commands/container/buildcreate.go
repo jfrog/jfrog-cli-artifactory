@@ -3,12 +3,12 @@ package container
 import (
 	"strings"
 
-	"github.com/jfrog/jfrog-client-go/artifactory"
-	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	container "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/artifactory"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
 type BuildDockerCreateCommand struct {
@@ -59,11 +59,11 @@ func (bdc *BuildDockerCreateCommand) Run() error {
 	if len(images) == 0 {
 		return errorutils.CheckErrorf("no valid images found in image file")
 	}
-	
+
 	// Get the repo argument (if provided) to use as fallback
 	// The repo from each image takes precedence to handle cases where tags might be in different repositories
 	fallbackRepo, _ := bdc.GetRepo()
-	
+
 	for _, image := range images {
 		// Always try to get repo from the image first (takes precedence)
 		repo, err := bdc.getRepoFromImage(image, serviceManager)
@@ -74,7 +74,7 @@ func (bdc *BuildDockerCreateCommand) Run() error {
 			}
 			repo = fallbackRepo
 		}
-		
+
 		builder, err := container.NewRemoteAgentBuildInfoBuilder(image, repo, buildName, buildNumber, project, serviceManager, bdc.manifestSha256)
 		if err != nil {
 			return errorutils.CheckErrorf("build info creation failed: %s", err.Error())

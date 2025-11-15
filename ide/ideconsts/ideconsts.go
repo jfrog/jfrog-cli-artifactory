@@ -39,4 +39,3 @@ func GetSupportedIDEsString() string {
 func GetVSCodeBasedIDEsString() string {
 	return strings.Join(VSCodeBasedIDEs, "/")
 }
-
