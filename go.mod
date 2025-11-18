@@ -6,7 +6,7 @@ require (
 	github.com/c-bata/go-prompt v0.2.6
 	github.com/forPelevin/gomoji v1.4.1
 	github.com/jedib0t/go-pretty/v6 v6.6.8
-	github.com/jfrog/build-info-go v1.12.3
+	github.com/jfrog/build-info-go v1.12.4
 	github.com/jfrog/gofrog v1.7.6
 	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251015045218-1a38c9e47097
 	github.com/jfrog/jfrog-client-go v1.55.1-0.20251015041910-ef0fe832b111
