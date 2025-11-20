@@ -9,6 +9,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 type BuildDockerCreateCommand struct {
@@ -73,6 +74,9 @@ func (bdc *BuildDockerCreateCommand) Run() error {
 				return errorutils.CheckErrorf("failed to get repository for image '%s': %s", image.Name(), err.Error())
 			}
 			repo = fallbackRepo
+		} else {
+			// Repository extracted from image name takes precedence over the mandatory CLI argument
+			log.Debug("Repository extracted from image name '%s': '%s'. The mandatory repository CLI argument is not used.", image.Name(), repo)
 		}
 
 		builder, err := container.NewRemoteAgentBuildInfoBuilder(image, repo, buildName, buildNumber, project, serviceManager, bdc.manifestSha256)
