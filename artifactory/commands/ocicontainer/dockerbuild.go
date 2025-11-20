@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"sync"
+
 	ioutils "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
-	"io"
-	"strings"
-	"sync"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -86,7 +88,7 @@ func (dbib *DockerBuildInfoBuilder) Build() error {
 		wg.Add(1)
 		go func(img string) {
 			defer wg.Done()
-			resultItems, err := dbib.collectArtifactDetailsForImage(img, false)
+			resultItems, err := dbib.collectArtifactDetailsForImage(img)
 			if err != nil {
 				errChan <- err
 				return
@@ -122,7 +124,7 @@ func (dbib *DockerBuildInfoBuilder) Build() error {
 	// need to collect artifacts if the image is pushed
 	var artifacts []buildinfo.Artifact
 	if dbib.isImagePushed {
-		resultItems, err := dbib.collectArtifactDetailsForImage(dbib.imageTag, true)
+		resultItems, err := dbib.collectArtifactDetailsForImage(dbib.imageTag)
 		if err != nil {
 			log.Warn("failed to collect build info for the pushed image: %s", err.Error())
 		}
@@ -148,7 +150,7 @@ func (dbib *DockerBuildInfoBuilder) Build() error {
 	return nil
 }
 
-func (dbib *DockerBuildInfoBuilder) collectArtifactDetailsForImage(imageRef string, includeConfigAndManifestDetails bool) ([]utils.ResultItem, error) {
+func (dbib *DockerBuildInfoBuilder) collectArtifactDetailsForImage(imageRef string) ([]utils.ResultItem, error) {
 	err := dbib.getImageRepositoryDetails(imageRef)
 	if err != nil {
 		return []utils.ResultItem{}, err
@@ -162,11 +164,17 @@ func (dbib *DockerBuildInfoBuilder) collectArtifactDetailsForImage(imageRef stri
 		return []utils.ResultItem{}, err
 	}
 
-	layersSHA := extractLayerSHAs(manifest)
-	if includeConfigAndManifestDetails {
-		layersSHA = append(layersSHA, manifest.Config.Digest.String(), manifestSha)
-	}
+	layersSHA := cleanShaString(append(extractLayerSHAs(manifest), manifest.Config.Digest.String(), manifestSha))
 	resultItems, err := dbib.searchArtifactoryForFilesBySha(layersSHA, searchableRepository)
+
+	// this can happen in case of artifactory storing marker layers and foreign layers instead of actual layer blobs
+	var markerLayerShas []string
+	if (len(layersSHA) > len(resultItems)) && (dbib.repositoryDetails.RepoType == "remote") {
+		markerLayerShas = getForeignLayerShaFromSearcResult(resultItems, layersSHA)
+		markerLayerResultItems := handleMarkerLayersForDockerBuild(markerLayerShas, dbib.serviceManager, dbib.repositoryDetails.Key, imageRef)
+		resultItems = append(resultItems, markerLayerResultItems...)
+	}
+
 	if err != nil {
 		return []utils.ResultItem{}, err
 	}
@@ -218,8 +226,7 @@ func (dbib *DockerBuildInfoBuilder) searchArtifactoryForFilesBySha(shaCollection
 
 	var shaConditions []string
 	for _, sha := range shaCollection {
-		cleanSha := strings.TrimPrefix(sha, "sha256:")
-		shaConditions = append(shaConditions, fmt.Sprintf(`{"sha256": {"$eq": "%s"}}`, cleanSha))
+		shaConditions = append(shaConditions, fmt.Sprintf(`{"sha256": {"$eq": "%s"}}`, sha))
 	}
 
 	// Build AQL query with $and and $or operators
@@ -387,4 +394,106 @@ func (dbib *DockerBuildInfoBuilder) filterLayersFromVirtualRepo(items []utils.Re
 		}
 	}
 	return filteredLayers
+}
+
+// cleanShaString removes the "sha256:" prefix from each string in the slice.
+func cleanShaString(shas []string) []string {
+	result := make([]string, len(shas))
+	for i, sha := range shas {
+		result[i] = strings.TrimPrefix(sha, "sha256:")
+	}
+	return result
+}
+
+func getForeignLayerShaFromSearcResult(searchResults []utils.ResultItem, layerShas []string) []string {
+	// Create a set of SHA256 values from searchResults for efficient lookup
+	searchResultShas := make(map[string]bool, len(searchResults))
+	for _, result := range searchResults {
+		if result.Sha256 != "" {
+			searchResultShas[result.Sha256] = true
+		}
+	}
+
+	var foreignLayerShas []string
+	for _, layerSha := range layerShas {
+		// Return SHA if it's in layerShas but NOT in searchResults
+		if !searchResultShas[layerSha] {
+			foreignLayerShas = append(foreignLayerShas, layerSha)
+		}
+	}
+	return foreignLayerShas
+}
+
+// When a client tries to pull an image from a remote repository in Artifactory and the client has some the layers cached locally on the disk,
+// then Artifactory will not download these layers into the remote repository cache. Instead, it will mark the layer artifacts with .marker suffix files in the remote cache.
+// This function download all the marker layers into the remote cache repository concurrently using goroutines.
+// Returns a slice of ResultItems populated with checksums and filenames from HTTP response headers.
+func handleMarkerLayersForDockerBuild(markerLayerShas []string, serviceManager artifactory.ArtifactoryServicesManager, remoteRepo, imageRef string) []utils.ResultItem {
+	if len(markerLayerShas) == 0 {
+		return nil
+	}
+	image := NewImage(imageRef)
+	imageName, err := image.GetImageShortName()
+	if err != nil {
+		log.Warn("Failed to extract image name from %s: %s", imageRef, err.Error())
+		return nil
+	}
+	baseUrl := serviceManager.GetConfig().GetServiceDetails().GetUrl()
+
+	// Download marker layers concurrently and collect results using channels
+	var wg sync.WaitGroup
+	resultChan := make(chan *utils.ResultItem, len(markerLayerShas))
+
+	for _, layerSha := range markerLayerShas {
+		wg.Add(1)
+		go func(sha string) {
+			defer wg.Done()
+			resultItem := downloadSingleMarkerLayer(sha, remoteRepo, imageName, baseUrl, serviceManager)
+			if resultItem != nil {
+				resultChan <- resultItem
+			}
+		}(layerSha)
+	}
+
+	// Wait for all goroutines to complete, then close channel
+	wg.Wait()
+	close(resultChan)
+
+	// Collect all results from channel
+	resultItems := make([]utils.ResultItem, 0, len(markerLayerShas))
+	for resultItem := range resultChan {
+		resultItems = append(resultItems, *resultItem)
+	}
+	return resultItems
+}
+
+// downloadSingleMarkerLayer downloads a single marker layer into the remote cache repository.
+// Returns a ResultItem populated with checksums and filename extracted from HTTP response headers.
+func downloadSingleMarkerLayer(layerSha, remoteRepo, imageName, baseUrl string, serviceManager artifactory.ArtifactoryServicesManager) *utils.ResultItem {
+	log.Debug(fmt.Sprintf("Downloading %s layer into remote repository cache...", layerSha))
+	endpoint := "api/docker/" + remoteRepo + "/v2/" + imageName + "/blobs/" + "sha256:" + layerSha
+	clientDetails := serviceManager.GetConfig().GetServiceDetails().CreateHttpClientDetails()
+
+	resp, body, err := serviceManager.Client().SendHead(baseUrl+endpoint, &clientDetails)
+	if err != nil {
+		log.Warn("Skipping adding layer %s to build info. Failed to download layer in cache. Error: %s", layerSha, err.Error())
+		return nil
+	}
+	if err = errorutils.CheckResponseStatusWithBody(resp, body, http.StatusOK); err != nil {
+		log.Warn("Skipping adding layer %s to build info. Failed to download layer in cache. Error: %s, httpStatus: %d", layerSha, err.Error(), resp.StatusCode)
+		return nil
+	}
+
+	// Extract checksums and filename from HTTP response headers and populate ResultItem
+	// we cannot populate the Path field since we don't know the exact path of the layer in the artifactory
+	resultItem := &utils.ResultItem{
+		Actual_Sha1: resp.Header.Get("X-Checksum-Sha1"),
+		Actual_Md5:  resp.Header.Get("X-Checksum-Md5"),
+		Sha256:      resp.Header.Get("X-Checksum-Sha256"),
+		Name:        resp.Header.Get("X-Artifactory-Filename"),
+		Repo:        remoteRepo + "-cache",
+	}
+
+	log.Debug(fmt.Sprintf("Collected checksums for layer %s - SHA1: %s, SHA256: %s, MD5: %s, Filename: %s", layerSha, resultItem.Actual_Sha1, resultItem.Sha256, resultItem.Actual_Md5, resultItem.Name))
+	return resultItem
 }
