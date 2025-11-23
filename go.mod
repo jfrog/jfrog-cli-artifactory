@@ -1,21 +1,21 @@
 module github.com/jfrog/jfrog-cli-artifactory
 
-go 1.24.6
+go 1.25.4
 
 require (
 	github.com/c-bata/go-prompt v0.2.6
 	github.com/forPelevin/gomoji v1.4.1
 	github.com/google/go-containerregistry v0.20.3
 	github.com/jedib0t/go-pretty/v6 v6.6.8
-	github.com/jfrog/build-info-go v1.12.2
+	github.com/jfrog/build-info-go v1.12.4
 	github.com/jfrog/gofrog v1.7.6
 	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251015045218-1a38c9e47097
 	github.com/jfrog/jfrog-client-go v1.55.1-0.20251015041910-ef0fe832b111
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/exp v0.0.0-20250911091902-df9299821621
-	golang.org/x/mod v0.28.0
+	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546
+	golang.org/x/mod v0.29.0
 	gopkg.in/ini.v1 v1.67.0
 )
 
@@ -98,9 +98,9 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/crypto v0.43.0 // indirect
-	golang.org/x/sync v0.17.0 // indirect
-	golang.org/x/sys v0.37.0 // indirect
-	golang.org/x/term v0.36.0 // indirect
+	golang.org/x/sync v0.18.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/term v0.37.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
@@ -108,7 +108,7 @@ require (
 
 //replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251015045218-1a38c9e47097
 
-replace github.com/jfrog/jfrog-client-go => github.com/jfrog/jfrog-client-go v1.55.1-0.20251106114658-e01e86b037c8
+replace github.com/jfrog/jfrog-client-go => github.com/fluxxBot/jfrog-client-go v1.50.1-0.20251123171544-0923d2225437
 
 // replace github.com/jfrog/build-info-go => github.com/jfrog/build-info-go v1.8.9-0.20251029074625-97faa661f1d4
 

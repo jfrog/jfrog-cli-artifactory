@@ -189,7 +189,7 @@ func (loginCmd *LoginCmd) RunCmd() error {
 
 // First we'll try to log in assuming a proxy-less tag (e.g. "registry-address/docker-repo/image:ver").
 // If fails, we will try assuming a reverse proxy tag (e.g. "registry-address-docker-repo/image:ver").
-func ContainerManagerLogin(imageRegistry string, config *ContainerManagerLoginConfig, containerManager ContainerManagerType) error {
+func ContainerManagerLogin(imageRegistry string, config *ContainerManagerLoginConfig, containerManager ContainerManagerType, printConsoleError bool) error {
 	username := config.ServerDetails.User
 	password := config.ServerDetails.Password
 	// If access-token exists, perform login with it.
@@ -209,11 +209,18 @@ func ContainerManagerLogin(imageRegistry string, config *ContainerManagerLoginCo
 	log.Debug(containerManager.String()+" login while assuming proxy-less failed:", err)
 	indexOfSlash := strings.Index(imageRegistry, "/")
 	if indexOfSlash < 0 {
+		if printConsoleError {
+			log.Warn("error  rec: ", err)
+			return err
+		}
 		return errorutils.CheckErrorf(LoginFailureMessage, containerManager.String(), imageRegistry, containerManager.String())
 	}
 	cmd = &LoginCmd{DockerRegistry: imageRegistry[:indexOfSlash], Username: config.ServerDetails.User, Password: config.ServerDetails.Password}
 	err = cmd.RunCmd()
 	if err != nil {
+		if printConsoleError {
+			return err
+		}
 		// Login failed for both attempts
 		return errorutils.CheckErrorf(LoginFailureMessage,
 			containerManager.String(), fmt.Sprintf("%s, %s", imageRegistry, imageRegistry[:indexOfSlash]), containerManager.String()+" "+err.Error())

@@ -124,6 +124,7 @@ func (dbib *DockerBuildInfoBuilder) Build() error {
 	// need to collect artifacts if the image is pushed
 	var artifacts []buildinfo.Artifact
 	if dbib.isImagePushed {
+		log.Debug("Building artifacts for the pushed image", dbib.imageTag)
 		resultItems, err := dbib.collectArtifactDetailsForImage(dbib.imageTag)
 		if err != nil {
 			log.Warn("failed to collect build info for the pushed image: %s", err.Error())
@@ -151,6 +152,7 @@ func (dbib *DockerBuildInfoBuilder) Build() error {
 }
 
 func (dbib *DockerBuildInfoBuilder) collectArtifactDetailsForImage(imageRef string) ([]utils.ResultItem, error) {
+	log.Debug("Collecting artifact details for image: ", imageRef)
 	err := dbib.getImageRepositoryDetails(imageRef)
 	if err != nil {
 		return []utils.ResultItem{}, err
@@ -170,7 +172,7 @@ func (dbib *DockerBuildInfoBuilder) collectArtifactDetailsForImage(imageRef stri
 	// this can happen in case of artifactory storing marker layers and foreign layers instead of actual layer blobs
 	var markerLayerShas []string
 	if (len(layersSHA) > len(resultItems)) && (dbib.repositoryDetails.RepoType == "remote") {
-		markerLayerShas = getForeignLayerShaFromSearcResult(resultItems, layersSHA)
+		markerLayerShas = getForeignLayerShaFromSearchResult(resultItems, layersSHA)
 		markerLayerResultItems := handleMarkerLayersForDockerBuild(markerLayerShas, dbib.serviceManager, dbib.repositoryDetails.Key, imageRef)
 		resultItems = append(resultItems, markerLayerResultItems...)
 	}
@@ -184,6 +186,7 @@ func (dbib *DockerBuildInfoBuilder) collectArtifactDetailsForImage(imageRef stri
 
 // fetchManifestAndExtractLayers fetches manifest from registry
 func (dbib *DockerBuildInfoBuilder) fetchManifest(imageRef string) (imageManifest *v1.Manifest, manifestSha string, err error) {
+	log.Debug("Fetching manifest for image")
 	// Parse the image reference
 	ref, err := name.ParseReference(imageRef)
 	if err != nil {
@@ -220,6 +223,7 @@ func extractLayerSHAs(manifest *v1.Manifest) []string {
 
 // searchArtifactoryForFilesBySha searches for layers and config by SHA using AQL
 func (dbib *DockerBuildInfoBuilder) searchArtifactoryForFilesBySha(shaCollection []string, repository string) ([]utils.ResultItem, error) {
+	log.Debug("Searching artifactory for files using shas: ", strings.Join(shaCollection, ", "))
 	if len(shaCollection) == 0 {
 		return nil, nil
 	}
@@ -242,8 +246,6 @@ func (dbib *DockerBuildInfoBuilder) searchArtifactoryForFilesBySha(shaCollection
 })
 .include("name", "repo", "path", "sha256", "actual_sha1", "actual_md5")`,
 		repository, strings.Join(shaConditions, ",\n        "))
-
-	log.Debug("Searching Artifactory with AQL:\n" + aqlQuery)
 
 	// Execute AQL search
 	reader, err := dbib.serviceManager.Aql(aqlQuery)
@@ -322,7 +324,12 @@ func (dbib *DockerBuildInfoBuilder) getImageRepositoryDetails(imageRef string) e
 	image := NewImage(imageRef)
 	repository, err := image.GetRemoteRepo(dbib.serviceManager)
 	if err != nil {
-		return err
+		imageRegistry, err := image.GetRegistry()
+		if err != nil {
+			log.Warn("Failed to get registry from image")
+		}
+		return errorutils.CheckErrorf("Failed collecting repository details of image: %s from registry %s with error: %s",
+			imageRef, imageRegistry, err.Error())
 	}
 
 	repositoryDetails := &dockerRepositoryDetails{}
@@ -371,7 +378,7 @@ func (dbib *DockerBuildInfoBuilder) applyBuildProps(items []utils.ResultItem) (e
 	}
 	reader := content.NewContentReader(pathToFile, content.DefaultKey)
 	defer ioutils.Close(reader, &err)
-	_, err = dbib.serviceManager.SetProps(services.PropsParams{Reader: reader, Props: props})
+	_, err = dbib.serviceManager.SetProps(services.PropsParams{Reader: reader, Props: props, UseDebugLogs: true})
 	return err
 }
 
@@ -405,7 +412,7 @@ func cleanShaString(shas []string) []string {
 	return result
 }
 
-func getForeignLayerShaFromSearcResult(searchResults []utils.ResultItem, layerShas []string) []string {
+func getForeignLayerShaFromSearchResult(searchResults []utils.ResultItem, layerShas []string) []string {
 	// Create a set of SHA256 values from searchResults for efficient lookup
 	searchResultShas := make(map[string]bool, len(searchResults))
 	for _, result := range searchResults {
@@ -429,6 +436,7 @@ func getForeignLayerShaFromSearcResult(searchResults []utils.ResultItem, layerSh
 // This function download all the marker layers into the remote cache repository concurrently using goroutines.
 // Returns a slice of ResultItems populated with checksums and filenames from HTTP response headers.
 func handleMarkerLayersForDockerBuild(markerLayerShas []string, serviceManager artifactory.ArtifactoryServicesManager, remoteRepo, imageRef string) []utils.ResultItem {
+	log.Debug("Handling marker layers for shas: ", strings.Join(markerLayerShas, ", "))
 	if len(markerLayerShas) == 0 {
 		return nil
 	}
@@ -470,7 +478,7 @@ func handleMarkerLayersForDockerBuild(markerLayerShas []string, serviceManager a
 // downloadSingleMarkerLayer downloads a single marker layer into the remote cache repository.
 // Returns a ResultItem populated with checksums and filename extracted from HTTP response headers.
 func downloadSingleMarkerLayer(layerSha, remoteRepo, imageName, baseUrl string, serviceManager artifactory.ArtifactoryServicesManager) *utils.ResultItem {
-	log.Debug(fmt.Sprintf("Downloading %s layer into remote repository cache...", layerSha))
+	log.Debug(fmt.Sprintf("Downloading marker %s layer into remote repository cache...", layerSha))
 	endpoint := "api/docker/" + remoteRepo + "/v2/" + imageName + "/blobs/" + "sha256:" + layerSha
 	clientDetails := serviceManager.GetConfig().GetServiceDetails().CreateHttpClientDetails()
 

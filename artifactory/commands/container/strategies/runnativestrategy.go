@@ -49,6 +49,7 @@ func (s *RunNativeStrategy) Execute(cmdParams []string, buildConfig *build.Build
 }
 
 func (s *RunNativeStrategy) collectBuildInfo(cmdParams []string, buildConfig *build.BuildConfiguration) error {
+	log.Info("Collecting build info...")
 	if s.dockerBuildOptions.ImageTag == "" {
 		log.Warn("Could not extract image tag from build command")
 		return nil

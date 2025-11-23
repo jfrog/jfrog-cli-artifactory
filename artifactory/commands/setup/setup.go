@@ -432,6 +432,7 @@ func (sc *SetupCommand) configureContainer() error {
 		strings.TrimSuffix(urlWithoutScheme, "/"),
 		&container.ContainerManagerLoginConfig{ServerDetails: sc.serverDetails},
 		containerManagerType,
+		false,
 	); err != nil {
 		return fmt.Errorf("failed to login to container registry: %w", err)
 	}

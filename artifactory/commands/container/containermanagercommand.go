@@ -10,6 +10,7 @@ type ContainerCommand struct {
 	ContainerCommandBase
 	skipLogin            bool
 	cmdParams            []string
+	printConsoleError    bool
 	containerManagerType container.ContainerManagerType
 }
 
@@ -26,6 +27,11 @@ func (cm *ContainerCommand) SetSkipLogin(skipLogin bool) *ContainerCommand {
 
 func (cm *ContainerCommand) SetCmdParams(cmdParams []string) *ContainerCommand {
 	cm.cmdParams = cmdParams
+	return cm
+}
+
+func (cm *ContainerCommand) SetPrintConsoleError(printConsoleError bool) *ContainerCommand {
+	cm.printConsoleError = printConsoleError
 	return cm
 }
 
@@ -51,7 +57,7 @@ func (cm *ContainerCommand) PerformLogin(serverDetails *config.ServerDetails, co
 				return err
 			}
 		}
-		return container.ContainerManagerLogin(imageRegistry, loginConfig, containerManagerType)
+		return container.ContainerManagerLogin(imageRegistry, loginConfig, containerManagerType, cm.printConsoleError)
 	}
 	return nil
 }
