@@ -9,7 +9,7 @@ def allowInsecure = gradleVersion >= GradleVersion.version("6.2") && artifactory
 
 void configureMavenRepo(repositories, String rtUrl, String rtUser, String rtPass, boolean allowInsecure) {
     repositories.maven {
-        url rtUrl
+        url = rtUrl
         credentials {
             username = rtUser
             password = rtPass
@@ -22,6 +22,27 @@ void configureMavenRepo(repositories, String rtUrl, String rtUser, String rtPass
         metadataSources {
             artifact()
             mavenPom()
+        }
+    }
+}
+
+void configureMavenPublishing(project, String rtUrl, String rtUser, String rtPass, boolean allowInsecure) {
+    project.plugins.withType(MavenPublishPlugin) {
+        project.publishing {
+            repositories {
+                maven {
+                    name = "artifactory"
+                    url = rtUrl
+                    credentials {
+                        username = rtUser
+                        password = rtPass
+                    }
+                    // This is used when Artifactory is running in HTTP mode
+                    if (allowInsecure) {
+                        allowInsecureProtocol = true
+                    }
+                }
+            }
         }
     }
 }
@@ -40,5 +61,25 @@ gradle.settingsEvaluated { settings ->
 allprojects { project ->
     project.repositories {
         configureMavenRepo(it, "${artifactoryUrl}/${gradleRepoName}", artifactoryUsername, artifactoryAccessToken, allowInsecure)
+    }
+
+    // Configure publishing to Fly
+    project.plugins.withType(MavenPublishPlugin) {
+        project.publishing {
+            repositories {
+                maven {
+                    name = "artifactory"
+                    url = "${artifactoryUrl}/${gradleRepoName}"
+                    credentials {
+                        username = artifactoryUsername
+                        password = artifactoryAccessToken
+                    }
+                    // This is used when Artifactory is running in HTTP mode
+                    if (allowInsecure) {
+                        allowInsecureProtocol = true
+                    }
+                }
+            }
+        }
     }
 }
