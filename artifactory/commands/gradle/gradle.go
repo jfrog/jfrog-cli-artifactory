@@ -4,10 +4,12 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/template"
 
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/flexpack"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -21,6 +23,7 @@ import (
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/spf13/viper"
 )
 
@@ -112,6 +115,11 @@ func (gc *GradleCommand) shouldCreateBuildArtifactsFile() bool {
 }
 
 func (gc *GradleCommand) Run() error {
+	// Check for FlexPack mode first (before init)
+	if os.Getenv("JFROG_RUN_NATIVE") == "true" {
+		return gc.runWithFlexPack()
+	}
+
 	vConfig, err := gc.init()
 	if err != nil {
 		return err
@@ -139,6 +147,95 @@ func (gc *GradleCommand) unmarshalDeployableArtifacts(filesPath string) error {
 	}
 	gc.setResult(result)
 	return nil
+}
+
+// runWithFlexPack executes Gradle using FlexPack for dependency resolution and build info collection
+func (gc *GradleCommand) runWithFlexPack() error {
+	log.Debug("Gradle FlexPack implementation activated")
+
+	// Get Gradle executable path
+	gradleExecPath, err := getGradleExecutablePath()
+	if err != nil {
+		return fmt.Errorf("failed to find Gradle executable: %w", err)
+	}
+
+	// Execute Gradle command directly (no JFrog Gradle plugin)
+	cmd := exec.Command(gradleExecPath, gc.tasks...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if err != nil {
+		log.Error("Failed to execute Gradle command: " + err.Error())
+		return errorutils.CheckError(err)
+	}
+
+	// Check if build info collection is requested
+	if gc.configuration != nil {
+		isCollect, err := gc.configuration.IsCollectBuildInfo()
+		if err != nil {
+			return err
+		}
+		if isCollect {
+			log.Info("Collecting build info for executed command...")
+
+			buildName, err := gc.configuration.GetBuildName()
+			if err != nil {
+				return err
+			}
+			buildNumber, err := gc.configuration.GetBuildNumber()
+			if err != nil {
+				return err
+			}
+
+			// Get working directory
+			workingDir, err := os.Getwd()
+			if err != nil {
+				return errorutils.CheckError(err)
+			}
+
+			// Call FlexPack collection
+			err = collectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber, gc.tasks, gc.configuration)
+			if err != nil {
+				return errorutils.CheckError(err)
+			}
+		}
+	}
+
+	log.Info("Gradle build completed successfully")
+	return nil
+}
+
+// getGradleExecutablePath finds the Gradle executable (wrapper or system)
+func getGradleExecutablePath() (string, error) {
+	// Check for Gradle wrapper first
+	if fileutils.IsPathExists("gradlew", false) {
+		absPath, err := filepath.Abs("gradlew")
+		if err != nil {
+			return "", err
+		}
+		return absPath, nil
+	}
+
+	// Check for Windows wrapper
+	if fileutils.IsPathExists("gradlew.bat", false) {
+		absPath, err := filepath.Abs("gradlew.bat")
+		if err != nil {
+			return "", err
+		}
+		return absPath, nil
+	}
+
+	// Fallback to system Gradle
+	gradlePath, err := exec.LookPath("gradle")
+	if err != nil {
+		return "", fmt.Errorf("gradle executable not found: %w", err)
+	}
+	return gradlePath, nil
+}
+
+// collectGradleBuildInfoWithFlexPack calls the FlexPack implementation to collect Gradle build info
+func collectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, tasks []string, configuration *build.BuildConfiguration) error {
+	return flexpack.CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber, configuration)
 }
 
 // ConditionalUpload will scan the artifact using Xray and will upload them only if the scan passes with no
