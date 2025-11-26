@@ -53,9 +53,9 @@ func setGradleBuildPropertiesOnArtifacts(workingDir string) error {
 		return fmt.Errorf("failed to get Gradle artifact coordinates: %w", err)
 	}
 
-	targetRepo, err := getGradleDeployRepository(workingDir, version)
-	if err != nil {
-		log.Warn("Could not determine Gradle deploy repository, skipping build properties: " + err.Error())
+	targetRepo, deployErr := getGradleDeployRepository(workingDir, version)
+	if deployErr != nil {
+		log.Warn("Could not determine Gradle deploy repository, skipping build properties: " + deployErr.Error())
 		return nil
 	}
 	log.Debug("Gradle artifact coordinates: " + groupId + ":" + artifactId + ":" + version + " deploying to " + targetRepo)
@@ -468,7 +468,7 @@ func findRepoInGradleScriptRecursive(content []byte, isKts bool, props map[strin
 		}
 	}
 
-	matches, _ := findUrlsInGradleScript(content, isKts)
+	matches := findUrlsInGradleScript(content, isKts)
 	var resolvedMatches [][][]byte
 	seen := make(map[string]bool)
 
@@ -687,7 +687,7 @@ func isWhitespace(b byte) bool {
 }
 
 // It attempts to locate the publishing { repositories { ... } } block to avoid matching dependency repositories
-func findUrlsInGradleScript(content []byte, isKts bool) ([][][]byte, error) {
+func findUrlsInGradleScript(content []byte, isKts bool) [][][]byte {
 	contentStr := string(content)
 	var combinedRepos string
 
@@ -710,7 +710,7 @@ func findUrlsInGradleScript(content []byte, isKts bool) ([][][]byte, error) {
 	collectRepos("dependencyResolutionManagement")
 
 	if combinedRepos == "" {
-		return nil, nil
+		return nil
 	}
 
 	// Covers:
@@ -724,7 +724,7 @@ func findUrlsInGradleScript(content []byte, isKts bool) ([][][]byte, error) {
 		re = regexp.MustCompile(`(?m)url\s*(?:[:=]?\s*|[:=]\s*uri\s*\(\s*)['"]([^'"]+)['"]`)
 	}
 
-	return re.FindAllSubmatch([]byte(combinedRepos), -1), nil
+	return re.FindAllSubmatch([]byte(combinedRepos), -1)
 }
 
 // It does not handles nested properties
