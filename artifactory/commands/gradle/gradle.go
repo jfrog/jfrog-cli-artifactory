@@ -235,7 +235,7 @@ func getGradleExecutablePath() (string, error) {
 
 // collectGradleBuildInfoWithFlexPack calls the FlexPack implementation to collect Gradle build info
 func collectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, tasks []string, configuration *build.BuildConfiguration) error {
-	return flexpack.CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber, configuration)
+	return flexpack.CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber, tasks, configuration)
 }
 
 // ConditionalUpload will scan the artifact using Xray and will upload them only if the scan passes with no
