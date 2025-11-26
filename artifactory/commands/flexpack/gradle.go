@@ -55,8 +55,7 @@ func setGradleBuildPropertiesOnArtifacts(workingDir string) error {
 
 	targetRepo, deployErr := getGradleDeployRepository(workingDir, version)
 	if deployErr != nil {
-		log.Warn("Could not determine Gradle deploy repository, skipping build properties: " + deployErr.Error())
-		return nil
+		return fmt.Errorf("could not determine Gradle deploy repository: %w", deployErr)
 	}
 	log.Debug("Gradle artifact coordinates: " + groupId + ":" + artifactId + ":" + version + " deploying to " + targetRepo)
 
