@@ -324,6 +324,7 @@ func parsePropertiesFromOpts(opts string) map[string]string {
 	return parsePropertiesFromArgs(args)
 }
 
+// It works only if the key has "repo", "artifactory", "url", or "deploy" in the name
 func findRepoInProperties(props map[string]string, isSnapshot bool) (string, error) {
 	var candidates []string
 	seen := make(map[string]bool)
@@ -468,7 +469,7 @@ func findRepoInGradleScriptRecursive(content []byte, isKts bool, props map[strin
 	}
 
 	matches := findUrlsInGradleScript(content, isKts)
-	var resolvedMatches [][][]byte
+	var resolvedUrls []string
 	seen := make(map[string]bool)
 
 	for _, match := range matches {
@@ -490,13 +491,12 @@ func findRepoInGradleScriptRecursive(content []byte, isKts bool, props map[strin
 				continue
 			}
 			seen[resolvedStr] = true
-			resolved := []byte(resolvedStr)
-			resolvedMatches = append(resolvedMatches, [][]byte{resolved, resolved})
+			resolvedUrls = append(resolvedUrls, resolvedStr)
 		}
 	}
 
-	if len(resolvedMatches) > 0 {
-		return findRepositoryFromMatches(resolvedMatches, scriptPath, isSnapshot)
+	if len(resolvedUrls) > 0 {
+		return findRepositoryKeyFromMatches(resolvedUrls, scriptPath, isSnapshot)
 	}
 
 	appliedScripts := collectAppliedScripts(content, isKts, combinedProps, scriptPath)
@@ -685,7 +685,7 @@ func isWhitespace(b byte) bool {
 	return false
 }
 
-// It attempts to locate the publishing { repositories { ... } } block to avoid matching dependency repositories
+// It attempts to locate the publishing { repositories { ... } } block and find the urls in it
 func findUrlsInGradleScript(content []byte, isKts bool) [][][]byte {
 	contentStr := string(content)
 	var combinedRepos string
@@ -772,6 +772,7 @@ func resolveGradleProperty(val string, props map[string]string) string {
 				log.Debug("Circular property reference detected for: " + key)
 				return match
 			}
+			return v
 		}
 		return match
 	})
@@ -788,6 +789,7 @@ func resolveGradleProperty(val string, props map[string]string) string {
 			if v == match {
 				return match
 			}
+			return v
 		}
 
 		// This handles cases like "$host.com" where 'host' is the property
@@ -797,7 +799,7 @@ func resolveGradleProperty(val string, props map[string]string) string {
 			// Check if prefix is a known property
 			if v, ok := props[prefix]; ok && v != "" {
 				if v == "$"+prefix {
-					continue // Avoid infinite recursion
+					continue
 				}
 				suffix := "." + strings.Join(parts[i:], ".")
 				return v + suffix
@@ -810,40 +812,38 @@ func resolveGradleProperty(val string, props map[string]string) string {
 	return result
 }
 
-func findRepositoryFromMatches(matches [][][]byte, sourceName string, isSnapshot bool) (string, error) {
+func findRepositoryKeyFromMatches(repoUrls []string, sourceName string, isSnapshot bool) (string, error) {
 	var snapshotCandidates, releaseCandidates, generalCandidates []string
 
-	for _, match := range matches {
-		if len(match) > 1 {
-			repoValue := strings.TrimSpace(string(match[1]))
-			if repoValue == "" {
+	for _, repoValue := range repoUrls {
+		repoValue = strings.TrimSpace(repoValue)
+		if repoValue == "" {
+			continue
+		}
+		repoValueLower := strings.ToLower(repoValue)
+
+		var repoKey string
+		var err error
+		if strings.Contains(repoValue, "://") || strings.HasPrefix(repoValue, "/") {
+			repoKey, err = extractRepoKeyFromArtifactoryUrl(repoValue)
+			if err != nil {
+				log.Debug("Failed to extract repo key from URL: " + repoValue + " - " + err.Error())
 				continue
 			}
-			repoValueLower := strings.ToLower(repoValue)
+		}
 
-			var repoKey string
-			var err error
-			if strings.Contains(repoValue, "://") || strings.HasPrefix(repoValue, "/") {
-				repoKey, err = extractRepoKeyFromArtifactoryUrl(repoValue)
-				if err != nil {
-					log.Debug("Failed to extract repo key from URL: " + repoValue + " - " + err.Error())
-					continue
-				}
-			}
+		if repoKey == "" {
+			log.Debug("Empty repository key extracted from: " + repoValue)
+			continue
+		}
 
-			if repoKey == "" {
-				log.Debug("Empty repository key extracted from: " + repoValue)
-				continue
-			}
-
-			switch {
-			case strings.Contains(repoValueLower, "snapshot"):
-				snapshotCandidates = append(snapshotCandidates, repoKey)
-			case strings.Contains(repoValueLower, "release"):
-				releaseCandidates = append(releaseCandidates, repoKey)
-			default:
-				generalCandidates = append(generalCandidates, repoKey)
-			}
+		switch {
+		case strings.Contains(repoValueLower, "snapshot"):
+			snapshotCandidates = append(snapshotCandidates, repoKey)
+		case strings.Contains(repoValueLower, "release"):
+			releaseCandidates = append(releaseCandidates, repoKey)
+		default:
+			generalCandidates = append(generalCandidates, repoKey)
 		}
 	}
 
@@ -912,47 +912,36 @@ func collectAppliedScripts(content []byte, isKts bool, props map[string]string, 
 }
 
 func checkInitScripts(gradleUserHome string, isSnapshot bool, props map[string]string) (string, error) {
-	var lastRepo string
-	var found bool
+	// 1. Check init.gradle.kts
+	initGradleKtsPath := filepath.Join(gradleUserHome, "init.gradle.kts")
+	if repo, err := checkGradleScript(initGradleKtsPath, isSnapshot, props); err == nil {
+		return repo, nil
+	}
 
-	// Check init.d directory first
+	// 2. Check init.gradle
+	initGradlePath := filepath.Join(gradleUserHome, "init.gradle")
+	if repo, err := checkGradleScript(initGradlePath, isSnapshot, props); err == nil {
+		return repo, nil
+	}
+
+	// 3. Check init.d directory
 	initDDir := filepath.Join(gradleUserHome, "init.d")
 	entries, err := os.ReadDir(initDDir)
 	if err == nil {
-		// Sort entries alphabetically by name
 		sort.Slice(entries, func(i, j int) bool {
 			return entries[i].Name() < entries[j].Name()
 		})
-		for _, entry := range entries {
+		// Iterate backwards to find the highest precedence script that has a repo
+		for i := len(entries) - 1; i >= 0; i-- {
+			entry := entries[i]
 			if !entry.IsDir() && (strings.HasSuffix(entry.Name(), ".gradle") || strings.HasSuffix(entry.Name(), ".gradle.kts")) {
-				repo, err := checkGradleScript(filepath.Join(initDDir, entry.Name()), isSnapshot, props)
-				if err == nil {
-					lastRepo = repo
-					found = true
+				if repo, err := checkGradleScript(filepath.Join(initDDir, entry.Name()), isSnapshot, props); err == nil {
+					return repo, nil
 				}
 			}
 		}
 	}
 
-	// Check init.gradle
-	initGradlePath := filepath.Join(gradleUserHome, "init.gradle")
-	repo, err := checkGradleScript(initGradlePath, isSnapshot, props)
-	if err == nil {
-		lastRepo = repo
-		found = true
-	}
-
-	// Check init.gradle.kts
-	initGradleKtsPath := filepath.Join(gradleUserHome, "init.gradle.kts")
-	repo, err = checkGradleScript(initGradleKtsPath, isSnapshot, props)
-	if err == nil {
-		lastRepo = repo
-		found = true
-	}
-
-	if found {
-		return lastRepo, nil
-	}
 	return "", fmt.Errorf("no repository found in init scripts")
 }
 
