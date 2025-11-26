@@ -14,8 +14,8 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, buildConfiguration *buildUtils.BuildConfiguration) error {
-	if wasPublishCommand(getTasksFromArgs()) {
+func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, tasks []string, buildConfiguration *buildUtils.BuildConfiguration) error {
+	if wasPublishCommand(tasks) {
 		if err := setGradleBuildPropertiesOnArtifacts(workingDir); err != nil {
 			log.Warn("Failed to set build properties on deployed artifacts: " + err.Error())
 		}
@@ -39,23 +39,6 @@ func wasPublishCommand(tasks []string) bool {
 		}
 	}
 	return false
-}
-
-func getTasksFromArgs() []string {
-	args := os.Args
-	var tasks []string
-
-	for _, arg := range args {
-		// Skip command name and flags
-		if arg == "gradle" || strings.HasPrefix(arg, "--") || strings.HasPrefix(arg, "-") {
-			continue
-		}
-		// skips potential custom tasks with key=value pairs
-		if !strings.Contains(arg, "=") {
-			tasks = append(tasks, arg)
-		}
-	}
-	return tasks
 }
 
 func setGradleBuildPropertiesOnArtifacts(workingDir string) error {
@@ -761,19 +744,21 @@ func resolveGradleProperty(val string, props map[string]string) string {
 			return match
 		}
 
-		if strings.HasPrefix(key, "project.") {
+		switch {
+		case strings.HasPrefix(key, "project."):
 			// Remove "project." prefix
 			key = key[8:]
-		} else if strings.HasPrefix(key, "rootProject.") {
+		case strings.HasPrefix(key, "rootProject."):
 			// Remove "rootProject." prefix
 			key = key[12:]
 		}
 
 		// Also handle property accessors like findProperty("key")
-		if strings.HasPrefix(key, `findProperty("`) && strings.HasSuffix(key, `")`) {
+		switch {
+		case strings.HasPrefix(key, `findProperty("`) && strings.HasSuffix(key, `")`):
 			// Remove findProperty(" and ")
 			key = key[14 : len(key)-2]
-		} else if strings.HasPrefix(key, `findProperty('`) && strings.HasSuffix(key, `')`) {
+		case strings.HasPrefix(key, `findProperty('`) && strings.HasSuffix(key, `')`):
 			// Remove findProperty(' and ')
 			key = key[14 : len(key)-2]
 		}
@@ -852,11 +837,12 @@ func findRepositoryFromMatches(matches [][][]byte, sourceName string, isSnapshot
 				continue
 			}
 
-			if strings.Contains(repoValueLower, "snapshot") {
+			switch {
+			case strings.Contains(repoValueLower, "snapshot"):
 				snapshotCandidates = append(snapshotCandidates, repoKey)
-			} else if strings.Contains(repoValueLower, "release") {
+			case strings.Contains(repoValueLower, "release"):
 				releaseCandidates = append(releaseCandidates, repoKey)
-			} else {
+			default:
 				generalCandidates = append(generalCandidates, repoKey)
 			}
 		}
