@@ -284,6 +284,15 @@ func (pc *PoetryCommand) SetPypiRepoUrlWithCredentials() error {
 		return err
 	}
 	if password != "" {
+		// For publish commands, only configure Poetry TOML, don't modify pyproject.toml
+		if pc.commandName == "publish" {
+			return RunPoetryConfig(
+				rtUrl.Scheme+"://"+rtUrl.Host+rtUrl.Path,
+				username,
+				password,
+				pc.repository)
+		}
+		// For install/other commands, configure Poetry TOML and add to pyproject.toml
 		return ConfigPoetryRepo(
 			rtUrl.Scheme+"://"+rtUrl.Host+rtUrl.Path,
 			username,

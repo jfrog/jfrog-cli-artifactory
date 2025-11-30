@@ -240,16 +240,22 @@ func (sc *SetupCommand) configurePip() error {
 // configurePoetry configures Poetry to use the specified repository and authentication credentials.
 // Runs the following commands:
 //
-//	poetry config repositories.<repo-name> https://<your-artifactory-url>/artifactory/api/pypi/<repo-name>/simple
+//	poetry config repositories.<repo-name> https://<your-artifactory-url>/artifactory/api/pypi/<repo-name>/
 //	poetry config http-basic.<repo-name> <user> <password/token>
 //
-// Note: Custom configuration file can be set by setting the POETRY_CONFIG_DIR environment variable.
+// Note: The URL is set WITHOUT /simple suffix for publishing support.
+// Resolution uses /simple (configured in pyproject.toml), but publishing requires the base URL.
+// Custom configuration file can be set by setting the POETRY_CONFIG_DIR environment variable.
 func (sc *SetupCommand) configurePoetry() error {
 	repoUrl, username, password, err := python.GetPypiRepoUrlWithCredentials(sc.serverDetails, sc.repoName, false)
 	if err != nil {
 		return fmt.Errorf("failed to get PyPI repository URL with credentials: %w", err)
 	}
-	if err := python.RunPoetryConfig(repoUrl.String(), username, password, sc.repoName); err != nil {
+	// Strip "simple" from URL for publishing support (same as Twine)
+	// Resolution URL (with /simple) should be configured in pyproject.toml
+	// Publishing URL (without /simple) is configured in Poetry config
+	publishUrl := strings.TrimSuffix(repoUrl.String(), "simple")
+	if err := python.RunPoetryConfig(publishUrl, username, password, sc.repoName); err != nil {
 		return fmt.Errorf("failed to configure Poetry repository: %w", err)
 	}
 	return nil
