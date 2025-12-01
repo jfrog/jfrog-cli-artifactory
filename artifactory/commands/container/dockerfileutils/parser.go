@@ -2,7 +2,9 @@ package dockerfileutils
 
 import (
 	"bufio"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -11,13 +13,14 @@ import (
 // ParseDockerfileBaseImages extracts all base image references from FROM instructions in a Dockerfile
 // Handles FROM instructions with flags like --platform and AS clauses
 // Ignores FROM clauses that reference previous build stages in multi-stage builds
+// Returns base images along with OS and architecture extracted from --platform flag or runtime defaults
 // Examples:
 //   - FROM ubuntu:20.04
 //   - FROM ubuntu:20.04 AS builder
 //   - FROM --platform=linux/amd64 ubuntu:20.04
 //   - FROM --platform=linux/amd64 ubuntu:20.04 AS builder
 //   - FROM builder (skipped - references previous stage)
-func ParseDockerfileBaseImages(dockerfilePath string) ([]string, error) {
+func ParseDockerfileBaseImages(dockerfilePath string) ([]ocicontainer.BaseImage, error) {
 	file, err := os.Open(dockerfilePath)
 	if err != nil {
 		return nil, err
@@ -28,9 +31,16 @@ func ParseDockerfileBaseImages(dockerfilePath string) ([]string, error) {
 		}
 	}()
 
-	var baseImages []string
+	var baseImages []ocicontainer.BaseImage
 	var stageNames = make(map[string]bool) // Track stage names from AS clauses
 	scanner := bufio.NewScanner(file)
+
+	// Get default OS and architecture from runtime
+	defaultOS := runtime.GOOS
+	if defaultOS == "darwin" {
+		defaultOS = "linux"
+	}
+	defaultArch := runtime.GOARCH
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -41,7 +51,7 @@ func ParseDockerfileBaseImages(dockerfilePath string) ([]string, error) {
 
 		upperLine := strings.ToUpper(line)
 		if strings.HasPrefix(upperLine, "FROM ") {
-			baseImage, stageName := extractBaseImageAndStageFromLine(line)
+			baseImage, stageName, os, arch := extractBaseImageStageAndPlatformFromLine(line, defaultOS, defaultArch)
 			if baseImage == "" {
 				log.Debug("Could not extract base image from FROM instruction: " + line)
 				continue
@@ -65,24 +75,32 @@ func ParseDockerfileBaseImages(dockerfilePath string) ([]string, error) {
 				continue
 			}
 
-			baseImages = append(baseImages, baseImage)
+			baseImages = append(baseImages, ocicontainer.BaseImage{
+				Image:        baseImage,
+				OS:           os,
+				Architecture: arch,
+			})
 		}
 	}
 
 	return baseImages, scanner.Err()
 }
 
-// extractBaseImageAndStageFromLine extracts the base image name and stage name from a FROM instruction line
-// Returns: (baseImage, stageName)
+// extractBaseImageStageAndPlatformFromLine extracts the base image name, stage name, OS, and architecture from a FROM instruction line
+// Returns: (baseImage, stageName, os, arch)
 // Handles flags like --platform and AS clauses
-func extractBaseImageAndStageFromLine(line string) (string, string) {
+// If --platform flag is present, extracts OS and arch from it (e.g., --platform=linux/amd64)
+// If --platform flag is not present, uses defaultOS and defaultArch
+func extractBaseImageStageAndPlatformFromLine(line string, defaultOS, defaultArch string) (string, string, string, string) {
 	parts := strings.Fields(line)
 	if len(parts) < 2 {
-		return "", ""
+		return "", "", defaultOS, defaultArch
 	}
 
 	var imageName string
 	var stageName string
+	os := defaultOS
+	arch := defaultArch
 
 	// Find the image name by skipping flags (starting with --) and stopping at AS
 	for i := 1; i < len(parts); i++ {
@@ -97,7 +115,21 @@ func extractBaseImageAndStageFromLine(line string) (string, string) {
 			break
 		}
 
-		// Skip flags (starting with --)
+		// Check for --platform flag
+		if strings.HasPrefix(part, "--platform=") {
+			platformValue := strings.TrimPrefix(part, "--platform=")
+			platformParts := strings.Split(platformValue, "/")
+			if len(platformParts) == 2 {
+				os = platformParts[0]
+				arch = platformParts[1]
+				log.Debug("Found platform flag: " + os + "/" + arch)
+			} else {
+				log.Debug("Invalid platform format in --platform flag: " + platformValue)
+			}
+			continue
+		}
+
+		// Skip other flags (starting with --)
 		if strings.HasPrefix(part, "--") {
 			continue
 		}
@@ -109,5 +141,5 @@ func extractBaseImageAndStageFromLine(line string) (string, string) {
 		}
 	}
 
-	return imageName, stageName
+	return imageName, stageName, os, arch
 }

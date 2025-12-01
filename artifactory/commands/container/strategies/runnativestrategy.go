@@ -57,12 +57,12 @@ func (s *RunNativeStrategy) collectBuildInfo(cmdParams []string, buildConfig *bu
 
 	// Parse Dockerfile to get base images
 	dockerfilePath := s.dockerBuildOptions.DockerFilePath
-	baseImages, err := dockerfileutils.ParseDockerfileBaseImages(dockerfilePath)
+	baseImageInfos, err := dockerfileutils.ParseDockerfileBaseImages(dockerfilePath)
 	if err != nil {
 		return errorutils.CheckErrorf("Failed to parse Dockerfile: %s", err.Error())
 	}
 
-	if len(baseImages) == 0 {
+	if len(baseImageInfos) == 0 {
 		log.Info("No base images found in Dockerfile")
 		return nil
 	}
@@ -99,7 +99,7 @@ func (s *RunNativeStrategy) collectBuildInfo(cmdParams []string, buildConfig *bu
 		buildConfig.GetModule(),
 		serviceManager,
 		s.dockerBuildOptions.ImageTag,
-		baseImages,
+		baseImageInfos,
 		s.dockerBuildOptions.PushExpected,
 		cmdParams,
 	)
