@@ -7,16 +7,53 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/jfrog/build-info-go/build"
+	"github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/build-info-go/flexpack"
+	"github.com/jfrog/gofrog/crypto"
+	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/artifactory/services"
+	specutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, tasks []string, buildConfiguration *buildUtils.BuildConfiguration) error {
+	config := flexpack.GradleConfig{
+		WorkingDirectory:        workingDir,
+		IncludeTestDependencies: true,
+	}
+
+	gradleFlex, err := flexpack.NewGradleFlexPack(config)
+	if err != nil {
+		return fmt.Errorf("failed to create Gradle FlexPack: %w", err)
+	}
+
+	buildInfo, err := gradleFlex.CollectBuildInfo(buildName, buildNumber)
+	if err != nil {
+		return fmt.Errorf("failed to collect build info with FlexPack: %w", err)
+	}
+
 	if wasPublishCommand(tasks) {
-		if err := setGradleBuildPropertiesOnArtifacts(workingDir); err != nil {
+		if err := addGradleDeployedArtifactsToBuildInfo(buildInfo, workingDir); err != nil {
+			log.Warn("Failed to add deployed artifacts to build info: " + err.Error())
+		}
+	}
+
+	if err := saveGradleFlexPackBuildInfo(buildInfo); err != nil {
+		log.Warn("Failed to save build info for jfrog-cli compatibility: " + err.Error())
+	} else {
+		log.Info("Build info saved locally. Use 'jf rt bp " + buildName + " " + buildNumber + "' to publish it to Artifactory.")
+	}
+
+	if wasPublishCommand(tasks) {
+		if err := setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, buildConfiguration); err != nil {
 			log.Warn("Failed to set build properties on deployed artifacts: " + err.Error())
 		}
 	}
@@ -41,34 +78,50 @@ func wasPublishCommand(tasks []string) bool {
 	return false
 }
 
-func setGradleBuildPropertiesOnArtifacts(workingDir string) error {
-	serverDetails, err := getGradleServerDetails()
-	if serverDetails == nil {
-		log.Warn("Failed to get server details configured, failed with an error:" + err.Error())
-		return nil
-	}
+func addGradleDeployedArtifactsToBuildInfo(buildInfo *entities.BuildInfo, workingDir string) error {
+	// libsDir := filepath.Join(workingDir, "build", "libs")
+	// if _, err := os.Stat(libsDir); os.IsNotExist(err) {
+	// 	log.Debug("No build/libs directory found, skipping artifact collection")
+	// 	return nil
+	// }
 
-	groupId, artifactId, version, err := getGradleArtifactCoordinates(workingDir)
-	if err != nil {
-		return fmt.Errorf("failed to get Gradle artifact coordinates: %w", err)
-	}
+	// groupId, artifactId, version, err := getGradleArtifactCoordinates(workingDir)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to get Gradle artifact coordinates: %w", err)
+	// }
 
-	targetRepo, deployErr := getGradleDeployRepository(workingDir, version)
-	if deployErr != nil {
-		return fmt.Errorf("could not determine Gradle deploy repository: %w", deployErr)
-	}
-	log.Debug("Gradle artifact coordinates: " + groupId + ":" + artifactId + ":" + version + " deploying to " + targetRepo)
+	// entries, err := os.ReadDir(libsDir)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to read build/libs directory: %w", err)
+	// }
 
-	return nil
-}
+	// var artifacts []entities.Artifact
+	// for _, entry := range entries {
+	// 	if entry.IsDir() {
+	// 		continue
+	// 	}
 
-func getGradleServerDetails() (*config.ServerDetails, error) {
-	serverDetails, err := config.GetDefaultServerConf()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get server details: %w", err)
-	}
+	// 	filename := entry.Name()
+	// 	if !strings.HasSuffix(filename, ".jar") &&
+	// 		!strings.HasSuffix(filename, ".war") &&
+	// 		!strings.HasSuffix(filename, ".ear") {
+	// 		continue
+	// 	}
 
-	return serverDetails, nil
+	// 	filePath := filepath.Join(libsDir, filename)
+	// 	artifactType := getGradleArtifactType(filename)
+	// 	artifact := createGradleArtifactFromFile(filePath, groupId, artifactId, version, artifactType)
+	// 	artifacts = append(artifacts, artifact)
+	// }
+
+	// // Add artifacts to the first module
+	// if len(buildInfo.Modules) > 0 {
+	// 	buildInfo.Modules[0].Artifacts = artifacts
+	// } else {
+	// 	log.Warn("No modules found in build info, cannot add artifacts")
+	// }
+
+	// return nil
 }
 
 // For root project only, not for subprojects
@@ -111,6 +164,171 @@ func getGradleArtifactCoordinates(workingDir string) (groupId, artifactId, versi
 	}
 
 	return groupId, artifactId, version, nil
+}
+
+// getGradleArtifactType determines artifact type based on filename
+func getGradleArtifactType(filename string) string {
+	if strings.HasSuffix(filename, ".war") {
+		return "war"
+	} else if strings.HasSuffix(filename, ".ear") {
+		return "ear"
+	}
+	return "jar"
+}
+
+func createGradleArtifactFromFile(filePath, groupId, artifactId, version, artifactType string) entities.Artifact {
+	fileDetails, err := crypto.GetFileDetails(filePath, true)
+	if err != nil {
+		log.Debug("Failed to calculate checksums for " + filePath + ": " + err.Error())
+		fileDetails = &crypto.FileDetails{}
+	}
+
+	fileName := filepath.Base(filePath)
+
+	// Build artifact path: groupId/artifactId/version/filename
+	artifactPath := fmt.Sprintf("%s/%s/%s/%s",
+		strings.ReplaceAll(groupId, ".", "/"), artifactId, version, fileName)
+
+	artifact := entities.Artifact{
+		Name: fileName,
+		Path: artifactPath,
+		Type: artifactType,
+		Checksum: entities.Checksum{
+			Md5:    fileDetails.Checksum.Md5,
+			Sha1:   fileDetails.Checksum.Sha1,
+			Sha256: fileDetails.Checksum.Sha256,
+		},
+	}
+
+	return artifact
+}
+
+func saveGradleFlexPackBuildInfo(buildInfo *entities.BuildInfo) error {
+	service := build.NewBuildInfoService()
+	buildInstance, err := service.GetOrCreateBuildWithProject(buildInfo.Name, buildInfo.Number, "")
+	if err != nil {
+		return fmt.Errorf("failed to create build: %w", err)
+	}
+	return buildInstance.SaveBuildInfo(buildInfo)
+}
+
+func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber string, buildArgs *buildUtils.BuildConfiguration) error {
+	serverDetails, err := getGradleServerDetails()
+	if err != nil {
+		return fmt.Errorf("failed to get server details: %w", err)
+	}
+	if serverDetails == nil {
+		log.Warn("No server details configured, skipping build properties")
+		return nil
+	}
+
+	servicesManager, err := utils.CreateServiceManager(serverDetails, -1, 0, false)
+	if err != nil {
+		return fmt.Errorf("failed to create services manager: %w", err)
+	}
+
+	// We need to fetch the artifact coordinates for other modules too, currently we are only supporting the root project
+	groupId, artifactId, version, err := getGradleArtifactCoordinates(workingDir)
+	if err != nil {
+		return fmt.Errorf("failed to get Gradle artifact coordinates: %w", err)
+	}
+
+	targetRepo, deployErr := getGradleDeployRepository(workingDir, version)
+	if deployErr != nil {
+		return fmt.Errorf("could not determine Gradle deploy repository: %w", deployErr)
+	}
+
+	artifactPath := fmt.Sprintf("%s/%s/%s/%s/%s-*",
+		targetRepo,
+		strings.ReplaceAll(groupId, ".", "/"), artifactId, version, artifactId)
+
+	// Search for deployed artifacts using the specific pattern
+	searchParams := services.SearchParams{
+		CommonParams: &specutils.CommonParams{
+			Pattern: artifactPath,
+		},
+	}
+
+	searchReader, err := servicesManager.SearchFiles(searchParams)
+	if err != nil {
+		return fmt.Errorf("failed to search for deployed artifacts: %w", err)
+	}
+	defer func() {
+		if closeErr := searchReader.Close(); closeErr != nil {
+			log.Debug(fmt.Sprintf("Failed to close search reader: %s", closeErr))
+		}
+	}()
+
+	// Filter to only artifacts modified in the last 2 minutes (just deployed)
+	cutoffTime := time.Now().Add(-2 * time.Minute)
+	var recentArtifacts []specutils.ResultItem
+
+	for item := new(specutils.ResultItem); searchReader.NextRecord(item) == nil; item = new(specutils.ResultItem) {
+		modTime, err := time.Parse("2006-01-02T15:04:05.999Z", item.Modified)
+		if err != nil {
+			log.Debug("Could not parse modified time for " + item.Name + ": " + err.Error())
+			continue
+		}
+
+		if modTime.After(cutoffTime) {
+			recentArtifacts = append(recentArtifacts, *item)
+		}
+	}
+
+	if len(recentArtifacts) == 0 {
+		log.Warn("No recently deployed artifacts found")
+		return nil
+	}
+
+	timestamp := strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10) // Unix milliseconds
+	buildProps := fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp)
+	if projectKey := buildArgs.GetProject(); projectKey != "" {
+		buildProps += fmt.Sprintf(";build.project=%s", projectKey)
+	}
+
+	// Create a ContentWriter to hold the artifacts we already found
+	writer, err := content.NewContentWriter(content.DefaultKey, true, false)
+	if err != nil {
+		return fmt.Errorf("failed to create content writer: %w", err)
+	}
+
+	for _, artifact := range recentArtifacts {
+		writer.Write(artifact)
+	}
+
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("failed to close content writer: %w", err)
+	}
+
+	// Create a reader from the written content
+	reader := content.NewContentReader(writer.GetFilePath(), content.DefaultKey)
+	defer func() {
+		if closeErr := reader.Close(); closeErr != nil {
+			log.Debug(fmt.Sprintf("Failed to close reader: %s", closeErr))
+		}
+	}()
+
+	propsParams := services.PropsParams{
+		Reader: reader,
+		Props:  buildProps,
+	}
+
+	_, err = servicesManager.SetProps(propsParams)
+	if err != nil {
+		return fmt.Errorf("failed to set properties on artifacts: %w", err)
+	}
+
+	log.Info("Successfully set build properties on deployed Gradle artifacts")
+	return nil
+}
+
+func getGradleServerDetails() (*config.ServerDetails, error) {
+	serverDetails, err := config.GetDefaultServerConf()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get server details: %w", err)
+	}
+
+	return serverDetails, nil
 }
 
 // It does not check for specific environment variables
