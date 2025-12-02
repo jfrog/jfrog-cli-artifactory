@@ -123,6 +123,6 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-//replace github.com/jfrog/build-info-go => github.com/naveenku-jfrog/build-info-go v1.12.1-0.20251229102022-065f0cbe8e9d
+replace github.com/jfrog/build-info-go => github.com/nitinp19/build-info-go v1.12.3-0.20260105091537-1d3a1e03c01e
 
 // replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251026182600-8a8c0428f538
