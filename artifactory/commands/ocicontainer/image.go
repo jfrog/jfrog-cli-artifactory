@@ -195,11 +195,11 @@ func (image *Image) GetRemoteRepoAndManifestTypeAndLeadSha(serviceManager artifa
 	if dockerRepo = resp.Header["X-Artifactory-Docker-Registry"]; len(dockerRepo) == 0 {
 		return "", "", "", errors.New("couldn't find 'X-Artifactory-Docker-Registry' header  docker repository in artifactory")
 	}
-	if dockerManifestType = resp.Header["x-artifactory-filename"]; len(dockerManifestType) == 0 {
-		return "", "", "", errors.New("couldn't find 'x-artifactory-filename' header for docker manifest type in artifactory")
+	if dockerManifestType = resp.Header["X-Artifactory-Filename"]; len(dockerManifestType) == 0 {
+		return "", "", "", errors.New("couldn't find 'X-Artifactory-Filename' header for docker manifest type in artifactory")
 	}
-	if dockerLeadSha = resp.Header["x-checksum-sha256"]; len(dockerLeadSha) == 0 {
-		return "", "", "", errors.New("couldn't find 'X-Artifactory-Docker-Manifest-Lead-Sha' header for docker manifest lead sha in artifactory")
+	if dockerLeadSha = resp.Header["X-Checksum-Sha256"]; len(dockerLeadSha) == 0 {
+		return "", "", "", errors.New("couldn't find 'X-Checksum-Sha256' header for docker manifest lead sha in artifactory")
 	}
 	return dockerRepo[0], dockerManifestType[0], dockerLeadSha[0], nil
 }
