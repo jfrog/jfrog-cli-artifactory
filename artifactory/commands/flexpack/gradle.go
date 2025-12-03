@@ -14,7 +14,6 @@ import (
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/build-info-go/flexpack"
-	"github.com/jfrog/gofrog/crypto"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -35,15 +34,11 @@ func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber strin
 		return fmt.Errorf("failed to create Gradle FlexPack: %w", err)
 	}
 
+	gradleFlex.WasPublishCommand = wasPublishCommand(tasks)
+
 	buildInfo, err := gradleFlex.CollectBuildInfo(buildName, buildNumber)
 	if err != nil {
 		return fmt.Errorf("failed to collect build info with FlexPack: %w", err)
-	}
-
-	if wasPublishCommand(tasks) {
-		if err := addGradleDeployedArtifactsToBuildInfo(buildInfo, workingDir); err != nil {
-			log.Warn("Failed to add deployed artifacts to build info: " + err.Error())
-		}
 	}
 
 	if err := saveGradleFlexPackBuildInfo(buildInfo); err != nil {
@@ -53,7 +48,7 @@ func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber strin
 	}
 
 	if wasPublishCommand(tasks) {
-		if err := setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, buildConfiguration); err != nil {
+		if err := setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, buildConfiguration, buildInfo); err != nil {
 			log.Warn("Failed to set build properties on deployed artifacts: " + err.Error())
 		}
 	}
@@ -76,52 +71,6 @@ func wasPublishCommand(tasks []string) bool {
 		}
 	}
 	return false
-}
-
-func addGradleDeployedArtifactsToBuildInfo(buildInfo *entities.BuildInfo, workingDir string) error {
-	// libsDir := filepath.Join(workingDir, "build", "libs")
-	// if _, err := os.Stat(libsDir); os.IsNotExist(err) {
-	// 	log.Debug("No build/libs directory found, skipping artifact collection")
-	// 	return nil
-	// }
-
-	// groupId, artifactId, version, err := getGradleArtifactCoordinates(workingDir)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to get Gradle artifact coordinates: %w", err)
-	// }
-
-	// entries, err := os.ReadDir(libsDir)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to read build/libs directory: %w", err)
-	// }
-
-	// var artifacts []entities.Artifact
-	// for _, entry := range entries {
-	// 	if entry.IsDir() {
-	// 		continue
-	// 	}
-
-	// 	filename := entry.Name()
-	// 	if !strings.HasSuffix(filename, ".jar") &&
-	// 		!strings.HasSuffix(filename, ".war") &&
-	// 		!strings.HasSuffix(filename, ".ear") {
-	// 		continue
-	// 	}
-
-	// 	filePath := filepath.Join(libsDir, filename)
-	// 	artifactType := getGradleArtifactType(filename)
-	// 	artifact := createGradleArtifactFromFile(filePath, groupId, artifactId, version, artifactType)
-	// 	artifacts = append(artifacts, artifact)
-	// }
-
-	// // Add artifacts to the first module
-	// if len(buildInfo.Modules) > 0 {
-	// 	buildInfo.Modules[0].Artifacts = artifacts
-	// } else {
-	// 	log.Warn("No modules found in build info, cannot add artifacts")
-	// }
-
-	// return nil
 }
 
 // For root project only, not for subprojects
@@ -166,43 +115,6 @@ func getGradleArtifactCoordinates(workingDir string) (groupId, artifactId, versi
 	return groupId, artifactId, version, nil
 }
 
-// getGradleArtifactType determines artifact type based on filename
-func getGradleArtifactType(filename string) string {
-	if strings.HasSuffix(filename, ".war") {
-		return "war"
-	} else if strings.HasSuffix(filename, ".ear") {
-		return "ear"
-	}
-	return "jar"
-}
-
-func createGradleArtifactFromFile(filePath, groupId, artifactId, version, artifactType string) entities.Artifact {
-	fileDetails, err := crypto.GetFileDetails(filePath, true)
-	if err != nil {
-		log.Debug("Failed to calculate checksums for " + filePath + ": " + err.Error())
-		fileDetails = &crypto.FileDetails{}
-	}
-
-	fileName := filepath.Base(filePath)
-
-	// Build artifact path: groupId/artifactId/version/filename
-	artifactPath := fmt.Sprintf("%s/%s/%s/%s",
-		strings.ReplaceAll(groupId, ".", "/"), artifactId, version, fileName)
-
-	artifact := entities.Artifact{
-		Name: fileName,
-		Path: artifactPath,
-		Type: artifactType,
-		Checksum: entities.Checksum{
-			Md5:    fileDetails.Checksum.Md5,
-			Sha1:   fileDetails.Checksum.Sha1,
-			Sha256: fileDetails.Checksum.Sha256,
-		},
-	}
-
-	return artifact
-}
-
 func saveGradleFlexPackBuildInfo(buildInfo *entities.BuildInfo) error {
 	service := build.NewBuildInfoService()
 	buildInstance, err := service.GetOrCreateBuildWithProject(buildInfo.Name, buildInfo.Number, "")
@@ -212,7 +124,7 @@ func saveGradleFlexPackBuildInfo(buildInfo *entities.BuildInfo) error {
 	return buildInstance.SaveBuildInfo(buildInfo)
 }
 
-func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber string, buildArgs *buildUtils.BuildConfiguration) error {
+func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber string, buildArgs *buildUtils.BuildConfiguration, buildInfo *entities.BuildInfo) error {
 	serverDetails, err := getGradleServerDetails()
 	if err != nil {
 		return fmt.Errorf("failed to get server details: %w", err)
@@ -227,51 +139,72 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber stri
 		return fmt.Errorf("failed to create services manager: %w", err)
 	}
 
-	// We need to fetch the artifact coordinates for other modules too, currently we are only supporting the root project
-	groupId, artifactId, version, err := getGradleArtifactCoordinates(workingDir)
-	if err != nil {
-		return fmt.Errorf("failed to get Gradle artifact coordinates: %w", err)
-	}
-
-	targetRepo, deployErr := getGradleDeployRepository(workingDir, version)
-	if deployErr != nil {
-		return fmt.Errorf("could not determine Gradle deploy repository: %w", deployErr)
-	}
-
-	artifactPath := fmt.Sprintf("%s/%s/%s/%s/%s-*",
-		targetRepo,
-		strings.ReplaceAll(groupId, ".", "/"), artifactId, version, artifactId)
-
-	// Search for deployed artifacts using the specific pattern
-	searchParams := services.SearchParams{
-		CommonParams: &specutils.CommonParams{
-			Pattern: artifactPath,
-		},
-	}
-
-	searchReader, err := servicesManager.SearchFiles(searchParams)
-	if err != nil {
-		return fmt.Errorf("failed to search for deployed artifacts: %w", err)
-	}
-	defer func() {
-		if closeErr := searchReader.Close(); closeErr != nil {
-			log.Debug(fmt.Sprintf("Failed to close search reader: %s", closeErr))
-		}
-	}()
-
-	// Filter to only artifacts modified in the last 2 minutes (just deployed)
-	cutoffTime := time.Now().Add(-2 * time.Minute)
+	projectKey := buildArgs.GetProject()
 	var recentArtifacts []specutils.ResultItem
 
-	for item := new(specutils.ResultItem); searchReader.NextRecord(item) == nil; item = new(specutils.ResultItem) {
-		modTime, err := time.Parse("2006-01-02T15:04:05.999Z", item.Modified)
-		if err != nil {
-			log.Debug("Could not parse modified time for " + item.Name + ": " + err.Error())
+	for _, module := range buildInfo.Modules {
+		if len(module.Artifacts) == 0 {
+			continue
+		}
+		// We assume all artifacts in a module go to the same repo structure
+		artifact := module.Artifacts[0]
+
+		parts := strings.Split(module.Id, ":")
+		if len(parts) < 3 {
+			log.Warn("Skipping module with invalid ID format: " + module.Id)
+			continue
+		}
+		version := parts[2]
+
+		targetRepo, deployErr := getGradleDeployRepository(workingDir, version)
+		if deployErr != nil {
+			log.Warn(fmt.Sprintf("Could not determine Gradle deploy repository for module %s: %v", module.Id, deployErr))
 			continue
 		}
 
-		if modTime.After(cutoffTime) {
-			recentArtifacts = append(recentArtifacts, *item)
+		// We'll search for the artifact file specifically in the target repo
+		var artifactPath string
+		if artifact.Path != "" {
+			artifactPath = fmt.Sprintf("%s/%s", targetRepo, artifact.Path)
+		} else {
+			groupId := parts[0]
+			artifactId := parts[1]
+			artifactPath = fmt.Sprintf("%s/%s/%s/%s/%s-*",
+				targetRepo,
+				strings.ReplaceAll(groupId, ".", "/"), artifactId, version, artifactId)
+		}
+
+		// Let's use the directory of the artifact to find all related artifacts (jars, poms, etc)
+		artifactDir := filepath.Dir(artifactPath)
+		searchPattern := fmt.Sprintf("%s/*", artifactDir)
+
+		searchParams := services.SearchParams{
+			CommonParams: &specutils.CommonParams{
+				Pattern: searchPattern,
+			},
+		}
+
+		searchReader, err := servicesManager.SearchFiles(searchParams)
+		if err != nil {
+			log.Warn(fmt.Sprintf("Failed to search for deployed artifacts for module %s: %v", module.Id, err))
+			continue
+		}
+
+		// Filter to only artifacts modified in the last 2 minutes (just deployed)
+		cutoffTime := time.Now().Add(-2 * time.Minute)
+		for item := new(specutils.ResultItem); searchReader.NextRecord(item) == nil; item = new(specutils.ResultItem) {
+			modTime, err := time.Parse("2006-01-02T15:04:05.999Z", item.Modified)
+			if err != nil {
+				log.Debug("Could not parse modified time for " + item.Name + ": " + err.Error())
+				continue
+			}
+
+			if modTime.After(cutoffTime) {
+				recentArtifacts = append(recentArtifacts, *item)
+			}
+		}
+		if closeErr := searchReader.Close(); closeErr != nil {
+			log.Debug(fmt.Sprintf("Failed to close search reader: %s", closeErr))
 		}
 	}
 
@@ -282,11 +215,10 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber stri
 
 	timestamp := strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10) // Unix milliseconds
 	buildProps := fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp)
-	if projectKey := buildArgs.GetProject(); projectKey != "" {
+	if projectKey != "" {
 		buildProps += fmt.Sprintf(";build.project=%s", projectKey)
 	}
 
-	// Create a ContentWriter to hold the artifacts we already found
 	writer, err := content.NewContentWriter(content.DefaultKey, true, false)
 	if err != nil {
 		return fmt.Errorf("failed to create content writer: %w", err)
@@ -300,7 +232,6 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber stri
 		return fmt.Errorf("failed to close content writer: %w", err)
 	}
 
-	// Create a reader from the written content
 	reader := content.NewContentReader(writer.GetFilePath(), content.DefaultKey)
 	defer func() {
 		if closeErr := reader.Close(); closeErr != nil {
