@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -17,13 +18,29 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	specutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+const (
+	gradleTaskPublish             = "publish"
+	gradleTaskPublishToMavenLocal = "publishToMavenLocal"
+	gradlePropertiesTimeout       = 1 * time.Minute
+	artifactSearchClockSkewBuffer = 1 * time.Minute
+	gradleEnvPrefixLen            = 19
+)
+
 func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, tasks []string, buildConfiguration *buildUtils.BuildConfiguration) error {
+	absWorkingDir, err := filepath.Abs(workingDir)
+	if err != nil {
+		return fmt.Errorf("failed to resolve absolute path for working directory: %w", err)
+	}
+	workingDir = absWorkingDir
+
+	startTime := time.Now()
 	config := flexpack.GradleConfig{
 		WorkingDirectory:        workingDir,
 		IncludeTestDependencies: true,
@@ -34,7 +51,8 @@ func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber strin
 		return fmt.Errorf("failed to create Gradle FlexPack: %w", err)
 	}
 
-	gradleFlex.WasPublishCommand = wasPublishCommand(tasks)
+	isPublishCommand := wasPublishCommand(tasks)
+	gradleFlex.WasPublishCommand = isPublishCommand
 
 	buildInfo, err := gradleFlex.CollectBuildInfo(buildName, buildNumber)
 	if err != nil {
@@ -47,8 +65,8 @@ func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber strin
 		log.Info("Build info saved locally. Use 'jf rt bp " + buildName + " " + buildNumber + "' to publish it to Artifactory.")
 	}
 
-	if wasPublishCommand(tasks) {
-		if err := setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, buildConfiguration, buildInfo); err != nil {
+	if isPublishCommand {
+		if err := setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, buildConfiguration, buildInfo, startTime); err != nil {
 			log.Warn("Failed to set build properties on deployed artifacts: " + err.Error())
 		}
 	}
@@ -63,57 +81,132 @@ func wasPublishCommand(tasks []string) bool {
 		}
 
 		// Match common Gradle publish tasks
-		if task == "publish" {
+		if task == gradleTaskPublish {
 			return true
 		}
-		if strings.HasPrefix(task, "publishTo") && task != "publishToMavenLocal" {
+		if strings.HasPrefix(task, "publishTo") && task != gradleTaskPublishToMavenLocal {
 			return true
+		}
+		// Pattern: publish<Publication>To<Repository>
+		if strings.HasPrefix(task, "publish") && strings.Contains(task, "To") {
+			if !strings.HasSuffix(task, "Local") {
+				return true
+			}
 		}
 	}
 	return false
 }
 
 // For root project only, not for subprojects
-func getGradleArtifactCoordinates(workingDir string) (groupId, artifactId, version string, err error) {
-	buildGradlePath := filepath.Join(workingDir, "build.gradle")
-	if _, err := os.Stat(buildGradlePath); os.IsNotExist(err) {
-		// Try build.gradle.kts
-		buildGradlePath = filepath.Join(workingDir, "build.gradle.kts")
-		if _, err := os.Stat(buildGradlePath); os.IsNotExist(err) {
-			return "", "", "", fmt.Errorf("no build.gradle or build.gradle.kts found")
-		}
-	}
+// func getGradleArtifactCoordinates(workingDir string) (groupId, artifactId, version string, err error) {
+// 	// 1. Try to get coordinates from 'gradle properties' command (Most Robust)
+// 	g, a, v, cmdErr := getGradleCoordinatesFromCommand(workingDir)
+// 	if cmdErr == nil {
+// 		log.Debug(fmt.Sprintf("Retrieved Gradle coordinates from command: %s:%s:%s", g, a, v))
+// 		return g, a, v, nil
+// 	}
+// 	log.Debug("Failed to get coordinates from gradle properties command, falling back to file parsing: " + cmdErr.Error())
 
-	content, err := os.ReadFile(buildGradlePath)
-	if err != nil {
-		return "", "", "", fmt.Errorf("failed to read build.gradle: %w", err)
-	}
+// 	// 2. Fallback: Parse build.gradle or build.gradle.kts (Fragile)
+// 	return getGradleArtifactCoordinatesFromFile(workingDir)
+// }
 
-	// It works for string literals with exact keyword matches (group, version, name) no support for variables or expressions
-	groupRegex := regexp.MustCompile(`(?m)^\s*group\s*(?:=\s*|\s+)['"]([^'"]+)['"]`)
-	if match := groupRegex.FindSubmatch(content); len(match) > 1 {
-		groupId = string(match[1])
-	}
+// func getGradleCoordinatesFromCommand(workingDir string) (groupId, artifactId, version string, err error) {
+// 	ctx, cancel := context.WithTimeout(context.Background(), gradlePropertiesTimeout)
+// 	defer cancel()
 
-	versionRegex := regexp.MustCompile(`(?m)^\s*version\s*(?:=\s*|\s+)['"]([^'"]+)['"]`)
-	if match := versionRegex.FindSubmatch(content); len(match) > 1 {
-		version = string(match[1])
-	}
+// 	gradleExec := getGradleExecPath(workingDir)
+// 	cmd := exec.CommandContext(ctx, gradleExec, "properties", "-q")
+// 	cmd.Dir = workingDir
+// 	// Use environment variables to ensure proper execution context if needed
+// 	cmd.Env = os.Environ()
 
-	nameRegex := regexp.MustCompile(`(?m)^\s*(?:rootProject\.)?name\s*(?:=\s*|\s+)['"]([^'"]+)['"]`)
-	if match := nameRegex.FindSubmatch(content); len(match) > 1 {
-		artifactId = string(match[1])
-	} else {
-		// Fallback to directory name
-		artifactId = filepath.Base(workingDir)
-	}
+// 	output, err := cmd.CombinedOutput()
+// 	if err != nil {
+// 		if ctx.Err() == context.DeadlineExceeded {
+// 			return "", "", "", fmt.Errorf("gradle properties command timed out after %v", gradlePropertiesTimeout)
+// 		}
+// 		return "", "", "", fmt.Errorf("failed to run gradle properties: %w", err)
+// 	}
 
-	if groupId == "" || artifactId == "" || version == "" {
-		return "", "", "", fmt.Errorf("failed to extract complete Gradle coordinates (groupId=%s, artifactId=%s, version=%s)", groupId, artifactId, version)
-	}
+// 	props := make(map[string]string)
+// 	lines := strings.Split(string(output), "\n")
+// 	for _, line := range lines {
+// 		parts := strings.SplitN(line, ": ", 2)
+// 		if len(parts) == 2 {
+// 			props[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+// 		}
+// 	}
 
-	return groupId, artifactId, version, nil
-}
+// 	groupId = props["group"]
+// 	version = props["version"]
+// 	artifactId = props["name"]
+
+// 	if groupId == "" || artifactId == "" || version == "" {
+// 		return "", "", "", fmt.Errorf("incomplete coordinates from properties: group=%s, name=%s, version=%s", groupId, artifactId, version)
+// 	}
+// 	return groupId, artifactId, version, nil
+// }
+
+// func getGradleExecPath(workingDir string) string {
+// 	// Check for Gradle wrapper
+// 	wrapperPath := filepath.Join(workingDir, "gradlew")
+// 	if _, err := os.Stat(wrapperPath); err == nil {
+// 		return wrapperPath
+// 	}
+
+// 	wrapperPathBat := filepath.Join(workingDir, "gradlew.bat")
+// 	if _, err := os.Stat(wrapperPathBat); err == nil {
+// 		return wrapperPathBat
+// 	}
+
+// 	// Default to system Gradle
+// 	if gradleExec, err := exec.LookPath("gradle"); err == nil {
+// 		return gradleExec
+// 	}
+// 	return "gradle"
+// }
+
+// func getGradleArtifactCoordinatesFromFile(workingDir string) (groupId, artifactId, version string, err error) {
+// 	buildGradlePath := filepath.Join(workingDir, "build.gradle")
+// 	if _, err := os.Stat(buildGradlePath); os.IsNotExist(err) {
+// 		// Try build.gradle.kts
+// 		buildGradlePath = filepath.Join(workingDir, "build.gradle.kts")
+// 		if _, err := os.Stat(buildGradlePath); os.IsNotExist(err) {
+// 			return "", "", "", fmt.Errorf("no build.gradle or build.gradle.kts found")
+// 		}
+// 	}
+
+// 	content, err := os.ReadFile(buildGradlePath)
+// 	if err != nil {
+// 		return "", "", "", fmt.Errorf("failed to read build.gradle: %w", err)
+// 	}
+
+// 	// It works for string literals with exact keyword matches (group, version, name) no support for variables or expressions
+// 	groupRegex := regexp.MustCompile(`(?m)^\s*group\s*(?:=\s*|\s+)['"]([^'"]+)['"]`)
+// 	if match := groupRegex.FindSubmatch(content); len(match) > 1 {
+// 		groupId = string(match[1])
+// 	}
+
+// 	versionRegex := regexp.MustCompile(`(?m)^\s*version\s*(?:=\s*|\s+)['"]([^'"]+)['"]`)
+// 	if match := versionRegex.FindSubmatch(content); len(match) > 1 {
+// 		version = string(match[1])
+// 	}
+
+// 	nameRegex := regexp.MustCompile(`(?m)^\s*(?:rootProject\.)?name\s*(?:=\s*|\s+)['"]([^'"]+)['"]`)
+// 	if match := nameRegex.FindSubmatch(content); len(match) > 1 {
+// 		artifactId = string(match[1])
+// 	} else {
+// 		// Fallback to directory name
+// 		artifactId = filepath.Base(workingDir)
+// 	}
+
+// 	if groupId == "" || artifactId == "" || version == "" {
+// 		return "", "", "", fmt.Errorf("failed to extract complete Gradle coordinates (groupId=%s, artifactId=%s, version=%s)", groupId, artifactId, version)
+// 	}
+
+// 	return groupId, artifactId, version, nil
+// }
 
 func saveGradleFlexPackBuildInfo(buildInfo *entities.BuildInfo) error {
 	service := build.NewBuildInfoService()
@@ -124,7 +217,7 @@ func saveGradleFlexPackBuildInfo(buildInfo *entities.BuildInfo) error {
 	return buildInstance.SaveBuildInfo(buildInfo)
 }
 
-func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber string, buildArgs *buildUtils.BuildConfiguration, buildInfo *entities.BuildInfo) error {
+func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber string, buildArgs *buildUtils.BuildConfiguration, buildInfo *entities.BuildInfo, startTime time.Time) error {
 	serverDetails, err := getGradleServerDetails()
 	if err != nil {
 		return fmt.Errorf("failed to get server details: %w", err)
@@ -140,72 +233,9 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber stri
 	}
 
 	projectKey := buildArgs.GetProject()
-	var recentArtifacts []specutils.ResultItem
-
-	for _, module := range buildInfo.Modules {
-		if len(module.Artifacts) == 0 {
-			continue
-		}
-		// We assume all artifacts in a module go to the same repo structure
-		artifact := module.Artifacts[0]
-
-		parts := strings.Split(module.Id, ":")
-		if len(parts) < 3 {
-			log.Warn("Skipping module with invalid ID format: " + module.Id)
-			continue
-		}
-		version := parts[2]
-
-		targetRepo, deployErr := getGradleDeployRepository(workingDir, version)
-		if deployErr != nil {
-			log.Warn(fmt.Sprintf("Could not determine Gradle deploy repository for module %s: %v", module.Id, deployErr))
-			continue
-		}
-
-		// We'll search for the artifact file specifically in the target repo
-		var artifactPath string
-		if artifact.Path != "" {
-			artifactPath = fmt.Sprintf("%s/%s", targetRepo, artifact.Path)
-		} else {
-			groupId := parts[0]
-			artifactId := parts[1]
-			artifactPath = fmt.Sprintf("%s/%s/%s/%s/%s-*",
-				targetRepo,
-				strings.ReplaceAll(groupId, ".", "/"), artifactId, version, artifactId)
-		}
-
-		// Let's use the directory of the artifact to find all related artifacts (jars, poms, etc)
-		artifactDir := filepath.Dir(artifactPath)
-		searchPattern := fmt.Sprintf("%s/*", artifactDir)
-
-		searchParams := services.SearchParams{
-			CommonParams: &specutils.CommonParams{
-				Pattern: searchPattern,
-			},
-		}
-
-		searchReader, err := servicesManager.SearchFiles(searchParams)
-		if err != nil {
-			log.Warn(fmt.Sprintf("Failed to search for deployed artifacts for module %s: %v", module.Id, err))
-			continue
-		}
-
-		// Filter to only artifacts modified in the last 2 minutes (just deployed)
-		cutoffTime := time.Now().Add(-2 * time.Minute)
-		for item := new(specutils.ResultItem); searchReader.NextRecord(item) == nil; item = new(specutils.ResultItem) {
-			modTime, err := time.Parse("2006-01-02T15:04:05.999Z", item.Modified)
-			if err != nil {
-				log.Debug("Could not parse modified time for " + item.Name + ": " + err.Error())
-				continue
-			}
-
-			if modTime.After(cutoffTime) {
-				recentArtifacts = append(recentArtifacts, *item)
-			}
-		}
-		if closeErr := searchReader.Close(); closeErr != nil {
-			log.Debug(fmt.Sprintf("Failed to close search reader: %s", closeErr))
-		}
+	recentArtifacts, err := searchRecentArtifacts(servicesManager, buildInfo, startTime, workingDir)
+	if err != nil {
+		return err
 	}
 
 	if len(recentArtifacts) == 0 {
@@ -213,7 +243,7 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber stri
 		return nil
 	}
 
-	timestamp := strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10) // Unix milliseconds
+	timestamp := strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10)
 	buildProps := fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp)
 	if projectKey != "" {
 		buildProps += fmt.Sprintf(";build.project=%s", projectKey)
@@ -258,8 +288,101 @@ func getGradleServerDetails() (*config.ServerDetails, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get server details: %w", err)
 	}
-
 	return serverDetails, nil
+}
+
+func searchRecentArtifacts(servicesManager artifactory.ArtifactoryServicesManager, buildInfo *entities.BuildInfo, startTime time.Time, workingDir string) ([]specutils.ResultItem, error) {
+	var recentArtifacts []specutils.ResultItem
+	// The repository typically depends on whether the version is a snapshot or release.
+	repoCache := make(map[bool]string)
+
+	for _, module := range buildInfo.Modules {
+		if len(module.Artifacts) == 0 {
+			continue
+		}
+		// We assume all artifacts in a module go to the same repo structure
+		artifact := module.Artifacts[0]
+		parts := strings.Split(module.Id, ":")
+		if len(parts) < 3 {
+			log.Warn("Skipping module with invalid ID format: " + module.Id)
+			continue
+		}
+		version := parts[2]
+
+		isSnapshot := strings.Contains(strings.ToLower(version), "snapshot")
+		targetRepo, ok := repoCache[isSnapshot]
+		if !ok {
+			var deployErr error
+			targetRepo, deployErr = getGradleDeployRepository(workingDir, version)
+			if deployErr != nil {
+				log.Warn(fmt.Sprintf("Could not determine Gradle deploy repository for module %s: %v", module.Id, deployErr))
+				continue
+			}
+			repoCache[isSnapshot] = targetRepo
+		}
+
+		var artifactPath string
+		if artifact.Path != "" {
+			artifactPath = fmt.Sprintf("%s/%s", targetRepo, artifact.Path)
+		} else {
+			groupId := parts[0]
+			artifactId := parts[1]
+			artifactPath = fmt.Sprintf("%s/%s/%s/%s/%s-*",
+				targetRepo,
+				strings.ReplaceAll(groupId, ".", "/"), artifactId, version, artifactId)
+		}
+
+		// Let's use the directory of the artifact to find all related artifacts (jars, poms, etc)
+		artifactDir := path.Dir(artifactPath)
+		searchPattern := fmt.Sprintf("%s/*", artifactDir)
+
+		searchParams := services.SearchParams{
+			CommonParams: &specutils.CommonParams{
+				Pattern: searchPattern,
+			},
+		}
+		searchReader, err := servicesManager.SearchFiles(searchParams)
+		if err != nil {
+			log.Warn(fmt.Sprintf("Failed to search for deployed artifacts for module %s: %v", module.Id, err))
+			continue
+		}
+
+		// Filter to only artifacts modified after the build started
+		for item := new(specutils.ResultItem); searchReader.NextRecord(item) == nil; item = new(specutils.ResultItem) {
+			modTime, err := parseArtifactModifiedTime(item.Modified)
+			if err != nil {
+				log.Debug("Could not parse modified time for " + item.Name + ": " + err.Error())
+				continue
+			}
+
+			// Allow a small buffer for clock skew between build machine and Artifactory server.
+			if modTime.After(startTime.Add(-artifactSearchClockSkewBuffer)) {
+				recentArtifacts = append(recentArtifacts, *item)
+			}
+		}
+		if closeErr := searchReader.Close(); closeErr != nil {
+			log.Debug(fmt.Sprintf("Failed to close search reader: %s", closeErr))
+		}
+	}
+	return recentArtifacts, nil
+}
+
+func parseArtifactModifiedTime(modified string) (time.Time, error) {
+	// Try common Artifactory time formats
+	formats := []string{
+		time.RFC3339Nano,                // 2006-01-02T15:04:05.999999999Z07:00
+		time.RFC3339,                    // 2006-01-02T15:04:05Z07:00
+		"2006-01-02T15:04:05.999Z",      // ISO 8601 with milliseconds and Z
+		"2006-01-02T15:04:05.000-0700",  // Build info format
+		"2006-01-02T15:04:05.999-07:00", // ISO 8601 with milliseconds and timezone
+	}
+
+	for _, format := range formats {
+		if t, err := time.Parse(format, modified); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unable to parse time: %s", modified)
 }
 
 // It does not check for specific environment variables
@@ -357,8 +480,8 @@ func collectAllGradleProperties(workingDir string) map[string]string {
 		if strings.HasPrefix(env, "ORG_GRADLE_PROJECT_") {
 			parts := strings.SplitN(env, "=", 2)
 			if len(parts) == 2 {
-				// the length of that prefix string is exactly 19 characters:
-				key := strings.TrimSpace(parts[0][19:])
+				// Extract key after the prefix
+				key := strings.TrimSpace(parts[0][gradleEnvPrefixLen:])
 				val := strings.TrimSpace(parts[1])
 				if key != "" && val != "" {
 					props[key] = val
@@ -416,18 +539,11 @@ func readPropertiesFile(path string) map[string]string {
 	return m
 }
 
-// parsePropertiesFromArgs extracts -P and -D properties
 func parsePropertiesFromArgs(args []string) map[string]string {
 	m := make(map[string]string)
-	processed := make(map[int]bool) // Track processed indices to avoid double-processing
 
-	for i, arg := range args {
-		if processed[i] {
-			continue
-		}
+	for _, arg := range args {
 		arg = strings.TrimSpace(arg)
-
-		// Handle -Pkey=value or -Dkey=value
 		if (strings.HasPrefix(arg, "-P") || strings.HasPrefix(arg, "-D")) && len(arg) > 2 {
 			pair := arg[2:]
 			parts := strings.SplitN(pair, "=", 2)
@@ -440,25 +556,6 @@ func parsePropertiesFromArgs(args []string) map[string]string {
 				}
 				if key != "" && val != "" {
 					m[key] = val
-					processed[i] = true
-				}
-			}
-		}
-		// Handle -P key value or -D key value (space-separated)
-		if (arg == "-P" || arg == "-D") && i+1 < len(args) && i+2 < len(args) {
-			key := strings.TrimSpace(args[i+1])
-			val := strings.TrimSpace(args[i+2])
-			// Skip if key looks like another flag
-			if !strings.HasPrefix(key, "-") {
-				// Remove quotes if present
-				if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
-					val = val[1 : len(val)-1]
-				}
-				if key != "" && val != "" {
-					m[key] = val
-					processed[i] = true
-					processed[i+1] = true
-					processed[i+2] = true
 				}
 			}
 		}
@@ -466,9 +563,7 @@ func parsePropertiesFromArgs(args []string) map[string]string {
 	return m
 }
 
-// parsePropertiesFromOpts extracts -D properties from space-separated options string
 func parsePropertiesFromOpts(opts string) map[string]string {
-	// Naive split by space, improvements could handle quoted values
 	args := strings.Fields(opts)
 	return parsePropertiesFromArgs(args)
 }
@@ -556,8 +651,6 @@ func extractRepoKeyFromArtifactoryUrl(repoUrl string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("invalid repository URL: %w", err)
 	}
-
-	// Split path into segments, removing empty strings
 	segments := strings.Split(strings.Trim(u.Path, "/"), "/")
 
 	// Path: /artifactory/api/maven/REPO-KEY
@@ -591,7 +684,6 @@ func extractRepoKeyFromArtifactoryUrl(repoUrl string) (string, error) {
 			return repoKey, nil
 		}
 	}
-
 	return "", fmt.Errorf("unable to extract repository key from URL: %s (check repository URL format)", repoUrl)
 }
 
@@ -680,7 +772,6 @@ func findRepoInGradleScriptRecursive(content []byte, isKts bool, props map[strin
 
 func extractPropertiesFromScript(contentStr string) map[string]string {
 	props := make(map[string]string)
-
 	// 1. Extract ext { ... } blocks to define the property value
 	extBlocks := extractAllGradleBlocks(contentStr, "ext")
 	for _, block := range extBlocks {
@@ -835,6 +926,7 @@ func isWhitespace(b byte) bool {
 }
 
 // It attempts to locate the publishing { repositories { ... } } block and find the urls in it
+// Covers: url = "..."  ,  url "..."  ,  url = uri("...")  ,  url.set(uri("..."))  ,  maven { url = ... }
 func findUrlsInGradleScript(content []byte, isKts bool) [][][]byte {
 	contentStr := string(content)
 	var combinedRepos string
@@ -850,19 +942,14 @@ func findUrlsInGradleScript(content []byte, isKts bool) [][][]byte {
 	}
 
 	collectRepos("publishing")
-
 	// 2. Extract from uploadArchives blocks (legacy maven)
 	collectRepos("uploadArchives")
-
 	// 3. Extract from dependencyResolutionManagement blocks (Gradle 7.0+)
 	collectRepos("dependencyResolutionManagement")
 
 	if combinedRepos == "" {
 		return nil
 	}
-
-	// Covers:
-	// url = "..."  ,  url "..."  ,  url = uri("...")  ,  url.set(uri("..."))  ,  maven { url = ... }
 	var re *regexp.Regexp
 	if isKts {
 		// Kotlin DSL patterns
@@ -871,94 +958,100 @@ func findUrlsInGradleScript(content []byte, isKts bool) [][][]byte {
 		// Groovy DSL patterns
 		re = regexp.MustCompile(`(?m)url\s*(?:[:=]?\s*|[:=]\s*uri\s*\(\s*)['"]([^'"]+)['"]`)
 	}
-
 	return re.FindAllSubmatch([]byte(combinedRepos), -1)
 }
 
-// It does not handles nested properties
 func resolveGradleProperty(val string, props map[string]string) string {
 	if val == "" {
 		return val
 	}
-
-	// 1. Replace ${key} with value from props
-	re := regexp.MustCompile(`\$\{([^}]+)\}`)
-	result := re.ReplaceAllStringFunc(val, func(match string) string {
-		// strip ${ and }
-		key := match[2 : len(match)-1]
-		key = strings.TrimSpace(key)
-
-		if key == "" {
-			return match
+	// Prevent infinite recursion with a max depth (in case of circular references)
+	const maxDepth = 10
+	var resolve func(s string, depth int) string
+	resolve = func(s string, depth int) string {
+		if depth > maxDepth {
+			log.Debug("Max recursion depth reached in property resolution for: " + s)
+			return s
 		}
 
-		switch {
-		case strings.HasPrefix(key, "project."):
-			// Remove "project." prefix
-			key = key[8:]
-		case strings.HasPrefix(key, "rootProject."):
-			// Remove "rootProject." prefix
-			key = key[12:]
-		}
+		// 1. Replace ${key} with value from props
+		re := regexp.MustCompile(`\$\{([^}]+)\}`)
+		result := re.ReplaceAllStringFunc(s, func(match string) string {
+			// strip ${ and }
+			key := match[2 : len(match)-1]
+			key = strings.TrimSpace(key)
 
-		// Also handle property accessors like findProperty("key")
-		switch {
-		case strings.HasPrefix(key, `findProperty("`) && strings.HasSuffix(key, `")`):
-			// Remove findProperty(" and ")
-			key = key[14 : len(key)-2]
-		case strings.HasPrefix(key, `findProperty('`) && strings.HasSuffix(key, `')`):
-			// Remove findProperty(' and ')
-			key = key[14 : len(key)-2]
-		}
-
-		// Handle escaped ${} - if key starts with $, it might be escaped
-		if strings.HasPrefix(key, "$") {
-			return match
-		}
-
-		if v, ok := props[key]; ok && v != "" {
-			if v == match {
-				log.Debug("Circular property reference detected for: " + key)
+			if key == "" {
 				return match
 			}
-			return v
-		}
-		return match
-	})
 
-	// 2. Replace $key with value from props (simple variable syntax)
-	// Matches $var where var can contain dots (e.g. $project.version or $host.com)
-	reSimple := regexp.MustCompile(`\$([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)`)
-	result = reSimple.ReplaceAllStringFunc(result, func(match string) string {
-		// Remove $
-		fullKey := match[1:]
+			switch {
+			case strings.HasPrefix(key, "project."):
+				// Remove "project." prefix
+				key = key[8:]
+			case strings.HasPrefix(key, "rootProject."):
+				// Remove "rootProject." prefix
+				key = key[12:]
+			}
 
-		// 1. Try exact match
-		if v, ok := props[fullKey]; ok && v != "" {
-			if v == match {
+			// Also handle property accessors like findProperty("key")
+			switch {
+			case strings.HasPrefix(key, `findProperty("`) && strings.HasSuffix(key, `")`):
+				// Remove findProperty(" and ")
+				key = key[14 : len(key)-2]
+			case strings.HasPrefix(key, `findProperty('`) && strings.HasSuffix(key, `')`):
+				// Remove findProperty(' and ')
+				key = key[14 : len(key)-2]
+			}
+
+			// Handle escaped ${} - if key starts with $, it might be escaped
+			if strings.HasPrefix(key, "$") {
 				return match
 			}
-			return v
-		}
 
-		// This handles cases like "$host.com" where 'host' is the property
-		parts := strings.Split(fullKey, ".")
-		for i := len(parts) - 1; i >= 1; i-- {
-			prefix := strings.Join(parts[:i], ".")
-			// Check if prefix is a known property
-			if v, ok := props[prefix]; ok && v != "" {
-				if v == "$"+prefix {
-					continue
+			if v, ok := props[key]; ok && v != "" {
+				if v == match {
+					log.Debug("Circular property reference detected for: " + key)
+					return match
 				}
-				suffix := "." + strings.Join(parts[i:], ".")
-				return v + suffix
+				return resolve(v, depth+1)
 			}
-		}
+			return match
+		})
 
-		return match
-	})
+		// 2. Replace $key with value from props (simple variable syntax)
+		// Matches $var where var can contain dots (e.g. $project.version or $host.com)
+		reSimple := regexp.MustCompile(`\$([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)`)
+		result = reSimple.ReplaceAllStringFunc(result, func(match string) string {
+			// Remove $
+			fullKey := match[1:]
 
-	return result
+			// 1. Try exact match
+			if v, ok := props[fullKey]; ok && v != "" {
+				if v == match {
+					return match
+				}
+				return resolve(v, depth+1)
+			}
+
+			// This handles cases like "$host.com" where 'host' is the property
+			parts := strings.Split(fullKey, ".")
+			for i := len(parts) - 1; i >= 1; i-- {
+				prefix := strings.Join(parts[:i], ".")
+				// Check if prefix is a known property
+				if v, ok := props[prefix]; ok && v != "" {
+					if v == "$"+prefix {
+						continue
+					}
+					suffix := "." + strings.Join(parts[i:], ".")
+					return resolve(v, depth+1) + suffix
+				}
+			}
+			return match
+		})
+		return result
+	}
+	return resolve(val, 0)
 }
 
 func findRepositoryKeyFromMatches(repoUrls []string, sourceName string, isSnapshot bool) (string, error) {
@@ -1020,7 +1113,6 @@ func findRepositoryKeyFromMatches(repoUrls []string, sourceName string, isSnapsh
 	return best, nil
 }
 
-// collectAppliedScripts extracts paths from apply from: "..."
 func collectAppliedScripts(content []byte, isKts bool, props map[string]string, currentScriptPath string) []string {
 	var paths []string
 	contentStr := string(content)

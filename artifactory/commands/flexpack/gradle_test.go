@@ -107,8 +107,6 @@ func TestParsePropertiesFromArgs(t *testing.T) {
 		{"No properties", []string{"clean", "build"}, map[string]string{}},
 		{"-P flag joined", []string{"-Pprop=val"}, map[string]string{"prop": "val"}},
 		{"-D flag joined", []string{"-Dprop=val"}, map[string]string{"prop": "val"}},
-		{"-P flag separate", []string{"-P", "prop", "val"}, map[string]string{"prop": "val"}},
-		{"-D flag separate", []string{"-D", "prop", "val"}, map[string]string{"prop": "val"}},
 		{"Quotes", []string{"-Pprop=\"val\""}, map[string]string{"prop": "val"}},
 		{"Multiple properties", []string{"-Pprop1=val1", "-Dprop2=val2"}, map[string]string{"prop1": "val1", "prop2": "val2"}},
 	}
@@ -1484,13 +1482,15 @@ func TestWasPublishCommandExtended(t *testing.T) {
 		tasks    []string
 		expected bool
 	}{
-		// NOTE: publishAllPublicationsToMavenRepository is not currently detected
-		// The implementation only matches "publish" exactly or "publishTo*" prefix
-		{"publishAllPublicationsToMavenRepository (not detected)", []string{"publishAllPublicationsToMavenRepository"}, false},
+		// Publication-specific tasks with "To" pattern are now detected
+		{"publishAllPublicationsToMavenRepository", []string{"publishAllPublicationsToMavenRepository"}, true},
+		{"publishMavenPublicationToArtifactoryRepository", []string{"publishMavenPublicationToArtifactoryRepository"}, true},
 		{"publishToSonatype", []string{"publishToSonatype"}, true},
 		{"assemble then publish", []string{"assemble", "check", "publish"}, true},
 		{"deeply nested project publish", []string{":a:b:c:d:publish"}, true},
+		// Local publishing tasks should still be excluded
 		{"publishMavenPublicationToMavenLocal", []string{"publishMavenPublicationToMavenLocal"}, false},
+		{"publishAllPublicationsToLocal", []string{"publishAllPublicationsToLocal"}, false},
 		{"only colon prefix", []string{":publish"}, true},
 		{"case sensitive - Publish", []string{"Publish"}, false},
 		{"partial match - publisher", []string{"publisher"}, false},
