@@ -129,7 +129,7 @@ func (dbib *DockerBuildInfoBuilder) applyBuildProps(items []utils.ResultItem) (e
 	}
 	reader := content.NewContentReader(pathToFile, content.DefaultKey)
 	defer ioutils.Close(reader, &err)
-	_, err = dbib.serviceManager.SetProps(services.PropsParams{Reader: reader, Props: props, UseDebugLogs: true, Recursive: true})
+	_, err = dbib.serviceManager.SetProps(services.PropsParams{Reader: reader, Props: props, UseDebugLogs: true, IsRecursive: true})
 	return err
 }
 

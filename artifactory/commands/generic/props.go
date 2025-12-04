@@ -108,6 +108,6 @@ func GetPropsParams(reader *content.ContentReader, properties string, repoOnly b
 	propsParams = services.NewPropsParams()
 	propsParams.Reader = reader
 	propsParams.Props = properties
-	propsParams.RepoOnly = repoOnly
+	propsParams.IsRepoOnly = repoOnly
 	return
 }
