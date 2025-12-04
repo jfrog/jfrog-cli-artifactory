@@ -147,12 +147,8 @@ func (image *Image) GetRemoteRepo(serviceManager artifactory.ArtifactoryServices
 	if err != nil {
 		return "", err
 	}
-	var isSecure bool
-	if rtUrl := serviceManager.GetConfig().GetServiceDetails().GetUrl(); strings.HasPrefix(rtUrl, "https") {
-		isSecure = true
-	}
 	// Build the request URL.
-	endpoint := buildRequestUrl(longImageName, imageTag, containerRegistryUrl, isSecure)
+	endpoint := buildRequestUrl(longImageName, imageTag, containerRegistryUrl, isSecureProtocol(serviceManager))
 	artHttpDetails := serviceManager.GetConfig().GetServiceDetails().CreateHttpClientDetails()
 	artHttpDetails.Headers["accept"] = "application/vnd.docker.distribution.manifest.v1+prettyjws, application/json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.index.v1+json"
 	resp, _, err := serviceManager.Client().SendHead(endpoint, &artHttpDetails)
@@ -186,7 +182,7 @@ func (image *Image) GetRemoteRepoAndManifestTypeAndLeadSha(serviceManager artifa
 		return "", "", "", err
 	}
 	// Build the request URL.
-	endpoint := buildRequestUrl(longImageName, imageTag, containerRegistryUrl)
+	endpoint := buildRequestUrl(longImageName, imageTag, containerRegistryUrl, isSecureProtocol(serviceManager))
 	artHttpDetails := serviceManager.GetConfig().GetServiceDetails().CreateHttpClientDetails()
 	artHttpDetails.Headers["accept"] = "application/vnd.docker.distribution.manifest.v1+prettyjws, application/json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.index.v1+json"
 	resp, _, err := serviceManager.Client().SendHead(endpoint, &artHttpDetails)
@@ -211,6 +207,13 @@ func (image *Image) GetRemoteRepoAndManifestTypeAndLeadSha(serviceManager artifa
 		return "", "", "", errors.New("couldn't find 'X-Checksum-Sha256' header for docker manifest lead sha in artifactory")
 	}
 	return dockerRepo[0], dockerManifestType[0], dockerLeadSha[0], nil
+}
+
+func isSecureProtocol(serviceManager artifactory.ArtifactoryServicesManager) bool {
+	if rtUrl := serviceManager.GetConfig().GetServiceDetails().GetUrl(); strings.HasPrefix(rtUrl, "https") {
+		return true
+	}
+	return false
 }
 
 // Returns the name of the repository containing the image in Artifactory.
