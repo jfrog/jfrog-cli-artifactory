@@ -1,13 +1,15 @@
 package container
 
 import (
-	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"strings"
 
 	container "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/artifactory"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 type BuildDockerCreateCommand struct {
@@ -49,17 +51,34 @@ func (bdc *BuildDockerCreateCommand) Run() error {
 	if err != nil {
 		return err
 	}
-	repo, err := bdc.GetRepo()
-	if err != nil {
-		return err
-	}
 	if err = build.SaveBuildGeneralDetails(buildName, buildNumber, project); err != nil {
 		return err
 	}
 
 	// Handle multiple tags from comma-separated image name
 	images := SplitMultiTagDockerImageStringWithComma(bdc.image)
+	if len(images) == 0 {
+		return errorutils.CheckErrorf("no valid images found in image file")
+	}
+
+	// Get the repo argument (if provided) to use as fallback
+	// The repo from each image takes precedence to handle cases where tags might be in different repositories
+	fallbackRepo, _ := bdc.GetRepo()
+
 	for _, image := range images {
+		// Always try to get repo from the image first (takes precedence)
+		repo, err := bdc.getRepoFromImage(image, serviceManager)
+		if err != nil {
+			// If getting repo from image fails, fall back to the CLI argument
+			if fallbackRepo == "" {
+				return errorutils.CheckErrorf("failed to get repository for image '%s': %s", image.Name(), err.Error())
+			}
+			repo = fallbackRepo
+		} else {
+			// Repository extracted from image name takes precedence over the mandatory CLI argument
+			log.Debug("Repository extracted from image name '%s': '%s'. The mandatory repository CLI argument is not used.", image.Name(), repo)
+		}
+
 		builder, err := container.NewRemoteAgentBuildInfoBuilder(image, repo, buildName, buildNumber, project, serviceManager, bdc.manifestSha256)
 		if err != nil {
 			return errorutils.CheckErrorf("build info creation failed: %s", err.Error())
@@ -81,6 +100,11 @@ func (bdc *BuildDockerCreateCommand) CommandName() string {
 
 func (bdc *BuildDockerCreateCommand) ServerDetails() (*config.ServerDetails, error) {
 	return bdc.serverDetails, nil
+}
+
+// getRepoFromImage gets the repository name from a single image using the service manager
+func (bdc *BuildDockerCreateCommand) getRepoFromImage(image *container.Image, serviceManager artifactory.ArtifactoryServicesManager) (string, error) {
+	return image.GetRemoteRepo(serviceManager)
 }
 
 func SplitMultiTagDockerImageStringWithComma(image *container.Image) []*container.Image {

@@ -75,4 +75,8 @@ jobs:
         uses: jfrog/.github/actions/install-go-with-cache@main
 
       - name: Tests
-        run: go test -v -race -cover ./...
+        env:
+          GOTOOLCHAIN: 'go1.25.4'
+        run:
+          go env
+          go test -v -race -cover ./...
