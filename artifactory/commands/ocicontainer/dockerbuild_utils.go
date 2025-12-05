@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	remoteRepoLibraryPrefix = "library/"
+	remoteRepoLibraryPrefix = "library"
 	sha256Prefix            = "sha256:"
 	sha256RemoteFormat      = "sha256__"
 	uploadsFolder           = "_uploads"
