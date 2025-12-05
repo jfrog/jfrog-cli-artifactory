@@ -1,11 +1,11 @@
 package strategies
 
 import (
+	"github.com/jfrog/build-info-go/flexpack"
 	container "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"os"
 )
 
 type DockerBuildOptions struct {
@@ -43,14 +43,11 @@ func (bs *DockerBuildStrategyBase) GetContainerManager() container.ContainerMana
 }
 
 func CreateStrategy(options DockerBuildOptions) BuildStrategy {
-	// Check if JFROG_RUN_NATIVE is set
-	if os.Getenv("JFROG_RUN_NATIVE") == "true" {
-		// Regular native mode
+	if flexpack.IsFlexPackEnabled() {
 		log.Debug("Using RunNative Strategy (JFROG_RUN_NATIVE=true)")
 		return NewRunNativeStrategy(options)
 	}
 
-	// Default to legacy when JFROG_RUN_NATIVE is not set
 	log.Debug("Using Legacy Strategy (traditional JFrog approach)")
 	return NewLegacyStrategy(options)
 }

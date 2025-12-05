@@ -30,8 +30,8 @@ type FatManifestHandler struct {
 }
 
 // getManifestHandler returns the appropriate handler based on manifest type
-func (dbib *DockerBuildInfoBuilder) getManifestHandler(mType manifestType) ManifestHandler {
-	switch mType {
+func (dbib *DockerBuildInfoBuilder) getManifestHandler(dockerManifestType manifestType) ManifestHandler {
+	switch dockerManifestType {
 	case ManifestList:
 		return &FatManifestHandler{builder: dbib}
 	case Manifest:
@@ -42,10 +42,10 @@ func (dbib *DockerBuildInfoBuilder) getManifestHandler(mType manifestType) Manif
 }
 
 // fetchLayersOfPushedImage dispatches to the appropriate manifest handler
-func (dbib *DockerBuildInfoBuilder) fetchLayersOfPushedImage(imageRef, repository string, mType manifestType) ([]utils.ResultItem, error) {
-	handler := dbib.getManifestHandler(mType)
+func (dbib *DockerBuildInfoBuilder) fetchLayersOfPushedImage(imageRef, repository string, dockerManifestType manifestType) ([]utils.ResultItem, error) {
+	handler := dbib.getManifestHandler(dockerManifestType)
 	if handler == nil {
-		return []utils.ResultItem{}, errorutils.CheckErrorf("unknown/other manifest type provided: %s", mType)
+		return []utils.ResultItem{}, errorutils.CheckErrorf("unknown/other manifest type provided: %s", dockerManifestType)
 	}
 	return handler.FetchLayers(imageRef, repository)
 }

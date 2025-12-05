@@ -110,6 +110,6 @@ require (
 
 replace github.com/jfrog/jfrog-client-go => github.com/fluxxBot/jfrog-client-go v1.50.1-0.20251204093151-3b144a33bd26
 
-// replace github.com/jfrog/build-info-go => github.com/jfrog/build-info-go v1.8.9-0.20251029074625-97faa661f1d4
+replace github.com/jfrog/build-info-go => github.com/fluxxBot/build-info-go v1.10.10-0.20251205142243-0aef58243b74
 
 replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251026182600-8a8c0428f538

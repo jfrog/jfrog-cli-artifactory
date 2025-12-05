@@ -2,18 +2,43 @@ package dockerfileutils
 
 import (
 	"bufio"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	"os"
 	"runtime"
 	"strings"
 
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-// ParseDockerfileBaseImages extracts all base image references from FROM instructions in a Dockerfile
-// Handles FROM instructions with flags like --platform and AS clauses
-// Ignores FROM clauses that reference previous build stages in multi-stage builds
-// Returns base images along with OS and architecture extracted from --platform flag or runtime defaults
+// dockerfileParser holds state for parsing a Dockerfile
+type dockerfileParser struct {
+	stageNames  map[string]bool // Track stage names from AS clauses
+	seenImages  map[string]bool // Track already added images to avoid duplicates
+	defaultOS   string
+	defaultArch string
+}
+
+// newDockerfileParser creates a new parser with default platform settings
+func newDockerfileParser() *dockerfileParser {
+	defaultOS := runtime.GOOS
+	if defaultOS == "darwin" {
+		defaultOS = "linux"
+	}
+	return &dockerfileParser{
+		stageNames:  make(map[string]bool),
+		seenImages:  make(map[string]bool),
+		defaultOS:   defaultOS,
+		defaultArch: runtime.GOARCH,
+	}
+}
+
+// ParseDockerfileBaseImages extracts all base image references from FROM instructions in a Dockerfile.
+// Handles:
+//   - FROM instructions with flags like --platform and AS clauses
+//   - Multi-line instructions with backslash continuation
+//   - Ignores FROM clauses that reference previous build stages
+//   - Deduplicates identical base images
+//
 // Examples:
 //   - FROM ubuntu:20.04
 //   - FROM ubuntu:20.04 AS builder
@@ -26,120 +51,183 @@ func ParseDockerfileBaseImages(dockerfilePath string) ([]ocicontainer.BaseImage,
 		return nil, err
 	}
 	defer func() {
-		if cerr := file.Close(); cerr != nil {
-			log.Warn("Error closing file: " + cerr.Error())
+		if closeError := file.Close(); closeError != nil {
+			log.Warn("Error closing file: " + closeError.Error())
 		}
 	}()
 
-	var baseImages []ocicontainer.BaseImage
-	var stageNames = make(map[string]bool) // Track stage names from AS clauses
+	parser := newDockerfileParser()
+	lines, err := readDockerfileLines(file)
+	if err != nil {
+		return nil, err
+	}
+
+	return parser.extractBaseImages(lines), nil
+}
+
+// readDockerfileLines reads a Dockerfile and returns complete logical lines,
+// handling backslash line continuation.
+func readDockerfileLines(file *os.File) ([]string, error) {
+	var lines []string
+	var pendingLine strings.Builder
 	scanner := bufio.NewScanner(file)
 
-	// Get default OS and architecture from runtime
-	defaultOS := runtime.GOOS
-	if defaultOS == "darwin" {
-		defaultOS = "linux"
-	}
-	defaultArch := runtime.GOARCH
-
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		// Skip comments and empty lines
-		if strings.HasPrefix(line, "#") || line == "" {
+		trimmedLine := strings.TrimSpace(scanner.Text())
+
+		// Skip comments and empty lines (only if not continuing a previous line)
+		if pendingLine.Len() == 0 && (strings.HasPrefix(trimmedLine, "#") || trimmedLine == "") {
 			continue
 		}
 
-		upperLine := strings.ToUpper(line)
-		if strings.HasPrefix(upperLine, "FROM ") {
-			baseImage, stageName, os, arch := extractBaseImageStageAndPlatformFromLine(line, defaultOS, defaultArch)
-			if baseImage == "" {
-				log.Debug("Could not extract base image from FROM instruction: " + line)
-				continue
-			}
+		// Handle line continuation (backslash at end)
+		if strings.HasSuffix(trimmedLine, "\\") {
+			pendingLine.WriteString(strings.TrimSuffix(trimmedLine, "\\"))
+			pendingLine.WriteString(" ")
+			continue
+		}
 
-			// Track stage name if AS clause is present
-			if stageName != "" {
-				stageNames[stageName] = true
-				log.Debug("Found build stage: " + stageName)
-			}
-
-			// Skip if this FROM references a previous build stage
-			if stageNames[baseImage] {
-				log.Debug("Skipping FROM clause referencing previous stage: " + baseImage)
-				continue
-			}
-
-			// Skip scratch image as it has no layers
-			if baseImage == "scratch" {
-				log.Debug("Skipping scratch image (no layers to track)")
-				continue
-			}
-
-			baseImages = append(baseImages, ocicontainer.BaseImage{
-				Image:        baseImage,
-				OS:           os,
-				Architecture: arch,
-			})
+		// Complete the line
+		if pendingLine.Len() > 0 {
+			pendingLine.WriteString(trimmedLine)
+			lines = append(lines, strings.TrimSpace(pendingLine.String()))
+			pendingLine.Reset()
+		} else {
+			lines = append(lines, trimmedLine)
 		}
 	}
 
-	return baseImages, scanner.Err()
+	return lines, scanner.Err()
 }
 
-// extractBaseImageStageAndPlatformFromLine extracts the base image name, stage name, OS, and architecture from a FROM instruction line
-// Returns: (baseImage, stageName, os, arch)
-// Handles flags like --platform and AS clauses
-// If --platform flag is present, extracts OS and arch from it (e.g., --platform=linux/amd64)
-// If --platform flag is not present, uses defaultOS and defaultArch
-func extractBaseImageStageAndPlatformFromLine(line string, defaultOS, defaultArch string) (string, string, string, string) {
-	parts := strings.Fields(line)
-	if len(parts) < 2 {
-		return "", "", defaultOS, defaultArch
+// extractBaseImages processes all lines and extracts base images from FROM instructions
+func (p *dockerfileParser) extractBaseImages(lines []string) []ocicontainer.BaseImage {
+	var baseImages []ocicontainer.BaseImage
+
+	for _, line := range lines {
+		if !isFromInstruction(line) {
+			continue
+		}
+
+		fromInfo := p.parseFromInstruction(line)
+		if fromInfo.image == "" {
+			log.Debug("Could not extract base image from FROM instruction: " + line)
+			continue
+		}
+
+		// Track stage name for multi-stage build references
+		if fromInfo.stageName != "" {
+			p.stageNames[fromInfo.stageName] = true
+			log.Debug("Found build stage: " + fromInfo.stageName)
+		}
+
+		// Apply skip rules
+		if reason := p.shouldSkipImage(fromInfo.image); reason != "" {
+			log.Debug(reason)
+			continue
+		}
+
+		p.seenImages[fromInfo.image] = true
+		baseImages = append(baseImages, ocicontainer.BaseImage{
+			Image:        fromInfo.image,
+			OS:           fromInfo.os,
+			Architecture: fromInfo.arch,
+		})
 	}
 
-	var imageName string
-	var stageName string
-	os := defaultOS
-	arch := defaultArch
+	return baseImages
+}
 
-	// Find the image name by skipping flags (starting with --) and stopping at AS
+// fromInstruction holds parsed data from a FROM instruction
+type fromInstruction struct {
+	image     string
+	stageName string
+	os        string
+	arch      string
+}
+
+// isFromInstruction checks if a line is a FROM instruction
+func isFromInstruction(line string) bool {
+	return strings.HasPrefix(strings.ToUpper(line), "FROM ")
+}
+
+// parseFromInstruction extracts image, stage name, and platform from a FROM line
+// Examples:
+//   - "FROM ubuntu:20.04" -> {image: "ubuntu:20.04"}
+//   - "FROM ubuntu:20.04 AS builder" -> {image: "ubuntu:20.04", stageName: "builder"}
+//   - "FROM --platform=linux/amd64 ubuntu:20.04" -> {image: "ubuntu:20.04", os: "linux", arch: "amd64"}
+func (p *dockerfileParser) parseFromInstruction(line string) fromInstruction {
+	parts := strings.Fields(line)
+	if len(parts) < 2 {
+		return fromInstruction{os: p.defaultOS, arch: p.defaultArch}
+	}
+
+	result := fromInstruction{
+		os:   p.defaultOS,
+		arch: p.defaultArch,
+	}
+
 	for i := 1; i < len(parts); i++ {
 		part := parts[i]
 
 		// Check for AS clause (case-insensitive)
-		if strings.ToUpper(part) == "AS" {
-			// Next part after AS is the stage name
+		if strings.EqualFold(part, "AS") {
 			if i+1 < len(parts) {
-				stageName = parts[i+1]
+				result.stageName = parts[i+1]
 			}
 			break
 		}
 
 		// Check for --platform flag
 		if strings.HasPrefix(part, "--platform=") {
-			platformValue := strings.TrimPrefix(part, "--platform=")
-			platformParts := strings.Split(platformValue, "/")
-			if len(platformParts) == 2 {
-				os = platformParts[0]
-				arch = platformParts[1]
-				log.Debug("Found platform flag: " + os + "/" + arch)
-			} else {
-				log.Debug("Invalid platform format in --platform flag: " + platformValue)
-			}
+			result.os, result.arch = parsePlatformFlag(part, p.defaultOS, p.defaultArch)
 			continue
 		}
 
-		// Skip other flags (starting with --)
+		// Skip other flags
 		if strings.HasPrefix(part, "--") {
 			continue
 		}
 
-		// This should be the image name
-		if imageName == "" {
-			imageName = part
-			// Don't break here - continue to check for AS clause
+		// First non-flag token is the image name
+		if result.image == "" {
+			result.image = part
 		}
 	}
 
-	return imageName, stageName, os, arch
+	return result
+}
+
+// parsePlatformFlag extracts OS and architecture from --platform=os/arch flag
+func parsePlatformFlag(flag, defaultOS, defaultArch string) (string, string) {
+	value := strings.TrimPrefix(flag, "--platform=")
+	parts := strings.Split(value, "/")
+
+	if len(parts) == 2 {
+		log.Debug("Found platform flag: " + value)
+		return parts[0], parts[1]
+	}
+
+	log.Debug("Invalid platform format in --platform flag: " + value)
+	return defaultOS, defaultArch
+}
+
+// shouldSkipImage returns a reason string if the image should be skipped, or empty string if it should be included
+func (p *dockerfileParser) shouldSkipImage(image string) string {
+	// Skip if this FROM references a previous build stage
+	if p.stageNames[image] {
+		return "Skipping FROM clause referencing previous stage: " + image
+	}
+
+	// Skip scratch image as it has no layers
+	if image == "scratch" {
+		return "Skipping scratch image (no layers to track)"
+	}
+
+	// Skip if already seen (deduplication)
+	if p.seenImages[image] {
+		return "Skipping duplicate base image: " + image
+	}
+
+	return ""
 }

@@ -7,12 +7,8 @@ import (
 	"testing"
 )
 
-func TestExtractBaseImageStageAndPlatformFromLine(t *testing.T) {
-	defaultOS := runtime.GOOS
-	if defaultOS == "darwin" {
-		defaultOS = "linux"
-	}
-	defaultArch := runtime.GOARCH
+func TestParseFromInstruction(t *testing.T) {
+	parser := newDockerfileParser()
 
 	tests := []struct {
 		name          string
@@ -27,16 +23,16 @@ func TestExtractBaseImageStageAndPlatformFromLine(t *testing.T) {
 			line:          "FROM ubuntu:20.04",
 			expectedImage: "ubuntu:20.04",
 			expectedStage: "",
-			expectedOS:    defaultOS,
-			expectedArch:  defaultArch,
+			expectedOS:    parser.defaultOS,
+			expectedArch:  parser.defaultArch,
 		},
 		{
 			name:          "FROM with AS",
 			line:          "FROM ubuntu:20.04 AS builder",
 			expectedImage: "ubuntu:20.04",
 			expectedStage: "builder",
-			expectedOS:    defaultOS,
-			expectedArch:  defaultArch,
+			expectedOS:    parser.defaultOS,
+			expectedArch:  parser.defaultArch,
 		},
 		{
 			name:          "FROM with --platform flag",
@@ -67,16 +63,16 @@ func TestExtractBaseImageStageAndPlatformFromLine(t *testing.T) {
 			line:          "FROM scratch",
 			expectedImage: "scratch",
 			expectedStage: "",
-			expectedOS:    defaultOS,
-			expectedArch:  defaultArch,
+			expectedOS:    parser.defaultOS,
+			expectedArch:  parser.defaultArch,
 		},
 		{
 			name:          "FROM scratch with AS",
 			line:          "FROM scratch AS base",
 			expectedImage: "scratch",
 			expectedStage: "base",
-			expectedOS:    defaultOS,
-			expectedArch:  defaultArch,
+			expectedOS:    parser.defaultOS,
+			expectedArch:  parser.defaultArch,
 		},
 		{
 			name:          "FROM with multiple flags",
@@ -98,18 +94,18 @@ func TestExtractBaseImageStageAndPlatformFromLine(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			image, stage, os, arch := extractBaseImageStageAndPlatformFromLine(tt.line, defaultOS, defaultArch)
-			if image != tt.expectedImage {
-				t.Errorf("extractBaseImageStageAndPlatformFromLine(%q) image = %q, want %q", tt.line, image, tt.expectedImage)
+			result := parser.parseFromInstruction(tt.line)
+			if result.image != tt.expectedImage {
+				t.Errorf("parseFromInstruction(%q) image = %q, want %q", tt.line, result.image, tt.expectedImage)
 			}
-			if stage != tt.expectedStage {
-				t.Errorf("extractBaseImageStageAndPlatformFromLine(%q) stage = %q, want %q", tt.line, stage, tt.expectedStage)
+			if result.stageName != tt.expectedStage {
+				t.Errorf("parseFromInstruction(%q) stage = %q, want %q", tt.line, result.stageName, tt.expectedStage)
 			}
-			if os != tt.expectedOS {
-				t.Errorf("extractBaseImageStageAndPlatformFromLine(%q) os = %q, want %q", tt.line, os, tt.expectedOS)
+			if result.os != tt.expectedOS {
+				t.Errorf("parseFromInstruction(%q) os = %q, want %q", tt.line, result.os, tt.expectedOS)
 			}
-			if arch != tt.expectedArch {
-				t.Errorf("extractBaseImageStageAndPlatformFromLine(%q) arch = %q, want %q", tt.line, arch, tt.expectedArch)
+			if result.arch != tt.expectedArch {
+				t.Errorf("parseFromInstruction(%q) arch = %q, want %q", tt.line, result.arch, tt.expectedArch)
 			}
 		})
 	}
@@ -254,5 +250,88 @@ FROM ubuntu AS final
 
 	if len(baseImages) > 0 && baseImages[0].Image != expectedImage {
 		t.Errorf("Base image[0].Image = %q, want %q", baseImages[0].Image, expectedImage)
+	}
+}
+
+func TestParseDockerfileBaseImages_MulitpleStageSameImage(t *testing.T) {
+	// Test edge case: stage name that matches an image name
+	dockerfileContent := `# Stage name matches image name
+FROM ubuntu:20.04 AS ubuntu
+FROM ubuntu:20.04 AS final
+`
+
+	tmpDir := t.TempDir()
+	dockerfilePath := filepath.Join(tmpDir, "Dockerfile")
+	err := os.WriteFile(dockerfilePath, []byte(dockerfileContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create test Dockerfile: %v", err)
+	}
+
+	baseImages, err := ParseDockerfileBaseImages(dockerfilePath)
+	if err != nil {
+		t.Fatalf("ParseDockerfileBaseImages failed: %v", err)
+	}
+
+	// Should only have ubuntu:20.04
+	expectedImage := "ubuntu:20.04"
+
+	if len(baseImages) != 1 {
+		t.Errorf("Expected 1 base image, got %d: %v", len(baseImages), baseImages)
+	}
+
+	if len(baseImages) > 0 && baseImages[0].Image != expectedImage {
+		t.Errorf("Base image[0].Image = %q, want %q", baseImages[0].Image, expectedImage)
+	}
+}
+
+func TestParseDockerfileBaseImages_MultiLineContinuation(t *testing.T) {
+	// Test multi-line FROM with backslash continuation (Docker supported syntax)
+	dockerfileContent := `FROM --platform=linux/amd64 \
+     ubuntu:20.04 \
+     AS builder
+
+FROM alpine:3.18
+`
+
+	tmpDir := t.TempDir()
+	dockerfilePath := filepath.Join(tmpDir, "Dockerfile")
+	err := os.WriteFile(dockerfilePath, []byte(dockerfileContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create test Dockerfile: %v", err)
+	}
+
+	baseImages, err := ParseDockerfileBaseImages(dockerfilePath)
+	if err != nil {
+		t.Fatalf("ParseDockerfileBaseImages failed: %v", err)
+	}
+
+	expected := []struct {
+		image string
+		os    string
+		arch  string
+	}{
+		{"ubuntu:20.04", "linux", "amd64"},
+		{"alpine:3.18", "linux", runtime.GOARCH},
+	}
+	if runtime.GOOS == "darwin" {
+		expected[1].os = "linux"
+	}
+
+	if len(baseImages) != len(expected) {
+		t.Errorf("Expected %d base images, got %d: %v", len(expected), len(baseImages), baseImages)
+	}
+
+	for i, exp := range expected {
+		if i < len(baseImages) {
+			if baseImages[i].Image != exp.image {
+				t.Errorf("Base image[%d].Image = %q, want %q", i, baseImages[i].Image, exp.image)
+			}
+			if baseImages[i].OS != exp.os {
+				t.Errorf("Base image[%d].OS = %q, want %q", i, baseImages[i].OS, exp.os)
+			}
+			if baseImages[i].Architecture != exp.arch {
+				t.Errorf("Base image[%d].Architecture = %q, want %q", i, baseImages[i].Architecture, exp.arch)
+			}
+		}
 	}
 }

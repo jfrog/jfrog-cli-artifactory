@@ -190,30 +190,27 @@ func (image *Image) GetRemoteRepoAndManifestTypeAndLeadSha(serviceManager artifa
 		return "", "", "", err
 	}
 	if resp.StatusCode == http.StatusForbidden {
-		return "", "", "", errors.New(getStatusForbiddenErrorMessage())
+		return "", "", "", errorutils.CheckErrorf("%s for image '%s'", getStatusForbiddenErrorMessage(), image.name)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", "", "", errorutils.CheckErrorf("error while getting docker repository name. Artifactory response: %s", resp.Status)
+		return "", "", "", errorutils.CheckErrorf("error while getting docker repository name for image '%s'. Artifactory response: %s", image.name, resp.Status)
 	}
 
 	var dockerRepo, dockerManifestType, dockerLeadSha []string
 	if dockerRepo = resp.Header["X-Artifactory-Docker-Registry"]; len(dockerRepo) == 0 {
-		return "", "", "", errors.New("couldn't find 'X-Artifactory-Docker-Registry' header  docker repository in artifactory")
+		return "", "", "", errorutils.CheckErrorf("couldn't find 'X-Artifactory-Docker-Registry' header for image '%s'", image.name)
 	}
 	if dockerManifestType = resp.Header["X-Artifactory-Filename"]; len(dockerManifestType) == 0 {
-		return "", "", "", errors.New("couldn't find 'X-Artifactory-Filename' header for docker manifest type in artifactory")
+		return "", "", "", errorutils.CheckErrorf("couldn't find 'X-Artifactory-Filename' header for image '%s'", image.name)
 	}
 	if dockerLeadSha = resp.Header["X-Checksum-Sha256"]; len(dockerLeadSha) == 0 {
-		return "", "", "", errors.New("couldn't find 'X-Checksum-Sha256' header for docker manifest lead sha in artifactory")
+		return "", "", "", errorutils.CheckErrorf("couldn't find 'X-Checksum-Sha256' header for image '%s'", image.name)
 	}
 	return dockerRepo[0], dockerManifestType[0], dockerLeadSha[0], nil
 }
 
 func isSecureProtocol(serviceManager artifactory.ArtifactoryServicesManager) bool {
-	if rtUrl := serviceManager.GetConfig().GetServiceDetails().GetUrl(); strings.HasPrefix(rtUrl, "https") {
-		return true
-	}
-	return false
+	return strings.HasPrefix(serviceManager.GetConfig().GetServiceDetails().GetUrl(), "https")
 }
 
 // Returns the name of the repository containing the image in Artifactory.

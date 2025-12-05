@@ -123,6 +123,12 @@ func (dbib *DockerBuildInfoBuilder) applyBuildProps(items []utils.ResultItem) (e
 	}
 	pushedRepo := dbib.getPushedRepo()
 	filteredLayers := filterLayersFromVirtualRepo(items, pushedRepo)
+	if len(filteredLayers) == 0 {
+		log.Debug(fmt.Sprintf("Filtered layers length is 0 after filtering with pushedRepo: %s, All layers: %v", pushedRepo, items))
+		log.Warn(fmt.Sprintf("No eligible layers found to apply build properties for pushedRepo: %s. "+
+			"Skipping...", pushedRepo))
+		return nil
+	}
 	pathToFile, err := writeLayersToFile(filteredLayers)
 	if err != nil {
 		return

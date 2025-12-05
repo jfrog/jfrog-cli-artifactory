@@ -20,6 +20,15 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+const (
+	remoteRepoLibraryPrefix = "library/"
+	sha256Prefix            = "sha256:"
+	sha256RemoteFormat      = "sha256__"
+	uploadsFolder           = "_uploads"
+	remoteCacheSuffix       = "-cache"
+	remoteRepositoryType    = "remote"
+)
+
 // getRemoteRepoAndManifestTypeWithLeadSha determines the repository, manifest type, and lead SHA for an image
 func (dbib *DockerBuildInfoBuilder) getRemoteRepoAndManifestTypeWithLeadSha(imageRef string) (string, manifestType, string, error) {
 	image := NewImage(imageRef)
@@ -44,20 +53,20 @@ func (dbib *DockerBuildInfoBuilder) manifestDetails(baseImage BaseImage) (string
 	if err != nil {
 		return "", fmt.Errorf("parsing reference %s: %w", imageRef, err)
 	}
-	var goos, goarch string
+	var osName, osArch string
 
 	if baseImage.OS != "" && baseImage.Architecture != "" {
-		goos = baseImage.OS
-		goarch = baseImage.Architecture
+		osName = baseImage.OS
+		osArch = baseImage.Architecture
 	} else {
-		goos = runtime.GOOS
-		if goos == "darwin" {
-			goos = "linux"
+		osName = runtime.GOOS
+		if osName == "darwin" {
+			osName = "linux"
 		}
-		goarch = runtime.GOARCH
+		osArch = runtime.GOARCH
 	}
 
-	remoteImage, err := remote.Image(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain), remote.WithPlatform(v1.Platform{OS: goos, Architecture: goarch}))
+	remoteImage, err := remote.Image(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain), remote.WithPlatform(v1.Platform{OS: osName, Architecture: osArch}))
 	if err != nil || remoteImage == nil {
 		return "", fmt.Errorf("error fetching manifest for %s: %w", imageRef, err)
 	}
@@ -80,7 +89,7 @@ func (dbib *DockerBuildInfoBuilder) getSearchableRepository(repositoryName strin
 	if dbib.repositoryDetails.RepoType == "" || dbib.repositoryDetails.Key == "" {
 		return "", errorutils.CheckErrorf("repository details are incomplete: %+v", dbib.repositoryDetails)
 	}
-	if dbib.repositoryDetails.RepoType == "remote" {
+	if dbib.repositoryDetails.RepoType == remoteRepositoryType {
 		return dbib.repositoryDetails.Key + "-cache", nil
 	}
 	return dbib.repositoryDetails.Key, nil
@@ -92,9 +101,9 @@ func (dbib *DockerBuildInfoBuilder) searchArtifactoryForFilesByPath(repository s
 		return []utils.ResultItem{}, nil
 	}
 
-	var searchPathString []string
+	var pathConditions []string
 	for _, item := range paths {
-		searchPathString = append(searchPathString, fmt.Sprintf(`{"path": {"$eq": "%s"}}`, item))
+		pathConditions = append(pathConditions, fmt.Sprintf(`{"path": {"$eq": "%s"}}`, item))
 	}
 
 	// Build AQL query with $and and $or operators
@@ -109,7 +118,7 @@ func (dbib *DockerBuildInfoBuilder) searchArtifactoryForFilesByPath(repository s
   ]
 })
 .include("name", "repo", "path", "sha256", "actual_sha1", "actual_md5")`,
-		repository, strings.Join(searchPathString, ",\n        "))
+		repository, strings.Join(pathConditions, ",\n        "))
 
 	// Execute AQL search
 	allResults, err := executeAqlQuery(dbib.serviceManager, aqlQuery)
@@ -121,8 +130,11 @@ func (dbib *DockerBuildInfoBuilder) searchArtifactoryForFilesByPath(repository s
 }
 
 // searchForImageLayersInPath performs AQL query with $match/$nmatch patterns
+// this function looks for the uploaded layers in docker-repo/imageName/path* provided and neglects the _uploads folder
+// upload folder contains actual uploaded layer which are copied to their final location by docker
+// adding properties in uploaded folder is redundant to form tree structure in build info page
 func (dbib *DockerBuildInfoBuilder) searchForImageLayersInPath(imageName, repository string, paths []string) ([]utils.ResultItem, error) {
-	excludePath := fmt.Sprintf("%s/%s", imageName, "_uploads")
+	excludePath := fmt.Sprintf("%s/%s", imageName, uploadsFolder)
 	var allResults []utils.ResultItem
 	var err error
 
@@ -161,7 +173,7 @@ func (dbib *DockerBuildInfoBuilder) searchForImageLayersInPath(imageName, reposi
 
 // modifyPathForRemoteRepo adds library/ prefix and converts sha256: to sha256__
 func modifyPathForRemoteRepo(path string) string {
-	return fmt.Sprintf("library/%s", strings.Replace(path, "sha256:", "sha256__", 1))
+	return fmt.Sprintf("%s/%s", remoteRepoLibraryPrefix, strings.Replace(path, sha256Prefix, sha256RemoteFormat, 1))
 }
 
 // deduplicateResultsBySha256 removes duplicate results based on SHA256
@@ -213,8 +225,8 @@ func getMarkerLayerShasFromSearchResult(searchResults []utils.ResultItem) ([]str
 	var markerLayerShas []string
 	var filteredLayerShas []utils.ResultItem
 	for _, result := range searchResults {
-		if strings.HasSuffix(result.Name, ".marker") {
-			layerSha := strings.TrimSuffix(result.Name, ".marker")
+		if strings.HasSuffix(result.Name, markerLayerSuffix) {
+			layerSha := strings.TrimSuffix(result.Name, markerLayerSuffix)
 			markerLayerShas = append(markerLayerShas, layerSha)
 			continue
 		}
@@ -276,7 +288,7 @@ func downloadSingleMarkerLayer(layerSha, remoteRepo, imageName, baseUrl string, 
 		Actual_Md5:  resp.Header.Get("X-Checksum-Md5"),
 		Sha256:      resp.Header.Get("X-Checksum-Sha256"),
 		Name:        resp.Header.Get("X-Artifactory-Filename"),
-		Repo:        remoteRepo + "-cache",
+		Repo:        remoteRepo + remoteCacheSuffix,
 	}
 
 	log.Debug(fmt.Sprintf("Collected checksums for layer %s - SHA1: %s, SHA256: %s, MD5: %s, Filename: %s", layerSha, resultItem.Actual_Sha1, resultItem.Sha256, resultItem.Actual_Md5, resultItem.Name))

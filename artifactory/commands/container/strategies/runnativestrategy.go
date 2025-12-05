@@ -1,6 +1,7 @@
 package strategies
 
 import (
+	"fmt"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/container/dockerfileutils"
 	container "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -57,6 +58,9 @@ func (s *RunNativeStrategy) collectBuildInfo(cmdParams []string, buildConfig *bu
 
 	// Parse Dockerfile to get base images
 	dockerfilePath := s.dockerBuildOptions.DockerFilePath
+	if dockerfilePath == "" {
+		dockerfilePath = "Dockerfile"
+	}
 	baseImageInfos, err := dockerfileutils.ParseDockerfileBaseImages(dockerfilePath)
 	if err != nil {
 		return errorutils.CheckErrorf("Failed to parse Dockerfile: %s", err.Error())
@@ -110,6 +114,6 @@ func (s *RunNativeStrategy) collectBuildInfo(cmdParams []string, buildConfig *bu
 		return errorutils.CheckErrorf("Failed to build build-info: %s", err.Error())
 	}
 
-	log.Info("Build-info collected successfully for image: " + s.dockerBuildOptions.ImageTag)
+	log.Info(fmt.Sprintf("Build-info collected successfully for image: %s", s.dockerBuildOptions.ImageTag))
 	return nil
 }

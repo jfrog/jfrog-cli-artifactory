@@ -189,6 +189,7 @@ func (loginCmd *LoginCmd) RunCmd() error {
 
 // First we'll try to log in assuming a proxy-less tag (e.g. "registry-address/docker-repo/image:ver").
 // If fails, we will try assuming a reverse proxy tag (e.g. "registry-address-docker-repo/image:ver").
+// the variable printConsoleError is set true when we want the exact error thrown by docker daemon to console
 func ContainerManagerLogin(imageRegistry string, config *ContainerManagerLoginConfig, containerManager ContainerManagerType, printConsoleError bool) error {
 	username := config.ServerDetails.User
 	password := config.ServerDetails.Password
@@ -210,7 +211,6 @@ func ContainerManagerLogin(imageRegistry string, config *ContainerManagerLoginCo
 	indexOfSlash := strings.Index(imageRegistry, "/")
 	if indexOfSlash < 0 {
 		if printConsoleError {
-			log.Warn("error  rec: ", err)
 			return err
 		}
 		return errorutils.CheckErrorf(LoginFailureMessage, containerManager.String(), imageRegistry, containerManager.String())
