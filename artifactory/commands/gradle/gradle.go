@@ -6,10 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"text/template"
 
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/flexpack"
+	flexpackgradle "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/flexpack/gradle"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -117,7 +118,7 @@ func (gc *GradleCommand) shouldCreateBuildArtifactsFile() bool {
 func (gc *GradleCommand) Run() error {
 	// Check for FlexPack mode first (before init)
 	if os.Getenv("JFROG_RUN_NATIVE") == "true" {
-		return gc.runWithFlexPack()
+		return gc.runWithGradleNative()
 	}
 
 	vConfig, err := gc.init()
@@ -149,8 +150,8 @@ func (gc *GradleCommand) unmarshalDeployableArtifacts(filesPath string) error {
 	return nil
 }
 
-// runWithFlexPack executes Gradle using FlexPack for dependency resolution and build info collection
-func (gc *GradleCommand) runWithFlexPack() error {
+// runWithGradleNative executes Gradle using FlexPack for dependency resolution and build info collection
+func (gc *GradleCommand) runWithGradleNative() error {
 	log.Debug("Gradle FlexPack implementation activated")
 
 	// Get Gradle executable path
@@ -178,11 +179,7 @@ func (gc *GradleCommand) runWithFlexPack() error {
 		if isCollect {
 			log.Info("Collecting build info for executed command...")
 
-			buildName, err := gc.configuration.GetBuildName()
-			if err != nil {
-				return err
-			}
-			buildNumber, err := gc.configuration.GetBuildNumber()
+			buildName, buildNumber, err := gc.getBuildNameAndNumber()
 			if err != nil {
 				return err
 			}
@@ -207,35 +204,23 @@ func (gc *GradleCommand) runWithFlexPack() error {
 
 // getGradleExecutablePath finds the Gradle executable (wrapper or system)
 func getGradleExecutablePath() (string, error) {
-	// Check for Gradle wrapper first
-	if fileutils.IsPathExists("gradlew", false) {
-		absPath, err := filepath.Abs("gradlew")
-		if err != nil {
-			return "", err
-		}
-		return absPath, nil
+	wrapperFile := "gradlew"
+	if runtime.GOOS == "windows" {
+		wrapperFile = "gradlew.bat"
 	}
 
-	// Check for Windows wrapper
-	if fileutils.IsPathExists("gradlew.bat", false) {
-		absPath, err := filepath.Abs("gradlew.bat")
-		if err != nil {
-			return "", err
-		}
-		return absPath, nil
+	// Check for Gradle wrapper
+	if fileutils.IsPathExists(wrapperFile, false) {
+		return filepath.Abs(wrapperFile)
 	}
 
 	// Fallback to system Gradle
-	gradlePath, err := exec.LookPath("gradle")
-	if err != nil {
-		return "", fmt.Errorf("gradle executable not found: %w", err)
-	}
-	return gradlePath, nil
+	return exec.LookPath("gradle")
 }
 
 // collectGradleBuildInfoWithFlexPack calls the FlexPack implementation to collect Gradle build info
 func collectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, tasks []string, configuration *build.BuildConfiguration) error {
-	return flexpack.CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber, tasks, configuration)
+	return flexpackgradle.CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber, tasks, configuration)
 }
 
 // ConditionalUpload will scan the artifact using Xray and will upload them only if the scan passes with no
@@ -338,6 +323,16 @@ func (gc *GradleCommand) Result() *commandsutils.Result {
 func (gc *GradleCommand) setResult(result *commandsutils.Result) *GradleCommand {
 	gc.result = result
 	return gc
+}
+
+// getBuildNameAndNumber returns the build name and build number from the configuration
+func (gc *GradleCommand) getBuildNameAndNumber() (buildName, buildNumber string, err error) {
+	buildName, err = gc.configuration.GetBuildName()
+	if err != nil {
+		return
+	}
+	buildNumber, err = gc.configuration.GetBuildNumber()
+	return
 }
 
 type InitScriptAuthConfig struct {
