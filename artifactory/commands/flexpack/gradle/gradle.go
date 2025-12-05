@@ -26,12 +26,118 @@ import (
 )
 
 const (
-	gradleTaskPublish             = "publish"
-	gradleTaskPublishToMavenLocal = "publishToMavenLocal"
 	gradlePropertiesTimeout       = 1 * time.Minute
 	artifactSearchClockSkewBuffer = 1 * time.Minute
 	gradleEnvPrefixLen            = 19
+
+	// File Names
+	buildGradleFileName       = "build.gradle"
+	buildGradleKtsFileName    = "build.gradle.kts"
+	settingsGradleFileName    = "settings.gradle"
+	settingsGradleKtsFileName = "settings.gradle.kts"
+	initGradleFileName        = "init.gradle"
+	initGradleKtsFileName     = "init.gradle.kts"
+	gradlePropertiesFileName  = "gradle.properties"
+
+	// Directories
+	initDDirName   = "init.d"
+	dotGradleDir   = ".gradle"
+	projectDirProp = "projectDir"
+	rootDirProp    = "rootDir"
+
+	// Environment Variables
+	envGradleUserHome = "GRADLE_USER_HOME"
+	envGradleOpts     = "GRADLE_OPTS"
+	envJavaOpts       = "JAVA_OPTS"
+	envProjectPrefix  = "ORG_GRADLE_PROJECT_"
+
+	// Keywords
+	gradleTaskPublish             = "publish"
+	gradleTaskPublishToMavenLocal = "publishToMavenLocal"
+	keywordSnapshot               = "snapshot"
+	keywordRelease                = "release"
+	keywordRepo                   = "repo"
+	keywordUrl                    = "url"
+	keywordDeploy                 = "deploy"
+	keywordMaven                  = "maven"
+	keywordGradle                 = "gradle"
+	keywordIvy                    = "ivy"
+	keywordApi                    = "api"
+
+	// Script Blocks/Keywords
+	blockRepositories     = "repositories"
+	blockPublishing       = "publishing"
+	blockUploadArchives   = "uploadArchives"
+	blockDepResManagement = "dependencyResolutionManagement"
+	blockExt              = "ext"
+	keywordArtifactory    = "artifactory"
 )
+
+var (
+	// (?m) Multiline mode, \s* Matches zero or more whitespace, ([^#=\s:]+) Capture Group 1, The characters excluded are # (comments), = (separator), \s (whitespace), and : (separator)
+	// (.*) Capture Group 2 matches any character (except newline)
+	// example: "key=value" or "key: value"
+	// Capture group 1: key
+	// Capture group 2: value
+	propertiesFileRe = regexp.MustCompile(`(?m)^\s*([^#=\s:]+)\s*[:=]\s*(.*)$`)
+
+	// [a-zA-Z_] name must start with a letter or an underscore, [a-zA-Z0-9_.]* The rest of the name can contain letters, numbers, underscores, or dots
+	// \s*=\s* Matches an equals sign = , ['"] Matches an opening quote,  ([^'"]+)  Matches one or more characters that are NOT single or double quotes,  ['"] Matches a closing quote
+	// example: myProp = "value"
+	// Capture group 1: property name
+	// Capture group 2: property value (inside quotes)
+	extBlockRe = regexp.MustCompile(`(?m)^\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*=\s*['"]([^'"]+)['"]`)
+
+	// (?:project\.)? Optional prefix, It matches project but (?:...) means it is a non-capturing group,
+	// ext\. Matches the literal string ext.
+	// example: ext.myProp = "value" or project.ext.myProp = "value"
+	// Capture group 1: property name
+	// Capture group 2: property value (inside quotes)
+	extAssignmentRe = regexp.MustCompile(`(?m)^\s*(?:project\.)?ext\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*=\s*['"]([^'"]+)['"]`)
+
+	// \s*\(\s* Matches an opening parenthesis surrounded by optional whitespace
+	// \s*=\s*: Matches an equals sign = surrounded by optional whitespace
+	// ( ... ) → Capturing Group to save the match text group [1], in this case the script path
+	// example: apply(from = "script.gradle")
+	// Capture group 1: script path
+	applyFromKtsRe = regexp.MustCompile(`(?m)apply\s*\(\s*from\s*=\s*['"]([^'"]+)['"]`)
+
+	// applyFromGroovyRe matches 'apply from: "..."' in Groovy DSL
+	// example: apply from: "script.gradle"
+	// Capture group 1: script path
+	applyFromGroovyRe = regexp.MustCompile(`(?m)apply\s+from\s*:\s*['"]([^'"]+)['"]`)
+
+	// (?:\.set)?  (?:pattern) Non-Capturing Group to apply logic like (| OR operator) without saving into group,  ? Group Optional suffix as url.set (Strict Kotlin DSL),
+	// \(\s* An opening parenthesis (,  | OR , \s*=\s* An equals sign surrounded by optional whitespace
+	// (?:uri\s*\(\s*)? Optional uri() wrapper
+	// example: url = uri("http://...") or url("http://...")
+	// Capture group 1: URL string
+	urlKtsRe = regexp.MustCompile(`(?m)url(?:\.set)?\s*(?:\(\s*|\s*=\s*)(?:uri\s*\(\s*)?['"]([^'"]+)['"]`)
+
+	// urlGroovyRe matches repository URLs in Groovy DSL
+	// example: url "http://..." or url = uri("http://...")
+	// Capture group 1: URL string
+	urlGroovyRe = regexp.MustCompile(`(?m)url\s*(?:[:=]?\s*|[:=]\s*uri\s*\(\s*)['"]([^'"]+)['"]`)
+
+	// \$ Matches the literal dollar sign $ as a prefix
+	// [^}] means "Match any character that is not a }, + matches one or more of the preceding element
+	// propPlaceHolderRe matches property placeholders like ${propName}
+	// example: ${version}
+	// Capture group 1: property name ("version")
+	propPlaceHolderRe = regexp.MustCompile(`\$\{([^}]+)\}`)
+
+	// propVarRe matches simple property references like $propName
+	// Matches: $version or $project.version
+	// Capture group 1: property name (e.g., "version" or "project.version")
+	propVarRe = regexp.MustCompile(`\$([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)`)
+)
+
+type blockExtractorState struct {
+	inString       bool
+	stringChar     byte
+	inLineComment  bool
+	inBlockComment bool
+}
 
 func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, tasks []string, buildConfiguration *buildUtils.BuildConfiguration) error {
 	absWorkingDir, err := filepath.Abs(workingDir)
@@ -84,12 +190,9 @@ func wasPublishCommand(tasks []string) bool {
 		if task == gradleTaskPublish {
 			return true
 		}
-		if strings.HasPrefix(task, "publishTo") && task != gradleTaskPublishToMavenLocal {
-			return true
-		}
-		// Pattern: publish<Publication>To<Repository>
-		if strings.HasPrefix(task, "publish") && strings.Contains(task, "To") {
-			if !strings.HasSuffix(task, "Local") {
+
+		if strings.HasPrefix(task, gradleTaskPublish) {
+			if strings.Contains(task, "To") && !strings.HasSuffix(task, "Local") && task != gradleTaskPublishToMavenLocal {
 				return true
 			}
 		}
@@ -198,7 +301,7 @@ func searchRecentArtifacts(servicesManager artifactory.ArtifactoryServicesManage
 		}
 		version := parts[2]
 
-		isSnapshot := strings.Contains(strings.ToLower(version), "snapshot")
+		isSnapshot := strings.Contains(strings.ToLower(version), keywordSnapshot)
 		targetRepo, ok := repoCache[isSnapshot]
 		if !ok {
 			var deployErr error
@@ -277,22 +380,19 @@ func parseArtifactModifiedTime(modified string) (time.Time, error) {
 // It does not check for specific environment variables
 func getGradleDeployRepository(workingDir, version string) (string, error) {
 	// Validate working directory
-	if workingDir == "" {
-		return "", fmt.Errorf("working directory cannot be empty")
-	}
-	if info, err := os.Stat(workingDir); err != nil || !info.IsDir() {
-		return "", fmt.Errorf("invalid working directory: %s", workingDir)
+	if err := validateWorkingDirectory(workingDir); err != nil {
+		return "", err
 	}
 
-	isSnapshot := strings.Contains(strings.ToLower(version), "snapshot")
+	isSnapshot := strings.Contains(strings.ToLower(version), keywordSnapshot)
 	props := collectAllGradleProperties(workingDir)
 
 	// Add default properties for path resolution, ex: ${rootDir}
-	if _, ok := props["rootDir"]; !ok {
-		props["rootDir"] = workingDir
+	if _, ok := props[rootDirProp]; !ok {
+		props[rootDirProp] = workingDir
 	}
-	if _, ok := props["projectDir"]; !ok {
-		props["projectDir"] = workingDir
+	if _, ok := props[projectDirProp]; !ok {
+		props[projectDirProp] = workingDir
 	}
 
 	if repo, err := findRepoInProperties(props, isSnapshot); err == nil && repo != "" {
@@ -300,32 +400,24 @@ func getGradleDeployRepository(workingDir, version string) (string, error) {
 		return repo, nil
 	}
 
-	buildGradlePath := filepath.Join(workingDir, "build.gradle")
-	isBuildGradleKts := false
-	if _, err := os.Stat(buildGradlePath); os.IsNotExist(err) {
-		buildGradlePath = filepath.Join(workingDir, "build.gradle.kts")
-		isBuildGradleKts = true
-	}
-
-	if content, err := os.ReadFile(buildGradlePath); err == nil {
-		if repo, err := findRepoInGradleScript(content, isBuildGradleKts, props, isSnapshot, buildGradlePath); err == nil && repo != "" {
-			log.Debug("Found repository from publishing configuration in " + filepath.Base(buildGradlePath) + ": " + repo)
-			return repo, nil
+	buildGradlePath, isBuildGradleKts, err := findGradleFile(workingDir, "build")
+	if err == nil {
+		if content, err := os.ReadFile(buildGradlePath); err == nil {
+			if repo, err := findRepoInGradleScript(content, isBuildGradleKts, props, isSnapshot, buildGradlePath); err == nil && repo != "" {
+				log.Debug("Found repository from publishing configuration in " + filepath.Base(buildGradlePath) + ": " + repo)
+				return repo, nil
+			}
 		}
 	}
 
 	// Check settings.gradle or settings.gradle.kts
-	settingsGradlePath := filepath.Join(workingDir, "settings.gradle")
-	isSettingsGradleKts := false
-	if _, err := os.Stat(settingsGradlePath); os.IsNotExist(err) {
-		settingsGradlePath = filepath.Join(workingDir, "settings.gradle.kts")
-		isSettingsGradleKts = true
-	}
-
-	if content, err := os.ReadFile(settingsGradlePath); err == nil {
-		if repo, err := findRepoInGradleScript(content, isSettingsGradleKts, props, isSnapshot, settingsGradlePath); err == nil && repo != "" {
-			log.Debug("Found repository from " + filepath.Base(settingsGradlePath) + ": " + repo)
-			return repo, nil
+	settingsGradlePath, isSettingsGradleKts, err := findGradleFile(workingDir, "settings")
+	if err == nil {
+		if content, err := os.ReadFile(settingsGradlePath); err == nil {
+			if repo, err := findRepoInGradleScript(content, isSettingsGradleKts, props, isSnapshot, settingsGradlePath); err == nil && repo != "" {
+				log.Debug("Found repository from " + filepath.Base(settingsGradlePath) + ": " + repo)
+				return repo, nil
+			}
 		}
 	}
 
@@ -337,8 +429,21 @@ func getGradleDeployRepository(workingDir, version string) (string, error) {
 			return repoKey, nil
 		}
 	}
-
 	return "", fmt.Errorf("no deployment repository found in Gradle configuration or environment")
+}
+
+func validateWorkingDirectory(workingDir string) error {
+	if workingDir == "" {
+		return fmt.Errorf("working directory cannot be empty")
+	}
+	info, err := os.Stat(workingDir)
+	if err != nil {
+		return fmt.Errorf("invalid working directory: %s - %w", workingDir, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("working directory is not a directory: %s", workingDir)
+	}
+	return nil
 }
 
 func collectAllGradleProperties(workingDir string) map[string]string {
@@ -355,18 +460,18 @@ func collectAllGradleProperties(workingDir string) map[string]string {
 
 	// 1. GRADLE_USER_HOME gradle.properties (lowest priority)
 	if home := getGradleUserHome(); home != "" {
-		merge(readPropertiesFile(filepath.Join(home, "gradle.properties")))
+		merge(readPropertiesFile(filepath.Join(home, gradlePropertiesFileName)))
 	}
 
 	// 2. Project gradle.properties
-	propsFile := filepath.Join(workingDir, "gradle.properties")
+	propsFile := filepath.Join(workingDir, gradlePropertiesFileName)
 	if _, err := os.Stat(propsFile); err == nil {
 		merge(readPropertiesFile(propsFile))
 	}
 
 	// 3. get project properties from environment variables
 	for _, env := range os.Environ() {
-		if strings.HasPrefix(env, "ORG_GRADLE_PROJECT_") {
+		if strings.HasPrefix(env, envProjectPrefix) {
 			parts := strings.SplitN(env, "=", 2)
 			if len(parts) == 2 {
 				// Extract key after the prefix
@@ -383,22 +488,35 @@ func collectAllGradleProperties(workingDir string) map[string]string {
 	merge(parsePropertiesFromArgs(os.Args))
 
 	// Parse GRADLE_OPTS and JAVA_OPTS
-	if opts := os.Getenv("GRADLE_OPTS"); opts != "" {
+	if opts := os.Getenv(envGradleOpts); opts != "" {
 		merge(parsePropertiesFromOpts(opts))
 	}
-	if opts := os.Getenv("JAVA_OPTS"); opts != "" {
+	if opts := os.Getenv(envJavaOpts); opts != "" {
 		merge(parsePropertiesFromOpts(opts))
 	}
 
 	return props
 }
 
+func findGradleFile(dir, baseName string) (path string, isKts bool, err error) {
+	groovyPath := filepath.Join(dir, baseName+".gradle")
+	if _, err := os.Stat(groovyPath); err == nil {
+		return groovyPath, false, nil
+	}
+
+	ktsPath := filepath.Join(dir, baseName+".gradle.kts")
+	if _, err := os.Stat(ktsPath); err == nil {
+		return ktsPath, true, nil
+	}
+	return "", false, fmt.Errorf("no %s.gradle or %s.gradle.kts found", baseName, baseName)
+}
+
 func getGradleUserHome() string {
-	if home := os.Getenv("GRADLE_USER_HOME"); home != "" {
+	if home := os.Getenv(envGradleUserHome); home != "" {
 		return home
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".gradle")
+		return filepath.Join(home, dotGradleDir)
 	}
 	return ""
 }
@@ -410,22 +528,25 @@ func readPropertiesFile(path string) map[string]string {
 		return m
 	}
 
-	re := regexp.MustCompile(`(?m)^\s*([^#=\s:]+)\s*[:=]\s*(.*)$`)
-	matches := re.FindAllSubmatch(content, -1)
+	matches := propertiesFileRe.FindAllSubmatch(content, -1)
 	for _, match := range matches {
 		if len(match) == 3 {
 			key := strings.TrimSpace(string(match[1]))
 			val := strings.TrimSpace(string(match[2]))
-			// Remove quotes if present
-			if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
-				val = val[1 : len(val)-1]
-			}
+			val = removeQuotes(val)
 			if key != "" && val != "" {
 				m[key] = val
 			}
 		}
 	}
 	return m
+}
+
+func removeQuotes(val string) string {
+	if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
+		return val[1 : len(val)-1]
+	}
+	return val
 }
 
 func parsePropertiesFromArgs(args []string) map[string]string {
@@ -439,10 +560,7 @@ func parsePropertiesFromArgs(args []string) map[string]string {
 			if len(parts) == 2 {
 				key := strings.TrimSpace(parts[0])
 				val := strings.TrimSpace(parts[1])
-				// Remove quotes if present
-				if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
-					val = val[1 : len(val)-1]
-				}
+				val = removeQuotes(val)
 				if key != "" && val != "" {
 					m[key] = val
 				}
@@ -478,59 +596,44 @@ func findRepoInProperties(props map[string]string, isSnapshot bool) (string, err
 		}
 
 		keyLower := strings.ToLower(key)
-		if strings.Contains(keyLower, "repo") || strings.Contains(keyLower, "artifactory") ||
-			strings.Contains(keyLower, "url") || strings.Contains(keyLower, "deploy") {
+		if strings.Contains(keyLower, keywordRepo) || strings.Contains(keyLower, keywordArtifactory) ||
+			strings.Contains(keyLower, keywordUrl) || strings.Contains(keyLower, keywordDeploy) {
 
-			valLower := strings.ToLower(val)
-			if valLower == "true" || valLower == "false" {
+			if _, err := strconv.ParseBool(val); err == nil {
 				continue
 			}
 
 			// Filter based on version type snapshot/release
-			if isSnapshot && strings.Contains(keyLower, "release") && !strings.Contains(keyLower, "snapshot") {
+			if isSnapshot && strings.Contains(keyLower, keywordRelease) && !strings.Contains(keyLower, keywordSnapshot) {
 				continue
 			}
-			if !isSnapshot && strings.Contains(keyLower, "snapshot") && !strings.Contains(keyLower, "release") {
+			if !isSnapshot && strings.Contains(keyLower, keywordSnapshot) && !strings.Contains(keyLower, keywordRelease) {
 				continue
 			}
 
-			// Try to extract repo key from value (URL)
-			if strings.Contains(val, "://") || strings.HasPrefix(val, "/") {
-				// Looks like a URL - validate it's not a relative path
-				if strings.HasPrefix(val, "./") || strings.HasPrefix(val, "../") {
-					continue
-				}
-				if repoKey, err := extractRepoKeyFromArtifactoryUrl(val); err == nil && repoKey != "" {
-					if !seen[repoKey] {
-						candidates = append(candidates, repoKey)
-						seen[repoKey] = true
-					}
-				}
-			} else if !strings.Contains(val, "/") && !strings.Contains(val, ":") {
-				// Assume repo key
-				if !seen[val] {
-					candidates = append(candidates, val)
-					seen[val] = true
+			if repoKey, err := extractRepoKeyCandidate(val); err == nil && repoKey != "" {
+				if !seen[repoKey] {
+					candidates = append(candidates, repoKey)
+					seen[repoKey] = true
 				}
 			}
 		}
 	}
 
-	if len(candidates) > 0 {
-		// Pick best candidate (prefer snapshot/release matching)
-		for _, c := range candidates {
-			cLower := strings.ToLower(c)
-			if isSnapshot && strings.Contains(cLower, "snapshot") {
-				return c, nil
-			}
-			if !isSnapshot && strings.Contains(cLower, "release") {
-				return c, nil
-			}
-		}
-		return candidates[0], nil
-	}
+	return selectBestRepo(candidates, isSnapshot)
+}
 
-	return "", fmt.Errorf("no repository found in properties")
+func extractRepoKeyCandidate(val string) (string, error) {
+	if strings.Contains(val, "://") || strings.HasPrefix(val, "/") {
+		if strings.HasPrefix(val, "./") || strings.HasPrefix(val, "../") {
+			return "", nil
+		}
+		return extractRepoKeyFromArtifactoryUrl(val)
+	}
+	if !strings.Contains(val, "/") && !strings.Contains(val, ":") {
+		return val, nil
+	}
+	return "", nil
 }
 
 func extractRepoKeyFromArtifactoryUrl(repoUrl string) (string, error) {
@@ -542,27 +645,11 @@ func extractRepoKeyFromArtifactoryUrl(repoUrl string) (string, error) {
 	}
 	segments := strings.Split(strings.Trim(u.Path, "/"), "/")
 
-	// Path: /artifactory/api/maven/REPO-KEY
-	if len(segments) >= 4 && segments[len(segments)-3] == "api" && segments[len(segments)-2] == "maven" {
-		repoKey := segments[len(segments)-1]
-		if repoKey != "" {
-			return repoKey, nil
-		}
-	}
-
-	// Path: /artifactory/api/gradle/REPO-KEY
-	if len(segments) >= 4 && segments[len(segments)-3] == "api" && segments[len(segments)-2] == "gradle" {
-		repoKey := segments[len(segments)-1]
-		if repoKey != "" {
-			return repoKey, nil
-		}
-	}
-
-	// Path: /artifactory/api/ivy/REPO-KEY
-	if len(segments) >= 4 && segments[len(segments)-3] == "api" && segments[len(segments)-2] == "ivy" {
-		repoKey := segments[len(segments)-1]
-		if repoKey != "" {
-			return repoKey, nil
+	// Path: /artifactory/api/<type>/REPO-KEY
+	if len(segments) >= 4 && segments[len(segments)-3] == keywordApi {
+		apiType := segments[len(segments)-2]
+		if apiType == keywordMaven || apiType == keywordGradle || apiType == keywordIvy {
+			return segments[len(segments)-1], nil
 		}
 	}
 
@@ -662,10 +749,9 @@ func findRepoInGradleScriptRecursive(content []byte, isKts bool, props map[strin
 func extractPropertiesFromScript(contentStr string) map[string]string {
 	props := make(map[string]string)
 	// 1. Extract ext { ... } blocks to define the property value
-	extBlocks := extractAllGradleBlocks(contentStr, "ext")
+	extBlocks := extractAllGradleBlocks(contentStr, blockExt)
 	for _, block := range extBlocks {
-		re := regexp.MustCompile(`(?m)^\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*=\s*['"]([^'"]+)['"]`)
-		matches := re.FindAllStringSubmatch(block, -1)
+		matches := extBlockRe.FindAllStringSubmatch(block, -1)
 		for _, match := range matches {
 			if len(match) > 2 {
 				props[strings.TrimSpace(match[1])] = match[2]
@@ -674,8 +760,7 @@ func extractPropertiesFromScript(contentStr string) map[string]string {
 	}
 
 	// 2. Extract ext.key = "value" or project.ext.key = "value" to define the property key
-	re := regexp.MustCompile(`(?m)^\s*(?:project\.)?ext\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*=\s*['"]([^'"]+)['"]`)
-	matches := re.FindAllStringSubmatch(contentStr, -1)
+	matches := extAssignmentRe.FindAllStringSubmatch(contentStr, -1)
 	for _, match := range matches {
 		if len(match) > 2 {
 			props[strings.TrimSpace(match[1])] = match[2]
@@ -701,66 +786,25 @@ func extractAllGradleBlocks(content, keyword string) []string {
 }
 
 func extractNextGradleBlock(content, keyword string, startIndex int) (string, int) {
-	// inString, stringChar: Tracks if we are currently inside a string literal (single ' or double " quotes)
-	inString := false
-	stringChar := byte(0)
-	// inLineComment, inBlockComment: Tracks if we are inside a comment
-	inLineComment := false
-	inBlockComment := false
-
+	state := &blockExtractorState{}
 	keywordLen := len(keyword)
 	mode := 0
 	braceStartIdx := -1
 	depth := 0
 
 	for i := startIndex; i < len(content); i++ {
+		newIndex, processed := state.processChar(content, i)
+		if processed {
+			i = newIndex
+			continue
+		}
+
 		char := content[i]
-
-		if inLineComment {
-			if char == '\n' {
-				inLineComment = false
-			}
-			continue
-		}
-		if inBlockComment {
-			if char == '*' && i+1 < len(content) && content[i+1] == '/' {
-				inBlockComment = false
-				i++
-			}
-			continue
-		}
-		// ex: "Repo\"Name\""
-		if inString {
-			if char == stringChar && (i == 0 || content[i-1] != '\\') {
-				inString = false
-			}
-			continue
-		}
-
-		switch char {
-		case '/':
-			if i+1 < len(content) {
-				if content[i+1] == '/' {
-					inLineComment = true
-					i++
-				}
-				if content[i+1] == '*' {
-					inBlockComment = true
-					i++
-				}
-			}
-		case '"', '\'':
-			inString = true
-			stringChar = char
-			continue
-		}
-
-		// Process based on mode
+		// 0: Search for keyword, 1: Search for opening brace, 2: Search for closing brace
 		switch mode {
-		case 0: // Search for keyword
+		case 0:
 			if char == keyword[0] {
 				if i+keywordLen <= len(content) && content[i:i+keywordLen] == keyword {
-					// Check boundaries
 					validStart := (i == 0) || isDelimiter(content[i-1])
 					validEnd := (i+keywordLen == len(content)) || isDelimiter(content[i+keywordLen])
 
@@ -770,7 +814,7 @@ func extractNextGradleBlock(content, keyword string, startIndex int) (string, in
 					}
 				}
 			}
-		case 1: // Search for opening brace
+		case 1:
 			switch char {
 			case '{':
 				mode = 2
@@ -778,11 +822,10 @@ func extractNextGradleBlock(content, keyword string, startIndex int) (string, in
 				braceStartIdx = i
 			default:
 				if !isWhitespace(char) {
-					// Found unexpected char before {, reset
 					mode = 0
 				}
 			}
-		case 2: // Search for closing brace
+		case 2:
 			switch char {
 			case '{':
 				depth++
@@ -794,8 +837,68 @@ func extractNextGradleBlock(content, keyword string, startIndex int) (string, in
 			}
 		}
 	}
-
 	return "", -1
+}
+
+func (s *blockExtractorState) processChar(content string, i int) (int, bool) {
+	char := content[i]
+
+	if s.inLineComment {
+		if char == '\n' {
+			s.inLineComment = false
+		}
+		return i, true
+	}
+
+	if s.inBlockComment {
+		if char == '*' && i+1 < len(content) && content[i+1] == '/' {
+			s.inBlockComment = false
+			return i + 1, true
+		}
+		return i, true
+	}
+
+	if s.inString {
+		if char == s.stringChar {
+			if !isEscaped(content, i) {
+				s.inString = false
+			}
+		}
+		return i, true
+	}
+
+	// Check for start of comments or strings
+	switch char {
+	case '/':
+		if i+1 < len(content) {
+			if content[i+1] == '/' {
+				s.inLineComment = true
+				return i + 1, true
+			}
+			if content[i+1] == '*' {
+				s.inBlockComment = true
+				return i + 1, true
+			}
+		}
+	case '"', '\'':
+		s.inString = true
+		s.stringChar = char
+		return i, true
+	}
+
+	return i, false
+}
+
+func isEscaped(content string, index int) bool {
+	backslashes := 0
+	for j := index - 1; j >= 0; j-- {
+		if content[j] == '\\' {
+			backslashes++
+		} else {
+			break
+		}
+	}
+	return backslashes%2 != 0
 }
 
 func isDelimiter(b byte) bool {
@@ -823,29 +926,27 @@ func findUrlsInGradleScript(content []byte, isKts bool) [][][]byte {
 	collectRepos := func(parentKeyword string) {
 		blocks := extractAllGradleBlocks(contentStr, parentKeyword)
 		for _, block := range blocks {
-			repoBlocks := extractAllGradleBlocks(block, "repositories")
+			repoBlocks := extractAllGradleBlocks(block, blockRepositories)
 			for _, repoBlock := range repoBlocks {
 				combinedRepos += repoBlock + "\n"
 			}
 		}
 	}
 
-	collectRepos("publishing")
+	collectRepos(blockPublishing)
 	// 2. Extract from uploadArchives blocks (legacy maven)
-	collectRepos("uploadArchives")
+	collectRepos(blockUploadArchives)
 	// 3. Extract from dependencyResolutionManagement blocks (Gradle 7.0+)
-	collectRepos("dependencyResolutionManagement")
+	collectRepos(blockDepResManagement)
 
 	if combinedRepos == "" {
 		return nil
 	}
 	var re *regexp.Regexp
 	if isKts {
-		// Kotlin DSL patterns
-		re = regexp.MustCompile(`(?m)url(?:\.set)?\s*(?:\(\s*|\s*=\s*)(?:uri\s*\(\s*)?['"]([^'"]+)['"]`)
+		re = urlKtsRe
 	} else {
-		// Groovy DSL patterns
-		re = regexp.MustCompile(`(?m)url\s*(?:[:=]?\s*|[:=]\s*uri\s*\(\s*)['"]([^'"]+)['"]`)
+		re = urlGroovyRe
 	}
 	return re.FindAllSubmatch([]byte(combinedRepos), -1)
 }
@@ -864,8 +965,7 @@ func resolveGradleProperty(val string, props map[string]string) string {
 		}
 
 		// 1. Replace ${key} with value from props
-		re := regexp.MustCompile(`\$\{([^}]+)\}`)
-		result := re.ReplaceAllStringFunc(s, func(match string) string {
+		result := propPlaceHolderRe.ReplaceAllStringFunc(s, func(match string) string {
 			// strip ${ and }
 			key := match[2 : len(match)-1]
 			key = strings.TrimSpace(key)
@@ -910,8 +1010,7 @@ func resolveGradleProperty(val string, props map[string]string) string {
 
 		// 2. Replace $key with value from props (simple variable syntax)
 		// Matches $var where var can contain dots (e.g. $project.version or $host.com)
-		reSimple := regexp.MustCompile(`\$([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)`)
-		result = reSimple.ReplaceAllStringFunc(result, func(match string) string {
+		result = propVarRe.ReplaceAllStringFunc(result, func(match string) string {
 			// Remove $
 			fullKey := match[1:]
 
@@ -944,62 +1043,76 @@ func resolveGradleProperty(val string, props map[string]string) string {
 }
 
 func findRepositoryKeyFromMatches(repoUrls []string, sourceName string, isSnapshot bool) (string, error) {
-	var snapshotCandidates, releaseCandidates, generalCandidates []string
+	var candidates []string
 
 	for _, repoValue := range repoUrls {
 		repoValue = strings.TrimSpace(repoValue)
 		if repoValue == "" {
 			continue
 		}
-		repoValueLower := strings.ToLower(repoValue)
 
-		var repoKey string
-		var err error
-		if strings.Contains(repoValue, "://") || strings.HasPrefix(repoValue, "/") {
-			repoKey, err = extractRepoKeyFromArtifactoryUrl(repoValue)
-			if err != nil {
-				log.Debug("Failed to extract repo key from URL: " + repoValue + " - " + err.Error())
-				continue
-			}
-		}
-
-		if repoKey == "" {
-			log.Debug("Empty repository key extracted from: " + repoValue)
+		repoKey, err := extractRepoKeyCandidate(repoValue)
+		if err != nil {
+			log.Debug("Failed to extract repo key from: " + repoValue + " - " + err.Error())
 			continue
 		}
 
-		switch {
-		case strings.Contains(repoValueLower, "snapshot"):
-			snapshotCandidates = append(snapshotCandidates, repoKey)
-		case strings.Contains(repoValueLower, "release"):
-			releaseCandidates = append(releaseCandidates, repoKey)
-		default:
-			generalCandidates = append(generalCandidates, repoKey)
+		if repoKey != "" {
+			candidates = append(candidates, repoKey)
 		}
 	}
 
-	var selected []string
+	if best, err := selectBestRepo(candidates, isSnapshot); err == nil && best != "" {
+		log.Debug("Selected repository from " + sourceName + ": " + best)
+		return best, nil
+	}
+
+	return "", fmt.Errorf("no matching repository found in %s (isSnapshot: %v)", sourceName, isSnapshot)
+}
+
+func selectBestRepo(candidates []string, isSnapshot bool) (string, error) {
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("no candidates provided")
+	}
+
+	var snapshotCandidates, releaseCandidates, generalCandidates []string
+	seen := make(map[string]bool)
+
+	for _, c := range candidates {
+		if seen[c] {
+			continue
+		}
+		seen[c] = true
+
+		cLower := strings.ToLower(c)
+		if strings.Contains(cLower, "snapshot") {
+			snapshotCandidates = append(snapshotCandidates, c)
+		} else if strings.Contains(cLower, "release") {
+			releaseCandidates = append(releaseCandidates, c)
+		} else {
+			generalCandidates = append(generalCandidates, c)
+		}
+	}
+
 	if isSnapshot {
 		if len(snapshotCandidates) > 0 {
-			selected = snapshotCandidates
-		} else {
-			selected = generalCandidates
+			return snapshotCandidates[0], nil
+		}
+		if len(generalCandidates) > 0 {
+			return generalCandidates[0], nil
 		}
 	} else {
 		if len(releaseCandidates) > 0 {
-			selected = releaseCandidates
-		} else {
-			selected = generalCandidates
+			return releaseCandidates[0], nil
+		}
+		if len(generalCandidates) > 0 {
+			return generalCandidates[0], nil
 		}
 	}
-
-	if len(selected) == 0 {
-		return "", fmt.Errorf("no matching repository found in %s (isSnapshot: %v)", sourceName, isSnapshot)
+	if len(candidates) > 0 {
+		return candidates[0], nil
 	}
-
-	best := selected[0]
-	log.Debug("Selected repository from " + sourceName + ": " + best)
-	return best, nil
+	return "", fmt.Errorf("no suitable repository found")
 }
 
 func collectAppliedScripts(content []byte, isKts bool, props map[string]string, currentScriptPath string) []string {
@@ -1008,12 +1121,9 @@ func collectAppliedScripts(content []byte, isKts bool, props map[string]string, 
 
 	var matches [][]string
 	if isKts {
-		re := regexp.MustCompile(`(?m)apply\s*\(\s*from\s*=\s*['"]([^'"]+)['"]`)
-		matches = re.FindAllStringSubmatch(contentStr, -1)
+		matches = applyFromKtsRe.FindAllStringSubmatch(contentStr, -1)
 	} else {
-		// Groovy: apply from: "..."
-		re := regexp.MustCompile(`(?m)apply\s+from\s*:\s*['"]([^'"]+)['"]`)
-		matches = re.FindAllStringSubmatch(contentStr, -1)
+		matches = applyFromGroovyRe.FindAllStringSubmatch(contentStr, -1)
 	}
 
 	scriptDir := ""
@@ -1037,25 +1147,20 @@ func collectAppliedScripts(content []byte, isKts bool, props map[string]string, 
 			paths = append(paths, path)
 		}
 	}
-
 	return paths
 }
 
 func checkInitScripts(gradleUserHome string, isSnapshot bool, props map[string]string) (string, error) {
-	// 1. Check init.gradle.kts
-	initGradleKtsPath := filepath.Join(gradleUserHome, "init.gradle.kts")
-	if repo, err := checkGradleScript(initGradleKtsPath, isSnapshot, props); err == nil {
-		return repo, nil
+	// 1. Check init.gradle or init.gradle.kts
+	initGradlePath, _, err := findGradleFile(gradleUserHome, "init")
+	if err == nil {
+		if repo, err := checkGradleScript(initGradlePath, isSnapshot, props); err == nil {
+			return repo, nil
+		}
 	}
 
-	// 2. Check init.gradle
-	initGradlePath := filepath.Join(gradleUserHome, "init.gradle")
-	if repo, err := checkGradleScript(initGradlePath, isSnapshot, props); err == nil {
-		return repo, nil
-	}
-
-	// 3. Check init.d directory
-	initDDir := filepath.Join(gradleUserHome, "init.d")
+	// 2. Check init.d directory
+	initDDir := filepath.Join(gradleUserHome, initDDirName)
 	entries, err := os.ReadDir(initDDir)
 	if err == nil {
 		sort.Slice(entries, func(i, j int) bool {
@@ -1071,7 +1176,6 @@ func checkInitScripts(gradleUserHome string, isSnapshot bool, props map[string]s
 			}
 		}
 	}
-
 	return "", fmt.Errorf("no repository found in init scripts")
 }
 
