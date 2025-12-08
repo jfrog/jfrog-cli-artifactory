@@ -8,10 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// ============================================================================
-// HELPER FUNCTION TESTS
-// ============================================================================
-
 func TestIsDelimiter(t *testing.T) {
 	tests := []struct {
 		char     byte
@@ -59,10 +55,6 @@ func TestIsWhitespace(t *testing.T) {
 		})
 	}
 }
-
-// ============================================================================
-// IS ESCAPED TESTS
-// ============================================================================
 
 func TestIsEscaped(t *testing.T) {
 	tests := []struct {
@@ -123,10 +115,6 @@ func TestIsEscaped(t *testing.T) {
 	}
 }
 
-// ============================================================================
-// GRADLE USER HOME TESTS
-// ============================================================================
-
 func TestGetGradleUserHome(t *testing.T) {
 	t.Run("With GRADLE_USER_HOME set", func(t *testing.T) {
 		originalValue := os.Getenv(envGradleUserHome)
@@ -182,10 +170,6 @@ func TestGetGradleUserHome(t *testing.T) {
 		}
 	})
 }
-
-// ============================================================================
-// FIND GRADLE FILE TESTS
-// ============================================================================
 
 func TestFindGradleFile(t *testing.T) {
 	t.Run("Find Groovy build file", func(t *testing.T) {
@@ -265,10 +249,6 @@ func TestFindGradleFile(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// VALIDATE WORKING DIRECTORY TESTS
-// ============================================================================
-
 func TestValidateWorkingDirectory(t *testing.T) {
 	t.Run("Empty working directory", func(t *testing.T) {
 		err := validateWorkingDirectory("")
@@ -299,4 +279,3 @@ func TestValidateWorkingDirectory(t *testing.T) {
 		assert.Contains(t, err.Error(), "not a directory")
 	})
 }
-

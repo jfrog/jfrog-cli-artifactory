@@ -7,10 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// ============================================================================
-// PARSE ARTIFACT MODIFIED TIME TESTS
-// ============================================================================
-
 func TestParseArtifactModifiedTime(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -95,4 +91,3 @@ func TestParseArtifactModifiedTime(t *testing.T) {
 		})
 	}
 }
-

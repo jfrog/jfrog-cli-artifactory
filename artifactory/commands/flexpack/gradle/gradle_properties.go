@@ -46,8 +46,6 @@ var (
 
 func collectAllGradleProperties(workingDir string) map[string]string {
 	props := make(map[string]string)
-
-	// Helper to merge maps (later sources override earlier ones)
 	merge := func(source map[string]string) {
 		for k, v := range source {
 			if v != "" {
@@ -92,7 +90,6 @@ func collectAllGradleProperties(workingDir string) map[string]string {
 	if opts := os.Getenv(envJavaOpts); opts != "" {
 		merge(parsePropertiesFromOpts(opts))
 	}
-
 	return props
 }
 
@@ -151,7 +148,6 @@ func parsePropertiesFromOpts(opts string) map[string]string {
 }
 
 // splitArgsRespectingQuotes splits a string on whitespace but preserves quoted substrings.
-// Example: `-Dprop="quoted value" -Pother=val` -> ["-Dprop=\"quoted value\"", "-Pother=val"]
 func splitArgsRespectingQuotes(s string) []string {
 	var args []string
 	var current strings.Builder
@@ -160,7 +156,6 @@ func splitArgsRespectingQuotes(s string) []string {
 
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-
 		if inQuote {
 			current.WriteByte(c)
 			if c == quoteChar {
@@ -186,7 +181,6 @@ func splitArgsRespectingQuotes(s string) []string {
 	if current.Len() > 0 {
 		args = append(args, current.String())
 	}
-
 	return args
 }
 
@@ -303,4 +297,3 @@ func resolveGradleProperty(val string, props map[string]string) string {
 	}
 	return resolve(val, 0)
 }
-

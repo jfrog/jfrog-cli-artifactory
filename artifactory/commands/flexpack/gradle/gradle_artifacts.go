@@ -76,8 +76,6 @@ func searchRecentArtifacts(servicesManager artifactory.ArtifactoryServicesManage
 				log.Debug("Could not parse modified time for " + item.Name + ": " + err.Error())
 				continue
 			}
-
-			// Allow a small buffer for clock skew between build machine and Artifactory server.
 			if modTime.After(startTime.Add(-artifactSearchClockSkewBuffer)) {
 				recentArtifacts = append(recentArtifacts, *item)
 			}
@@ -90,7 +88,6 @@ func searchRecentArtifacts(servicesManager artifactory.ArtifactoryServicesManage
 }
 
 func parseArtifactModifiedTime(modified string) (time.Time, error) {
-	// Try common Artifactory time formats
 	formats := []string{
 		time.RFC3339Nano,                // 2006-01-02T15:04:05.999999999Z07:00
 		time.RFC3339,                    // 2006-01-02T15:04:05Z07:00
@@ -106,4 +103,3 @@ func parseArtifactModifiedTime(modified string) (time.Time, error) {
 	}
 	return time.Time{}, fmt.Errorf("unable to parse time: %s", modified)
 }
-

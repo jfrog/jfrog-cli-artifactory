@@ -8,10 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// ============================================================================
-// DEPLOY REPOSITORY DETECTION TESTS
-// ============================================================================
-
 func TestGetGradleDeployRepository(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -314,10 +310,6 @@ releaseRepo=release-repo
 	})
 }
 
-// ============================================================================
-// INTEGRATION TESTS - FULL WORKFLOW SCENARIOS
-// ============================================================================
-
 func TestGradleIntegrationScenarios(t *testing.T) {
 	t.Run("Typical Groovy project structure", func(t *testing.T) {
 		tmpDir := t.TempDir()
@@ -448,10 +440,6 @@ uploadArchives {
 	})
 }
 
-// ============================================================================
-// ERROR HANDLING TESTS
-// ============================================================================
-
 func TestErrorHandling(t *testing.T) {
 	t.Run("getGradleDeployRepository with file as working directory", func(t *testing.T) {
 		tmpDir := t.TempDir()
@@ -483,10 +471,6 @@ func TestErrorHandling(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
-
-// ============================================================================
-// INIT SCRIPTS TESTS
-// ============================================================================
 
 func TestGradleDeployRepositoryWithInitScripts(t *testing.T) {
 	t.Run("Repository from init script via GRADLE_USER_HOME", func(t *testing.T) {
@@ -624,10 +608,6 @@ func TestGradleDeployRepositoryWithAppliedScripts(t *testing.T) {
 		assert.Equal(t, "circular-repo", repo)
 	})
 }
-
-// ============================================================================
-// FIND REPO IN PROPERTIES TESTS
-// ============================================================================
 
 func TestFindRepoInProperties(t *testing.T) {
 	tests := []struct {
@@ -795,10 +775,6 @@ func TestFindRepoInPropertiesExtended(t *testing.T) {
 		})
 	}
 }
-
-// ============================================================================
-// EXTRACT REPO KEY FROM URL TESTS
-// ============================================================================
 
 func TestExtractRepoKeyFromArtifactoryUrl(t *testing.T) {
 	tests := []struct {
@@ -970,10 +946,6 @@ func TestExtractRepoKeyFromArtifactoryUrlEdgeCases(t *testing.T) {
 	}
 }
 
-// ============================================================================
-// EXTRACT REPO KEY CANDIDATE TESTS
-// ============================================================================
-
 func TestExtractRepoKeyCandidate(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1049,10 +1021,6 @@ func TestExtractRepoKeyCandidate(t *testing.T) {
 		})
 	}
 }
-
-// ============================================================================
-// REPOSITORY KEY MATCHING TESTS
-// ============================================================================
 
 func TestFindRepositoryKeyFromMatches(t *testing.T) {
 	tests := []struct {
@@ -1134,10 +1102,6 @@ func TestFindRepositoryKeyFromMatches(t *testing.T) {
 		})
 	}
 }
-
-// ============================================================================
-// SELECT BEST REPO TESTS
-// ============================================================================
 
 func TestSelectBestRepo(t *testing.T) {
 	tests := []struct {
@@ -1245,10 +1209,6 @@ func TestSelectBestRepo(t *testing.T) {
 		})
 	}
 }
-
-// ============================================================================
-// FIND REPO IN GRADLE SCRIPT TESTS
-// ============================================================================
 
 func TestFindRepoInGradleScript(t *testing.T) {
 	tests := []struct {
@@ -1375,10 +1335,6 @@ func TestFindRepoInGradleScript(t *testing.T) {
 		})
 	}
 }
-
-// ============================================================================
-// CHECK INIT SCRIPTS TESTS
-// ============================================================================
 
 func TestCheckInitScripts(t *testing.T) {
 	t.Run("init.gradle with publishing config", func(t *testing.T) {
@@ -1546,4 +1502,3 @@ func TestCheckInitScripts(t *testing.T) {
 		assert.Equal(t, "libs-snapshot", repo)
 	})
 }
-

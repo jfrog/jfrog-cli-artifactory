@@ -6,10 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// ============================================================================
-// PUBLISH COMMAND DETECTION TESTS
-// ============================================================================
-
 func TestWasPublishCommand(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -113,10 +109,6 @@ func TestWasPublishCommandEdgeCases(t *testing.T) {
 		}
 	})
 }
-
-// ============================================================================
-// EDGE CASE TESTS - wasPublishCommand
-// ============================================================================
 
 func TestWasPublishCommandMoreEdgeCases(t *testing.T) {
 	tests := []struct {

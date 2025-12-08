@@ -65,17 +65,13 @@ func wasPublishCommand(tasks []string) bool {
 		if idx := strings.LastIndex(task, ":"); idx != -1 {
 			task = task[idx+1:]
 		}
-
-		// Match common Gradle publish tasks
 		if task == gradleTaskPublish {
 			return true
 		}
 
 		if strings.HasPrefix(task, gradleTaskPublish) {
-			// Find the position of "To" in the task name (e.g., "publishToArtifactory")
 			toIdx := strings.Index(task, "To")
 			if toIdx != -1 {
-				// Ensure there's actual content after "To" (e.g., "publishTo" alone is not valid)
 				afterTo := task[toIdx+2:]
 				if len(afterTo) > 0 && !strings.HasSuffix(task, "Local") && task != gradleTaskPublishToMavenLocal {
 					return true
