@@ -109,10 +109,11 @@ func extractAllGradleBlocks(content, keyword string) []string {
 func extractNextGradleBlock(content, keyword string, startIndex int) (string, int) {
 	state := &blockExtractorState{}
 	keywordLen := len(keyword)
-	mode := 0 // 0: Search for keyword, 1: Search for opening brace, 2: Search for closing brace
+	mode := 0
 	braceStartIdx := -1
 	depth := 0
 
+	// 0: Search for keyword, 1: Search for opening brace, 2: Search for closing brace
 	for i := startIndex; i < len(content); i++ {
 		newIndex, processed := state.processChar(content, i)
 		if processed {
@@ -122,7 +123,7 @@ func extractNextGradleBlock(content, keyword string, startIndex int) (string, in
 
 		char := content[i]
 		switch mode {
-		case 0: // Search for keyword
+		case 0:
 			if char == keyword[0] {
 				if i+keywordLen <= len(content) && content[i:i+keywordLen] == keyword {
 					validStart := (i == 0) || isDelimiter(content[i-1])
@@ -134,7 +135,7 @@ func extractNextGradleBlock(content, keyword string, startIndex int) (string, in
 					}
 				}
 			}
-		case 1: // Search for opening brace
+		case 1:
 			switch char {
 			case '{':
 				mode = 2
@@ -142,10 +143,10 @@ func extractNextGradleBlock(content, keyword string, startIndex int) (string, in
 				braceStartIdx = i
 			default:
 				if !isWhitespace(char) {
-					mode = 0 // Unexpected char before {, reset
+					mode = 0
 				}
 			}
-		case 2: // Search for closing brace
+		case 2:
 			switch char {
 			case '{':
 				depth++
@@ -157,7 +158,6 @@ func extractNextGradleBlock(content, keyword string, startIndex int) (string, in
 			}
 		}
 	}
-
 	return "", -1
 }
 
@@ -229,4 +229,3 @@ func collectAppliedScripts(content []byte, isKts bool, props map[string]string, 
 	}
 	return paths
 }
-

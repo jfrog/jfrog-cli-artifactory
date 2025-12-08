@@ -14,7 +14,6 @@ import (
 
 // It does not check for specific environment variables
 func getGradleDeployRepository(workingDir, version string) (string, error) {
-	// Validate working directory
 	if err := validateWorkingDirectory(workingDir); err != nil {
 		return "", err
 	}
@@ -268,7 +267,6 @@ func findRepoInGradleScriptRecursive(content []byte, isKts bool, props map[strin
 			return repo, nil
 		}
 	}
-
 	return "", fmt.Errorf("no repository found in %s", scriptPath)
 }
 
@@ -296,7 +294,6 @@ func findRepositoryKeyFromMatches(repoUrls []string, sourceName string, isSnapsh
 		log.Debug("Selected repository from " + sourceName + ": " + best)
 		return best, nil
 	}
-
 	return "", fmt.Errorf("no matching repository found in %s (isSnapshot: %v)", sourceName, isSnapshot)
 }
 
@@ -304,7 +301,6 @@ func selectBestRepo(candidates []string, isSnapshot bool) (string, error) {
 	if len(candidates) == 0 {
 		return "", fmt.Errorf("no candidates provided")
 	}
-
 	var snapshotCandidates, releaseCandidates, generalCandidates []string
 	seen := make(map[string]bool)
 
@@ -344,4 +340,3 @@ func selectBestRepo(candidates []string, isSnapshot bool) (string, error) {
 	}
 	return "", fmt.Errorf("no suitable repository found")
 }
-

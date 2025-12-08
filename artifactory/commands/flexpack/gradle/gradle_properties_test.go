@@ -8,10 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// ============================================================================
-// PROPERTY RESOLUTION TESTS
-// ============================================================================
-
 func TestResolveGradleProperty(t *testing.T) {
 	props := map[string]string{
 		"version":      "1.0.0",
@@ -196,10 +192,6 @@ func TestResolveGradlePropertyMoreEdgeCases(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// PROPERTIES PARSING TESTS
-// ============================================================================
-
 func TestParsePropertiesFromArgs(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -269,10 +261,6 @@ func TestParsePropertiesFromArgsExtended(t *testing.T) {
 		})
 	}
 }
-
-// ============================================================================
-// PROPERTIES FILE READING TESTS
-// ============================================================================
 
 func TestReadPropertiesFile(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -370,10 +358,6 @@ path=/usr/local/bin
 	})
 }
 
-// ============================================================================
-// EXTRACT PROPERTIES FROM SCRIPT TESTS
-// ============================================================================
-
 func TestExtractPropertiesFromScript(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -454,10 +438,6 @@ func TestExtractPropertiesFromScript(t *testing.T) {
 	}
 }
 
-// ============================================================================
-// REMOVE QUOTES TESTS
-// ============================================================================
-
 func TestRemoveQuotes(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -488,10 +468,6 @@ func TestRemoveQuotes(t *testing.T) {
 		})
 	}
 }
-
-// ============================================================================
-// SPLIT ARGS RESPECTING QUOTES TESTS
-// ============================================================================
 
 func TestSplitArgsRespectingQuotes(t *testing.T) {
 	tests := []struct {
@@ -666,10 +642,6 @@ func TestParsePropertiesFromOpts(t *testing.T) {
 	}
 }
 
-// ============================================================================
-// REGEX PATTERN TESTS - Properties Related
-// ============================================================================
-
 func TestPropertiesRegexPatterns(t *testing.T) {
 	t.Run("propertiesFileRe - various formats", func(t *testing.T) {
 		testCases := []struct {
@@ -755,4 +727,3 @@ func TestPropertiesRegexPatterns(t *testing.T) {
 		}
 	})
 }
-

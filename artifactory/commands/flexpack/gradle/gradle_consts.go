@@ -3,18 +3,11 @@ package flexpack
 import "time"
 
 const (
-	gradlePropertiesTimeout       = 1 * time.Minute
 	artifactSearchClockSkewBuffer = 1 * time.Minute
 	gradleEnvPrefixLen            = 19
 
 	// File Names
-	buildGradleFileName       = "build.gradle"
-	buildGradleKtsFileName    = "build.gradle.kts"
-	settingsGradleFileName    = "settings.gradle"
-	settingsGradleKtsFileName = "settings.gradle.kts"
-	initGradleFileName        = "init.gradle"
-	initGradleKtsFileName     = "init.gradle.kts"
-	gradlePropertiesFileName  = "gradle.properties"
+	gradlePropertiesFileName = "gradle.properties"
 
 	// Directories
 	initDDirName   = "init.d"
@@ -49,4 +42,3 @@ const (
 	blockExt              = "ext"
 	keywordArtifactory    = "artifactory"
 )
-

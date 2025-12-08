@@ -7,10 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// ============================================================================
-// GRADLE BLOCK EXTRACTION TESTS
-// ============================================================================
-
 func TestExtractAllGradleBlocks(t *testing.T) {
 	// These tests validate functional behavior: that blocks are correctly identified
 	// and their content is extracted. We use Contains checks rather than exact string
@@ -278,10 +274,6 @@ outer {
 	})
 }
 
-// ============================================================================
-// URL EXTRACTION TESTS
-// ============================================================================
-
 func TestFindUrlsInGradleScript(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -475,10 +467,6 @@ func TestFindUrlsInGradleScriptEdgeCases(t *testing.T) {
 	})
 }
 
-// ============================================================================
-// APPLIED SCRIPTS COLLECTION TESTS
-// ============================================================================
-
 func TestCollectAppliedScripts(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -519,10 +507,6 @@ func TestCollectAppliedScripts(t *testing.T) {
 		assert.Equal(t, 0, len(result))
 	})
 }
-
-// ============================================================================
-// REGEX PATTERN TESTS - Script Parser Related
-// ============================================================================
 
 func TestScriptParserRegexPatterns(t *testing.T) {
 	t.Run("URL regex patterns", func(t *testing.T) {
@@ -603,4 +587,3 @@ func TestApplyFromRegexPatterns(t *testing.T) {
 		}
 	})
 }
-
