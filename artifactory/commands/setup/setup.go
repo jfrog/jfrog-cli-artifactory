@@ -251,10 +251,11 @@ func (sc *SetupCommand) configurePoetry() error {
 	if err != nil {
 		return fmt.Errorf("failed to get PyPI repository URL with credentials: %w", err)
 	}
-	// Strip "simple" from URL for publishing support (same as Twine)
+	// Strip "simple" and trailing slash from URL for publishing support (same as Twine)
 	// Resolution URL (with /simple) should be configured in pyproject.toml
 	// Publishing URL (without /simple) is configured in Poetry config
 	publishUrl := strings.TrimSuffix(repoUrl.String(), "simple")
+	publishUrl = strings.TrimSuffix(publishUrl, "/")
 	if err := python.RunPoetryConfig(publishUrl, username, password, sc.repoName); err != nil {
 		return fmt.Errorf("failed to configure Poetry repository: %w", err)
 	}
