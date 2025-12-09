@@ -12,8 +12,10 @@ import (
 
 // dockerfileParser holds state for parsing a Dockerfile
 type dockerfileParser struct {
-	stageNames  map[string]bool // Track stage names from AS clauses
-	seenImages  map[string]bool // Track already added images to avoid duplicates
+	// Track stage names from AS clauses
+	stageNames map[string]bool
+	// Track already added images to avoid duplicates
+	seenImages  map[string]bool
 	defaultOS   string
 	defaultArch string
 }

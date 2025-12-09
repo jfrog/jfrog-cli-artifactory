@@ -1,6 +1,7 @@
 package strategies
 
 import (
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"os"
 	"testing"
 
@@ -8,7 +9,7 @@ import (
 )
 
 func TestCreateStrategy_Legacy(t *testing.T) {
-	os.Unsetenv("JFROG_RUN_NATIVE")
+	_ = os.Unsetenv("JFROG_RUN_NATIVE")
 
 	options := DockerBuildOptions{
 		DockerFilePath: "Dockerfile",
@@ -23,8 +24,13 @@ func TestCreateStrategy_Legacy(t *testing.T) {
 }
 
 func TestCreateStrategy_RunNative(t *testing.T) {
-	os.Setenv("JFROG_RUN_NATIVE", "true")
-	defer os.Unsetenv("JFROG_RUN_NATIVE")
+	_ = os.Setenv("JFROG_RUN_NATIVE", "true")
+	defer func() {
+		err := os.Unsetenv("JFROG_RUN_NATIVE")
+		if err != nil {
+			log.Warn(err)
+		}
+	}()
 
 	options := DockerBuildOptions{
 		DockerFilePath: "Dockerfile",

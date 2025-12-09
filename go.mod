@@ -7,10 +7,10 @@ require (
 	github.com/forPelevin/gomoji v1.4.1
 	github.com/google/go-containerregistry v0.20.3
 	github.com/jedib0t/go-pretty/v6 v6.6.8
-	github.com/jfrog/build-info-go v1.12.4
+	github.com/jfrog/build-info-go v1.12.5-0.20251209031413-f5f0e93dc8db
 	github.com/jfrog/gofrog v1.7.6
 	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251015045218-1a38c9e47097
-	github.com/jfrog/jfrog-client-go v1.55.1-0.20251015041910-ef0fe832b111
+	github.com/jfrog/jfrog-client-go v1.55.1-0.20251209032636-8966184db185
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
@@ -108,8 +108,8 @@ require (
 
 //replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251015045218-1a38c9e47097
 
-replace github.com/jfrog/jfrog-client-go => github.com/fluxxBot/jfrog-client-go v1.50.1-0.20251206093435-1427f3711c0b
+//replace github.com/jfrog/jfrog-client-go => github.com/fluxxBot/jfrog-client-go v1.50.1-0.20251206093435-1427f3711c0b
 
-replace github.com/jfrog/build-info-go => github.com/fluxxBot/build-info-go v1.10.10-0.20251205142243-0aef58243b74
+//replace github.com/jfrog/build-info-go => github.com/fluxxBot/build-info-go v1.10.10-0.20251205142243-0aef58243b74
 
 replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251026182600-8a8c0428f538
