@@ -184,11 +184,14 @@ func GetPypiRepoUrl(serverDetails *config.ServerDetails, repository string, isCu
 func getExecutable(buildTool project.ProjectType) (string, error) {
 	switch buildTool {
 	case project.Pip:
-		// Try pip first, then pip3 as fallback
-		if _, err := exec.LookPath("pip"); err == nil {
+		// Try pip first, then pip3 as fallback.
+		// Running --version verifies the executable both exists AND works.
+		// This handles tools like pyenv that create shim files which exist in PATH
+		// but fail at runtime when the selected Python version doesn't have pip.
+		if exec.Command("pip", "--version").Run() == nil {
 			return "pip", nil
 		}
-		if _, err := exec.LookPath("pip3"); err == nil {
+		if exec.Command("pip3", "--version").Run() == nil {
 			return "pip3", nil
 		}
 		return "", errorutils.CheckErrorf("neither pip nor pip3 executable found in PATH")
