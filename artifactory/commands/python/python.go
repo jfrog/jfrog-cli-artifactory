@@ -188,13 +188,15 @@ func getExecutable(buildTool project.ProjectType) (string, error) {
 		// Running --version verifies the executable both exists AND works.
 		// This handles tools like pyenv that create shim files which exist in PATH
 		// but fail at runtime when the selected Python version doesn't have pip.
-		if exec.Command("pip", "--version").Run() == nil {
+		pipErr := exec.Command("pip", "--version").Run()
+		if pipErr == nil {
 			return "pip", nil
 		}
-		if exec.Command("pip3", "--version").Run() == nil {
+		pip3Err := exec.Command("pip3", "--version").Run()
+		if pip3Err == nil {
 			return "pip3", nil
 		}
-		return "", errorutils.CheckErrorf("neither pip nor pip3 executable found in PATH")
+		return "", errorutils.CheckErrorf("neither pip nor pip3 executable found in PATH. pip error: %v, pip3 error: %v", pipErr, pip3Err)
 	default:
 		// For all other build tools, use the name directly
 		return buildTool.String(), nil
