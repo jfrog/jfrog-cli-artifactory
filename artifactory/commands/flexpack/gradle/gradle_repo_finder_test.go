@@ -22,7 +22,7 @@ func TestGetGradleDeployRepository(t *testing.T) {
 		err := os.WriteFile(filepath.Join(tmpDir, "gradle.properties"), []byte(content), 0644)
 		assert.NoError(t, err)
 
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0")
 		assert.NoError(t, err)
 		assert.Equal(t, "libs-release-local", repo)
 
@@ -42,7 +42,7 @@ func TestGetGradleDeployRepository(t *testing.T) {
 		err := os.WriteFile(filepath.Join(tmpDir, "build.gradle"), []byte(content), 0644)
 		assert.NoError(t, err)
 
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0-SNAPSHOT")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0-SNAPSHOT")
 		assert.NoError(t, err)
 		assert.Equal(t, "libs-snapshot-local", repo)
 
@@ -60,12 +60,12 @@ func TestGetGradleDeployRepository(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Expect snapshot repo for SNAPSHOT version
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0-SNAPSHOT")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0-SNAPSHOT")
 		assert.NoError(t, err)
 		assert.Equal(t, "libs-snapshot-local", repo)
 
 		// Expect release repo for release version
-		repo, err = getGradleDeployRepository(tmpDir, "1.0.0")
+		repo, err = getGradleDeployRepository(tmpDir, "", "1.0.0")
 		assert.NoError(t, err)
 		assert.Equal(t, "libs-release-local", repo)
 
@@ -77,12 +77,12 @@ func TestGetGradleDeployRepositoryExtended(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	t.Run("Empty working directory should error", func(t *testing.T) {
-		_, err := getGradleDeployRepository("", "1.0.0")
+		_, err := getGradleDeployRepository("", "", "1.0.0")
 		assert.Error(t, err)
 	})
 
 	t.Run("Invalid working directory should error", func(t *testing.T) {
-		_, err := getGradleDeployRepository("/nonexistent/path/xyz", "1.0.0")
+		_, err := getGradleDeployRepository("/nonexistent/path/xyz", "", "1.0.0")
 		assert.Error(t, err)
 	})
 
@@ -102,7 +102,7 @@ func TestGetGradleDeployRepositoryExtended(t *testing.T) {
 		err = os.WriteFile(filepath.Join(tmpDir, "settings.gradle"), []byte(settingsContent), 0644)
 		assert.NoError(t, err)
 
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0")
 		assert.NoError(t, err)
 		assert.Equal(t, "gradle-plugins", repo)
 
@@ -123,7 +123,7 @@ func TestGetGradleDeployRepositoryExtended(t *testing.T) {
 		err := os.WriteFile(filepath.Join(tmpDir, "build.gradle.kts"), []byte(buildKtsContent), 0644)
 		assert.NoError(t, err)
 
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0")
 		assert.NoError(t, err)
 		assert.Equal(t, "libs-release-kts", repo)
 
@@ -140,7 +140,7 @@ artifactoryDeployRepo=custom-deploy-repo
 		err = os.WriteFile(filepath.Join(tmpDir, "gradle.properties"), []byte(propsContent), 0644)
 		assert.NoError(t, err)
 
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0")
 		assert.NoError(t, err)
 		assert.Equal(t, "custom-deploy-repo", repo)
 
@@ -152,7 +152,7 @@ artifactoryDeployRepo=custom-deploy-repo
 		err := os.WriteFile(filepath.Join(tmpDir, "build.gradle"), []byte(""), 0644)
 		assert.NoError(t, err)
 
-		_, err = getGradleDeployRepository(tmpDir, "1.0.0")
+		_, err = getGradleDeployRepository(tmpDir, "", "1.0.0")
 		assert.Error(t, err)
 
 		os.Remove(filepath.Join(tmpDir, "build.gradle"))
@@ -178,7 +178,7 @@ func TestGetGradleDeployRepositoryComplexScenarios(t *testing.T) {
 		err := os.WriteFile(filepath.Join(tmpDir, "build.gradle"), []byte(buildContent), 0644)
 		assert.NoError(t, err)
 
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0")
 		assert.NoError(t, err)
 		assert.Equal(t, "libs-release", repo)
 
@@ -203,7 +203,7 @@ func TestGetGradleDeployRepositoryComplexScenarios(t *testing.T) {
 		err := os.WriteFile(filepath.Join(tmpDir, "build.gradle"), []byte(buildContent), 0644)
 		assert.NoError(t, err)
 
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0-SNAPSHOT")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0-SNAPSHOT")
 		assert.NoError(t, err)
 		assert.Equal(t, "libs-snapshot", repo)
 
@@ -228,7 +228,7 @@ func TestGetGradleDeployRepositoryComplexScenarios(t *testing.T) {
 		err := os.WriteFile(filepath.Join(tmpDir, "build.gradle"), []byte(buildContent), 0644)
 		assert.NoError(t, err)
 
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0")
 		assert.NoError(t, err)
 		assert.Equal(t, "libs-release", repo)
 
@@ -248,7 +248,7 @@ func TestGetGradleDeployRepositoryComplexScenarios(t *testing.T) {
 		err := os.WriteFile(filepath.Join(tmpDir, "build.gradle.kts"), []byte(buildContent), 0644)
 		assert.NoError(t, err)
 
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0")
 		assert.NoError(t, err)
 		assert.Equal(t, "kotlin-repo", repo)
 
@@ -274,37 +274,37 @@ releaseRepo=release-repo
 	}()
 
 	t.Run("Version ending with -SNAPSHOT", func(t *testing.T) {
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0-SNAPSHOT")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0-SNAPSHOT")
 		assert.NoError(t, err)
 		assert.Equal(t, "snapshot-repo", repo)
 	})
 
 	t.Run("Version with lowercase snapshot", func(t *testing.T) {
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0-snapshot")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0-snapshot")
 		assert.NoError(t, err)
 		assert.Equal(t, "snapshot-repo", repo)
 	})
 
 	t.Run("Version with snapshot in middle", func(t *testing.T) {
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0-SNAPSHOT-1")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0-SNAPSHOT-1")
 		assert.NoError(t, err)
 		assert.Equal(t, "snapshot-repo", repo)
 	})
 
 	t.Run("Release version", func(t *testing.T) {
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0")
 		assert.NoError(t, err)
 		assert.Equal(t, "release-repo", repo)
 	})
 
 	t.Run("Version with RC suffix", func(t *testing.T) {
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0-RC1")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0-RC1")
 		assert.NoError(t, err)
 		assert.Equal(t, "release-repo", repo)
 	})
 
 	t.Run("Version with RELEASE suffix", func(t *testing.T) {
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0.RELEASE")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0.RELEASE")
 		assert.NoError(t, err)
 		assert.Equal(t, "release-repo", repo)
 	})
@@ -344,7 +344,7 @@ publishing {
 		err = os.WriteFile(filepath.Join(tmpDir, "build.gradle"), []byte(buildContent), 0644)
 		assert.NoError(t, err)
 
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0")
 		assert.NoError(t, err)
 		assert.Equal(t, "libs-release", repo)
 	})
@@ -381,7 +381,7 @@ publishing {
 		err = os.WriteFile(filepath.Join(tmpDir, "build.gradle.kts"), []byte(buildContent), 0644)
 		assert.NoError(t, err)
 
-		repo, err := getGradleDeployRepository(tmpDir, "2.0.0")
+		repo, err := getGradleDeployRepository(tmpDir, "", "2.0.0")
 		assert.NoError(t, err)
 		assert.Equal(t, "kotlin-libs", repo)
 	})
@@ -409,12 +409,12 @@ publishing {
 		assert.NoError(t, err)
 
 		// For SNAPSHOT version, should pick snapshot repo based on URL naming
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0-SNAPSHOT")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0-SNAPSHOT")
 		assert.NoError(t, err)
 		assert.Equal(t, "libs-snapshot", repo)
 
 		// For release version, should pick release repo based on URL naming
-		repo, err = getGradleDeployRepository(tmpDir, "1.0.0")
+		repo, err = getGradleDeployRepository(tmpDir, "", "1.0.0")
 		assert.NoError(t, err)
 		assert.Equal(t, "libs-release", repo)
 	})
@@ -434,7 +434,7 @@ uploadArchives {
 		err := os.WriteFile(filepath.Join(tmpDir, "build.gradle"), []byte(buildContent), 0644)
 		assert.NoError(t, err)
 
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0")
 		assert.NoError(t, err)
 		assert.Equal(t, "legacy-maven", repo)
 	})
@@ -447,7 +447,7 @@ func TestErrorHandling(t *testing.T) {
 		err := os.WriteFile(filePath, []byte("content"), 0644)
 		assert.NoError(t, err)
 
-		_, err = getGradleDeployRepository(filePath, "1.0.0")
+		_, err = getGradleDeployRepository(filePath, "", "1.0.0")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not a directory")
 	})
@@ -466,7 +466,7 @@ func TestErrorHandling(t *testing.T) {
 		}
 		defer os.Chmod(restrictedDir, 0755)
 
-		_, err = getGradleDeployRepository(restrictedDir, "1.0.0")
+		_, err = getGradleDeployRepository(restrictedDir, "", "1.0.0")
 		// Should error because we can't read files in the directory
 		assert.Error(t, err)
 	})
@@ -510,7 +510,7 @@ func TestGradleDeployRepositoryWithInitScripts(t *testing.T) {
 			}
 		}()
 
-		repo, err := getGradleDeployRepository(projectDir, "1.0.0")
+		repo, err := getGradleDeployRepository(projectDir, "", "1.0.0")
 		assert.NoError(t, err)
 		assert.Equal(t, "init-script-repo", repo)
 	})
@@ -535,7 +535,7 @@ func TestGradleDeployRepositoryWithInitScripts(t *testing.T) {
 		os.Setenv("ORG_GRADLE_PROJECT_artifactoryUrl", "http://localhost:8081/artifactory")
 		defer os.Unsetenv("ORG_GRADLE_PROJECT_artifactoryUrl")
 
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0")
 		assert.NoError(t, err)
 		assert.Equal(t, "libs-release", repo)
 	})
@@ -570,7 +570,7 @@ func TestGradleDeployRepositoryWithAppliedScripts(t *testing.T) {
 		err = os.WriteFile(filepath.Join(tmpDir, "build.gradle"), []byte(buildContent), 0644)
 		assert.NoError(t, err)
 
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0")
 		assert.NoError(t, err)
 		assert.Equal(t, "applied-script-repo", repo)
 	})
@@ -603,7 +603,7 @@ func TestGradleDeployRepositoryWithAppliedScripts(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Should not hang or stack overflow due to circular include protection
-		repo, err := getGradleDeployRepository(tmpDir, "1.0.0")
+		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0")
 		assert.NoError(t, err)
 		assert.Equal(t, "circular-repo", repo)
 	})

@@ -3,6 +3,7 @@ package flexpack
 import (
 	"fmt"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,39 +20,60 @@ func searchRecentArtifacts(servicesManager artifactory.ArtifactoryServicesManage
 	repoCache := make(map[bool]string)
 
 	for _, module := range buildInfo.Modules {
-		if len(module.Artifacts) == 0 {
-			continue
-		}
-		// We assume all artifacts in a module go to the same repo structure
-		artifact := module.Artifacts[0]
 		parts := strings.Split(module.Id, ":")
 		if len(parts) < 3 {
 			log.Warn("Skipping module with invalid ID format: " + module.Id)
 			continue
 		}
 		version := parts[2]
-
 		isSnapshot := strings.Contains(strings.ToLower(version), keywordSnapshot)
+
 		targetRepo, ok := repoCache[isSnapshot]
 		if !ok {
+			moduleWorkingDir := workingDir
+			if props, ok := module.Properties.(map[string]string); ok {
+				if subPath, exists := props["module_path"]; exists {
+					moduleWorkingDir = filepath.Join(workingDir, subPath)
+				}
+			}
+
 			var deployErr error
-			targetRepo, deployErr = getGradleDeployRepository(workingDir, version)
-			if deployErr != nil {
+			targetRepo, deployErr = getGradleDeployRepository(moduleWorkingDir, workingDir, version)
+			if deployErr != nil && moduleWorkingDir != workingDir {
+				log.Debug(fmt.Sprintf("Repo not found in module dir %s, trying root: %v", moduleWorkingDir, deployErr))
+				targetRepo, deployErr = getGradleDeployRepository(workingDir, workingDir, version)
+			}
+
+			if deployErr == nil {
+				repoCache[isSnapshot] = targetRepo
+			} else if len(module.Artifacts) > 0 {
 				log.Warn(fmt.Sprintf("Could not determine Gradle deploy repository for module %s: %v", module.Id, deployErr))
 				continue
 			}
-			repoCache[isSnapshot] = targetRepo
 		}
 
+		if len(module.Artifacts) == 0 {
+			continue
+		}
+		// We assume all artifacts in a module go to the same repo structure
+		artifact := module.Artifacts[0]
 		var artifactPath string
 		if artifact.Path != "" {
 			artifactPath = fmt.Sprintf("%s/%s", targetRepo, artifact.Path)
 		} else {
 			groupId := parts[0]
 			artifactId := parts[1]
+			groupPath := strings.ReplaceAll(groupId, ".", "/")
+			if groupId == "unspecified" {
+				groupPath = "**"
+			}
+			versionPath := version
+			if version == "unspecified" {
+				versionPath = "*"
+			}
 			artifactPath = fmt.Sprintf("%s/%s/%s/%s/%s-*",
 				targetRepo,
-				strings.ReplaceAll(groupId, ".", "/"), artifactId, version, artifactId)
+				groupPath, artifactId, versionPath, artifactId)
 		}
 
 		// Let's use the directory of the artifact to find all related artifacts (jars, poms, etc)

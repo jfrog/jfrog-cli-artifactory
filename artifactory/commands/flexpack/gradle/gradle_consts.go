@@ -40,5 +40,4 @@ const (
 	blockUploadArchives   = "uploadArchives"
 	blockDepResManagement = "dependencyResolutionManagement"
 	blockExt              = "ext"
-	keywordArtifactory    = "artifactory"
 )
