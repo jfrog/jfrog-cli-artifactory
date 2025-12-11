@@ -25,20 +25,16 @@ func CollectHelmBuildInfoWithFlexPack(workingDir, buildName, buildNumber, projec
 	if err != nil {
 		return fmt.Errorf("failed to build info: %w", err)
 	}
-	if commandName == "push" {
-		handlePushCommand(buildInfo, helmArgs, serviceManager)
-	} else {
-		buildInfo, err = collectBuildInfoWithFlexPack(workingDir, buildName, buildNumber)
-		if err != nil {
-			return fmt.Errorf("failed to collect build info: %w", err)
-		}
-		if buildInfo == nil {
-			log.Debug("No build info collected, skipping further processing")
-			return nil
-		}
-		updateDependencyOCILayersInBuildInfo(buildInfo, serviceManager)
+	switch commandName {
+	case "push":
+		return handlePushCommand(buildInfo, helmArgs, serviceManager, buildName, buildNumber, project)
+	case "package":
+		return handlePackageCommand(buildInfo, helmArgs, serviceManager, buildName, buildNumber, project)
+	case "dependency":
+		return handleDependencyCommand(buildInfo, helmArgs, serviceManager, workingDir, buildName, buildNumber, project)
 	}
-	return saveBuildInfo(buildInfo, buildName, buildNumber, project)
+	log.Info("Skipping helm build info because", commandName, "command is not collecting build info")
+	return nil
 }
 
 // collectBuildInfoWithFlexPack collects build info using FlexPack

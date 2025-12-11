@@ -2,16 +2,16 @@ package helm
 
 import (
 	"fmt"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
-	artutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
-	"strings"
-
 	"github.com/jfrog/build-info-go/entities"
 	ioutils "github.com/jfrog/gofrog/io"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
+	artutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
+	"strings"
 )
 
 type manifest struct {
@@ -76,7 +76,7 @@ func addOCILayersForDependency(dep entities.Dependency, serviceManager artifacto
 		return
 	}
 	searchPattern := fmt.Sprintf("%s/%s/*", repoName, versionPath)
-	resultMap, err := searchDependencyOCIFilesByPath(serviceManager, searchPattern)
+	resultMap, err := searchDependencyOCIFilesByPath(serviceManager, searchPattern, "")
 	if err != nil {
 		log.Debug("Failed to search OCI artifacts for dependency ", dep.Id, " : ", err)
 		return
@@ -108,7 +108,6 @@ func addOCILayersForDependency(dep entities.Dependency, serviceManager artifacto
 	for _, depLayer := range dependencyLayers {
 		*processedDependencies = append(*processedDependencies, entities.Dependency{
 			Id:         depLayer.Name,
-			Type:       depLayer.Type,
 			Repository: depLayer.Repo,
 			Checksum: entities.Checksum{
 				Sha1:   depLayer.Actual_Sha1,
@@ -184,7 +183,7 @@ func searchClassicHelmChart(serviceManager artifactory.ArtifactoryServicesManage
 }
 
 // searchDependencyOCIFilesByPath searches for OCI artifacts using a search pattern
-func searchDependencyOCIFilesByPath(serviceManager artifactory.ArtifactoryServicesManager, searchPattern string) (map[string]*servicesUtils.ResultItem, error) {
+func searchDependencyOCIFilesByPath(serviceManager artifactory.ArtifactoryServicesManager, searchPattern string, buildProperties string) (map[string]*servicesUtils.ResultItem, error) {
 	log.Debug("Searching for OCI artifacts with pattern: ", searchPattern)
 	searchParams := services.NewSearchParams()
 	searchParams.Pattern = searchPattern
@@ -192,6 +191,9 @@ func searchDependencyOCIFilesByPath(serviceManager artifactory.ArtifactoryServic
 	reader, err := serviceManager.SearchFiles(searchParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search for OCI artifacts: %w", err)
+	}
+	if buildProperties != "" {
+		addBuildPropertiesOnArtifacts(serviceManager, reader, buildProperties, searchPattern)
 	}
 	var closeErr error
 	defer func() {
@@ -227,4 +229,15 @@ func getManifest(resultMap map[string]*servicesUtils.ResultItem, serviceManager 
 func downloadLayer(searchResult servicesUtils.ResultItem, result interface{}, serviceManager artifactory.ArtifactoryServicesManager, repo string) error {
 	searchResult.Repo = repo
 	return artutils.RemoteUnmarshal(serviceManager, searchResult.GetItemRelativePath(), result)
+}
+
+func addBuildPropertiesOnArtifacts(serviceManager artifactory.ArtifactoryServicesManager, reader *content.ContentReader, buildProps, searchPattern string) {
+	propsParams := services.PropsParams{
+		Reader: reader,
+		Props:  buildProps,
+	}
+	_, err := serviceManager.SetProps(propsParams)
+	if err != nil {
+		log.Warn(fmt.Sprintf("Failed to set properties on %s: %s", searchPattern, err))
+	}
 }
