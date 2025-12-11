@@ -13,7 +13,7 @@ import (
 )
 
 // It does not check for specific environment variables
-func getGradleDeployRepository(workingDir, version string) (string, error) {
+func getGradleDeployRepository(workingDir, rootDir, version string) (string, error) {
 	if err := validateWorkingDirectory(workingDir); err != nil {
 		return "", err
 	}
@@ -23,7 +23,11 @@ func getGradleDeployRepository(workingDir, version string) (string, error) {
 
 	// Add default properties for path resolution, ex: ${rootDir}
 	if _, ok := props[rootDirProp]; !ok {
-		props[rootDirProp] = workingDir
+		if rootDir != "" {
+			props[rootDirProp] = rootDir
+		} else {
+			props[rootDirProp] = workingDir
+		}
 	}
 	if _, ok := props[projectDirProp]; !ok {
 		props[projectDirProp] = workingDir
@@ -83,8 +87,8 @@ func findRepoInProperties(props map[string]string, isSnapshot bool) (string, err
 		}
 
 		keyLower := strings.ToLower(key)
-		if strings.Contains(keyLower, keywordRepo) || strings.Contains(keyLower, keywordArtifactory) ||
-			strings.Contains(keyLower, keywordUrl) || strings.Contains(keyLower, keywordDeploy) {
+		if strings.Contains(keyLower, keywordRepo) || strings.Contains(keyLower, keywordUrl) ||
+			strings.Contains(keyLower, keywordDeploy) {
 
 			if _, err := strconv.ParseBool(val); err == nil {
 				continue
