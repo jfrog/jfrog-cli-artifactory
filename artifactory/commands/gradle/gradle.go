@@ -116,8 +116,7 @@ func (gc *GradleCommand) shouldCreateBuildArtifactsFile() bool {
 }
 
 func (gc *GradleCommand) Run() error {
-	// Check for FlexPack mode first (before init)
-	if os.Getenv("JFROG_RUN_NATIVE") == "true" {
+	if os.Getenv("JFROG_RUN_NATIVE") == "true" && gc.configPath == "" {
 		return gc.runWithGradleNative()
 	}
 
