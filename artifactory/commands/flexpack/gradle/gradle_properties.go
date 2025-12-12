@@ -56,13 +56,26 @@ func collectAllGradleProperties(workingDir string) map[string]string {
 
 	// 1. GRADLE_USER_HOME gradle.properties (lowest priority)
 	if home := getGradleUserHome(); home != "" {
-		merge(readPropertiesFile(filepath.Join(home, gradlePropertiesFileName)))
+		// getGradleUserHome already returns a sanitized path
+		// Sanitize and validate the properties file path
+		propsPath := filepath.Join(home, gradlePropertiesFileName)
+		sanitizedPropsPath, err := sanitizeAndValidatePath(propsPath, home)
+		if err == nil {
+			merge(readPropertiesFile(sanitizedPropsPath))
+		}
 	}
 
 	// 2. Project gradle.properties
-	propsFile := filepath.Join(workingDir, gradlePropertiesFileName)
-	if _, err := os.Stat(propsFile); err == nil {
-		merge(readPropertiesFile(propsFile))
+	sanitizedWorkingDir, err := sanitizePath(workingDir)
+	if err == nil {
+		propsFile := filepath.Join(sanitizedWorkingDir, gradlePropertiesFileName)
+		// Sanitize and validate the properties file path
+		sanitizedPropsFile, err := sanitizeAndValidatePath(propsFile, sanitizedWorkingDir)
+		if err == nil {
+			if _, err := os.Stat(sanitizedPropsFile); err == nil {
+				merge(readPropertiesFile(sanitizedPropsFile))
+			}
+		}
 	}
 
 	// 3. get project properties from environment variables
@@ -95,7 +108,12 @@ func collectAllGradleProperties(workingDir string) map[string]string {
 
 func readPropertiesFile(path string) map[string]string {
 	m := make(map[string]string)
-	content, err := os.ReadFile(path)
+	// Sanitize the path before reading
+	cleanPath, err := sanitizePath(path)
+	if err != nil {
+		return m
+	}
+	content, err := os.ReadFile(cleanPath)
 	if err != nil {
 		return m
 	}

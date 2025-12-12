@@ -20,6 +20,10 @@ import (
 )
 
 func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, tasks []string, buildConfiguration *buildUtils.BuildConfiguration) error {
+	if buildName == "" || buildNumber == "" {
+		return fmt.Errorf("build name and build number are required")
+	}
+
 	absWorkingDir, err := filepath.Abs(workingDir)
 	if err != nil {
 		return fmt.Errorf("failed to resolve absolute path for working directory: %w", err)
@@ -73,7 +77,8 @@ func wasPublishCommand(tasks []string) bool {
 			toIdx := strings.Index(task, "To")
 			if toIdx != -1 {
 				afterTo := task[toIdx+2:]
-				if len(afterTo) > 0 && !strings.HasSuffix(task, "Local") && task != gradleTaskPublishToMavenLocal {
+				// Exclude local publishing tasks like "publishToMavenLocal" or "publishAllPublicationsToLocal"
+				if len(afterTo) > 0 && !strings.HasSuffix(task, "Local") {
 					return true
 				}
 			}
