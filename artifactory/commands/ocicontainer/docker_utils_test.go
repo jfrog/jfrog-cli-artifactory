@@ -370,12 +370,17 @@ func TestGetBiProperties(t *testing.T) {
 func TestGetPushedRepo(t *testing.T) {
 	tests := []struct {
 		name        string
-		repoDetails DockerRepositoryDetails
+		repoDetails *DockerRepositoryDetails
 		expected    string
 	}{
 		{
+			name:        "nil repository details",
+			repoDetails: nil,
+			expected:    "",
+		},
+		{
 			name: "local repository",
-			repoDetails: DockerRepositoryDetails{
+			repoDetails: &DockerRepositoryDetails{
 				Key:      "docker-local",
 				RepoType: "local",
 			},
@@ -383,7 +388,7 @@ func TestGetPushedRepo(t *testing.T) {
 		},
 		{
 			name: "remote repository",
-			repoDetails: DockerRepositoryDetails{
+			repoDetails: &DockerRepositoryDetails{
 				Key:      "docker-remote",
 				RepoType: "remote",
 			},
@@ -391,7 +396,7 @@ func TestGetPushedRepo(t *testing.T) {
 		},
 		{
 			name: "virtual repository",
-			repoDetails: DockerRepositoryDetails{
+			repoDetails: &DockerRepositoryDetails{
 				Key:                   "docker-virtual",
 				RepoType:              "virtual",
 				DefaultDeploymentRepo: "docker-local-deploy",
@@ -402,11 +407,11 @@ func TestGetPushedRepo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			builder := &DockerBuildInfoBuilder{
+			builder := &DockerArtifactsBuilder{
 				repositoryDetails: tt.repoDetails,
 			}
 
-			result := builder.getPushedRepo()
+			result := builder.GetPushedRepo()
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -445,11 +450,10 @@ func TestApplyRepoTypeModifications(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			builder := &DockerBuildInfoBuilder{
-				repositoryDetails: DockerRepositoryDetails{RepoType: tt.repoType},
-			}
+			builder := &DockerDependenciesBuilder{}
+			repoDetails := DockerRepositoryDetails{RepoType: tt.repoType}
 
-			result := builder.applyRepoTypeModifications(tt.basePath)
+			result := builder.applyRepoTypeModifications(tt.basePath, repoDetails)
 			assert.Equal(t, tt.expectedLen, len(result))
 			assert.Equal(t, tt.expected, result)
 		})
@@ -457,7 +461,7 @@ func TestApplyRepoTypeModifications(t *testing.T) {
 }
 
 func TestGetManifestHandler(t *testing.T) {
-	builder := &DockerBuildInfoBuilder{}
+	manifestHandler := &DockerManifestHandler{}
 
 	tests := []struct {
 		name         string
@@ -493,7 +497,7 @@ func TestGetManifestHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := builder.getManifestHandler(tt.manifestType)
+			handler := manifestHandler.GetManifestHandler(tt.manifestType)
 
 			if tt.expectNil {
 				assert.Nil(t, handler)
@@ -555,7 +559,7 @@ func TestCreateSearchablePathForDockerManifestContents(t *testing.T) {
 }
 
 func TestCreateDependenciesFromResults(t *testing.T) {
-	builder := &DockerBuildInfoBuilder{}
+	builder := &DockerDependenciesBuilder{}
 
 	tests := []struct {
 		name        string
@@ -603,7 +607,7 @@ func TestCreateDependenciesFromResults(t *testing.T) {
 }
 
 func TestCreateArtifactsFromResults(t *testing.T) {
-	builder := &DockerBuildInfoBuilder{}
+	builder := &DockerArtifactsBuilder{}
 
 	tests := []struct {
 		name        string
@@ -655,50 +659,53 @@ func TestManifestTypeConstants(t *testing.T) {
 }
 
 func TestFetchLayersOfPushedImage_UnknownManifestType(t *testing.T) {
-	builder := &DockerBuildInfoBuilder{}
+	handler := &DockerManifestHandler{}
 
 	// Test error handling for unknown manifest type
-	result, err := builder.fetchLayersOfPushedImage("test-image", "test-repo", ManifestType("unknown"))
+	layers, foldersToApplyProps, err := handler.FetchLayersOfPushedImage("test-image", "test-repo", ManifestType("unknown"))
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown/other manifest type")
-	assert.Empty(t, result)
+	assert.Empty(t, layers)
+	assert.Empty(t, foldersToApplyProps)
 }
 
 func TestFetchLayersOfPushedImage_EmptyManifestType(t *testing.T) {
-	builder := &DockerBuildInfoBuilder{}
+	handler := &DockerManifestHandler{}
 
 	// Test error handling for empty manifest type
-	result, err := builder.fetchLayersOfPushedImage("test-image", "test-repo", ManifestType(""))
+	layers, foldersToApplyProps, err := handler.FetchLayersOfPushedImage("test-image", "test-repo", ManifestType(""))
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown/other manifest type")
-	assert.Empty(t, result)
+	assert.Empty(t, layers)
+	assert.Empty(t, foldersToApplyProps)
 }
 
 func TestGetArtifacts_ImageNotPushed(t *testing.T) {
-	builder := &DockerBuildInfoBuilder{
+	builder := &DockerArtifactsBuilder{
 		isImagePushed: false,
 		imageTag:      "test:latest",
 	}
 
-	artifacts, leadSha, err := builder.getArtifacts()
+	artifacts, leadSha, resultsToApplyProps, err := builder.getArtifacts()
 
 	assert.NoError(t, err)
 	assert.Empty(t, artifacts)
 	assert.Empty(t, leadSha)
+	assert.Empty(t, resultsToApplyProps)
 }
 
 func TestGetArtifacts_ImagePushed(t *testing.T) {
 	// This test verifies that when isImagePushed is true, the function attempts to collect artifacts
 	// Without proper serviceManager setup, it will error, but we verify the code path is taken
-	builder := &DockerBuildInfoBuilder{
+	builder := &DockerArtifactsBuilder{
 		isImagePushed: true,
 		imageTag:      "test:latest",
 	}
 
 	// Without proper setup, this will error, but we verify the path is taken
-	artifacts, leadSha, err := builder.getArtifacts()
+	artifacts, leadSha, resultsToApplyProps, err := builder.getArtifacts()
 
 	// Error expected without proper mocking, but function should attempt collection
 	// We just verify the function executes (error is expected without serviceManager)
@@ -710,4 +717,5 @@ func TestGetArtifacts_ImagePushed(t *testing.T) {
 		_ = artifacts
 	}
 	_ = leadSha
+	_ = resultsToApplyProps
 }
