@@ -315,11 +315,12 @@ func selectBestRepo(candidates []string, isSnapshot bool) (string, error) {
 		seen[c] = true
 
 		cLower := strings.ToLower(c)
-		if strings.Contains(cLower, "snapshot") {
+		switch {
+		case strings.Contains(cLower, "snapshot"):
 			snapshotCandidates = append(snapshotCandidates, c)
-		} else if strings.Contains(cLower, "release") {
+		case strings.Contains(cLower, "release"):
 			releaseCandidates = append(releaseCandidates, c)
-		} else {
+		default:
 			generalCandidates = append(generalCandidates, c)
 		}
 	}
