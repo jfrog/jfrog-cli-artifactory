@@ -370,12 +370,12 @@ func TestGetBiProperties(t *testing.T) {
 func TestGetPushedRepo(t *testing.T) {
 	tests := []struct {
 		name        string
-		repoDetails dockerRepositoryDetails
+		repoDetails DockerRepositoryDetails
 		expected    string
 	}{
 		{
 			name: "local repository",
-			repoDetails: dockerRepositoryDetails{
+			repoDetails: DockerRepositoryDetails{
 				Key:      "docker-local",
 				RepoType: "local",
 			},
@@ -383,7 +383,7 @@ func TestGetPushedRepo(t *testing.T) {
 		},
 		{
 			name: "remote repository",
-			repoDetails: dockerRepositoryDetails{
+			repoDetails: DockerRepositoryDetails{
 				Key:      "docker-remote",
 				RepoType: "remote",
 			},
@@ -391,7 +391,7 @@ func TestGetPushedRepo(t *testing.T) {
 		},
 		{
 			name: "virtual repository",
-			repoDetails: dockerRepositoryDetails{
+			repoDetails: DockerRepositoryDetails{
 				Key:                   "docker-virtual",
 				RepoType:              "virtual",
 				DefaultDeploymentRepo: "docker-local-deploy",
@@ -446,7 +446,7 @@ func TestApplyRepoTypeModifications(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			builder := &DockerBuildInfoBuilder{
-				repositoryDetails: dockerRepositoryDetails{RepoType: tt.repoType},
+				repositoryDetails: DockerRepositoryDetails{RepoType: tt.repoType},
 			}
 
 			result := builder.applyRepoTypeModifications(tt.basePath)
@@ -461,7 +461,7 @@ func TestGetManifestHandler(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		manifestType manifestType
+		manifestType ManifestType
 		expectNil    bool
 		handlerType  string
 	}{
@@ -479,13 +479,13 @@ func TestGetManifestHandler(t *testing.T) {
 		},
 		{
 			name:         "unknown type returns nil",
-			manifestType: manifestType("unknown"),
+			manifestType: ManifestType("unknown"),
 			expectNil:    true,
 			handlerType:  "",
 		},
 		{
 			name:         "empty type returns nil",
-			manifestType: manifestType(""),
+			manifestType: ManifestType(""),
 			expectNil:    true,
 			handlerType:  "",
 		},
@@ -650,15 +650,15 @@ func TestCreateArtifactsFromResults(t *testing.T) {
 }
 
 func TestManifestTypeConstants(t *testing.T) {
-	assert.Equal(t, manifestType("list.manifest.json"), ManifestList)
-	assert.Equal(t, manifestType("manifest.json"), Manifest)
+	assert.Equal(t, ManifestType("list.manifest.json"), ManifestList)
+	assert.Equal(t, ManifestType("manifest.json"), Manifest)
 }
 
 func TestFetchLayersOfPushedImage_UnknownManifestType(t *testing.T) {
 	builder := &DockerBuildInfoBuilder{}
 
 	// Test error handling for unknown manifest type
-	result, err := builder.fetchLayersOfPushedImage("test-image", "test-repo", manifestType("unknown"))
+	result, err := builder.fetchLayersOfPushedImage("test-image", "test-repo", ManifestType("unknown"))
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown/other manifest type")
@@ -669,7 +669,7 @@ func TestFetchLayersOfPushedImage_EmptyManifestType(t *testing.T) {
 	builder := &DockerBuildInfoBuilder{}
 
 	// Test error handling for empty manifest type
-	result, err := builder.fetchLayersOfPushedImage("test-image", "test-repo", manifestType(""))
+	result, err := builder.fetchLayersOfPushedImage("test-image", "test-repo", ManifestType(""))
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown/other manifest type")

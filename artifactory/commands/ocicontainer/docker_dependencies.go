@@ -6,20 +6,34 @@ import (
 	"sync"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-// getDependencies collects dependencies for all base images in parallel
-func (dbib *DockerBuildInfoBuilder) getDependencies() ([]buildinfo.Dependency, error) {
-	var wg sync.WaitGroup
-	errChan := make(chan error, len(dbib.baseImages))
-	dependencyResultChan := make(chan []utils.ResultItem, len(dbib.baseImages))
+type DockerDependenciesBuilder struct {
+	dockerImages   []DockerImage
+	serviceManager artifactory.ArtifactoryServicesManager
+}
 
-	for _, baseImage := range dbib.baseImages {
+func NewDockerDependenciesBuilder(dockerImages []DockerImage, serviceManager artifactory.ArtifactoryServicesManager) *DockerDependenciesBuilder {
+	return &DockerDependenciesBuilder{
+		dockerImages:   dockerImages,
+		serviceManager: serviceManager,
+	}
+}
+
+// getDependencies collects dependencies for all base images in parallel
+func (ddp *DockerDependenciesBuilder) getDependencies() ([]buildinfo.Dependency, error) {
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(ddp.dockerImages))
+	dependencyResultChan := make(chan []utils.ResultItem, len(ddp.dockerImages))
+
+	for _, baseImage := range ddp.dockerImages {
 		wg.Add(1)
-		go func(img BaseImage) {
+		go func(img DockerImage) {
 			defer wg.Done()
-			resultItems, err := dbib.collectDetailsForBaseImage(img)
+			resultItems, err := ddp.collectDetailsForBaseImage(img)
 			if err != nil {
 				errChan <- err
 				return
@@ -46,20 +60,22 @@ func (dbib *DockerBuildInfoBuilder) getDependencies() ([]buildinfo.Dependency, e
 		allDependencyResultItems = append(allDependencyResultItems, resultItems...)
 	}
 
-	return dbib.createDependenciesFromResults(allDependencyResultItems), nil
+	return ddp.createDependenciesFromResults(allDependencyResultItems), nil
 }
 
 // collectDetailsForBaseImage collects layer details for a single base image
-func (dbib *DockerBuildInfoBuilder) collectDetailsForBaseImage(baseImage BaseImage) ([]utils.ResultItem, error) {
-	remoteRepo, dockerManifestType, _, err := dbib.getRemoteRepoAndManifestTypeWithLeadSha(baseImage.Image)
+func (ddp *DockerDependenciesBuilder) collectDetailsForBaseImage(baseImage DockerImage) ([]utils.ResultItem, error) {
+	log.Debug(fmt.Sprintf("Collecting details for image: %s", baseImage.Image))
+	remoteRepo, dockerManifestType, _, err := GetRemoteRepoAndManifestTypeWithLeadSha(baseImage.Image, ddp.serviceManager)
 	if err != nil {
 		return []utils.ResultItem{}, err
 	}
-	manifestSha, err := dbib.manifestDetails(baseImage)
+	manifestSha, err := baseImage.GetManifestDetails()
 	if err != nil {
 		return []utils.ResultItem{}, err
 	}
-	searchableRepository, err := dbib.getSearchableRepository(remoteRepo)
+	searchableRepository, repositoryDetails, err := GetSearchableRepositoryAndDetails(remoteRepo, ddp.serviceManager)
+	log.Debug(fmt.Sprintf("SearchableRepository: %s, Type: %s", remoteRepo, repositoryDetails.RepoType))
 	if err != nil {
 		return []utils.ResultItem{}, err
 	}
@@ -75,19 +91,19 @@ func (dbib *DockerBuildInfoBuilder) collectDetailsForBaseImage(baseImage BaseIma
 	}
 
 	// Use interface to get base path, then apply repo-type modifications
-	handler := dbib.getManifestHandler(dockerManifestType)
+	handler := NewDockerManifestHandler(ddp.serviceManager).GetManifestHandler(dockerManifestType)
 	basePath := handler.BuildSearchPaths(imageName, imageTag, manifestSha)
-	layerPaths := dbib.applyRepoTypeModifications(basePath)
+	layerPaths := ddp.applyRepoTypeModifications(basePath, *repositoryDetails)
 
-	layers, err := dbib.searchForImageLayersInPath(imageName, searchableRepository, layerPaths)
+	layers, err := SearchForImageLayersInPath(imageName, searchableRepository, layerPaths, ddp.serviceManager)
 	if err != nil {
 		return []utils.ResultItem{}, err
 	}
 
-	if dbib.repositoryDetails.RepoType == "remote" {
+	if repositoryDetails.RepoType == "remote" {
 		var markerLayers []string
 		markerLayers, layers = getMarkerLayerShasFromSearchResult(layers)
-		markerLayersDetails := handleMarkerLayersForDockerBuild(markerLayers, dbib.serviceManager, dbib.repositoryDetails.Key, imageName)
+		markerLayersDetails := handleMarkerLayersForDockerBuild(markerLayers, ddp.serviceManager, repositoryDetails.Key, imageName)
 		layers = append(layers, markerLayersDetails...)
 	}
 
@@ -95,16 +111,16 @@ func (dbib *DockerBuildInfoBuilder) collectDetailsForBaseImage(baseImage BaseIma
 }
 
 // applyRepoTypeModifications applies repository-type-specific path modifications
-func (dbib *DockerBuildInfoBuilder) applyRepoTypeModifications(basePath string) []string {
+func (ddp *DockerDependenciesBuilder) applyRepoTypeModifications(basePath string, repositoryDetails DockerRepositoryDetails) []string {
 	// for remote repositories, the image path is prefixed with "library/"
-	if dbib.repositoryDetails.RepoType == "remote" {
+	if repositoryDetails.RepoType == "remote" {
 		return []string{modifyPathForRemoteRepo(basePath)}
 	}
 
 	// virtual repository can contain remote repository and local repository
 	// multi-platform images are stored in local under folders like sha256:xyz format
 	// but in remote it's stored in folders like library/sha256__xyz format
-	if dbib.repositoryDetails.RepoType == "virtual" {
+	if repositoryDetails.RepoType == "virtual" {
 		return append([]string{modifyPathForRemoteRepo(basePath)}, basePath)
 	}
 
@@ -112,7 +128,7 @@ func (dbib *DockerBuildInfoBuilder) applyRepoTypeModifications(basePath string) 
 }
 
 // createDependenciesFromResults converts search results to dependencies
-func (dbib *DockerBuildInfoBuilder) createDependenciesFromResults(results []utils.ResultItem) []buildinfo.Dependency {
+func (dbib *DockerDependenciesBuilder) createDependenciesFromResults(results []utils.ResultItem) []buildinfo.Dependency {
 	deduplicated := deduplicateResultsBySha256(results)
 	dependencies := make([]buildinfo.Dependency, 0, len(deduplicated))
 	for _, result := range deduplicated {

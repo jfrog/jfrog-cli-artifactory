@@ -49,6 +49,15 @@ func (labib *localAgentBuildInfoBuilder) SetSkipTaggingLayers(skipTaggingLayers 
 
 // Create build-info for a docker image.
 func (labib *localAgentBuildInfoBuilder) Build(module string) (*buildinfo.BuildInfo, error) {
+	longImageName, err := labib.buildInfoBuilder.image.GetImageLongNameWithTag()
+	if err != nil {
+		return nil, err
+	}
+	// Check if this is a digest-based image reference (contains @sha256:)
+	if digestIndex := strings.Index(longImageName, "@"); digestIndex != -1 {
+		return labib.handleImageByDigest()
+	}
+
 	// Search for image build-info.
 	candidateLayers, manifest, err := labib.searchImage()
 	if err != nil {
@@ -60,6 +69,35 @@ func (labib *localAgentBuildInfoBuilder) Build(module string) (*buildinfo.BuildI
 	}
 	// Create build-info from search results.
 	return labib.buildInfoBuilder.createBuildInfo(labib.commandType, manifest, candidateLayers, module)
+}
+
+func (labib *localAgentBuildInfoBuilder) handleImageByDigest() (*buildinfo.BuildInfo, error) {
+	log.Debug("Processing digest-based image pull for: " + labib.buildInfoBuilder.image.name)
+	dockerImage := DockerImage{
+		Image: labib.buildInfoBuilder.image.Name(),
+	}
+	dependencies, err := NewDockerDependenciesBuilder([]DockerImage{dockerImage}, labib.buildInfoBuilder.serviceManager).getDependencies()
+	if err != nil {
+		return nil, err
+	}
+
+	dockerImageTag, err := labib.buildInfoBuilder.image.GetImageShortNameWithTag()
+	if err != nil {
+		return nil, err
+	}
+
+	imageProperties := map[string]string{
+		"docker.image.id":  labib.buildInfoBuilder.imageSha2,
+		"docker.image.tag": labib.buildInfoBuilder.image.Name(),
+	}
+
+	buildInfo := &buildinfo.BuildInfo{Modules: []buildinfo.Module{{
+		Id:           dockerImageTag,
+		Type:         buildinfo.Docker,
+		Properties:   imageProperties,
+		Dependencies: dependencies,
+	}}}
+	return buildInfo, nil
 }
 
 // Search an image in Artifactory and validate its sha2 with local image.
