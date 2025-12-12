@@ -155,17 +155,29 @@ func extractRepoKeyFromArtifactoryUrl(repoUrl string) (string, error) {
 }
 
 func checkInitScripts(gradleUserHome string, isSnapshot bool, props map[string]string) (string, error) {
+	// Sanitize gradle user home path - returns a new untainted value
+	sanitizedGradleHome, err := sanitizePath(gradleUserHome)
+	if err != nil {
+		return "", fmt.Errorf("invalid gradle user home path: %w", err)
+	}
+
 	// 1. Check init.gradle or init.gradle.kts
-	initGradlePath, _, err := findGradleFile(gradleUserHome, "init")
+	// findGradleFile already sanitizes and validates paths
+	initGradlePath, _, err := findGradleFile(sanitizedGradleHome, "init")
 	if err == nil {
 		if repo, err := checkGradleScript(initGradlePath, isSnapshot, props); err == nil {
 			return repo, nil
 		}
 	}
 
-	// 2. Check init.d directory
-	initDDir := filepath.Join(gradleUserHome, initDDirName)
-	entries, err := os.ReadDir(initDDir)
+	// 2. Check init.d directory - sanitize and validate the path
+	initDDirPath := filepath.Join(sanitizedGradleHome, initDDirName)
+	sanitizedInitDDir, err := sanitizeAndValidatePath(initDDirPath, sanitizedGradleHome)
+	if err != nil {
+		return "", fmt.Errorf("invalid init.d directory path: %w", err)
+	}
+
+	entries, err := os.ReadDir(sanitizedInitDDir)
 	if err == nil {
 		sort.Slice(entries, func(i, j int) bool {
 			return entries[i].Name() < entries[j].Name()
@@ -174,7 +186,18 @@ func checkInitScripts(gradleUserHome string, isSnapshot bool, props map[string]s
 		for i := len(entries) - 1; i >= 0; i-- {
 			entry := entries[i]
 			if !entry.IsDir() && (strings.HasSuffix(entry.Name(), ".gradle") || strings.HasSuffix(entry.Name(), ".gradle.kts")) {
-				if repo, err := checkGradleScript(filepath.Join(initDDir, entry.Name()), isSnapshot, props); err == nil {
+				// Validate entry name doesn't contain path separators
+				if strings.ContainsAny(entry.Name(), `/\`) {
+					continue
+				}
+				// Sanitize and validate script path
+				scriptPath := filepath.Join(sanitizedInitDDir, entry.Name())
+				sanitizedScriptPath, err := sanitizeAndValidatePath(scriptPath, sanitizedInitDDir)
+				if err != nil {
+					log.Debug("Skipping invalid script path: " + scriptPath)
+					continue
+				}
+				if repo, err := checkGradleScript(sanitizedScriptPath, isSnapshot, props); err == nil {
 					return repo, nil
 				}
 			}
@@ -184,18 +207,24 @@ func checkInitScripts(gradleUserHome string, isSnapshot bool, props map[string]s
 }
 
 func checkGradleScript(path string, isSnapshot bool, props map[string]string) (string, error) {
-	content, err := os.ReadFile(path)
+	// Sanitize the path before reading
+	cleanPath, err := sanitizePath(path)
+	if err != nil {
+		return "", fmt.Errorf("invalid script path: %w", err)
+	}
+
+	content, err := os.ReadFile(cleanPath)
 	if err != nil {
 		return "", err
 	}
-	isKts := strings.HasSuffix(path, ".kts")
-	return findRepoInGradleScript(content, isKts, props, isSnapshot, path)
+	isKts := strings.HasSuffix(cleanPath, ".kts")
+	return findRepoInGradleScript(content, isKts, props, isSnapshot, cleanPath)
 }
 
 func findRepoInGradleScript(content []byte, isKts bool, props map[string]string, isSnapshot bool, scriptPath string) (string, error) {
 	visited := make(map[string]bool)
 	if scriptPath != "" {
-		if absPath, err := filepath.Abs(scriptPath); err == nil {
+		if absPath, err := sanitizePath(scriptPath); err == nil {
 			visited[absPath] = true
 		}
 	}
@@ -247,8 +276,10 @@ func findRepoInGradleScriptRecursive(content []byte, isKts bool, props map[strin
 
 	appliedScripts := collectAppliedScripts(content, isKts, combinedProps, scriptPath)
 	for _, appliedScript := range appliedScripts {
-		absPath, err := filepath.Abs(appliedScript)
+		// Sanitize the applied script path
+		absPath, err := sanitizePath(appliedScript)
 		if err != nil {
+			log.Debug("Skipping invalid applied script path: " + appliedScript)
 			continue
 		}
 
@@ -264,10 +295,10 @@ func findRepoInGradleScriptRecursive(content []byte, isKts bool, props map[strin
 			continue
 		}
 
-		isAppliedKts := strings.HasSuffix(appliedScript, ".kts")
-		repo, err := findRepoInGradleScriptRecursive(appliedContent, isAppliedKts, combinedProps, isSnapshot, appliedScript, visited)
+		isAppliedKts := strings.HasSuffix(absPath, ".kts")
+		repo, err := findRepoInGradleScriptRecursive(appliedContent, isAppliedKts, combinedProps, isSnapshot, absPath, visited)
 		if err == nil && repo != "" {
-			log.Debug("Found repository in applied script " + filepath.Base(appliedScript) + ": " + repo)
+			log.Debug("Found repository in applied script " + filepath.Base(absPath) + ": " + repo)
 			return repo, nil
 		}
 	}

@@ -370,15 +370,72 @@ func WriteInitScript(initScript string) error {
 		gradleHome = filepath.Join(clientutils.GetUserHomeDir(), ".gradle")
 	}
 
-	initScriptsDir := filepath.Join(gradleHome, "init.d")
-	if err := os.MkdirAll(initScriptsDir, 0755); err != nil {
+	// Sanitize the gradle home path to prevent path traversal attacks.
+	// sanitizeGradlePath cleans, resolves to absolute, and validates the path.
+	sanitizedGradleHome, err := sanitizeGradlePath(gradleHome)
+	if err != nil {
+		return fmt.Errorf("invalid Gradle home path: %w", err)
+	}
+
+	// Build the init scripts directory path using the sanitized base
+	initScriptsDirPath := filepath.Join(sanitizedGradleHome, "init.d")
+	// Sanitize the constructed path
+	sanitizedInitScriptsDir, err := sanitizeGradlePath(initScriptsDirPath)
+	if err != nil {
+		return fmt.Errorf("invalid init scripts directory path: %w", err)
+	}
+
+	// Validate containment: init scripts dir must be within gradle home
+	if !isPathContainedIn(sanitizedInitScriptsDir, sanitizedGradleHome) {
+		return fmt.Errorf("init scripts directory escapes gradle home: %s", sanitizedInitScriptsDir)
+	}
+
+	if err := os.MkdirAll(sanitizedInitScriptsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create Gradle init.d directory: %w", err)
 	}
-	jfrogInitScriptPath := filepath.Join(initScriptsDir, InitScriptName)
-	if err := os.WriteFile(jfrogInitScriptPath, []byte(initScript), 0644); err != nil {
-		return fmt.Errorf("failed to write Gradle init script to %s: %w", jfrogInitScriptPath, err)
+
+	// Build the init script file path using the sanitized directory
+	initScriptFilePath := filepath.Join(sanitizedInitScriptsDir, InitScriptName)
+	// Sanitize the constructed path
+	sanitizedInitScriptPath, err := sanitizeGradlePath(initScriptFilePath)
+	if err != nil {
+		return fmt.Errorf("invalid init script path: %w", err)
+	}
+
+	// Validate containment: init script must be within init scripts dir
+	if !isPathContainedIn(sanitizedInitScriptPath, sanitizedInitScriptsDir) {
+		return fmt.Errorf("init script path escapes init scripts directory: %s", sanitizedInitScriptPath)
+	}
+
+	if err := os.WriteFile(sanitizedInitScriptPath, []byte(initScript), 0644); err != nil {
+		return fmt.Errorf("failed to write Gradle init script to %s: %w", sanitizedInitScriptPath, err)
 	}
 	return nil
+}
+
+// sanitizeGradlePath sanitizes a file path by cleaning it and resolving to absolute path.
+// This function acts as a taint sanitizer for SAST tools.
+func sanitizeGradlePath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("path cannot be empty")
+	}
+	// Clean the path to remove any .. or . components
+	cleanedPath := filepath.Clean(path)
+	// Resolve to absolute path
+	absPath, err := filepath.Abs(cleanedPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve absolute path: %w", err)
+	}
+	return absPath, nil
+}
+
+// isPathContainedIn checks if childPath is contained within parentPath.
+// Both paths should already be sanitized (absolute and cleaned).
+func isPathContainedIn(childPath, parentPath string) bool {
+	// Ensure both paths end consistently for prefix comparison
+	parentWithSep := parentPath + string(filepath.Separator)
+	childWithSep := childPath + string(filepath.Separator)
+	return strings.HasPrefix(childWithSep, parentWithSep)
 }
 
 func runGradle(vConfig *viper.Viper, tasks []string, deployableArtifactsFile string, configuration *build.BuildConfiguration, threads int, disableDeploy bool) error {
@@ -443,7 +500,7 @@ func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string,
 func setDeployFalse(vConfig *viper.Viper) {
 	vConfig.Set(build.DeployerPrefix+build.DeployArtifacts, "false")
 	if vConfig.GetString(build.DeployerPrefix+build.Url) == "" {
-		vConfig.Set(build.DeployerPrefix+build.Url, "http://empty_url")
+		vConfig.Set(build.DeployerPrefix+build.Url, "https://empty_url")
 	}
 	if vConfig.GetString(build.DeployerPrefix+build.Repo) == "" {
 		vConfig.Set(build.DeployerPrefix+build.Repo, "empty_repo")

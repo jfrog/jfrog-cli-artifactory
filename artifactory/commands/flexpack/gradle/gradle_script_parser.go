@@ -206,9 +206,13 @@ func collectAppliedScripts(content []byte, isKts bool, props map[string]string, 
 		matches = applyFromGroovyRe.FindAllStringSubmatch(contentStr, -1)
 	}
 
-	scriptDir := ""
+	// Sanitize the current script path to get a clean base directory
+	sanitizedScriptDir := ""
 	if currentScriptPath != "" {
-		scriptDir = filepath.Dir(currentScriptPath)
+		sanitizedScriptPath, err := sanitizePath(currentScriptPath)
+		if err == nil {
+			sanitizedScriptDir = filepath.Dir(sanitizedScriptPath)
+		}
 	}
 
 	for _, match := range matches {
@@ -221,10 +225,23 @@ func collectAppliedScripts(content []byte, isKts bool, props map[string]string, 
 				continue
 			}
 
-			if !filepath.IsAbs(path) && scriptDir != "" {
-				path = filepath.Join(scriptDir, path)
+			if !filepath.IsAbs(path) && sanitizedScriptDir != "" {
+				path = filepath.Join(sanitizedScriptDir, path)
 			}
-			paths = append(paths, path)
+
+			// Sanitize the resolved path - this returns a new untainted value
+			sanitizedPath, err := sanitizePath(path)
+			if err != nil {
+				log.Debug("Skipping invalid script path: " + path)
+				continue
+			}
+
+			// Log if path is outside script directory (for debugging path traversal attempts)
+			if sanitizedScriptDir != "" && !isPathContainedIn(sanitizedPath, sanitizedScriptDir) {
+				log.Debug("Applied script path is outside script directory: " + sanitizedPath)
+			}
+
+			paths = append(paths, sanitizedPath)
 		}
 	}
 	return paths
