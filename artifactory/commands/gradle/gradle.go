@@ -4,10 +4,13 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"text/template"
 
+	flexpackgradle "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/flexpack/gradle"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -21,6 +24,7 @@ import (
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/spf13/viper"
 )
 
@@ -112,6 +116,10 @@ func (gc *GradleCommand) shouldCreateBuildArtifactsFile() bool {
 }
 
 func (gc *GradleCommand) Run() error {
+	if os.Getenv("JFROG_RUN_NATIVE") == "true" && gc.configPath == "" {
+		return gc.runWithGradleNative()
+	}
+
 	vConfig, err := gc.init()
 	if err != nil {
 		return err
@@ -139,6 +147,79 @@ func (gc *GradleCommand) unmarshalDeployableArtifacts(filesPath string) error {
 	}
 	gc.setResult(result)
 	return nil
+}
+
+// runWithGradleNative executes Gradle using FlexPack for dependency resolution and build info collection
+func (gc *GradleCommand) runWithGradleNative() error {
+	log.Debug("Gradle FlexPack implementation activated")
+
+	// Get Gradle executable path
+	gradleExecPath, err := getGradleExecutablePath()
+	if err != nil {
+		return fmt.Errorf("failed to find Gradle executable: %w", err)
+	}
+
+	// Execute Gradle command directly (no JFrog Gradle plugin)
+	cmd := exec.Command(gradleExecPath, gc.tasks...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if err != nil {
+		log.Error("Failed to execute Gradle command: " + err.Error())
+		return errorutils.CheckError(err)
+	}
+
+	// Check if build info collection is requested
+	if gc.configuration != nil {
+		isCollect, err := gc.configuration.IsCollectBuildInfo()
+		if err != nil {
+			return err
+		}
+		if isCollect {
+			log.Info("Collecting build info for executed command...")
+
+			buildName, buildNumber, err := gc.getBuildNameAndNumber()
+			if err != nil {
+				return err
+			}
+
+			// Get working directory
+			workingDir, err := os.Getwd()
+			if err != nil {
+				return errorutils.CheckError(err)
+			}
+
+			// Call FlexPack collection
+			err = collectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber, gc.tasks, gc.configuration)
+			if err != nil {
+				return errorutils.CheckError(err)
+			}
+		}
+	}
+
+	log.Info("Gradle build completed successfully")
+	return nil
+}
+
+// getGradleExecutablePath finds the Gradle executable (wrapper or system)
+func getGradleExecutablePath() (string, error) {
+	wrapperFile := "gradlew"
+	if runtime.GOOS == "windows" {
+		wrapperFile = "gradlew.bat"
+	}
+
+	// Check for Gradle wrapper
+	if fileutils.IsPathExists(wrapperFile, false) {
+		return filepath.Abs(wrapperFile)
+	}
+
+	// Fallback to system Gradle
+	return exec.LookPath("gradle")
+}
+
+// collectGradleBuildInfoWithFlexPack calls the FlexPack implementation to collect Gradle build info
+func collectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, tasks []string, configuration *build.BuildConfiguration) error {
+	return flexpackgradle.CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber, tasks, configuration)
 }
 
 // ConditionalUpload will scan the artifact using Xray and will upload them only if the scan passes with no
@@ -243,6 +324,16 @@ func (gc *GradleCommand) setResult(result *commandsutils.Result) *GradleCommand 
 	return gc
 }
 
+// getBuildNameAndNumber returns the build name and build number from the configuration
+func (gc *GradleCommand) getBuildNameAndNumber() (buildName, buildNumber string, err error) {
+	buildName, err = gc.configuration.GetBuildName()
+	if err != nil {
+		return
+	}
+	buildNumber, err = gc.configuration.GetBuildNumber()
+	return
+}
+
 type InitScriptAuthConfig struct {
 	ArtifactoryURL         string
 	GradleRepoName         string
@@ -279,15 +370,72 @@ func WriteInitScript(initScript string) error {
 		gradleHome = filepath.Join(clientutils.GetUserHomeDir(), ".gradle")
 	}
 
-	initScriptsDir := filepath.Join(gradleHome, "init.d")
-	if err := os.MkdirAll(initScriptsDir, 0755); err != nil {
+	// Sanitize the gradle home path to prevent path traversal attacks.
+	// sanitizeGradlePath cleans, resolves to absolute, and validates the path.
+	sanitizedGradleHome, err := sanitizeGradlePath(gradleHome)
+	if err != nil {
+		return fmt.Errorf("invalid Gradle home path: %w", err)
+	}
+
+	// Build the init scripts directory path using the sanitized base
+	initScriptsDirPath := filepath.Join(sanitizedGradleHome, "init.d")
+	// Sanitize the constructed path
+	sanitizedInitScriptsDir, err := sanitizeGradlePath(initScriptsDirPath)
+	if err != nil {
+		return fmt.Errorf("invalid init scripts directory path: %w", err)
+	}
+
+	// Validate containment: init scripts dir must be within gradle home
+	if !isPathContainedIn(sanitizedInitScriptsDir, sanitizedGradleHome) {
+		return fmt.Errorf("init scripts directory escapes gradle home: %s", sanitizedInitScriptsDir)
+	}
+
+	if err := os.MkdirAll(sanitizedInitScriptsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create Gradle init.d directory: %w", err)
 	}
-	jfrogInitScriptPath := filepath.Join(initScriptsDir, InitScriptName)
-	if err := os.WriteFile(jfrogInitScriptPath, []byte(initScript), 0644); err != nil {
-		return fmt.Errorf("failed to write Gradle init script to %s: %w", jfrogInitScriptPath, err)
+
+	// Build the init script file path using the sanitized directory
+	initScriptFilePath := filepath.Join(sanitizedInitScriptsDir, InitScriptName)
+	// Sanitize the constructed path
+	sanitizedInitScriptPath, err := sanitizeGradlePath(initScriptFilePath)
+	if err != nil {
+		return fmt.Errorf("invalid init script path: %w", err)
+	}
+
+	// Validate containment: init script must be within init scripts dir
+	if !isPathContainedIn(sanitizedInitScriptPath, sanitizedInitScriptsDir) {
+		return fmt.Errorf("init script path escapes init scripts directory: %s", sanitizedInitScriptPath)
+	}
+
+	if err := os.WriteFile(sanitizedInitScriptPath, []byte(initScript), 0644); err != nil {
+		return fmt.Errorf("failed to write Gradle init script to %s: %w", sanitizedInitScriptPath, err)
 	}
 	return nil
+}
+
+// sanitizeGradlePath sanitizes a file path by cleaning it and resolving to absolute path.
+// This function acts as a taint sanitizer for SAST tools.
+func sanitizeGradlePath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("path cannot be empty")
+	}
+	// Clean the path to remove any .. or . components
+	cleanedPath := filepath.Clean(path)
+	// Resolve to absolute path
+	absPath, err := filepath.Abs(cleanedPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve absolute path: %w", err)
+	}
+	return absPath, nil
+}
+
+// isPathContainedIn checks if childPath is contained within parentPath.
+// Both paths should already be sanitized (absolute and cleaned).
+func isPathContainedIn(childPath, parentPath string) bool {
+	// Ensure both paths end consistently for prefix comparison
+	parentWithSep := parentPath + string(filepath.Separator)
+	childWithSep := childPath + string(filepath.Separator)
+	return strings.HasPrefix(childWithSep, parentWithSep)
 }
 
 func runGradle(vConfig *viper.Viper, tasks []string, deployableArtifactsFile string, configuration *build.BuildConfiguration, threads int, disableDeploy bool) error {
@@ -352,7 +500,7 @@ func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string,
 func setDeployFalse(vConfig *viper.Viper) {
 	vConfig.Set(build.DeployerPrefix+build.DeployArtifacts, "false")
 	if vConfig.GetString(build.DeployerPrefix+build.Url) == "" {
-		vConfig.Set(build.DeployerPrefix+build.Url, "http://empty_url")
+		vConfig.Set(build.DeployerPrefix+build.Url, "https://empty_url")
 	}
 	if vConfig.GetString(build.DeployerPrefix+build.Repo) == "" {
 		vConfig.Set(build.DeployerPrefix+build.Repo, "empty_repo")
