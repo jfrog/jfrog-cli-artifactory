@@ -26,7 +26,7 @@ func TestGetGradleDeployRepository(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "libs-release-local", repo)
 
-		os.Remove(filepath.Join(tmpDir, "gradle.properties"))
+		_ = os.Remove(filepath.Join(tmpDir, "gradle.properties"))
 	})
 
 	t.Run("From build.gradle publishing", func(t *testing.T) {
@@ -69,7 +69,7 @@ func TestGetGradleDeployRepository(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "libs-release-local", repo)
 
-		os.Remove(filepath.Join(tmpDir, "gradle.properties"))
+		_ = os.Remove(filepath.Join(tmpDir, "gradle.properties"))
 	})
 }
 
@@ -106,8 +106,8 @@ func TestGetGradleDeployRepositoryExtended(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "gradle-plugins", repo)
 
-		os.Remove(filepath.Join(tmpDir, "settings.gradle"))
-		os.Remove(filepath.Join(tmpDir, "build.gradle"))
+		_ = os.Remove(filepath.Join(tmpDir, "settings.gradle"))
+		_ = os.Remove(filepath.Join(tmpDir, "build.gradle"))
 	})
 
 	t.Run("From build.gradle.kts", func(t *testing.T) {
@@ -127,7 +127,7 @@ func TestGetGradleDeployRepositoryExtended(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "libs-release-kts", repo)
 
-		os.Remove(filepath.Join(tmpDir, "build.gradle.kts"))
+		_ = os.Remove(filepath.Join(tmpDir, "build.gradle.kts"))
 	})
 
 	t.Run("Property with artifactory keyword", func(t *testing.T) {
@@ -144,8 +144,8 @@ artifactoryDeployRepo=custom-deploy-repo
 		assert.NoError(t, err)
 		assert.Equal(t, "custom-deploy-repo", repo)
 
-		os.Remove(filepath.Join(tmpDir, "gradle.properties"))
-		os.Remove(filepath.Join(tmpDir, "build.gradle"))
+		_ = os.Remove(filepath.Join(tmpDir, "gradle.properties"))
+		_ = os.Remove(filepath.Join(tmpDir, "build.gradle"))
 	})
 
 	t.Run("No repository found should error", func(t *testing.T) {
@@ -155,7 +155,7 @@ artifactoryDeployRepo=custom-deploy-repo
 		_, err = getGradleDeployRepository(tmpDir, "", "1.0.0")
 		assert.Error(t, err)
 
-		os.Remove(filepath.Join(tmpDir, "build.gradle"))
+		_ = os.Remove(filepath.Join(tmpDir, "build.gradle"))
 	})
 }
 
@@ -182,7 +182,7 @@ func TestGetGradleDeployRepositoryComplexScenarios(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "libs-release", repo)
 
-		os.Remove(filepath.Join(tmpDir, "build.gradle"))
+		_ = os.Remove(filepath.Join(tmpDir, "build.gradle"))
 	})
 
 	t.Run("Multiple publishing repositories - snapshot version", func(t *testing.T) {
@@ -207,7 +207,7 @@ func TestGetGradleDeployRepositoryComplexScenarios(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "libs-snapshot", repo)
 
-		os.Remove(filepath.Join(tmpDir, "build.gradle"))
+		_ = os.Remove(filepath.Join(tmpDir, "build.gradle"))
 	})
 
 	t.Run("Multiple publishing repositories - release version", func(t *testing.T) {
@@ -232,7 +232,7 @@ func TestGetGradleDeployRepositoryComplexScenarios(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "libs-release", repo)
 
-		os.Remove(filepath.Join(tmpDir, "build.gradle"))
+		_ = os.Remove(filepath.Join(tmpDir, "build.gradle"))
 	})
 
 	t.Run("Kotlin DSL with url.set syntax", func(t *testing.T) {
@@ -252,7 +252,7 @@ func TestGetGradleDeployRepositoryComplexScenarios(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "kotlin-repo", repo)
 
-		os.Remove(filepath.Join(tmpDir, "build.gradle.kts"))
+		_ = os.Remove(filepath.Join(tmpDir, "build.gradle.kts"))
 	})
 }
 
@@ -269,8 +269,8 @@ releaseRepo=release-repo
 	err = os.WriteFile(filepath.Join(tmpDir, "gradle.properties"), []byte(propsContent), 0644)
 	assert.NoError(t, err)
 	defer func() {
-		os.Remove(filepath.Join(tmpDir, "gradle.properties"))
-		os.Remove(filepath.Join(tmpDir, "build.gradle"))
+		_ = os.Remove(filepath.Join(tmpDir, "gradle.properties"))
+		_ = os.Remove(filepath.Join(tmpDir, "build.gradle"))
 	}()
 
 	t.Run("Version ending with -SNAPSHOT", func(t *testing.T) {
@@ -464,7 +464,7 @@ func TestErrorHandling(t *testing.T) {
 		if err != nil {
 			t.Skip("Could not create restricted directory")
 		}
-		defer os.Chmod(restrictedDir, 0755)
+		defer func() { _ = os.Chmod(restrictedDir, 0755) }()
 
 		_, err = getGradleDeployRepository(restrictedDir, "", "1.0.0")
 		// Should error because we can't read files in the directory
@@ -501,12 +501,12 @@ func TestGradleDeployRepositoryWithInitScripts(t *testing.T) {
 
 		// Set GRADLE_USER_HOME
 		originalHome := os.Getenv("GRADLE_USER_HOME")
-		os.Setenv("GRADLE_USER_HOME", gradleHome)
+		_ = os.Setenv("GRADLE_USER_HOME", gradleHome)
 		defer func() {
 			if originalHome != "" {
-				os.Setenv("GRADLE_USER_HOME", originalHome)
+				_ = os.Setenv("GRADLE_USER_HOME", originalHome)
 			} else {
-				os.Unsetenv("GRADLE_USER_HOME")
+				_ = os.Unsetenv("GRADLE_USER_HOME")
 			}
 		}()
 
@@ -532,8 +532,8 @@ func TestGradleDeployRepositoryWithInitScripts(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Set property via ORG_GRADLE_PROJECT_ env var
-		os.Setenv("ORG_GRADLE_PROJECT_artifactoryUrl", "http://localhost:8081/artifactory")
-		defer os.Unsetenv("ORG_GRADLE_PROJECT_artifactoryUrl")
+		_ = os.Setenv("ORG_GRADLE_PROJECT_artifactoryUrl", "http://localhost:8081/artifactory")
+		defer func() { _ = os.Unsetenv("ORG_GRADLE_PROJECT_artifactoryUrl") }()
 
 		repo, err := getGradleDeployRepository(tmpDir, "", "1.0.0")
 		assert.NoError(t, err)

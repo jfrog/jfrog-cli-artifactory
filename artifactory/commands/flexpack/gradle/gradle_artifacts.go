@@ -14,7 +14,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-func searchRecentArtifacts(servicesManager artifactory.ArtifactoryServicesManager, buildInfo *entities.BuildInfo, startTime time.Time, workingDir string) ([]specutils.ResultItem, error) {
+func searchRecentArtifacts(servicesManager artifactory.ArtifactoryServicesManager, buildInfo *entities.BuildInfo, startTime time.Time, workingDir string) ([]specutils.ResultItem, error) { //nolint:unparam
 	var recentArtifacts []specutils.ResultItem
 	// The repository typically depends on whether the version is a snapshot or release.
 	repoCache := make(map[bool]string)

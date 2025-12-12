@@ -120,13 +120,13 @@ func TestGetGradleUserHome(t *testing.T) {
 		originalValue := os.Getenv(envGradleUserHome)
 		defer func() {
 			if originalValue != "" {
-				os.Setenv(envGradleUserHome, originalValue)
+				_ = os.Setenv(envGradleUserHome, originalValue)
 			} else {
-				os.Unsetenv(envGradleUserHome)
+				_ = os.Unsetenv(envGradleUserHome)
 			}
 		}()
 
-		os.Setenv(envGradleUserHome, "/custom/gradle/home")
+		_ = os.Setenv(envGradleUserHome, "/custom/gradle/home")
 		result := getGradleUserHome()
 		assert.Equal(t, "/custom/gradle/home", result)
 	})
@@ -135,13 +135,13 @@ func TestGetGradleUserHome(t *testing.T) {
 		originalValue := os.Getenv(envGradleUserHome)
 		defer func() {
 			if originalValue != "" {
-				os.Setenv(envGradleUserHome, originalValue)
+				_ = os.Setenv(envGradleUserHome, originalValue)
 			} else {
-				os.Unsetenv(envGradleUserHome)
+				_ = os.Unsetenv(envGradleUserHome)
 			}
 		}()
 
-		os.Unsetenv(envGradleUserHome)
+		_ = os.Unsetenv(envGradleUserHome)
 		result := getGradleUserHome()
 
 		// Should return ~/.gradle
@@ -155,13 +155,13 @@ func TestGetGradleUserHome(t *testing.T) {
 		originalValue := os.Getenv(envGradleUserHome)
 		defer func() {
 			if originalValue != "" {
-				os.Setenv(envGradleUserHome, originalValue)
+				_ = os.Setenv(envGradleUserHome, originalValue)
 			} else {
-				os.Unsetenv(envGradleUserHome)
+				_ = os.Unsetenv(envGradleUserHome)
 			}
 		}()
 
-		os.Setenv(envGradleUserHome, "")
+		_ = os.Setenv(envGradleUserHome, "")
 		result := getGradleUserHome()
 
 		homeDir, err := os.UserHomeDir()
