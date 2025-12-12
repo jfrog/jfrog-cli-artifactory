@@ -47,7 +47,7 @@ func newDockerfileParser() *dockerfileParser {
 //   - FROM --platform=linux/amd64 ubuntu:20.04
 //   - FROM --platform=linux/amd64 ubuntu:20.04 AS builder
 //   - FROM builder (skipped - references previous stage)
-func ParseDockerfileBaseImages(dockerfilePath string) ([]ocicontainer.BaseImage, error) {
+func ParseDockerfileBaseImages(dockerfilePath string) ([]ocicontainer.DockerImage, error) {
 	file, err := os.Open(dockerfilePath)
 	if err != nil {
 		return nil, err
@@ -103,8 +103,8 @@ func readDockerfileLines(file *os.File) ([]string, error) {
 }
 
 // extractBaseImages processes all lines and extracts base images from FROM instructions
-func (p *dockerfileParser) extractBaseImages(lines []string) []ocicontainer.BaseImage {
-	var baseImages []ocicontainer.BaseImage
+func (p *dockerfileParser) extractBaseImages(lines []string) []ocicontainer.DockerImage {
+	var baseImages []ocicontainer.DockerImage
 
 	for _, line := range lines {
 		if !isFromInstruction(line) {
@@ -130,7 +130,7 @@ func (p *dockerfileParser) extractBaseImages(lines []string) []ocicontainer.Base
 		}
 
 		p.seenImages[fromInfo.image] = true
-		baseImages = append(baseImages, ocicontainer.BaseImage{
+		baseImages = append(baseImages, ocicontainer.DockerImage{
 			Image:        fromInfo.image,
 			OS:           fromInfo.os,
 			Architecture: fromInfo.arch,

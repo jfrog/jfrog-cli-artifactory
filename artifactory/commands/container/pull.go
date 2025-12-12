@@ -6,6 +6,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 type PullCommand struct {
@@ -76,7 +77,12 @@ func (pc *PullCommand) Run() error {
 	if err != nil || buildInfoModule == nil {
 		return err
 	}
-	return build.SaveBuildInfo(buildName, buildNumber, project, buildInfoModule)
+	err = build.SaveBuildInfo(buildName, buildNumber, project, buildInfoModule)
+	if err != nil {
+		return err
+	}
+	log.Info("Successfully Saved build info for " + buildName + "/" + buildNumber)
+	return nil
 }
 
 func (pc *PullCommand) CommandName() string {

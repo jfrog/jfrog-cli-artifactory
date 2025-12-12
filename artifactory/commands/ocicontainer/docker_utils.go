@@ -5,15 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"runtime"
 	"strings"
 	"sync"
 
-	v1 "github.com/google/go-containerregistry/pkg/v1"
-
-	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -29,74 +23,38 @@ const (
 	remoteRepositoryType    = "remote"
 )
 
-// getRemoteRepoAndManifestTypeWithLeadSha determines the repository, manifest type, and lead SHA for an image
-func (dbib *DockerBuildInfoBuilder) getRemoteRepoAndManifestTypeWithLeadSha(imageRef string) (string, manifestType, string, error) {
+// GetRemoteRepoAndManifestTypeWithLeadSha determines the repository, manifest type, and lead SHA for an image
+func GetRemoteRepoAndManifestTypeWithLeadSha(imageRef string, serviceManager artifactory.ArtifactoryServicesManager) (string, ManifestType, string, error) {
 	image := NewImage(imageRef)
-	repository, manifestFileName, leadSha, err := image.GetRemoteRepoAndManifestTypeAndLeadSha(dbib.serviceManager)
+	repository, err := image.GetRemoteRepo(serviceManager)
 	if err != nil {
 		return "", "", "", err
 	}
-	switch manifestFileName {
-	case string(ManifestList):
-		return repository, ManifestList, leadSha, nil
-	case string(Manifest):
-		return repository, Manifest, leadSha, nil
-	default:
-		return "", "", "", errorutils.CheckErrorf("unknown/other artifact type: %s", manifestFileName)
+	manifestType, leadSha, err := GetManifestTypeAndLeadSha(imageRef)
+	if err != nil {
+		return "", "", "", err
 	}
+	return repository, manifestType, leadSha, nil
 }
 
-// manifestDetails gets the manifest SHA for a base image, considering platform (OS/architecture)
-func (dbib *DockerBuildInfoBuilder) manifestDetails(baseImage BaseImage) (string, error) {
-	imageRef := baseImage.Image
-	ref, err := name.ParseReference(imageRef)
+// GetSearchableRepositoryAndDetails resolves the repository name based on type (adds -cache for remote repos)
+func GetSearchableRepositoryAndDetails(repositoryName string, serviceManager artifactory.ArtifactoryServicesManager) (string, *DockerRepositoryDetails, error) {
+	repositoryDetails := &DockerRepositoryDetails{}
+	err := serviceManager.GetRepository(repositoryName, &repositoryDetails)
 	if err != nil {
-		return "", fmt.Errorf("parsing reference %s: %w", imageRef, err)
+		return "", nil, err
 	}
-	var osName, osArch string
-
-	if baseImage.OS != "" && baseImage.Architecture != "" {
-		osName = baseImage.OS
-		osArch = baseImage.Architecture
-	} else {
-		osName = runtime.GOOS
-		if osName == "darwin" {
-			osName = "linux"
-		}
-		osArch = runtime.GOARCH
+	if repositoryDetails.RepoType == "" || repositoryDetails.Key == "" {
+		return "", nil, errorutils.CheckErrorf("repository details are incomplete: %+v", repositoryDetails)
 	}
-
-	remoteImage, err := remote.Image(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain), remote.WithPlatform(v1.Platform{OS: osName, Architecture: osArch}))
-	if err != nil || remoteImage == nil {
-		return "", fmt.Errorf("error fetching manifest for %s: %w", imageRef, err)
+	if repositoryDetails.RepoType == remoteRepositoryType {
+		return repositoryDetails.Key + "-cache", repositoryDetails, nil
 	}
-
-	manifestShaDigest, err := remoteImage.Digest()
-	if err != nil {
-		return "", fmt.Errorf("error getting manifest digest for %s: %w", imageRef, err)
-	}
-	return manifestShaDigest.String(), nil
-}
-
-// getSearchableRepository resolves the repository name based on type (adds -cache for remote repos)
-func (dbib *DockerBuildInfoBuilder) getSearchableRepository(repositoryName string) (string, error) {
-	repositoryDetails := &dockerRepositoryDetails{}
-	err := dbib.serviceManager.GetRepository(repositoryName, &repositoryDetails)
-	if err != nil {
-		return "", err
-	}
-	dbib.repositoryDetails = *repositoryDetails
-	if dbib.repositoryDetails.RepoType == "" || dbib.repositoryDetails.Key == "" {
-		return "", errorutils.CheckErrorf("repository details are incomplete: %+v", dbib.repositoryDetails)
-	}
-	if dbib.repositoryDetails.RepoType == remoteRepositoryType {
-		return dbib.repositoryDetails.Key + "-cache", nil
-	}
-	return dbib.repositoryDetails.Key, nil
+	return repositoryDetails.Key, repositoryDetails, nil
 }
 
 // searchArtifactoryForFilesByPath performs AQL query with exact path matching
-func (dbib *DockerBuildInfoBuilder) searchArtifactoryForFilesByPath(repository string, paths []string) ([]utils.ResultItem, error) {
+func searchArtifactoryForFilesByPath(repository string, paths []string, serviceManager artifactory.ArtifactoryServicesManager) ([]utils.ResultItem, error) {
 	if len(paths) == 0 {
 		return []utils.ResultItem{}, nil
 	}
@@ -121,7 +79,7 @@ func (dbib *DockerBuildInfoBuilder) searchArtifactoryForFilesByPath(repository s
 		repository, strings.Join(pathConditions, ",\n        "))
 
 	// Execute AQL search
-	allResults, err := executeAqlQuery(dbib.serviceManager, aqlQuery)
+	allResults, err := executeAqlQuery(serviceManager, aqlQuery)
 	if err != nil {
 		return []utils.ResultItem{}, fmt.Errorf("failed to search Artifactory for layers by path: %w", err)
 	}
@@ -129,11 +87,11 @@ func (dbib *DockerBuildInfoBuilder) searchArtifactoryForFilesByPath(repository s
 	return allResults, nil
 }
 
-// searchForImageLayersInPath performs AQL query with $match/$nmatch patterns
+// SearchForImageLayersInPath performs AQL query with $match/$nmatch patterns
 // this function looks for the uploaded layers in docker-repo/imageName/path* provided and neglects the _uploads folder
 // upload folder contains actual uploaded layer which are copied to their final location by docker
 // adding properties in uploaded folder is redundant to form tree structure in build info page
-func (dbib *DockerBuildInfoBuilder) searchForImageLayersInPath(imageName, repository string, paths []string) ([]utils.ResultItem, error) {
+func SearchForImageLayersInPath(imageName, repository string, paths []string, serviceManager artifactory.ArtifactoryServicesManager) ([]utils.ResultItem, error) {
 	excludePath := fmt.Sprintf("%s/%s", imageName, uploadsFolder)
 	var allResults []utils.ResultItem
 	var err error
@@ -159,7 +117,7 @@ func (dbib *DockerBuildInfoBuilder) searchForImageLayersInPath(imageName, reposi
 			repository, path, excludePath)
 
 		// Execute AQL search
-		allResults, err = executeAqlQuery(dbib.serviceManager, aqlQuery)
+		allResults, err = executeAqlQuery(serviceManager, aqlQuery)
 		if err != nil {
 			return []utils.ResultItem{}, fmt.Errorf("failed to search Artifactory for layers in path: %w", err)
 		}
@@ -237,10 +195,10 @@ func getMarkerLayerShasFromSearchResult(searchResults []utils.ResultItem) ([]str
 
 // handleMarkerLayersForDockerBuild downloads marker layers into the remote cache repository
 func handleMarkerLayersForDockerBuild(markerLayerShas []string, serviceManager artifactory.ArtifactoryServicesManager, remoteRepo, imageShortName string) []utils.ResultItem {
-	log.Debug("Handling marker layers for shas: ", strings.Join(markerLayerShas, ", "))
 	if len(markerLayerShas) == 0 {
 		return nil
 	}
+	log.Debug("Handling marker layers for shas: ", strings.Join(markerLayerShas, ", "))
 	baseUrl := serviceManager.GetConfig().GetServiceDetails().GetUrl()
 
 	var wg sync.WaitGroup

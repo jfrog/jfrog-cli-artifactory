@@ -18,6 +18,11 @@ func TestGetImageLongName(t *testing.T) {
 		{"domain/path:1.0", "path"},
 		{"domain/path/in/artifactory:1.0", "path/in/artifactory"},
 		{"domain/path/in/artifactory", "path/in/artifactory"},
+		// Digest-based images
+		{"domain:8080/path@sha256:abc123", "path"},
+		{"domain:8080/path/in/artifactory@sha256:abc123def456", "path/in/artifactory"},
+		{"domain/path@sha256:abc123", "path"},
+		{"domain/path/in/artifactory@sha256:abc123def456", "path/in/artifactory"},
 	}
 
 	for _, v := range imageTags {
@@ -44,6 +49,11 @@ func TestGetImageShortName(t *testing.T) {
 		{"domain/path:1.0", "path"},
 		{"domain/path/in/artifactory:1.0", "artifactory"},
 		{"domain/path/in/artifactory", "artifactory"},
+		// Digest-based images
+		{"domain:8080/path@sha256:abc123", "path"},
+		{"domain:8080/path/in/artifactory@sha256:abc123def456", "artifactory"},
+		{"domain/path@sha256:abc123", "path"},
+		{"domain/path/in/artifactory@sha256:abc123def456", "artifactory"},
 	}
 
 	for _, v := range imageTags {
@@ -70,6 +80,9 @@ func TestGetImageLongNameWithTag(t *testing.T) {
 		{"domain/path:1.0", "path:1.0"},
 		{"domain/path/in/artifactory:1.0", "path/in/artifactory:1.0"},
 		{"domain/path/in/artifactory", "path/in/artifactory:latest"},
+		// Digest-based images
+		{"domain:8080/path@sha256:abc123", "path@sha256:abc123"},
+		{"domain/path/in/artifactory@sha256:abc123def456", "path/in/artifactory@sha256:abc123def456"},
 	}
 
 	for _, v := range imageTags {
@@ -116,6 +129,9 @@ func TestGetImageShortNameWithTag(t *testing.T) {
 		{"domain/path:1.0", "path:1.0"},
 		{"domain/path/in/artifactory:1.0", "artifactory:1.0"},
 		{"domain/path/in/artifactory", "artifactory:latest"},
+		// Digest-based images
+		{"domain:8080/path@sha256:abc123", "path@sha256:abc123"},
+		{"domain/path/in/artifactory@sha256:abc123def456", "artifactory@sha256:abc123def456"},
 	}
 
 	for _, v := range imageTags {
@@ -152,6 +168,30 @@ func TestResolveRegistryFromTag(t *testing.T) {
 		}
 		if result != v.expected {
 			t.Errorf("ResolveRegistryFromTag(\"%s\") => '%s', expected '%s'", v.in, result, v.expected)
+		}
+	}
+}
+
+func TestGetImageTag(t *testing.T) {
+	var imageTags = []struct {
+		in       string
+		expected string
+	}{
+		// Tag-based images
+		{"domain:8080/path:1.0", "1.0"},
+		{"domain:8080/path/in/artifactory:1.0", "1.0"},
+		{"domain:8080/path/in/artifactory", "latest"},
+		{"domain/path:v2.0.0", "v2.0.0"},
+		// Digest-based images - should return full digest
+		{"domain:8080/path@sha256:abc123def456", "sha256:abc123def456"},
+		{"domain/path/in/artifactory@sha256:4a2047b0e69af48c94821afb84ded71dee018059ac708e0e8f3e687e22726cd2", "sha256:4a2047b0e69af48c94821afb84ded71dee018059ac708e0e8f3e687e22726cd2"},
+	}
+
+	for _, v := range imageTags {
+		result, err := NewImage(v.in).GetImageTag()
+		assert.NoError(t, err)
+		if result != v.expected {
+			t.Errorf("GetImageTag(\"%s\") => '%s', want '%s'", v.in, result, v.expected)
 		}
 	}
 }
