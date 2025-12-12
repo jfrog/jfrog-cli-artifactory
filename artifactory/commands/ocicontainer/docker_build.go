@@ -17,16 +17,15 @@ import (
 
 // DockerBuildInfoBuilder is a simplified builder for docker build command
 type DockerBuildInfoBuilder struct {
-	buildName         string
-	buildNumber       string
-	project           string
-	module            string
-	serviceManager    artifactory.ArtifactoryServicesManager
-	imageTag          string
-	baseImages        []DockerImage
-	isImagePushed     bool
-	cmdArgs           []string
-	repositoryDetails DockerRepositoryDetails
+	buildName      string
+	buildNumber    string
+	project        string
+	module         string
+	serviceManager artifactory.ArtifactoryServicesManager
+	imageTag       string
+	baseImages     []DockerImage
+	isImagePushed  bool
+	cmdArgs        []string
 }
 
 type DockerRepositoryDetails struct {

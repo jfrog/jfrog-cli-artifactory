@@ -3,7 +3,6 @@ package ocicontainer
 import (
 	"fmt"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"runtime"
 
@@ -62,16 +61,14 @@ func GetManifestTypeAndLeadSha(imageRef string) (ManifestType, string, error) {
 	if err != nil {
 		return "", "", errorutils.CheckErrorf("getting remote manifest for %s: %w", imageRef, err)
 	}
+	log.Debug(fmt.Sprintf("Manifest type: %s, digest: %s", desc.MediaType, desc.Digest.Hex))
 
-	mediaType := types.MediaType(desc.MediaType)
-	log.Debug(fmt.Sprintf("Manifest type: %s, digest: %s", mediaType, desc.Digest.Hex))
-
-	if mediaType.IsIndex() {
+	if desc.MediaType.IsIndex() {
 		return ManifestList, desc.Digest.Hex, nil
-	} else if mediaType.IsImage() {
+	} else if desc.MediaType.IsImage() {
 		return Manifest, desc.Digest.Hex, nil
 	}
-	return "", "", errorutils.CheckErrorf("unsupported manifest media type: %s", mediaType)
+	return "", "", errorutils.CheckErrorf("unsupported manifest media type: %s", desc.MediaType)
 }
 
 // ManifestHandler interface for handling different manifest types
