@@ -7,7 +7,7 @@ import (
 
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/entities"
-	"github.com/jfrog/build-info-go/flexpack"
+	conanflex "github.com/jfrog/build-info-go/flexpack/conan"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -141,11 +141,11 @@ func (up *UploadProcessor) collectDependencies() (*entities.BuildInfo, error) {
 		return nil, fmt.Errorf("get build number: %w", err)
 	}
 
-	conanConfig := flexpack.ConanConfig{
+	conanConfig := conanflex.ConanConfig{
 		WorkingDirectory: up.workingDir,
 	}
 
-	collector, err := flexpack.NewConanFlexPack(conanConfig)
+	collector, err := conanflex.NewConanFlexPack(conanConfig)
 	if err != nil {
 		return nil, fmt.Errorf("create conan flexpack: %w", err)
 	}
@@ -262,13 +262,13 @@ func extractRemoteNameFromOutput(output string) string {
 
 // FlexPackCollector wraps the FlexPack Conan collector.
 type FlexPackCollector struct {
-	config flexpack.ConanConfig
+	config conanflex.ConanConfig
 }
 
 // NewFlexPackCollector creates a new FlexPack collector.
 func NewFlexPackCollector(workingDir string) (*FlexPackCollector, error) {
 	return &FlexPackCollector{
-		config: flexpack.ConanConfig{
+		config: conanflex.ConanConfig{
 			WorkingDirectory: workingDir,
 		},
 	}, nil
@@ -276,7 +276,7 @@ func NewFlexPackCollector(workingDir string) (*FlexPackCollector, error) {
 
 // CollectBuildInfo collects build info using FlexPack.
 func (fc *FlexPackCollector) CollectBuildInfo(buildName, buildNumber string) (*entities.BuildInfo, error) {
-	collector, err := flexpack.NewConanFlexPack(fc.config)
+	collector, err := conanflex.NewConanFlexPack(fc.config)
 	if err != nil {
 		return nil, fmt.Errorf("create conan flexpack: %w", err)
 	}
