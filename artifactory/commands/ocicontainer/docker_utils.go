@@ -129,9 +129,42 @@ func SearchForImageLayersInPath(imageName, repository string, paths []string, se
 	return allResults, nil
 }
 
+// SearchManifestPathByDigest finds the manifest path using AQL property search on @docker.manifest.digest
+func SearchManifestPathByDigest(repo, digest string, serviceManager artifactory.ArtifactoryServicesManager) (string, error) {
+	aqlQuery := fmt.Sprintf(`items.find({
+		"repo": "%s",
+		"name": "manifest.json",
+		"@sha256": "%s",
+		"@docker.manifest.digest": "%s"
+	}).include("path")`, repo, strings.TrimPrefix(digest, "sha256:"), digest)
+
+	results, err := executeAqlQuery(serviceManager, aqlQuery)
+	if err != nil {
+		return "", err
+	}
+	if len(results) == 0 {
+		return "", fmt.Errorf("no manifest found for digest: %s in repo: %s", digest, repo)
+	}
+
+	return results[0].Path, nil
+}
+
 // modifyPathForRemoteRepo adds library/ prefix and converts sha256: to sha256__
 func modifyPathForRemoteRepo(path string) string {
 	return fmt.Sprintf("%s/%s", remoteRepoLibraryPrefix, strings.Replace(path, sha256Prefix, sha256RemoteFormat, 1))
+}
+
+// normalizeLayerSha removes sha256: or sha256__ prefix if present, returning just the hex digest
+func normalizeLayerSha(layerSha string) string {
+	// Handle sha256:xxx format
+	if strings.HasPrefix(layerSha, sha256Prefix) {
+		return strings.TrimPrefix(layerSha, sha256Prefix)
+	}
+	// Handle sha256__xxx format (used in remote repos)
+	if strings.HasPrefix(layerSha, sha256RemoteFormat) {
+		return strings.TrimPrefix(layerSha, sha256RemoteFormat)
+	}
+	return layerSha
 }
 
 // deduplicateResultsBySha256 removes duplicate results based on SHA256
@@ -228,7 +261,9 @@ func handleMarkerLayersForDockerBuild(markerLayerShas []string, serviceManager a
 // downloadSingleMarkerLayer downloads a single marker layer into the remote cache repository
 func downloadSingleMarkerLayer(layerSha, remoteRepo, imageName, baseUrl string, serviceManager artifactory.ArtifactoryServicesManager) *utils.ResultItem {
 	log.Debug(fmt.Sprintf("Downloading marker %s layer into remote repository cache...", layerSha))
-	endpoint := "api/docker/" + remoteRepo + "/v2/" + imageName + "/blobs/" + "sha256:" + layerSha
+	// Normalize layerSha - remove sha256: or sha256__ prefix if present
+	normalizedSha := normalizeLayerSha(layerSha)
+	endpoint := "api/docker/" + remoteRepo + "/v2/" + imageName + "/blobs/" + "sha256:" + normalizedSha
 	clientDetails := serviceManager.GetConfig().GetServiceDetails().CreateHttpClientDetails()
 
 	resp, body, err := serviceManager.Client().SendHead(baseUrl+endpoint, &clientDetails)

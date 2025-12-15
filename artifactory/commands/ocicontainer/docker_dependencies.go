@@ -3,6 +3,7 @@ package ocicontainer
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
@@ -66,19 +67,6 @@ func (ddp *DockerDependenciesBuilder) getDependencies() ([]buildinfo.Dependency,
 // collectDetailsForBaseImage collects layer details for a single base image
 func (ddp *DockerDependenciesBuilder) collectDetailsForBaseImage(baseImage DockerImage) ([]utils.ResultItem, error) {
 	log.Debug(fmt.Sprintf("Collecting details for image: %s", baseImage.Image))
-	remoteRepo, dockerManifestType, _, err := GetRemoteRepoAndManifestTypeWithLeadSha(baseImage.Image, ddp.serviceManager)
-	if err != nil {
-		return []utils.ResultItem{}, err
-	}
-	manifestSha, err := baseImage.GetManifestDetails()
-	if err != nil {
-		return []utils.ResultItem{}, err
-	}
-	searchableRepository, repositoryDetails, err := GetSearchableRepositoryAndDetails(remoteRepo, ddp.serviceManager)
-	log.Debug(fmt.Sprintf("SearchableRepository: %s, Type: %s", remoteRepo, repositoryDetails.RepoType))
-	if err != nil {
-		return []utils.ResultItem{}, err
-	}
 
 	image := NewImage(baseImage.Image)
 	imageTag, err := image.GetImageTag()
@@ -90,12 +78,68 @@ func (ddp *DockerDependenciesBuilder) collectDetailsForBaseImage(baseImage Docke
 		return []utils.ResultItem{}, err
 	}
 
+	// Handle digest-based images (sha256:xxx) - skip unnecessary API calls
+	if strings.HasPrefix(imageTag, "sha256:") {
+		return ddp.collectDetailsForDigestBasedImage(image, imageName, imageTag)
+	}
+
+	// Tag-based image flow
+	remoteRepo, dockerManifestType, _, err := GetRemoteRepoAndManifestTypeWithLeadSha(baseImage.Image, ddp.serviceManager)
+	if err != nil {
+		return []utils.ResultItem{}, err
+	}
+	manifestSha, err := baseImage.GetManifestDetails()
+	if err != nil {
+		return []utils.ResultItem{}, err
+	}
+	searchableRepository, repositoryDetails, err := GetSearchableRepositoryAndDetails(remoteRepo, ddp.serviceManager)
+	if err != nil {
+		return []utils.ResultItem{}, err
+	}
+	log.Debug(fmt.Sprintf("SearchableRepository: %s, Type: %s", remoteRepo, repositoryDetails.RepoType))
+
 	// Use interface to get base path, then apply repo-type modifications
 	handler := NewDockerManifestHandler(ddp.serviceManager).GetManifestHandler(dockerManifestType)
 	basePath := handler.BuildSearchPaths(imageName, imageTag, manifestSha)
 	layerPaths := ddp.applyRepoTypeModifications(basePath, *repositoryDetails)
 
 	layers, err := SearchForImageLayersInPath(imageName, searchableRepository, layerPaths, ddp.serviceManager)
+	if err != nil {
+		return []utils.ResultItem{}, err
+	}
+
+	if repositoryDetails.RepoType == "remote" {
+		var markerLayers []string
+		markerLayers, layers = getMarkerLayerShasFromSearchResult(layers)
+		markerLayersDetails := handleMarkerLayersForDockerBuild(markerLayers, ddp.serviceManager, repositoryDetails.Key, imageName)
+		layers = append(layers, markerLayersDetails...)
+	}
+
+	return layers, nil
+}
+
+// collectDetailsForDigestBasedImage handles images pulled by digest (@sha256:xxx)
+func (ddp *DockerDependenciesBuilder) collectDetailsForDigestBasedImage(image *Image, imageName, digest string) ([]utils.ResultItem, error) {
+	log.Debug(fmt.Sprintf("Collecting details for digest-based image: %s", image.Name()))
+
+	remoteRepo, err := image.GetRemoteRepo(ddp.serviceManager)
+	if err != nil {
+		return []utils.ResultItem{}, err
+	}
+	searchableRepository, repositoryDetails, err := GetSearchableRepositoryAndDetails(remoteRepo, ddp.serviceManager)
+	if err != nil {
+		return []utils.ResultItem{}, err
+	}
+	log.Debug(fmt.Sprintf("SearchableRepository: %s, Type: %s", searchableRepository, repositoryDetails.RepoType))
+
+	// Find manifest path by digest property using AQL
+	manifestPath, err := SearchManifestPathByDigest(searchableRepository, digest, ddp.serviceManager)
+	if err != nil {
+		return []utils.ResultItem{}, err
+	}
+	log.Debug(fmt.Sprintf("Found manifest at path: %s", manifestPath))
+
+	layers, err := SearchForImageLayersInPath(imageName, searchableRepository, []string{manifestPath}, ddp.serviceManager)
 	if err != nil {
 		return []utils.ResultItem{}, err
 	}
@@ -128,7 +172,7 @@ func (ddp *DockerDependenciesBuilder) applyRepoTypeModifications(basePath string
 }
 
 // createDependenciesFromResults converts search results to dependencies
-func (dbib *DockerDependenciesBuilder) createDependenciesFromResults(results []utils.ResultItem) []buildinfo.Dependency {
+func (ddp *DockerDependenciesBuilder) createDependenciesFromResults(results []utils.ResultItem) []buildinfo.Dependency {
 	deduplicated := deduplicateResultsBySha256(results)
 	dependencies := make([]buildinfo.Dependency, 0, len(deduplicated))
 	for _, result := range deduplicated {

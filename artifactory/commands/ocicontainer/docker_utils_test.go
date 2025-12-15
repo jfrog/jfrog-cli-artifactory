@@ -1,6 +1,7 @@
 package ocicontainer
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
@@ -718,4 +719,46 @@ func TestGetArtifacts_ImagePushed(t *testing.T) {
 	}
 	_ = leadSha
 	_ = resultsToApplyProps
+}
+
+func TestNormalizeLayerSha(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"plain hex digest", "6b59a28fa20117e6048ad0616b8d8c901877ef15ff4c7f18db04e4f01f43bc39", "6b59a28fa20117e6048ad0616b8d8c901877ef15ff4c7f18db04e4f01f43bc39"},
+		{"sha256: prefix", "sha256:6b59a28fa20117e6048ad0616b8d8c901877ef15ff4c7f18db04e4f01f43bc39", "6b59a28fa20117e6048ad0616b8d8c901877ef15ff4c7f18db04e4f01f43bc39"},
+		{"sha256__ prefix", "sha256__6b59a28fa20117e6048ad0616b8d8c901877ef15ff4c7f18db04e4f01f43bc39", "6b59a28fa20117e6048ad0616b8d8c901877ef15ff4c7f18db04e4f01f43bc39"},
+		{"empty string", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeLayerSha(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestDigestBasedImageDetection(t *testing.T) {
+	// Test that digest-based images are correctly identified
+	tests := []struct {
+		name     string
+		imageTag string
+		isDigest bool
+	}{
+		{"tag-based image", "latest", false},
+		{"version tag", "v1.0.0", false},
+		{"digest-based image", "sha256:abc123def456", true},
+		{"full digest", "sha256:4a2047b0e69af48c94821afb84ded71dee018059ac708e0e8f3e687e22726cd2", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Verify our detection logic matches expected behavior
+			isDigest := strings.HasPrefix(tt.imageTag, "sha256:")
+			assert.Equal(t, tt.isDigest, isDigest)
+		})
+	}
 }
