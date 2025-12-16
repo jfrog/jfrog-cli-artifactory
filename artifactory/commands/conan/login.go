@@ -65,17 +65,27 @@ func ValidateAndLogin(remoteName string) (*config.ServerDetails, error) {
 	return tryLoginWithConfigs(remoteName, matchingConfigs)
 }
 
-// getRemoteURL retrieves the URL for a Conan remote.
-func getRemoteURL(remoteName string) (string, error) {
+// ListConanRemotes returns all configured Conan remotes.
+func ListConanRemotes() ([]ConanRemote, error) {
 	cmd := exec.Command("conan", "remote", "list", "--format=json")
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("conan remote list failed: %w", err)
+		return nil, fmt.Errorf("conan remote list failed: %w", err)
 	}
 
 	var remotes []ConanRemote
 	if err := json.Unmarshal(output, &remotes); err != nil {
-		return "", fmt.Errorf("parse conan remote list: %w", err)
+		return nil, fmt.Errorf("parse conan remote list: %w", err)
+	}
+
+	return remotes, nil
+}
+
+// getRemoteURL retrieves the URL for a Conan remote.
+func getRemoteURL(remoteName string) (string, error) {
+	remotes, err := ListConanRemotes()
+	if err != nil {
+		return "", err
 	}
 
 	for _, remote := range remotes {
@@ -85,6 +95,33 @@ func getRemoteURL(remoteName string) (string, error) {
 	}
 
 	return "", fmt.Errorf("remote '%s' not found in Conan remotes", remoteName)
+}
+
+// ExtractRepoName extracts the Artifactory repository name from a Conan remote URL.
+// Example: "https://myserver.jfrog.io/artifactory/api/conan/repo-name" -> "repo-name"
+func ExtractRepoName(remoteURL string) string {
+	// Format: .../api/conan/<repo-name>
+	idx := strings.Index(remoteURL, "/api/conan/")
+	if idx != -1 {
+		repoName := remoteURL[idx+len("/api/conan/"):]
+		// Remove trailing slash if present
+		repoName = strings.TrimSuffix(repoName, "/")
+		return repoName
+	}
+	return ""
+}
+
+// GetRepoNameForRemote gets the Artifactory repository name for a Conan remote.
+func GetRepoNameForRemote(remoteName string) (string, error) {
+	remoteURL, err := getRemoteURL(remoteName)
+	if err != nil {
+		return "", err
+	}
+	repoName := ExtractRepoName(remoteURL)
+	if repoName == "" {
+		return "", fmt.Errorf("could not extract repo name from URL: %s", remoteURL)
+	}
+	return repoName, nil
 }
 
 // extractBaseURL extracts the base Artifactory URL from a Conan remote URL.

@@ -17,6 +17,7 @@ import (
 )
 
 // ConanPackageInfo holds parsed Conan package reference information.
+// Supports both Conan 2.x (name/version) and 1.x (name/version@user/channel) formats.
 type ConanPackageInfo struct {
 	Name    string
 	Version string
@@ -49,24 +50,34 @@ func (ac *ArtifactCollector) CollectArtifacts(packageRef string) ([]entities.Art
 		return nil, err
 	}
 
+	return ac.searchArtifacts(buildArtifactQuery(ac.targetRepo, pkgInfo))
+}
+
+// CollectArtifactsForPath collects artifacts from a specific path pattern.
+// Used to collect only artifacts that were uploaded in the current build.
+func (ac *ArtifactCollector) CollectArtifactsForPath(pathPattern string) ([]entities.Artifact, error) {
+	if ac.serverDetails == nil {
+		return nil, fmt.Errorf("server details not initialized")
+	}
+
+	query := fmt.Sprintf(`{"repo": "%s", "path": {"$match": "%s/*"}}`, ac.targetRepo, pathPattern)
+	return ac.searchArtifacts(query)
+}
+
+// searchArtifacts executes an AQL query and returns matching artifacts.
+func (ac *ArtifactCollector) searchArtifacts(aqlQuery string) ([]entities.Artifact, error) {
 	servicesManager, err := utils.CreateServiceManager(ac.serverDetails, -1, 0, false)
 	if err != nil {
 		return nil, fmt.Errorf("create services manager: %w", err)
 	}
 
-	return ac.searchArtifacts(servicesManager, pkgInfo)
-}
-
-// searchArtifacts searches for Conan artifacts in Artifactory.
-func (ac *ArtifactCollector) searchArtifacts(manager artifactory.ArtifactoryServicesManager, pkgInfo *ConanPackageInfo) ([]entities.Artifact, error) {
-	searchQuery := buildArtifactQuery(ac.targetRepo, pkgInfo)
 	searchParams := services.SearchParams{
 		CommonParams: &specutils.CommonParams{
-			Aql: specutils.Aql{ItemsFind: searchQuery},
+			Aql: specutils.Aql{ItemsFind: aqlQuery},
 		},
 	}
 
-	reader, err := manager.SearchFiles(searchParams)
+	reader, err := servicesManager.SearchFiles(searchParams)
 	if err != nil {
 		return nil, fmt.Errorf("search files: %w", err)
 	}
@@ -83,7 +94,6 @@ func parseSearchResults(reader *content.ContentReader) ([]entities.Artifact, err
 		artifact := entities.Artifact{
 			Name: item.Name,
 			Path: item.Path,
-			Type: classifyArtifactType(item.Name),
 			Checksum: entities.Checksum{
 				Sha1:   item.Actual_Sha1,
 				Sha256: item.Sha256,
@@ -96,29 +106,14 @@ func parseSearchResults(reader *content.ContentReader) ([]entities.Artifact, err
 	return artifacts, nil
 }
 
-// classifyArtifactType determines the artifact type based on filename.
-func classifyArtifactType(name string) string {
-	switch {
-	case name == "conanfile.py":
-		return "conan-recipe"
-	case name == "conanmanifest.txt":
-		return "conan-manifest"
-	case name == "conaninfo.txt":
-		return "conan-info"
-	case strings.HasSuffix(name, ".tgz"):
-		return "conan-package"
-	default:
-		return "conan-artifact"
-	}
-}
-
-// ParsePackageReference parses a Conan package reference string.
-// Supports both formats: name/version and name/version@user/channel
+// ParsePackageReference parses a Conan package reference string into structured info.
+// Supports both formats:
+//   - Conan 2.x: name/version (e.g., "zlib/1.2.13")
+//   - Conan 1.x: name/version@user/channel (e.g., "zlib/1.2.13@_/_")
 func ParsePackageReference(ref string) (*ConanPackageInfo, error) {
-	// Remove any trailing whitespace or package ID
 	ref = strings.TrimSpace(ref)
-	
-	// Check for @user/channel format
+
+	// Check for @user/channel format (Conan 1.x style)
 	if idx := strings.Index(ref, "@"); idx != -1 {
 		nameVersion := ref[:idx]
 		userChannel := ref[idx+1:]
@@ -153,18 +148,20 @@ func ParsePackageReference(ref string) (*ConanPackageInfo, error) {
 }
 
 // buildArtifactQuery creates an AQL query for Conan artifacts.
+// Conan stores artifacts in different path formats depending on version:
+//   - Conan 2.x: _/name/version/_/revision/...
+//   - Conan 1.x: user/name/version/channel/revision/...
 func buildArtifactQuery(repo string, pkg *ConanPackageInfo) string {
-	// Conan 2.x uses _/name/version/_ path format
 	if pkg.User == "_" && pkg.Channel == "_" {
 		return fmt.Sprintf(`{"repo": "%s", "path": {"$match": "_/%s/%s/_/*"}}`,
 			repo, pkg.Name, pkg.Version)
 	}
-	// Conan 1.x uses user/name/version/channel path format
 	return fmt.Sprintf(`{"repo": "%s", "path": {"$match": "%s/%s/%s/%s/*"}}`,
 		repo, pkg.User, pkg.Name, pkg.Version, pkg.Channel)
 }
 
-// BuildPropertySetter sets build properties on Conan artifacts.
+// BuildPropertySetter sets build properties on Conan artifacts in Artifactory.
+// This is required to link artifacts to build info in Artifactory UI.
 type BuildPropertySetter struct {
 	serverDetails *config.ServerDetails
 	targetRepo    string
@@ -185,6 +182,8 @@ func NewBuildPropertySetter(serverDetails *config.ServerDetails, targetRepo, bui
 }
 
 // SetProperties sets build properties on the given artifacts.
+// Properties are set one by one as Artifactory API requires individual file paths.
+// This is the same approach used by Maven and other package managers.
 func (bps *BuildPropertySetter) SetProperties(artifacts []entities.Artifact) error {
 	if len(artifacts) == 0 || bps.serverDetails == nil {
 		return nil
@@ -201,17 +200,18 @@ func (bps *BuildPropertySetter) SetProperties(artifacts []entities.Artifact) err
 	successCount := 0
 	for _, artifact := range artifacts {
 		if err := bps.setPropertiesOnArtifact(servicesManager, artifact, props); err != nil {
-			log.Warn(fmt.Sprintf("Failed to set properties on %s: %s", artifact.Name, err.Error()))
+			log.Debug(fmt.Sprintf("Failed to set properties on %s: %s", artifact.Name, err.Error()))
 			continue
 		}
 		successCount++
 	}
 
-	log.Info(fmt.Sprintf("Successfully set build properties on %d Conan artifacts", successCount))
+	log.Info(fmt.Sprintf("Set build properties on %d Conan artifacts", successCount))
 	return nil
 }
 
 // formatBuildProperties creates the build properties string.
+// Only includes build.name, build.number, build.timestamp (and optional build.project).
 func (bps *BuildPropertySetter) formatBuildProperties(timestamp string) string {
 	props := fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s",
 		bps.buildName, bps.buildNumber, timestamp)

@@ -14,6 +14,10 @@ import (
 )
 
 // UploadProcessor processes Conan upload output and collects build info.
+// It parses the upload output to:
+// 1. Extract which artifacts were uploaded (to avoid collecting all revisions)
+// 2. Collect dependencies from the local project
+// 3. Set build properties on uploaded artifacts
 type UploadProcessor struct {
 	workingDir         string
 	buildConfiguration *buildUtils.BuildConfiguration
@@ -31,6 +35,10 @@ func NewUploadProcessor(workingDir string, buildConfig *buildUtils.BuildConfigur
 
 // Process processes the upload output and collects build info.
 func (up *UploadProcessor) Process(uploadOutput string) error {
+	// Parse uploaded artifacts from output - only collect what was actually uploaded
+	uploadedPaths := up.parseUploadedArtifactPaths(uploadOutput)
+	log.Debug(fmt.Sprintf("Found %d uploaded artifact paths", len(uploadedPaths)))
+
 	// Parse package reference from upload output
 	packageRef := up.parsePackageReference(uploadOutput)
 	if packageRef == "" {
@@ -46,30 +54,155 @@ func (up *UploadProcessor) Process(uploadOutput string) error {
 		buildInfo = up.createEmptyBuildInfo(packageRef)
 	}
 
-	// Extract remote name and set target repo
-	remoteName := extractRemoteNameFromOutput(uploadOutput)
-	if remoteName == "" {
-		remoteName = "conan-local"
+	// Get target repository from upload output
+	targetRepo, err := up.getTargetRepository(uploadOutput)
+	if err != nil {
+		log.Warn(fmt.Sprintf("Could not determine target repository: %v", err))
+		log.Warn("Build info will be saved but artifacts may not be linked correctly")
+		return up.saveBuildInfo(buildInfo)
 	}
+	log.Debug(fmt.Sprintf("Using Artifactory repository: %s", targetRepo))
 
-	// Collect artifacts from Artifactory
-	if up.serverDetails != nil {
-		artifacts, err := up.collectArtifacts(packageRef, remoteName)
-		if err != nil {
-			log.Warn(fmt.Sprintf("Failed to collect artifacts: %v", err))
+	// Collect artifacts from Artifactory - only for uploaded paths
+	if up.serverDetails != nil && len(uploadedPaths) > 0 {
+		artifacts, collectErr := up.collectUploadedArtifacts(uploadedPaths, targetRepo)
+		if collectErr != nil {
+			log.Warn(fmt.Sprintf("Failed to collect artifacts: %v", collectErr))
 		} else {
 			up.addArtifactsToModule(buildInfo, artifacts)
-		}
 
-		// Set build properties on artifacts
-		if len(artifacts) > 0 {
-			if err := up.setBuildProperties(artifacts, remoteName); err != nil {
-				log.Warn(fmt.Sprintf("Failed to set build properties: %v", err))
+			// Set build properties on artifacts
+			if len(artifacts) > 0 {
+				if err := up.setBuildProperties(artifacts, targetRepo); err != nil {
+					log.Warn(fmt.Sprintf("Failed to set build properties: %v", err))
+				}
 			}
 		}
 	}
 
 	return up.saveBuildInfo(buildInfo)
+}
+
+// getTargetRepository extracts the Conan remote from upload output and resolves it to Artifactory repo.
+// Returns error if remote cannot be determined or is not an Artifactory repository.
+func (up *UploadProcessor) getTargetRepository(uploadOutput string) (string, error) {
+	remoteName := extractRemoteNameFromOutput(uploadOutput)
+	if remoteName == "" {
+		return "", fmt.Errorf("could not extract remote name from upload output")
+	}
+
+	// Verify this is an Artifactory Conan remote
+	remoteURL, err := getRemoteURL(remoteName)
+	if err != nil {
+		return "", fmt.Errorf("could not get URL for remote '%s': %w", remoteName, err)
+	}
+
+	if !isArtifactoryConanRemote(remoteURL) {
+		return "", fmt.Errorf("remote '%s' is not an Artifactory Conan repository (URL: %s)", remoteName, remoteURL)
+	}
+
+	// Get the Artifactory repository name from the URL
+	repoName := ExtractRepoName(remoteURL)
+	if repoName == "" {
+		return "", fmt.Errorf("could not extract repository name from URL: %s", remoteURL)
+	}
+
+	return repoName, nil
+}
+
+// parseUploadedArtifactPaths extracts the specific paths that were uploaded from conan upload output.
+// Conan upload output has a hierarchical structure:
+//
+//	simplelib/1.0.0              <- Package name/version
+//	  86deb56ab95f8fe27d07debf8a6ee3f9 (Uploaded)  <- Recipe revision (MD5, 32 chars)
+//	    9f5e648a74c49245b42a22f586fcb7c4da7f5821  <- Package ID (SHA1, 40 chars)
+//	      7002fe990671bdb248e67579987227c4 (Uploaded)  <- Package revision (MD5, 32 chars)
+//
+// This method parses this structure and builds Artifactory paths like:
+//   - _/simplelib/1.0.0/_/86deb56.../export (for recipe)
+//   - _/simplelib/1.0.0/_/86deb56.../package/9f5e648.../7002fe9... (for package)
+func (up *UploadProcessor) parseUploadedArtifactPaths(output string) []string {
+	var paths []string
+	lines := strings.Split(output, "\n")
+
+	// State tracking for hierarchical parsing
+	var currentPkg string      // Current package name/version (e.g., "simplelib/1.0.0")
+	var currentRecipeRev string // Current recipe revision hash (MD5, 32 chars)
+	var currentPkgId string     // Current package ID (SHA1, 40 chars)
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Match package name/version line: "simplelib/1.0.0"
+		if up.isPackageNameLine(trimmed) {
+			parts := strings.Split(trimmed, "/")
+			if len(parts) == 2 {
+				currentPkg = trimmed
+				currentRecipeRev = ""
+				currentPkgId = ""
+			}
+			continue
+		}
+
+		// Match recipe revision with (Uploaded): "86deb56ab95f8fe27d07debf8a6ee3f9 (Uploaded)"
+		if strings.Contains(trimmed, "(Uploaded)") && currentPkg != "" {
+			rev := strings.TrimSuffix(strings.TrimSpace(trimmed), " (Uploaded)")
+			if len(rev) == 32 && currentPkgId == "" {
+				// This is a recipe revision (no package ID seen yet)
+				currentRecipeRev = rev
+				path := fmt.Sprintf("_/%s/_/%s/export", currentPkg, rev)
+				paths = append(paths, path)
+				log.Debug(fmt.Sprintf("Found uploaded recipe: %s", path))
+			} else if len(rev) == 32 && currentPkgId != "" && currentRecipeRev != "" {
+				// This is a package revision
+				path := fmt.Sprintf("_/%s/_/%s/package/%s/%s", currentPkg, currentRecipeRev, currentPkgId, rev)
+				paths = append(paths, path)
+				log.Debug(fmt.Sprintf("Found uploaded package: %s", path))
+				currentPkgId = "" // Reset for next package
+			}
+			continue
+		}
+
+		// Match package ID line (SHA1, 40 chars, no spaces)
+		if currentRecipeRev != "" && len(trimmed) == 40 && !strings.Contains(trimmed, " ") {
+			currentPkgId = trimmed
+		}
+	}
+
+	return paths
+}
+
+// isPackageNameLine checks if a line represents a package name/version.
+func (up *UploadProcessor) isPackageNameLine(line string) bool {
+	return strings.Contains(line, "/") &&
+		!strings.Contains(line, "#") &&
+		!strings.Contains(line, ":") &&
+		!strings.HasPrefix(line, "_") &&
+		!strings.Contains(line, "Uploading") &&
+		!strings.Contains(line, "Skipped") &&
+		!strings.Contains(line, "(")
+}
+
+// collectUploadedArtifacts collects only artifacts from specific paths that were uploaded.
+func (up *UploadProcessor) collectUploadedArtifacts(uploadedPaths []string, targetRepo string) ([]entities.Artifact, error) {
+	if up.serverDetails == nil {
+		return nil, fmt.Errorf("server details not initialized")
+	}
+
+	collector := NewArtifactCollector(up.serverDetails, targetRepo)
+	var allArtifacts []entities.Artifact
+
+	for _, path := range uploadedPaths {
+		artifacts, err := collector.CollectArtifactsForPath(path)
+		if err != nil {
+			log.Debug(fmt.Sprintf("Failed to collect artifacts for path %s: %v", path, err))
+			continue
+		}
+		allArtifacts = append(allArtifacts, artifacts...)
+	}
+
+	log.Info(fmt.Sprintf("Collected %d Conan artifacts", len(allArtifacts)))
+	return allArtifacts, nil
 }
 
 // parsePackageReference extracts package reference from upload output.
@@ -105,20 +238,20 @@ func (up *UploadProcessor) parsePackageReference(output string) string {
 		}
 	}
 
-	// Fallback: look for "Uploading recipe" pattern
-	return up.parseUploadPattern(lines)
+	// Fallback: look for "Uploading recipe" pattern (older Conan output format)
+	return up.parseUploadingRecipePattern(lines)
 }
 
-// parseUploadPattern looks for package reference in upload lines.
-func (up *UploadProcessor) parseUploadPattern(lines []string) string {
+// parseUploadingRecipePattern extracts package reference from "Uploading recipe" lines.
+// Example: "Uploading recipe 'simplelib/1.0.0#86deb56...'"
+func (up *UploadProcessor) parseUploadingRecipePattern(lines []string) string {
 	for _, line := range lines {
 		if strings.Contains(line, "Uploading recipe") {
-			// Extract package reference from: "Uploading recipe 'name/version#rev'"
 			start := strings.Index(line, "'")
 			end := strings.LastIndex(line, "'")
 			if start != -1 && end > start {
 				ref := line[start+1 : end]
-				// Remove revision if present
+				// Remove revision if present (after #)
 				if hashIdx := strings.Index(ref, "#"); hashIdx != -1 {
 					ref = ref[:hashIdx]
 				}
@@ -155,12 +288,7 @@ func (up *UploadProcessor) collectDependencies() (*entities.BuildInfo, error) {
 		return nil, fmt.Errorf("collect build info: %w", err)
 	}
 
-	log.Info(fmt.Sprintf("Collected build info with %d modules", len(buildInfo.Modules)))
-	if len(buildInfo.Modules) > 0 {
-		log.Info(fmt.Sprintf("Module '%s' has %d dependencies",
-			buildInfo.Modules[0].Id, len(buildInfo.Modules[0].Dependencies)))
-	}
-
+	log.Debug(fmt.Sprintf("Collected build info with %d modules", len(buildInfo.Modules)))
 	return buildInfo, nil
 }
 
@@ -176,33 +304,16 @@ func (up *UploadProcessor) createEmptyBuildInfo(packageRef string) *entities.Bui
 	}
 }
 
-// collectArtifacts collects artifacts from Artifactory.
-func (up *UploadProcessor) collectArtifacts(packageRef, remoteName string) ([]entities.Artifact, error) {
-	collector := NewArtifactCollector(up.serverDetails, remoteName)
-	artifacts, err := collector.CollectArtifacts(packageRef)
-	if err != nil {
-		return nil, err
-	}
-
-	log.Info(fmt.Sprintf("Found %d Conan artifacts in Artifactory", len(artifacts)))
-	return artifacts, nil
-}
-
 // addArtifactsToModule adds artifacts to the first module in build info.
 func (up *UploadProcessor) addArtifactsToModule(buildInfo *entities.BuildInfo, artifacts []entities.Artifact) {
 	if len(buildInfo.Modules) == 0 {
 		return
 	}
-
 	buildInfo.Modules[0].Artifacts = artifacts
-	log.Info(fmt.Sprintf("Module '%s' now has %d dependencies and %d artifacts",
-		buildInfo.Modules[0].Id,
-		len(buildInfo.Modules[0].Dependencies),
-		len(buildInfo.Modules[0].Artifacts)))
 }
 
 // setBuildProperties sets build properties on artifacts in Artifactory.
-func (up *UploadProcessor) setBuildProperties(artifacts []entities.Artifact, remoteName string) error {
+func (up *UploadProcessor) setBuildProperties(artifacts []entities.Artifact, targetRepo string) error {
 	buildName, err := up.buildConfiguration.GetBuildName()
 	if err != nil {
 		return err
@@ -215,7 +326,7 @@ func (up *UploadProcessor) setBuildProperties(artifacts []entities.Artifact, rem
 
 	projectKey := up.buildConfiguration.GetProject()
 
-	setter := NewBuildPropertySetter(up.serverDetails, remoteName, buildName, buildNumber, projectKey)
+	setter := NewBuildPropertySetter(up.serverDetails, targetRepo, buildName, buildNumber, projectKey)
 	return setter.SetProperties(artifacts)
 }
 
@@ -232,11 +343,12 @@ func (up *UploadProcessor) saveBuildInfo(buildInfo *entities.BuildInfo) error {
 		return fmt.Errorf("save build info: %w", err)
 	}
 
-	log.Info("Successfully saved Conan build info")
+	log.Info("Conan build info saved locally")
 	return nil
 }
 
 // extractRemoteNameFromOutput extracts the remote name from conan upload output.
+// Looks in the "Upload summary" section for the remote name.
 func extractRemoteNameFromOutput(output string) string {
 	lines := strings.Split(output, "\n")
 	inSummary := false
@@ -259,28 +371,3 @@ func extractRemoteNameFromOutput(output string) string {
 	}
 	return ""
 }
-
-// FlexPackCollector wraps the FlexPack Conan collector.
-type FlexPackCollector struct {
-	config conanflex.ConanConfig
-}
-
-// NewFlexPackCollector creates a new FlexPack collector.
-func NewFlexPackCollector(workingDir string) (*FlexPackCollector, error) {
-	return &FlexPackCollector{
-		config: conanflex.ConanConfig{
-			WorkingDirectory: workingDir,
-		},
-	}, nil
-}
-
-// CollectBuildInfo collects build info using FlexPack.
-func (fc *FlexPackCollector) CollectBuildInfo(buildName, buildNumber string) (*entities.BuildInfo, error) {
-	collector, err := conanflex.NewConanFlexPack(fc.config)
-	if err != nil {
-		return nil, fmt.Errorf("create conan flexpack: %w", err)
-	}
-
-	return collector.CollectBuildInfo(buildName, buildNumber)
-}
-

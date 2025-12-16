@@ -5,9 +5,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/entities"
+	conanflex "github.com/jfrog/build-info-go/flexpack/conan"
 	gofrogcmd "github.com/jfrog/gofrog/io"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -52,6 +54,28 @@ func (c *ConanCommand) SetBuildConfiguration(config *buildUtils.BuildConfigurati
 	return c
 }
 
+// Commands that may need remote access for downloading dependencies or packages.
+// These commands might interact with Conan remotes and require authentication.
+var commandsNeedingRemoteAccess = []string{
+	"install",
+	"create",
+	"build",
+	"download",
+	"upload",
+	"search",
+	"list",
+}
+
+// needsRemoteAccess checks if a command might need remote access.
+func needsRemoteAccess(cmd string) bool {
+	for _, c := range commandsNeedingRemoteAccess {
+		if c == cmd {
+			return true
+		}
+	}
+	return false
+}
+
 // Run executes the Conan command with build info collection.
 func (c *ConanCommand) Run() error {
 	workingDir, err := os.Getwd()
@@ -60,28 +84,91 @@ func (c *ConanCommand) Run() error {
 	}
 	c.workingDir = workingDir
 
-	// Handle upload command with auto-login
-	if c.commandName == "upload" {
-		return c.runUpload()
+	// Perform auto-login for commands that need remote access
+	if needsRemoteAccess(c.commandName) {
+		if err := c.autoLoginToRemotes(); err != nil {
+			log.Debug(fmt.Sprintf("Auto-login warning: %v", err))
+		}
 	}
 
-	// Run standard Conan command
-	return c.runStandardCommand()
+	// Upload command requires special handling to parse output and collect artifacts
+	if c.commandName == "upload" {
+		return c.runUploadCommand()
+	}
+
+	// Run other Conan commands
+	return c.runConanCommand()
 }
 
-// runUpload handles the upload command with auto-login and build info collection.
-func (c *ConanCommand) runUpload() error {
-	// Extract remote name and perform auto-login
+// autoLoginToRemotes attempts to log into all configured Conan remotes that match JFrog CLI configs.
+func (c *ConanCommand) autoLoginToRemotes() error {
+	// First check if a specific remote is specified in args
 	remoteName := ExtractRemoteName(c.args)
 	if remoteName != "" {
 		matchedServer, err := ValidateAndLogin(remoteName)
 		if err != nil {
-			return err
+			log.Debug(fmt.Sprintf("Could not auto-login to remote '%s': %v", remoteName, err))
+		} else {
+			c.serverDetails = matchedServer
 		}
-		c.serverDetails = matchedServer
+		return nil
 	}
 
-	log.Info(fmt.Sprintf("Running Conan %s.", c.commandName))
+	// No specific remote specified, try to login to all Artifactory remotes
+	return c.loginToAllArtifactoryRemotes()
+}
+
+// loginToAllArtifactoryRemotes attempts to log into all Conan remotes that point to Artifactory.
+func (c *ConanCommand) loginToAllArtifactoryRemotes() error {
+	remotes, err := ListConanRemotes()
+	if err != nil {
+		return fmt.Errorf("list conan remotes: %w", err)
+	}
+
+	loggedInCount := 0
+	for _, remote := range remotes {
+		// Only process remotes with /api/conan/ URL pattern (Artifactory Conan repos)
+		if !isArtifactoryConanRemote(remote.URL) {
+			log.Debug(fmt.Sprintf("Skipping remote '%s': not an Artifactory Conan URL", remote.Name))
+			continue
+		}
+
+		log.Debug(fmt.Sprintf("Found Artifactory Conan remote: %s -> %s", remote.Name, remote.URL))
+
+		matchedServer, err := ValidateAndLogin(remote.Name)
+		if err != nil {
+			log.Debug(fmt.Sprintf("Could not auto-login to remote '%s': %v", remote.Name, err))
+			continue
+		}
+
+		loggedInCount++
+		log.Debug(fmt.Sprintf("Successfully logged into remote '%s'", remote.Name))
+
+		// Use the first successfully logged-in server for artifact collection
+		if c.serverDetails == nil {
+			c.serverDetails = matchedServer
+		}
+	}
+
+	if loggedInCount > 0 {
+		log.Debug(fmt.Sprintf("Auto-login completed: logged into %d Artifactory remote(s)", loggedInCount))
+	}
+
+	return nil
+}
+
+// isArtifactoryConanRemote checks if a URL points to an Artifactory Conan repository.
+// Artifactory Conan URLs contain /api/conan/ in the path.
+func isArtifactoryConanRemote(url string) bool {
+	return strings.Contains(url, "/api/conan/")
+}
+
+// runUploadCommand handles the upload command with build info collection.
+// Upload requires special handling because:
+// 1. We need to capture the output to determine which artifacts were uploaded
+// 2. We need to collect artifacts from Artifactory and set build properties
+func (c *ConanCommand) runUploadCommand() error {
+	log.Info(fmt.Sprintf("Running Conan %s", c.commandName))
 
 	// Execute conan upload and capture output
 	output, err := c.executeAndCaptureOutput()
@@ -91,17 +178,17 @@ func (c *ConanCommand) runUpload() error {
 	}
 	fmt.Print(string(output))
 
-	// Process upload for build info
+	// Process upload for build info if build configuration is provided
 	if c.buildConfiguration != nil {
-		return c.processUploadBuildInfo(string(output))
+		return c.processBuildInfo(string(output))
 	}
 
 	return nil
 }
 
-// runStandardCommand runs non-upload Conan commands.
-func (c *ConanCommand) runStandardCommand() error {
-	log.Info(fmt.Sprintf("Running Conan %s.", c.commandName))
+// runConanCommand runs non-upload Conan commands.
+func (c *ConanCommand) runConanCommand() error {
+	log.Info(fmt.Sprintf("Running Conan %s", c.commandName))
 
 	if err := gofrogcmd.RunCmd(c); err != nil {
 		return fmt.Errorf("conan %s failed: %w", c.commandName, err)
@@ -109,22 +196,17 @@ func (c *ConanCommand) runStandardCommand() error {
 
 	// Collect build info for dependency commands
 	if c.buildConfiguration != nil {
-		return c.collectDependencyBuildInfo()
+		return c.collectAndSaveBuildInfo()
 	}
 
 	return nil
 }
 
-// processUploadBuildInfo collects build info after a successful upload.
-func (c *ConanCommand) processUploadBuildInfo(uploadOutput string) error {
-	buildName, err := c.buildConfiguration.GetBuildName()
-	if err != nil || buildName == "" {
-		return nil
-	}
-
-	buildNumber, err := c.buildConfiguration.GetBuildNumber()
-	if err != nil || buildNumber == "" {
-		return nil
+// processBuildInfo processes build info after a successful upload.
+func (c *ConanCommand) processBuildInfo(uploadOutput string) error {
+	buildName, buildNumber, err := c.getBuildNameAndNumber()
+	if err != nil {
+		return nil // No build info configured, skip silently
 	}
 
 	log.Info(fmt.Sprintf("Processing Conan upload with build info: %s/%s", buildName, buildNumber))
@@ -138,28 +220,57 @@ func (c *ConanCommand) processUploadBuildInfo(uploadOutput string) error {
 	return nil
 }
 
-// collectDependencyBuildInfo collects dependencies using FlexPack.
-func (c *ConanCommand) collectDependencyBuildInfo() error {
-	buildName, err := c.buildConfiguration.GetBuildName()
-	if err != nil || buildName == "" {
-		return nil
-	}
-
-	buildNumber, err := c.buildConfiguration.GetBuildNumber()
-	if err != nil || buildNumber == "" {
-		return nil
+// collectAndSaveBuildInfo collects dependencies and saves build info locally.
+func (c *ConanCommand) collectAndSaveBuildInfo() error {
+	buildName, buildNumber, err := c.getBuildNameAndNumber()
+	if err != nil {
+		return nil // No build info configured, skip silently
 	}
 
 	log.Info(fmt.Sprintf("Collecting build info for Conan project: %s/%s", buildName, buildNumber))
 
-	collector := NewDependencyCollector(c.workingDir, c.buildConfiguration)
-	if err := collector.Collect(); err != nil {
+	// Create FlexPack collector
+	conanConfig := conanflex.ConanConfig{
+		WorkingDirectory: c.workingDir,
+	}
+
+	collector, err := conanflex.NewConanFlexPack(conanConfig)
+	if err != nil {
+		log.Warn("Failed to create Conan FlexPack: " + err.Error())
+		return nil
+	}
+
+	// Collect build info
+	buildInfo, err := collector.CollectBuildInfo(buildName, buildNumber)
+	if err != nil {
 		log.Warn("Failed to collect Conan build info: " + err.Error())
+		return nil
+	}
+
+	// Save build info locally
+	if err := saveBuildInfoLocally(buildInfo); err != nil {
+		log.Warn("Failed to save build info: " + err.Error())
 		return nil
 	}
 
 	log.Info(fmt.Sprintf("Conan build info collected. Use 'jf rt bp %s %s' to publish it.", buildName, buildNumber))
 	return nil
+}
+
+// getBuildNameAndNumber returns build name and number from configuration.
+// Returns error if either is missing.
+func (c *ConanCommand) getBuildNameAndNumber() (string, string, error) {
+	buildName, err := c.buildConfiguration.GetBuildName()
+	if err != nil || buildName == "" {
+		return "", "", fmt.Errorf("build name not configured")
+	}
+
+	buildNumber, err := c.buildConfiguration.GetBuildNumber()
+	if err != nil || buildNumber == "" {
+		return "", "", fmt.Errorf("build number not configured")
+	}
+
+	return buildName, buildNumber, nil
 }
 
 // executeAndCaptureOutput runs the command and returns the combined output.
@@ -199,47 +310,6 @@ func (c *ConanCommand) ServerDetails() (*config.ServerDetails, error) {
 	return c.serverDetails, nil
 }
 
-// DependencyCollector handles Conan dependency collection using FlexPack.
-type DependencyCollector struct {
-	workingDir         string
-	buildConfiguration *buildUtils.BuildConfiguration
-}
-
-// NewDependencyCollector creates a new dependency collector.
-func NewDependencyCollector(workingDir string, buildConfig *buildUtils.BuildConfiguration) *DependencyCollector {
-	return &DependencyCollector{
-		workingDir:         workingDir,
-		buildConfiguration: buildConfig,
-	}
-}
-
-// Collect collects dependencies and saves build info.
-func (dc *DependencyCollector) Collect() error {
-	buildName, err := dc.buildConfiguration.GetBuildName()
-	if err != nil {
-		return fmt.Errorf("get build name: %w", err)
-	}
-
-	buildNumber, err := dc.buildConfiguration.GetBuildNumber()
-	if err != nil {
-		return fmt.Errorf("get build number: %w", err)
-	}
-
-	// Use FlexPack to collect dependencies
-	collector, err := NewFlexPackCollector(dc.workingDir)
-	if err != nil {
-		return fmt.Errorf("create flexpack collector: %w", err)
-	}
-
-	buildInfo, err := collector.CollectBuildInfo(buildName, buildNumber)
-	if err != nil {
-		return fmt.Errorf("collect build info: %w", err)
-	}
-
-	// Save build info locally
-	return saveBuildInfoLocally(buildInfo)
-}
-
 // saveBuildInfoLocally saves the build info for later publishing with 'jf rt bp'.
 func saveBuildInfoLocally(buildInfo *entities.BuildInfo) error {
 	service := build.NewBuildInfoService()
@@ -253,6 +323,6 @@ func saveBuildInfoLocally(buildInfo *entities.BuildInfo) error {
 		return fmt.Errorf("save build info: %w", err)
 	}
 
-	log.Info("Build info saved locally.")
+	log.Debug("Build info saved locally")
 	return nil
 }
