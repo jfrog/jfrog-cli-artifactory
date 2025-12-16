@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	buildinfoflexpack "github.com/jfrog/build-info-go/flexpack/gradle"
 )
 
 func getGradleUserHome() string {
@@ -63,37 +65,7 @@ func sanitizeAndValidatePath(path, baseDir string) (string, error) {
 }
 
 func findGradleFile(dir, baseName string) (path string, isKts bool, err error) {
-	// Sanitize the directory path - this returns a new untainted value
-	sanitizedDir, err := sanitizePath(dir)
-	if err != nil {
-		return "", false, fmt.Errorf("invalid directory path: %w", err)
-	}
-
-	// Validate baseName doesn't contain path separators (prevent traversal via filename)
-	if strings.ContainsAny(baseName, `/\`) {
-		return "", false, fmt.Errorf("invalid base name: %s", baseName)
-	}
-
-	// Build and validate groovy path
-	groovyPath := filepath.Join(sanitizedDir, baseName+".gradle")
-	sanitizedGroovyPath, err := sanitizeAndValidatePath(groovyPath, sanitizedDir)
-	if err != nil {
-		return "", false, fmt.Errorf("invalid gradle file path: %w", err)
-	}
-	if _, err := os.Stat(sanitizedGroovyPath); err == nil {
-		return sanitizedGroovyPath, false, nil
-	}
-
-	// Build and validate kts path
-	ktsPath := filepath.Join(sanitizedDir, baseName+".gradle.kts")
-	sanitizedKtsPath, err := sanitizeAndValidatePath(ktsPath, sanitizedDir)
-	if err != nil {
-		return "", false, fmt.Errorf("invalid gradle file path: %w", err)
-	}
-	if _, err := os.Stat(sanitizedKtsPath); err == nil {
-		return sanitizedKtsPath, true, nil
-	}
-	return "", false, fmt.Errorf("no %s.gradle or %s.gradle.kts found", baseName, baseName)
+	return buildinfoflexpack.FindGradleFile(dir, baseName)
 }
 
 func validateWorkingDirectory(workingDir string) error {
@@ -137,4 +109,3 @@ func isWhitespace(b byte) bool {
 	}
 	return false
 }
-
