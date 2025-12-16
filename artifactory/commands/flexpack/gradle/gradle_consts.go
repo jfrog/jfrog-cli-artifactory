@@ -22,17 +22,16 @@ const (
 	envProjectPrefix  = "ORG_GRADLE_PROJECT_"
 
 	// Keywords
-	gradleTaskPublish             = "publish"
-	gradleTaskPublishToMavenLocal = "publishToMavenLocal"
-	keywordSnapshot               = "snapshot"
-	keywordRelease                = "release"
-	keywordRepo                   = "repo"
-	keywordUrl                    = "url"
-	keywordDeploy                 = "deploy"
-	keywordMaven                  = "maven"
-	keywordGradle                 = "gradle"
-	keywordIvy                    = "ivy"
-	keywordApi                    = "api"
+	gradleTaskPublish = "publish"
+	keywordSnapshot   = "snapshot"
+	keywordRelease    = "release"
+	keywordRepo       = "repo"
+	keywordUrl        = "url"
+	keywordDeploy     = "deploy"
+	keywordMaven      = "maven"
+	keywordGradle     = "gradle"
+	keywordIvy        = "ivy"
+	keywordApi        = "api"
 
 	// Script Blocks/Keywords
 	blockRepositories     = "repositories"

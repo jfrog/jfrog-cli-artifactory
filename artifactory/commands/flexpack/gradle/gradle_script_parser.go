@@ -1,3 +1,8 @@
+/*
+Package flexpack provides Gradle script parsing utilities for FlexPack build info collection.
+gradle_script_parser.go implements a parser for Gradle build scripts that extracts
+configuration blocks and URLs from both Groovy DSL (.gradle) and Kotlin DSL (.gradle.kts) files.
+*/
 package flexpack
 
 import (
