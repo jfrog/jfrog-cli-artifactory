@@ -345,12 +345,14 @@ func WriteInitScript(initScript string) error {
 	if gradleHome == "" {
 		gradleHome = filepath.Join(clientutils.GetUserHomeDir(), ".gradle")
 	}
+	// Sanitize the path to prevent directory traversal attacks
+	gradleHome = filepath.Clean(gradleHome)
 
-	initScriptsDir := filepath.Join(gradleHome, "init.d")
+	initScriptsDir := filepath.Clean(filepath.Join(gradleHome, "init.d"))
 	if err := os.MkdirAll(initScriptsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create Gradle init.d directory: %w", err)
 	}
-	jfrogInitScriptPath := filepath.Join(initScriptsDir, InitScriptName)
+	jfrogInitScriptPath := filepath.Clean(filepath.Join(initScriptsDir, InitScriptName))
 	if err := os.WriteFile(jfrogInitScriptPath, []byte(initScript), 0644); err != nil {
 		return fmt.Errorf("failed to write Gradle init script to %s: %w", jfrogInitScriptPath, err)
 	}
@@ -419,7 +421,7 @@ func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string,
 func setDeployFalse(vConfig *viper.Viper) {
 	vConfig.Set(build.DeployerPrefix+build.DeployArtifacts, "false")
 	if vConfig.GetString(build.DeployerPrefix+build.Url) == "" {
-		vConfig.Set(build.DeployerPrefix+build.Url, "http://empty_url")
+		vConfig.Set(build.DeployerPrefix+build.Url, "https://empty_url")
 	}
 	if vConfig.GetString(build.DeployerPrefix+build.Repo) == "" {
 		vConfig.Set(build.DeployerPrefix+build.Repo, "empty_repo")
