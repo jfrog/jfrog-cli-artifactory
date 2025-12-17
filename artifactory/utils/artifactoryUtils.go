@@ -3,10 +3,10 @@ package utils
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
+	buildinfoflexpack "github.com/jfrog/build-info-go/flexpack"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	artifactoryUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/common"
@@ -14,7 +14,7 @@ import (
 )
 
 func ShouldRunNative(configPath string) bool {
-	return os.Getenv("JFROG_RUN_NATIVE") == "true" && configPath == ""
+	return buildinfoflexpack.IsFlexPackEnabled() && configPath == ""
 }
 
 func CreateDownloadConfiguration(c *components.Context) (downloadConfiguration *artifactoryUtils.DownloadConfiguration, err error) {

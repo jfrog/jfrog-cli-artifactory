@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	buildinfoflexpack "github.com/jfrog/build-info-go/flexpack/gradle"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -55,22 +56,22 @@ func collectAllGradleProperties(workingDir string) map[string]string {
 	}
 
 	// 1. GRADLE_USER_HOME gradle.properties (lowest priority)
-	if home := getGradleUserHome(); home != "" {
-		// getGradleUserHome already returns a sanitized path
+	if home := buildinfoflexpack.GetGradleUserHome(); home != "" {
+		// GetGradleUserHome already returns a sanitized path
 		// Sanitize and validate the properties file path
 		propsPath := filepath.Join(home, gradlePropertiesFileName)
-		sanitizedPropsPath, err := sanitizeAndValidatePath(propsPath, home)
+		sanitizedPropsPath, err := buildinfoflexpack.SanitizeAndValidatePath(propsPath, home)
 		if err == nil {
 			merge(readPropertiesFile(sanitizedPropsPath))
 		}
 	}
 
 	// 2. Project gradle.properties
-	sanitizedWorkingDir, err := sanitizePath(workingDir)
+	sanitizedWorkingDir, err := buildinfoflexpack.SanitizePath(workingDir)
 	if err == nil {
 		propsFile := filepath.Join(sanitizedWorkingDir, gradlePropertiesFileName)
 		// Sanitize and validate the properties file path
-		sanitizedPropsFile, err := sanitizeAndValidatePath(propsFile, sanitizedWorkingDir)
+		sanitizedPropsFile, err := buildinfoflexpack.SanitizeAndValidatePath(propsFile, sanitizedWorkingDir)
 		if err == nil {
 			if _, err := os.Stat(sanitizedPropsFile); err == nil {
 				merge(readPropertiesFile(sanitizedPropsFile))
@@ -109,7 +110,7 @@ func collectAllGradleProperties(workingDir string) map[string]string {
 func readPropertiesFile(path string) map[string]string {
 	m := make(map[string]string)
 	// Sanitize the path before reading
-	cleanPath, err := sanitizePath(path)
+	cleanPath, err := buildinfoflexpack.SanitizePath(path)
 	if err != nil {
 		return m
 	}

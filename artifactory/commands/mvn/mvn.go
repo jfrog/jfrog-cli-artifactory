@@ -164,6 +164,7 @@ func (mc *MvnCommand) Run() error {
 		// This is handled in RunMvn() in utils.go
 		// Create minimal MvnUtils with only what FlexPack needs
 		mvnParams := NewMvnUtils().
+			SetConfigPath(mc.configPath).
 			SetGoals(mc.goals).
 			SetBuildConf(mc.configuration)
 		return RunMvn(mvnParams)
@@ -175,6 +176,7 @@ func (mc *MvnCommand) Run() error {
 	}
 
 	mvnParams := NewMvnUtils().
+		SetConfigPath(mc.configPath).
 		SetConfig(vConfig).
 		SetBuildArtifactsDetailsFile(mc.buildArtifactsDetailsFile).
 		SetBuildConf(mc.configuration).

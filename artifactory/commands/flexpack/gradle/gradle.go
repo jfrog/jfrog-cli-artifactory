@@ -2,6 +2,7 @@ package flexpack
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -15,11 +16,15 @@ import (
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
+	servicesutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, tasks []string, buildConfiguration *buildUtils.BuildConfiguration) error {
+func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, tasks []string, buildConfiguration *buildUtils.BuildConfiguration, serverDetails *config.ServerDetails) error {
+	if workingDir == "" {
+		return fmt.Errorf("working directory is required")
+	}
 	if buildName == "" || buildNumber == "" {
 		return fmt.Errorf("build name and build number are required")
 	}
@@ -29,8 +34,6 @@ func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber strin
 		return fmt.Errorf("failed to resolve absolute path for working directory: %w", err)
 	}
 	workingDir = absWorkingDir
-
-	startTime := time.Now()
 	config := flexpack.GradleConfig{
 		WorkingDirectory:        workingDir,
 		IncludeTestDependencies: true,
@@ -42,7 +45,7 @@ func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber strin
 	}
 
 	isPublishCommand := wasPublishCommand(tasks)
-	gradleFlex.WasPublishCommand = isPublishCommand
+	gradleFlex.SetWasPublishCommand(isPublishCommand)
 
 	buildInfo, err := gradleFlex.CollectBuildInfo(buildName, buildNumber)
 	if err != nil {
@@ -56,7 +59,7 @@ func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber strin
 	}
 
 	if isPublishCommand {
-		if err := setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, buildConfiguration, buildInfo, startTime); err != nil {
+		if err := setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, buildConfiguration, buildInfo, serverDetails); err != nil {
 			log.Warn("Failed to set build properties on deployed artifacts: " + err.Error())
 		}
 	}
@@ -96,11 +99,7 @@ func saveGradleFlexPackBuildInfo(buildInfo *entities.BuildInfo) error {
 	return buildInstance.SaveBuildInfo(buildInfo)
 }
 
-func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber string, buildArgs *buildUtils.BuildConfiguration, buildInfo *entities.BuildInfo, startTime time.Time) error {
-	serverDetails, err := getGradleServerDetails()
-	if err != nil {
-		return fmt.Errorf("failed to get server details: %w", err)
-	}
+func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber string, buildArgs *buildUtils.BuildConfiguration, buildInfo *entities.BuildInfo, serverDetails *config.ServerDetails) error {
 	if serverDetails == nil {
 		log.Warn("No server details configured, skipping build properties")
 		return nil
@@ -111,14 +110,13 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber stri
 		return fmt.Errorf("failed to create services manager: %w", err)
 	}
 
-	projectKey := buildArgs.GetProject()
-	recentArtifacts, err := searchRecentArtifacts(servicesManager, buildInfo, startTime, workingDir)
-	if err != nil {
-		return err
+	projectKey := ""
+	if buildArgs != nil {
+		projectKey = buildArgs.GetProject()
 	}
-
-	if len(recentArtifacts) == 0 {
-		log.Warn("No recently deployed artifacts found")
+	artifacts := collectArtifactsFromBuildInfo(buildInfo, workingDir)
+	if len(artifacts) == 0 {
+		log.Warn("No artifacts found to set build properties on")
 		return nil
 	}
 
@@ -132,11 +130,9 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber stri
 	if err != nil {
 		return fmt.Errorf("failed to create content writer: %w", err)
 	}
-
-	for _, artifact := range recentArtifacts {
-		writer.Write(artifact)
+	for _, art := range artifacts {
+		writer.Write(art)
 	}
-
 	if err := writer.Close(); err != nil {
 		return fmt.Errorf("failed to close content writer: %w", err)
 	}
@@ -153,8 +149,7 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber stri
 		Props:  buildProps,
 	}
 
-	_, err = servicesManager.SetProps(propsParams)
-	if err != nil {
+	if _, err = servicesManager.SetProps(propsParams); err != nil {
 		return fmt.Errorf("failed to set properties on artifacts: %w", err)
 	}
 
@@ -162,10 +157,88 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber stri
 	return nil
 }
 
-func getGradleServerDetails() (*config.ServerDetails, error) {
-	serverDetails, err := config.GetDefaultServerConf()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get server details: %w", err)
+func collectArtifactsFromBuildInfo(buildInfo *entities.BuildInfo, workingDir string) []servicesutils.ResultItem {
+	if buildInfo == nil {
+		return nil
 	}
-	return serverDetails, nil
+	var result []servicesutils.ResultItem
+
+	// Cache per (module dir, version) to avoid repeated lookups and wrong reuse.
+	moduleRepoCache := make(map[string]string)
+
+	resolveRepoForModule := func(module entities.Module) string {
+		// Try to infer version from module ID: group:artifact:version
+		version := ""
+		if parts := strings.Split(module.Id, ":"); len(parts) >= 3 {
+			version = parts[len(parts)-1]
+		}
+
+		modulePath := ""
+		if props, ok := module.Properties.(map[string]string); ok {
+			modulePath = props["module_path"]
+		}
+		moduleWorkingDir := workingDir
+		if modulePath != "" {
+			moduleWorkingDir = filepath.Join(workingDir, modulePath)
+		}
+
+		cacheKey := fmt.Sprintf("%s|%s", moduleWorkingDir, version)
+		if cached, ok := moduleRepoCache[cacheKey]; ok {
+			return cached
+		}
+
+		repo, err := getGradleDeployRepository(moduleWorkingDir, workingDir, version)
+		if err != nil && moduleWorkingDir != workingDir {
+			log.Debug(fmt.Sprintf("Repo not found in module dir %s, trying root: %v", moduleWorkingDir, err))
+			repo, err = getGradleDeployRepository(workingDir, workingDir, version)
+		}
+		if err != nil {
+			log.Warn("Failed to resolve Gradle deploy repository for module " + module.Id + ": " + err.Error())
+		}
+		if repo == "" {
+			log.Warn("Gradle deploy repository not found for module " + module.Id + ", skipping artifacts without repo")
+		}
+		moduleRepoCache[cacheKey] = repo
+		return repo
+	}
+
+	for _, module := range buildInfo.Modules {
+		// Resolve repo once per module (OriginalDeploymentRepo is not populated for Gradle FlexPack).
+		repo := resolveRepoForModule(module)
+		if repo == "" {
+			continue
+		}
+
+		for _, art := range module.Artifacts {
+			if art.Name == "" {
+				continue
+			}
+
+			itemPath := art.Path
+			if strings.HasSuffix(itemPath, "/"+art.Name) {
+				itemPath = strings.TrimSuffix(itemPath, "/"+art.Name)
+			}
+			result = append(result, servicesutils.ResultItem{
+				Repo: repo,
+				Path: itemPath,
+				Name: art.Name,
+			})
+		}
+	}
+	return result
+}
+
+// ValidateWorkingDirectory checks if the working directory is valid.
+func ValidateWorkingDirectory(workingDir string) error {
+	if workingDir == "" {
+		return fmt.Errorf("working directory cannot be empty")
+	}
+	info, err := os.Stat(workingDir)
+	if err != nil {
+		return fmt.Errorf("invalid working directory: %s - %w", workingDir, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("working directory is not a directory: %s", workingDir)
+	}
+	return nil
 }
