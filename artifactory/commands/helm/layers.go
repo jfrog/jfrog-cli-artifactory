@@ -225,6 +225,17 @@ func getManifest(resultMap map[string]*servicesUtils.ResultItem, serviceManager 
 	return
 }
 
+func getManifestSha256(resultMap map[string]*servicesUtils.ResultItem) (string, error) {
+	if len(resultMap) == 0 {
+		return "", fmt.Errorf("no manifest found")
+	}
+	manifestResult, ok := resultMap["manifest.json"]
+	if !ok || manifestResult == nil {
+		return "", fmt.Errorf("no manifest found")
+	}
+	return manifestResult.Sha256, nil
+}
+
 // Download the content of layer search result.
 func downloadLayer(searchResult servicesUtils.ResultItem, result interface{}, serviceManager artifactory.ArtifactoryServicesManager, repo string) error {
 	searchResult.Repo = repo

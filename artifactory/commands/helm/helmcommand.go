@@ -90,9 +90,7 @@ func (hc *HelmCommand) ServerDetails() (*config.ServerDetails, error) {
 
 // Run executes the Helm command
 func (hc *HelmCommand) Run() error {
-	if hc.requiresCredentialsInArguments(hc.helmArgs) {
-		hc.appendCredentialsInArguments()
-	}
+	hc.appendCredentialsInArguments()
 	if err := hc.executeHelmCommand(); err != nil {
 		return errorutils.CheckErrorf("helm %s failed: %w", hc.cmdName, err)
 	}
@@ -102,33 +100,14 @@ func (hc *HelmCommand) Run() error {
 	return nil
 }
 
-// requiresCredentialsInArguments checks if the command requires credentials to be appended to arguments
-func (hc *HelmCommand) requiresCredentialsInArguments(args []string) bool {
-	cmdName := hc.cmdName
-	extendedCmdNames := map[string][]string{
-		"registry":   {"login"},
-		"dependency": {"update", "build"},
-		"repo":       {"add"},
-	}
-	if extendedArgs, ok := extendedCmdNames[cmdName]; ok {
-		if len(args) > 0 {
-			subCmd := args[0]
-			for _, arg := range extendedArgs {
-				if arg == subCmd {
-					return true
-				}
-			}
-		}
-		return false
-	}
-	return cmdName == "upgrade" || cmdName == "install" || cmdName == "pull" || cmdName == "push" || cmdName == "show"
-}
-
 // appendCredentialsInArguments appends the username and password to arguments
 func (hc *HelmCommand) appendCredentialsInArguments() {
 	if hc.username != "" && hc.password != "" {
 		hc.helmArgs = append(hc.helmArgs, "--username", hc.username)
 		hc.helmArgs = append(hc.helmArgs, "--password", hc.password)
+		return
+	}
+	if hc.cmdName == "dependency" && hc.serverId == "" {
 		return
 	}
 	username, password := hc.getCredentials()

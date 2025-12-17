@@ -28,13 +28,28 @@ func handlePushCommand(buildInfo *entities.BuildInfo, helmArgs []string, service
 	if project != "" {
 		buildProps += fmt.Sprintf(";build.project=%s", project)
 	}
-	searchPattern := fmt.Sprintf("%s/%s/%s/", repoName, chartName, chartVersion)
-	resultMap, err := searchDependencyOCIFilesByPath(serviceManager, searchPattern, buildProps)
+	searchPattern := fmt.Sprintf("%s/%s/%s/manifest.json", repoName, chartName, chartVersion)
+	resultMap, err := searchDependencyOCIFilesByPath(serviceManager, searchPattern, "")
 	if err != nil {
-		return fmt.Errorf("failed to search OCI artifacts for %s : %s: %w", chartName, chartVersion, err)
+		return fmt.Errorf("failed to search manifest for %s : %s: %w", chartName, chartVersion, err)
 	}
 	if len(resultMap) == 0 {
-		return fmt.Errorf("no OCI artifacts found for chart: %s : %s", chartName, chartVersion)
+		return fmt.Errorf("no manifest found for chart: %s : %s", chartName, chartVersion)
+	}
+	manifestSha256, err := getManifestSha256(resultMap)
+	if err != nil {
+		return err
+	}
+	if manifestSha256 == "" {
+		return fmt.Errorf("no manifest found for chart: %s : %s", chartName, chartVersion)
+	}
+	searchPattern = fmt.Sprintf("%s/%s/sha256:%s/", repoName, chartName, manifestSha256)
+	resultMap, err = searchDependencyOCIFilesByPath(serviceManager, searchPattern, buildProps)
+	if err != nil {
+		return fmt.Errorf("failed to search oci layers for %s : %s: %w", chartName, chartVersion, err)
+	}
+	if len(resultMap) == 0 {
+		return fmt.Errorf("no oci layers found for chart: %s : %s", chartName, chartVersion)
 	}
 	artifactManifest, err := getManifest(resultMap, serviceManager, repoName)
 	if err != nil {
