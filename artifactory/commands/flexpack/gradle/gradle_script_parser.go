@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 
+	buildinfoflexpack "github.com/jfrog/build-info-go/flexpack/gradle"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -66,7 +67,7 @@ func (s *blockExtractorState) processChar(content string, i int) (int, bool) {
 
 	if s.inString {
 		if char == s.stringChar {
-			if !isEscaped(content, i) {
+			if !buildinfoflexpack.IsEscaped(content, i) {
 				s.inString = false
 			}
 		}
@@ -131,8 +132,8 @@ func extractNextGradleBlock(content, keyword string, startIndex int) (string, in
 		case 0:
 			if char == keyword[0] {
 				if i+keywordLen <= len(content) && content[i:i+keywordLen] == keyword {
-					validStart := (i == 0) || isDelimiter(content[i-1])
-					validEnd := (i+keywordLen == len(content)) || isDelimiter(content[i+keywordLen])
+					validStart := (i == 0) || buildinfoflexpack.IsDelimiter(content[i-1])
+					validEnd := (i+keywordLen == len(content)) || buildinfoflexpack.IsDelimiter(content[i+keywordLen])
 
 					if validStart && validEnd {
 						mode = 1
@@ -147,7 +148,7 @@ func extractNextGradleBlock(content, keyword string, startIndex int) (string, in
 				depth = 1
 				braceStartIdx = i
 			default:
-				if !isWhitespace(char) {
+				if !buildinfoflexpack.IsWhitespace(char) {
 					mode = 0
 				}
 			}
@@ -214,7 +215,7 @@ func collectAppliedScripts(content []byte, isKts bool, props map[string]string, 
 	// Sanitize the current script path to get a clean base directory
 	sanitizedScriptDir := ""
 	if currentScriptPath != "" {
-		sanitizedScriptPath, err := sanitizePath(currentScriptPath)
+		sanitizedScriptPath, err := buildinfoflexpack.SanitizePath(currentScriptPath)
 		if err == nil {
 			sanitizedScriptDir = filepath.Dir(sanitizedScriptPath)
 		}
@@ -235,15 +236,10 @@ func collectAppliedScripts(content []byte, isKts bool, props map[string]string, 
 			}
 
 			// Sanitize the resolved path - this returns a new untainted value
-			sanitizedPath, err := sanitizePath(path)
+			sanitizedPath, err := buildinfoflexpack.SanitizePath(path)
 			if err != nil {
 				log.Debug("Skipping invalid script path: " + path)
 				continue
-			}
-
-			// Log if path is outside script directory (for debugging path traversal attempts)
-			if sanitizedScriptDir != "" && !isPathContainedIn(sanitizedPath, sanitizedScriptDir) {
-				log.Debug("Applied script path is outside script directory: " + sanitizedPath)
 			}
 
 			paths = append(paths, sanitizedPath)

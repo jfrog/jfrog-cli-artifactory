@@ -1,5 +1,7 @@
 package flexpack
 
+// Find the Gradle deploy repository key by scanning properties, build/settings scripts, and init scripts.
+
 import (
 	"fmt"
 	"net/url"
@@ -9,12 +11,13 @@ import (
 	"strconv"
 	"strings"
 
+	buildinfoflexpack "github.com/jfrog/build-info-go/flexpack/gradle"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 // It does not check for specific environment variables
 func getGradleDeployRepository(workingDir, rootDir, version string) (string, error) {
-	if err := validateWorkingDirectory(workingDir); err != nil {
+	if err := ValidateWorkingDirectory(workingDir); err != nil {
 		return "", err
 	}
 
@@ -38,7 +41,7 @@ func getGradleDeployRepository(workingDir, rootDir, version string) (string, err
 		return repo, nil
 	}
 
-	buildGradlePath, _, err := findGradleFile(workingDir, "build")
+	buildGradlePath, _, err := buildinfoflexpack.FindGradleFile(workingDir, "build")
 	if err == nil {
 		if repo, err := checkGradleScript(buildGradlePath, isSnapshot, props); err == nil && repo != "" {
 			log.Debug("Found repository from publishing configuration in " + filepath.Base(buildGradlePath) + ": " + repo)
@@ -47,7 +50,7 @@ func getGradleDeployRepository(workingDir, rootDir, version string) (string, err
 	}
 
 	// Check settings.gradle or settings.gradle.kts
-	settingsGradlePath, _, err := findGradleFile(workingDir, "settings")
+	settingsGradlePath, _, err := buildinfoflexpack.FindGradleFile(workingDir, "settings")
 	if err == nil {
 		if repo, err := checkGradleScript(settingsGradlePath, isSnapshot, props); err == nil && repo != "" {
 			log.Debug("Found repository from " + filepath.Base(settingsGradlePath) + ": " + repo)
@@ -56,7 +59,7 @@ func getGradleDeployRepository(workingDir, rootDir, version string) (string, err
 	}
 
 	// Check init scripts in GRADLE_USER_HOME
-	gradleUserHome := getGradleUserHome()
+	gradleUserHome := buildinfoflexpack.GetGradleUserHome()
 	if gradleUserHome != "" {
 		if repoKey, err := checkInitScripts(gradleUserHome, isSnapshot, props); err == nil && repoKey != "" {
 			log.Debug("Found repository from init scripts: " + repoKey)
@@ -156,14 +159,14 @@ func extractRepoKeyFromArtifactoryUrl(repoUrl string) (string, error) {
 
 func checkInitScripts(gradleUserHome string, isSnapshot bool, props map[string]string) (string, error) {
 	// Sanitize gradle user home path - returns a new untainted value
-	sanitizedGradleHome, err := sanitizePath(gradleUserHome)
+	sanitizedGradleHome, err := buildinfoflexpack.SanitizePath(gradleUserHome)
 	if err != nil {
 		return "", fmt.Errorf("invalid gradle user home path: %w", err)
 	}
 
 	// 1. Check init.gradle or init.gradle.kts
-	// findGradleFile already sanitizes and validates paths
-	initGradlePath, _, err := findGradleFile(sanitizedGradleHome, "init")
+	// FindGradleFile already sanitizes and validates paths
+	initGradlePath, _, err := buildinfoflexpack.FindGradleFile(sanitizedGradleHome, "init")
 	if err == nil {
 		if repo, err := checkGradleScript(initGradlePath, isSnapshot, props); err == nil {
 			return repo, nil
@@ -172,7 +175,7 @@ func checkInitScripts(gradleUserHome string, isSnapshot bool, props map[string]s
 
 	// 2. Check init.d directory - sanitize and validate the path
 	initDDirPath := filepath.Join(sanitizedGradleHome, initDDirName)
-	sanitizedInitDDir, err := sanitizeAndValidatePath(initDDirPath, sanitizedGradleHome)
+	sanitizedInitDDir, err := buildinfoflexpack.SanitizeAndValidatePath(initDDirPath, sanitizedGradleHome)
 	if err != nil {
 		return "", fmt.Errorf("invalid init.d directory path: %w", err)
 	}
@@ -192,7 +195,7 @@ func checkInitScripts(gradleUserHome string, isSnapshot bool, props map[string]s
 				}
 				// Sanitize and validate script path
 				scriptPath := filepath.Join(sanitizedInitDDir, entry.Name())
-				sanitizedScriptPath, err := sanitizeAndValidatePath(scriptPath, sanitizedInitDDir)
+				sanitizedScriptPath, err := buildinfoflexpack.SanitizeAndValidatePath(scriptPath, sanitizedInitDDir)
 				if err != nil {
 					log.Debug("Skipping invalid script path: " + scriptPath)
 					continue
@@ -208,7 +211,7 @@ func checkInitScripts(gradleUserHome string, isSnapshot bool, props map[string]s
 
 func checkGradleScript(path string, isSnapshot bool, props map[string]string) (string, error) {
 	// Sanitize the path before reading
-	cleanPath, err := sanitizePath(path)
+	cleanPath, err := buildinfoflexpack.SanitizePath(path)
 	if err != nil {
 		return "", fmt.Errorf("invalid script path: %w", err)
 	}
@@ -224,7 +227,7 @@ func checkGradleScript(path string, isSnapshot bool, props map[string]string) (s
 func findRepoInGradleScript(content []byte, isKts bool, props map[string]string, isSnapshot bool, scriptPath string) (string, error) {
 	visited := make(map[string]bool)
 	if scriptPath != "" {
-		if absPath, err := sanitizePath(scriptPath); err == nil {
+		if absPath, err := buildinfoflexpack.SanitizePath(scriptPath); err == nil {
 			visited[absPath] = true
 		}
 	}
@@ -277,7 +280,7 @@ func findRepoInGradleScriptRecursive(content []byte, isKts bool, props map[strin
 	appliedScripts := collectAppliedScripts(content, isKts, combinedProps, scriptPath)
 	for _, appliedScript := range appliedScripts {
 		// Sanitize the applied script path
-		absPath, err := sanitizePath(appliedScript)
+		absPath, err := buildinfoflexpack.SanitizePath(appliedScript)
 		if err != nil {
 			log.Debug("Skipping invalid applied script path: " + appliedScript)
 			continue

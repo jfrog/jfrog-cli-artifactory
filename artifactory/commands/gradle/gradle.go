@@ -189,20 +189,13 @@ func (gc *GradleCommand) runWithGradleNative() error {
 			}
 
 			// Call FlexPack collection (reusing workingDir from above)
-			err = collectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber, gc.tasks, gc.configuration)
-			if err != nil {
-				return errorutils.CheckError(err)
+			if err := flexpackgradle.CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber, gc.tasks, gc.configuration, gc.serverDetails); err != nil {
+				log.Warn("Failed to collect Gradle build info (command already succeeded): " + err.Error())
 			}
 		}
 	}
-
 	log.Info("Gradle build completed successfully")
 	return nil
-}
-
-// collectGradleBuildInfoWithFlexPack calls the FlexPack implementation to collect Gradle build info
-func collectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, tasks []string, configuration *build.BuildConfiguration) error {
-	return flexpackgradle.CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber, tasks, configuration)
 }
 
 // ConditionalUpload will scan the artifact using Xray and will upload them only if the scan passes with no
@@ -354,6 +347,7 @@ func WriteInitScript(initScript string) error {
 	}
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 	cleanGradleHome := filepath.Clean(gradleHome)
 	initScriptsDir := filepath.Join(cleanGradleHome, "init.d")
 	if err := os.MkdirAll(initScriptsDir, 0755); err != nil {
@@ -380,51 +374,17 @@ func WriteInitScript(initScript string) error {
 
 	if err := os.MkdirAll(sanitizedInitScriptsDir, 0755); err != nil {
 >>>>>>> 4a4f419 (fixes for frogbot)
+=======
+	initScriptsDir := filepath.Join(gradleHome, "init.d")
+	if err := os.MkdirAll(initScriptsDir, 0755); err != nil {
+>>>>>>> 80e2a88 (code refactoring)
 		return fmt.Errorf("failed to create Gradle init.d directory: %w", err)
 	}
-
-	// Build the init script file path using the sanitized directory
-	initScriptFilePath := filepath.Join(sanitizedInitScriptsDir, InitScriptName)
-	// Sanitize the constructed path
-	sanitizedInitScriptPath, err := sanitizeGradlePath(initScriptFilePath)
-	if err != nil {
-		return fmt.Errorf("invalid init script path: %w", err)
-	}
-
-	// Validate containment: init script must be within init scripts dir
-	if !isPathContainedIn(sanitizedInitScriptPath, sanitizedInitScriptsDir) {
-		return fmt.Errorf("init script path escapes init scripts directory: %s", sanitizedInitScriptPath)
-	}
-
-	if err := os.WriteFile(sanitizedInitScriptPath, []byte(initScript), 0644); err != nil {
-		return fmt.Errorf("failed to write Gradle init script to %s: %w", sanitizedInitScriptPath, err)
+	jfrogInitScriptPath := filepath.Join(initScriptsDir, InitScriptName)
+	if err := os.WriteFile(jfrogInitScriptPath, []byte(initScript), 0644); err != nil {
+		return fmt.Errorf("failed to write Gradle init script to %s: %w", jfrogInitScriptPath, err)
 	}
 	return nil
-}
-
-// sanitizeGradlePath sanitizes a file path by cleaning it and resolving to absolute path.
-// This function acts as a taint sanitizer for SAST tools.
-func sanitizeGradlePath(path string) (string, error) {
-	if path == "" {
-		return "", fmt.Errorf("path cannot be empty")
-	}
-	// Clean the path to remove any .. or . components
-	cleanedPath := filepath.Clean(path)
-	// Resolve to absolute path
-	absPath, err := filepath.Abs(cleanedPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve absolute path: %w", err)
-	}
-	return absPath, nil
-}
-
-// isPathContainedIn checks if childPath is contained within parentPath.
-// Both paths should already be sanitized (absolute and cleaned).
-func isPathContainedIn(childPath, parentPath string) bool {
-	// Ensure both paths end consistently for prefix comparison
-	parentWithSep := parentPath + string(filepath.Separator)
-	childWithSep := childPath + string(filepath.Separator)
-	return strings.HasPrefix(childWithSep, parentWithSep)
 }
 
 func runGradle(vConfig *viper.Viper, tasks []string, deployableArtifactsFile string, configuration *build.BuildConfiguration, threads int, disableDeploy bool) error {
@@ -494,10 +454,14 @@ func setDeployFalse(vConfig *viper.Viper) {
 	vConfig.Set(build.DeployerPrefix+build.DeployArtifacts, "false")
 	if vConfig.GetString(build.DeployerPrefix+build.Url) == "" {
 <<<<<<< HEAD
+<<<<<<< HEAD
 		vConfig.Set(build.DeployerPrefix+build.Url, deployerURL())
 =======
 		vConfig.Set(build.DeployerPrefix+build.Url, "https://empty_url")
 >>>>>>> 4a4f419 (fixes for frogbot)
+=======
+		vConfig.Set(build.DeployerPrefix+build.Url, "http://empty_url")
+>>>>>>> 80e2a88 (code refactoring)
 	}
 	if vConfig.GetString(build.DeployerPrefix+build.Repo) == "" {
 		vConfig.Set(build.DeployerPrefix+build.Repo, "empty_repo")

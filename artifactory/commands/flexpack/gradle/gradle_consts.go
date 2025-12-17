@@ -1,25 +1,20 @@
 package flexpack
 
-import "time"
-
 const (
-	artifactSearchClockSkewBuffer = 1 * time.Minute
-	gradleEnvPrefixLen            = 19
+	gradleEnvPrefixLen = 19
 
 	// File Names
 	gradlePropertiesFileName = "gradle.properties"
 
 	// Directories
 	initDDirName   = "init.d"
-	dotGradleDir   = ".gradle"
 	projectDirProp = "projectDir"
 	rootDirProp    = "rootDir"
 
 	// Environment Variables
-	envGradleUserHome = "GRADLE_USER_HOME"
-	envGradleOpts     = "GRADLE_OPTS"
-	envJavaOpts       = "JAVA_OPTS"
-	envProjectPrefix  = "ORG_GRADLE_PROJECT_"
+	envGradleOpts    = "GRADLE_OPTS"
+	envJavaOpts      = "JAVA_OPTS"
+	envProjectPrefix = "ORG_GRADLE_PROJECT_"
 
 	// Keywords
 	gradleTaskPublish = "publish"
