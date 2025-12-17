@@ -242,7 +242,7 @@ func createMvnRunProps(vConfig *viper.Viper, buildArtifactsDetailsFile string, t
 func setDeployFalse(vConfig *viper.Viper) {
 	vConfig.Set(buildUtils.DeployerPrefix+buildUtils.DeployArtifacts, "false")
 	if vConfig.GetString(buildUtils.DeployerPrefix+buildUtils.Url) == "" {
-		vConfig.Set(buildUtils.DeployerPrefix+buildUtils.Url, "http://empty_url")
+		vConfig.Set(buildUtils.DeployerPrefix+buildUtils.Url, "https://empty_url")
 	}
 	if vConfig.GetString(buildUtils.DeployerPrefix+buildUtils.ReleaseRepo) == "" {
 		vConfig.Set(buildUtils.DeployerPrefix+buildUtils.ReleaseRepo, "empty_repo")
