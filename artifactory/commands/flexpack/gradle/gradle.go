@@ -52,14 +52,20 @@ func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber strin
 		return fmt.Errorf("failed to collect build info with FlexPack: %w", err)
 	}
 
-	if err := saveGradleFlexPackBuildInfo(buildInfo); err != nil {
+	// Get project key from build configuration (same as non-FlexPack flow)
+	projectKey := ""
+	if buildConfiguration != nil {
+		projectKey = buildConfiguration.GetProject()
+	}
+
+	if err := saveGradleFlexPackBuildInfo(buildInfo, projectKey); err != nil {
 		log.Warn("Failed to save build info for jfrog-cli compatibility: " + err.Error())
 	} else {
 		log.Info("Build info saved locally. Use 'jf rt bp " + buildName + " " + buildNumber + "' to publish it to Artifactory.")
 	}
 
 	if isPublishCommand {
-		if err := setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, buildConfiguration, buildInfo, serverDetails); err != nil {
+		if err := setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, projectKey, buildInfo, serverDetails); err != nil {
 			log.Warn("Failed to set build properties on deployed artifacts: " + err.Error())
 		}
 	}
@@ -90,16 +96,17 @@ func wasPublishCommand(tasks []string) bool {
 	return false
 }
 
-func saveGradleFlexPackBuildInfo(buildInfo *entities.BuildInfo) error {
+func saveGradleFlexPackBuildInfo(buildInfo *entities.BuildInfo, projectKey string) error {
 	service := build.NewBuildInfoService()
-	buildInstance, err := service.GetOrCreateBuildWithProject(buildInfo.Name, buildInfo.Number, "")
+	// Pass the project key to organize build info under the correct project (same as non-FlexPack flow)
+	buildInstance, err := service.GetOrCreateBuildWithProject(buildInfo.Name, buildInfo.Number, projectKey)
 	if err != nil {
 		return fmt.Errorf("failed to create build: %w", err)
 	}
 	return buildInstance.SaveBuildInfo(buildInfo)
 }
 
-func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber string, buildArgs *buildUtils.BuildConfiguration, buildInfo *entities.BuildInfo, serverDetails *config.ServerDetails) error {
+func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, projectKey string, buildInfo *entities.BuildInfo, serverDetails *config.ServerDetails) error {
 	if serverDetails == nil {
 		log.Warn("No server details configured, skipping build properties")
 		return nil
@@ -110,18 +117,21 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber stri
 		return fmt.Errorf("failed to create services manager: %w", err)
 	}
 
-	projectKey := ""
-	if buildArgs != nil {
-		projectKey = buildArgs.GetProject()
-	}
 	artifacts := collectArtifactsFromBuildInfo(buildInfo, workingDir)
 	if len(artifacts) == 0 {
 		log.Warn("No artifacts found to set build properties on")
 		return nil
 	}
+	// This creates: build.name=<name>;build.number=<number>;build.timestamp=<timestamp>
+	buildProps, err := buildUtils.CreateBuildProperties(buildName, buildNumber, projectKey)
+	if err != nil {
+		// Fallback to manual creation if CreateBuildProperties fails
+		log.Debug(fmt.Sprintf("CreateBuildProperties failed, using fallback: %s", err.Error()))
+		timestamp := strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10)
+		buildProps = fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp)
+	}
 
-	timestamp := strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10)
-	buildProps := fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp)
+	// Add project key to properties if specified (same as non-FlexPack flow sets deploy.build.project)
 	if projectKey != "" {
 		buildProps += fmt.Sprintf(";build.project=%s", projectKey)
 	}
@@ -130,14 +140,35 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber stri
 	if err != nil {
 		return fmt.Errorf("failed to create content writer: %w", err)
 	}
+
+	// Write all artifacts to the writer
 	for _, art := range artifacts {
 		writer.Write(art)
 	}
-	if err := writer.Close(); err != nil {
-		return fmt.Errorf("failed to close content writer: %w", err)
+
+	// Close flushes all writes and surfaces any accumulated errors
+	if closeErr := writer.Close(); closeErr != nil {
+		// Clean up temp file on error
+		if writerFilePath := writer.GetFilePath(); writerFilePath != "" {
+			if removeErr := os.Remove(writerFilePath); removeErr != nil {
+				log.Debug(fmt.Sprintf("Failed to remove temp file after write error: %s", removeErr))
+			}
+		}
+		return fmt.Errorf("failed to close content writer: %w", closeErr)
 	}
 
-	reader := content.NewContentReader(writer.GetFilePath(), content.DefaultKey)
+	writerFilePath := writer.GetFilePath()
+
+	// Ensure temp file cleanup after we're done (success or failure)
+	defer func() {
+		if writerFilePath != "" {
+			if removeErr := os.Remove(writerFilePath); removeErr != nil {
+				log.Debug(fmt.Sprintf("Failed to remove temp file: %s", removeErr))
+			}
+		}
+	}()
+
+	reader := content.NewContentReader(writerFilePath, content.DefaultKey)
 	defer func() {
 		if closeErr := reader.Close(); closeErr != nil {
 			log.Debug(fmt.Sprintf("Failed to close reader: %s", closeErr))
@@ -158,10 +189,11 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber stri
 }
 
 func collectArtifactsFromBuildInfo(buildInfo *entities.BuildInfo, workingDir string) []servicesutils.ResultItem {
+	// Always return empty slice instead of nil for consistent behavior
 	if buildInfo == nil {
-		return nil
+		return []servicesutils.ResultItem{}
 	}
-	var result []servicesutils.ResultItem
+	result := make([]servicesutils.ResultItem, 0)
 
 	// Cache per (module dir, version) to avoid repeated lookups and wrong reuse.
 	moduleRepoCache := make(map[string]string)
