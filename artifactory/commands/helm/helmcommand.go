@@ -107,7 +107,7 @@ func (hc *HelmCommand) appendCredentialsInArguments() {
 		hc.helmArgs = append(hc.helmArgs, "--password", hc.password)
 		return
 	}
-	if hc.cmdName == "dependency" && hc.serverId == "" {
+	if hc.cmdName != "registry" && hc.serverId == "" {
 		return
 	}
 	username, password := hc.getCredentials()
