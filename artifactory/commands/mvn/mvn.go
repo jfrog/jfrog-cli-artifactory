@@ -7,6 +7,7 @@ import (
 
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
+	artifactoryutils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -158,11 +159,12 @@ func (mc *MvnCommand) shouldCreateBuildArtifactsFile() bool {
 
 func (mc *MvnCommand) Run() error {
 	// Check for FlexPack FIRST, before any config loading
-	if os.Getenv("JFROG_RUN_NATIVE") == "true" {
+	if artifactoryutils.ShouldRunNative(mc.configPath) {
 		// FlexPack completely bypasses traditional Maven - no config needed
 		// This is handled in RunMvn() in utils.go
 		// Create minimal MvnUtils with only what FlexPack needs
 		mvnParams := NewMvnUtils().
+			SetConfigPath(mc.configPath).
 			SetGoals(mc.goals).
 			SetBuildConf(mc.configuration)
 		return RunMvn(mvnParams)
@@ -174,6 +176,7 @@ func (mc *MvnCommand) Run() error {
 	}
 
 	mvnParams := NewMvnUtils().
+		SetConfigPath(mc.configPath).
 		SetConfig(vConfig).
 		SetBuildArtifactsDetailsFile(mc.buildArtifactsDetailsFile).
 		SetBuildConf(mc.configuration).

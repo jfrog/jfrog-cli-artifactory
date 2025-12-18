@@ -9,6 +9,7 @@ import (
 
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/flexpack"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -23,6 +24,7 @@ import (
 
 type MvnUtils struct {
 	vConfig                   *viper.Viper
+	configPath                string
 	buildConf                 *buildUtils.BuildConfiguration
 	buildArtifactsDetailsFile string
 	buildInfoFilePath         string
@@ -35,6 +37,11 @@ type MvnUtils struct {
 
 func NewMvnUtils() *MvnUtils {
 	return &MvnUtils{buildConf: &buildUtils.BuildConfiguration{}}
+}
+
+func (mu *MvnUtils) SetConfigPath(configPath string) *MvnUtils {
+	mu.configPath = configPath
+	return mu
 }
 
 func (mu *MvnUtils) SetBuildConf(buildConf *buildUtils.BuildConfiguration) *MvnUtils {
@@ -79,7 +86,7 @@ func (mu *MvnUtils) SetOutputWriter(writer io.Writer) *MvnUtils {
 
 func RunMvn(mu *MvnUtils) error {
 	// FlexPack completely bypasses traditional Maven Build Info Extractor
-	if os.Getenv("JFROG_RUN_NATIVE") == "true" {
+	if utils.ShouldRunNative(mu.configPath) {
 		log.Debug("Maven native implementation activated")
 		// Execute native Maven command directly (no JFrog Maven plugin)
 		cmd := exec.Command("mvn", mu.goals...)
@@ -235,7 +242,7 @@ func createMvnRunProps(vConfig *viper.Viper, buildArtifactsDetailsFile string, t
 func setDeployFalse(vConfig *viper.Viper) {
 	vConfig.Set(buildUtils.DeployerPrefix+buildUtils.DeployArtifacts, "false")
 	if vConfig.GetString(buildUtils.DeployerPrefix+buildUtils.Url) == "" {
-		vConfig.Set(buildUtils.DeployerPrefix+buildUtils.Url, "http://empty_url")
+		vConfig.Set(buildUtils.DeployerPrefix+buildUtils.Url, "https://empty_url")
 	}
 	if vConfig.GetString(buildUtils.DeployerPrefix+buildUtils.ReleaseRepo) == "" {
 		vConfig.Set(buildUtils.DeployerPrefix+buildUtils.ReleaseRepo, "empty_repo")

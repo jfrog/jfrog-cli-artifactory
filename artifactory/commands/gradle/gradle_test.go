@@ -3,6 +3,7 @@ package gradle
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -66,4 +67,136 @@ func TestWriteInitScript(t *testing.T) {
 	content, err := os.ReadFile(expectedPath)
 	assert.NoError(t, err)
 	assert.Equal(t, initScript, string(content))
+}
+
+// TestExtractBuildFilePath tests extraction of build file path from Gradle arguments
+func TestExtractBuildFilePath(t *testing.T) {
+	tests := []struct {
+		name     string
+		tasks    []string
+		expected string
+	}{
+		// -b flag tests
+		{
+			name:     "short flag with space",
+			tasks:    []string{"clean", "build", "-b", "/path/to/build.gradle"},
+			expected: "/path/to/build.gradle",
+		},
+		{
+			name:     "short flag without space",
+			tasks:    []string{"clean", "build", "-b/path/to/build.gradle"},
+			expected: "/path/to/build.gradle",
+		},
+		{
+			name:     "long flag with equals",
+			tasks:    []string{"clean", "--build-file=/path/to/build.gradle", "build"},
+			expected: "/path/to/build.gradle",
+		},
+		{
+			name:     "long flag with space",
+			tasks:    []string{"--build-file", "/path/to/build.gradle", "clean"},
+			expected: "/path/to/build.gradle",
+		},
+		// -p flag tests (project directory)
+		{
+			name:     "project dir short flag with space",
+			tasks:    []string{"clean", "build", "-p", "/path/to/project"},
+			expected: filepath.Join("/path/to/project", "build.gradle"),
+		},
+		{
+			name:     "project dir short flag without space",
+			tasks:    []string{"clean", "build", "-p/path/to/project"},
+			expected: filepath.Join("/path/to/project", "build.gradle"),
+		},
+		{
+			name:     "project dir long flag with equals",
+			tasks:    []string{"clean", "--project-dir=/path/to/project", "build"},
+			expected: filepath.Join("/path/to/project", "build.gradle"),
+		},
+		{
+			name:     "project dir long flag with space",
+			tasks:    []string{"--project-dir", "/path/to/project", "clean"},
+			expected: filepath.Join("/path/to/project", "build.gradle"),
+		},
+		// No flag tests
+		{
+			name:     "no build file flag",
+			tasks:    []string{"clean", "build", "test"},
+			expected: "",
+		},
+		{
+			name:     "empty tasks",
+			tasks:    []string{},
+			expected: "",
+		},
+		// Edge cases
+		{
+			name:     "-b at end without value",
+			tasks:    []string{"clean", "build", "-b"},
+			expected: "",
+		},
+		{
+			name:     "-p at end without value",
+			tasks:    []string{"clean", "build", "-p"},
+			expected: "",
+		},
+		{
+			name:     "relative path with -b",
+			tasks:    []string{"-b", "subdir/build.gradle", "clean"},
+			expected: "subdir/build.gradle",
+		},
+		{
+			name:     "relative path with -p",
+			tasks:    []string{"-p", "subdir", "clean"},
+			expected: filepath.Join("subdir", "build.gradle"),
+		},
+		{
+			name:     "build file flag first",
+			tasks:    []string{"-b/custom/build.gradle", "clean", "build"},
+			expected: "/custom/build.gradle",
+		},
+		{
+			name:     "-b flag should not match --build-cache",
+			tasks:    []string{"clean", "--build-cache", "build"},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractBuildFilePath(tt.tasks)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestExtractBuildFilePathWindowsPaths tests Windows-style paths if on Windows
+func TestExtractBuildFilePathWindowsPaths(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Skipping Windows-specific path tests on non-Windows OS")
+	}
+
+	tests := []struct {
+		name     string
+		tasks    []string
+		expected string
+	}{
+		{
+			name:     "Windows absolute path with -b",
+			tasks:    []string{"-b", "C:\\Users\\dev\\project\\build.gradle", "clean"},
+			expected: "C:\\Users\\dev\\project\\build.gradle",
+		},
+		{
+			name:     "Windows path with -p",
+			tasks:    []string{"-p", "C:\\Users\\dev\\project", "clean"},
+			expected: filepath.Join("C:\\Users\\dev\\project", "build.gradle"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractBuildFilePath(tt.tasks)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
