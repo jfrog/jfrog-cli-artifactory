@@ -172,6 +172,10 @@ func (gc *GradleCommand) runWithGradleNative() error {
 		log.Debug(fmt.Sprintf("Using build file directory as FlexPack working directory: %s", flexpackWorkingDir))
 	}
 
+<<<<<<< HEAD
+=======
+	// Get Gradle executable path using build-info-go flexpack
+>>>>>>> 8b375bf (fixing gradle edge case)
 	gradleExecPath, err := buildinfoflexpack.GetGradleExecutablePath(workingDir)
 	if err != nil {
 		return fmt.Errorf("failed to find Gradle executable: %w", err)
@@ -198,7 +202,11 @@ func (gc *GradleCommand) runWithGradleNative() error {
 
 			// Call FlexPack collection using the flexpack working directory
 			if err := flexpackgradle.CollectGradleBuildInfoWithFlexPack(flexpackWorkingDir, buildName, buildNumber, gc.tasks, gc.configuration, gc.serverDetails); err != nil {
+<<<<<<< HEAD
 				log.Warn("Failed to collect Gradle build info with Flexpack:")
+=======
+				log.Warn("Failed to collect Gradle build info (command already succeeded): " + err.Error())
+>>>>>>> 8b375bf (fixing gradle edge case)
 			}
 		}
 	}
