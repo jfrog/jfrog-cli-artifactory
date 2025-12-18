@@ -21,6 +21,10 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+type gradlePropsFilesSearcher interface {
+	SearchFiles(params services.SearchParams) (*content.ContentReader, error)
+}
+
 func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, tasks []string, buildConfiguration *buildUtils.BuildConfiguration, serverDetails *config.ServerDetails) error {
 	if workingDir == "" {
 		return fmt.Errorf("working directory is required")
@@ -122,6 +126,8 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, pro
 		log.Warn("No artifacts found to set build properties on")
 		return nil
 	}
+	artifacts = resolveGradleUniqueSnapshotArtifacts(servicesManager, artifacts)
+
 	// This creates: build.name=<name>;build.number=<number>;build.timestamp=<timestamp>
 	buildProps, err := buildUtils.CreateBuildProperties(buildName, buildNumber, projectKey)
 	if err != nil {
@@ -186,6 +192,148 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, pro
 
 	log.Info("Successfully set build properties on deployed Gradle artifacts")
 	return nil
+}
+
+func resolveGradleUniqueSnapshotArtifacts(searcher gradlePropsFilesSearcher, artifacts []servicesutils.ResultItem) []servicesutils.ResultItem {
+	if len(artifacts) == 0 || searcher == nil {
+		return artifacts
+	}
+
+	exactExistsCache := make(map[string]bool)
+	wildcardSearched := make(map[string]bool)
+	wildcardBestCache := make(map[string]*servicesutils.ResultItem)
+
+	resolved := make([]servicesutils.ResultItem, 0, len(artifacts))
+	for _, art := range artifacts {
+		newArt, ok, err := resolveGradleUniqueSnapshotArtifact(searcher, art, exactExistsCache, wildcardSearched, wildcardBestCache)
+		if err != nil {
+			log.Debug(fmt.Sprintf("Failed resolving unique snapshot name for %s/%s/%s: %s", art.Repo, art.Path, art.Name, err))
+			resolved = append(resolved, art)
+			continue
+		}
+		if ok {
+			resolved = append(resolved, newArt)
+		} else {
+			resolved = append(resolved, art)
+		}
+	}
+	return resolved
+}
+
+func resolveGradleUniqueSnapshotArtifact(searcher gradlePropsFilesSearcher, artifact servicesutils.ResultItem, exactExistsCache map[string]bool, wildcardSearched map[string]bool, wildcardBestCache map[string]*servicesutils.ResultItem) (servicesutils.ResultItem, bool, error) {
+	// Only try to resolve Maven snapshots ("-SNAPSHOT" in the file name).
+	if searcher == nil || artifact.Repo == "" || artifact.Path == "" || artifact.Name == "" || !strings.Contains(artifact.Name, "-SNAPSHOT") {
+		return artifact, false, nil
+	}
+	exactPattern := fmt.Sprintf("%s/%s/%s", artifact.Repo, artifact.Path, artifact.Name)
+	exactKey := "exact:" + exactPattern
+	if exists, ok := exactExistsCache[exactKey]; ok {
+		if exists {
+			return artifact, false, nil
+		}
+	} else {
+		exists, err := doesArtifactExist(searcher, exactPattern)
+		if err != nil {
+			return artifact, false, err
+		}
+		exactExistsCache[exactKey] = exists
+		if exists {
+			return artifact, false, nil
+		}
+	}
+
+	nameMatch := strings.Replace(artifact.Name, "-SNAPSHOT", "-*", 1)
+	searchPattern := fmt.Sprintf("%s/%s/%s", artifact.Repo, artifact.Path, nameMatch)
+	log.Debug("Resolving Maven unique snapshot for " + artifact.Name + " using pattern: " + searchPattern)
+
+	cacheKey := "wildcard:" + searchPattern
+	if wildcardSearched[cacheKey] {
+		if cached := wildcardBestCache[cacheKey]; cached != nil && cached.Name != "" && cached.Path != "" {
+			if cached.Name == artifact.Name && cached.Path == artifact.Path {
+				return artifact, false, nil
+			}
+			return servicesutils.ResultItem{Repo: artifact.Repo, Path: cached.Path, Name: cached.Name}, true, nil
+		}
+		// Negative cache hit.
+		return artifact, false, nil
+	}
+
+	searchParams := services.NewSearchParams()
+	searchParams.Pattern = searchPattern
+	searchParams.Recursive = false
+
+	reader, err := searcher.SearchFiles(searchParams)
+	if err != nil {
+		return artifact, false, err
+	}
+	defer func() {
+		if closeErr := reader.Close(); closeErr != nil {
+			log.Debug(fmt.Sprintf("Failed closing search reader for %s: %s", searchPattern, closeErr))
+		}
+	}()
+
+	var (
+		found      *servicesutils.ResultItem
+		foundModTs time.Time
+	)
+	for item := new(servicesutils.ResultItem); reader.NextRecord(item) == nil; item = new(servicesutils.ResultItem) {
+		// We only care about file results.
+		if item.Type == "folder" || item.Name == "" {
+			continue
+		}
+		// Prefer the latest modified timestamp.
+		modTime, parseErr := time.Parse("2006-01-02T15:04:05.999Z", item.Modified)
+		if parseErr != nil {
+			// If parsing fails, keep the first found item as a fallback.
+			if found == nil {
+				itemCopy := *item
+				found = &itemCopy
+			}
+			continue
+		}
+		if found == nil || modTime.After(foundModTs) {
+			itemCopy := *item
+			found = &itemCopy
+			foundModTs = modTime
+		}
+	}
+
+	if found == nil || found.Name == "" || found.Path == "" || found.Name == artifact.Name {
+		// Negative cache to avoid re-searching the same wildcard.
+		wildcardSearched[cacheKey] = true
+		wildcardBestCache[cacheKey] = nil
+		return artifact, false, nil
+	}
+
+	// Use the actual deployed item name/path, but keep the resolved target repository.
+	wildcardSearched[cacheKey] = true
+	wildcardBestCache[cacheKey] = found
+	return servicesutils.ResultItem{
+		Repo: artifact.Repo,
+		Path: found.Path,
+		Name: found.Name,
+	}, true, nil
+}
+
+func doesArtifactExist(searcher gradlePropsFilesSearcher, pattern string) (bool, error) {
+	searchParams := services.NewSearchParams()
+	searchParams.Pattern = pattern
+	searchParams.Recursive = false
+	reader, err := searcher.SearchFiles(searchParams)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		if closeErr := reader.Close(); closeErr != nil {
+			log.Debug(fmt.Sprintf("Failed closing search reader for %s: %s", pattern, closeErr))
+		}
+	}()
+	for item := new(servicesutils.ResultItem); reader.NextRecord(item) == nil; item = new(servicesutils.ResultItem) {
+		if item.Type != "folder" && item.Name != "" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func collectArtifactsFromBuildInfo(buildInfo *entities.BuildInfo, workingDir string) []servicesutils.ResultItem {
