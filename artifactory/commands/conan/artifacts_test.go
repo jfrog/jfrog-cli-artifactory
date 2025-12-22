@@ -265,3 +265,6 @@ func TestNewBuildPropertySetter(t *testing.T) {
 	assert.Equal(t, targetRepo, setter.targetRepo)
 }
 
+
+
+

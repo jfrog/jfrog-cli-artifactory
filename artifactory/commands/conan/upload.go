@@ -111,60 +111,90 @@ func (up *UploadProcessor) getTargetRepository(uploadOutput string) (string, err
 }
 
 // parseUploadedArtifactPaths extracts the specific paths that were uploaded from conan upload output.
-// Conan upload output has a hierarchical structure:
+// Conan 2.x upload summary format:
 //
-//	simplelib/1.0.0              <- Package name/version
-//	  86deb56ab95f8fe27d07debf8a6ee3f9 (Uploaded)  <- Recipe revision (MD5, 32 chars)
-//	    9f5e648a74c49245b42a22f586fcb7c4da7f5821  <- Package ID (SHA1, 40 chars)
-//	      7002fe990671bdb248e67579987227c4 (Uploaded)  <- Package revision (MD5, 32 chars)
+//	Upload summary:
+//	  conan-local-testing-reshmi      <- Remote name
+//	    multideps/1.0.0               <- Package name/version
+//	      revisions
+//	        797d134a8590a1bfa06d846768443f48 (Uploaded)  <- Recipe revision
+//	          packages
+//	            594ed0eb2e9dfcc60607438924c35871514e6c2a  <- Package ID
+//	              revisions
+//	                ca858ea14c32f931e49241df0b52bec9 (Uploaded)  <- Package revision
 //
 // This method parses this structure and builds Artifactory paths like:
-//   - _/simplelib/1.0.0/_/86deb56.../export (for recipe)
-//   - _/simplelib/1.0.0/_/86deb56.../package/9f5e648.../7002fe9... (for package)
+//   - _/multideps/1.0.0/_/797d134.../export (for recipe)
+//   - _/multideps/1.0.0/_/797d134.../package/594ed0.../ca858ea... (for package)
 func (up *UploadProcessor) parseUploadedArtifactPaths(output string) []string {
 	var paths []string
 	lines := strings.Split(output, "\n")
 
 	// State tracking for hierarchical parsing
-	var currentPkg string      // Current package name/version (e.g., "simplelib/1.0.0")
+	var currentPkg string       // Current package name/version (e.g., "multideps/1.0.0")
 	var currentRecipeRev string // Current recipe revision hash (MD5, 32 chars)
 	var currentPkgId string     // Current package ID (SHA1, 40 chars)
+	inUploadSection := false
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
-		// Match package name/version line: "simplelib/1.0.0"
+		// Start parsing after "Upload summary" or "Uploading to remote"
+		if strings.Contains(line, "Upload summary") || strings.Contains(line, "Uploading to remote") {
+			inUploadSection = true
+			continue
+		}
+
+		if !inUploadSection {
+			continue
+		}
+
+		// Skip empty lines and section markers
+		if trimmed == "" || trimmed == "revisions" || trimmed == "packages" {
+			continue
+		}
+
+		// Match package name/version line: "multideps/1.0.0"
+		// Must contain "/" but not be a path or special marker
 		if up.isPackageNameLine(trimmed) {
-			parts := strings.Split(trimmed, "/")
-			if len(parts) == 2 {
-				currentPkg = trimmed
-				currentRecipeRev = ""
-				currentPkgId = ""
+			currentPkg = trimmed
+			currentRecipeRev = ""
+			currentPkgId = ""
+			continue
+		}
+
+		// Match recipe/package revision with (Uploaded) or (Skipped, already in server)
+		// Both cases mean the artifact is in Artifactory and should be part of build info
+		if strings.Contains(trimmed, "(Uploaded)") || strings.Contains(trimmed, "(Skipped") {
+			// Extract revision hash by removing status suffix
+			rev := trimmed
+			if idx := strings.Index(rev, " ("); idx != -1 {
+				rev = rev[:idx]
+			}
+			rev = strings.TrimSpace(rev)
+
+			if len(rev) == 32 {
+				if currentPkgId == "" {
+					// This is a recipe revision
+					currentRecipeRev = rev
+					if currentPkg != "" {
+						path := fmt.Sprintf("_/%s/_/%s/export", currentPkg, rev)
+						paths = append(paths, path)
+					}
+				} else if currentRecipeRev != "" {
+					// This is a package revision
+					if currentPkg != "" {
+						path := fmt.Sprintf("_/%s/_/%s/package/%s/%s", currentPkg, currentRecipeRev, currentPkgId, rev)
+						paths = append(paths, path)
+					}
+					currentPkgId = "" // Reset for next package
+				}
 			}
 			continue
 		}
 
-		// Match recipe revision with (Uploaded): "86deb56ab95f8fe27d07debf8a6ee3f9 (Uploaded)"
-		if strings.Contains(trimmed, "(Uploaded)") && currentPkg != "" {
-			rev := strings.TrimSuffix(strings.TrimSpace(trimmed), " (Uploaded)")
-			if len(rev) == 32 && currentPkgId == "" {
-				// This is a recipe revision (no package ID seen yet)
-				currentRecipeRev = rev
-				path := fmt.Sprintf("_/%s/_/%s/export", currentPkg, rev)
-				paths = append(paths, path)
-				log.Debug(fmt.Sprintf("Found uploaded recipe: %s", path))
-			} else if len(rev) == 32 && currentPkgId != "" && currentRecipeRev != "" {
-				// This is a package revision
-				path := fmt.Sprintf("_/%s/_/%s/package/%s/%s", currentPkg, currentRecipeRev, currentPkgId, rev)
-				paths = append(paths, path)
-				log.Debug(fmt.Sprintf("Found uploaded package: %s", path))
-				currentPkgId = "" // Reset for next package
-			}
-			continue
-		}
-
-		// Match package ID line (SHA1, 40 chars, no spaces)
-		if currentRecipeRev != "" && len(trimmed) == 40 && !strings.Contains(trimmed, " ") {
+		// Match package ID line (SHA1, 40 chars, no spaces, no parentheses)
+		if len(trimmed) == 40 && !strings.Contains(trimmed, " ") && !strings.Contains(trimmed, "(") {
 			currentPkgId = trimmed
 		}
 	}

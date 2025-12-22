@@ -9,7 +9,6 @@ import (
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	specutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
@@ -53,14 +52,16 @@ func (ac *ArtifactCollector) CollectArtifacts(packageRef string) ([]entities.Art
 	return ac.searchArtifacts(buildArtifactQuery(ac.targetRepo, pkgInfo))
 }
 
-// CollectArtifactsForPath collects artifacts from a specific path pattern.
+// CollectArtifactsForPath collects artifacts from a specific path.
 // Used to collect only artifacts that were uploaded in the current build.
-func (ac *ArtifactCollector) CollectArtifactsForPath(pathPattern string) ([]entities.Artifact, error) {
+// The path should be exact (e.g., "_/multideps/1.0.0/_/revision/export")
+func (ac *ArtifactCollector) CollectArtifactsForPath(exactPath string) ([]entities.Artifact, error) {
 	if ac.serverDetails == nil {
 		return nil, fmt.Errorf("server details not initialized")
 	}
 
-	query := fmt.Sprintf(`{"repo": "%s", "path": {"$match": "%s/*"}}`, ac.targetRepo, pathPattern)
+	// Use exact path match - artifacts are directly in the path, not subfolders
+	query := fmt.Sprintf(`{"repo": "%s", "path": "%s"}`, ac.targetRepo, exactPath)
 	return ac.searchArtifacts(query)
 }
 
@@ -181,9 +182,9 @@ func NewBuildPropertySetter(serverDetails *config.ServerDetails, targetRepo, bui
 	}
 }
 
-// SetProperties sets build properties on the given artifacts.
-// Properties are set one by one as Artifactory API requires individual file paths.
-// This is the same approach used by Maven and other package managers.
+// SetProperties sets build properties on the given artifacts in a single batch operation.
+// This uses the same approach as Docker - writing all items to a temp file and making
+// one SetProps call, which is much more efficient than individual calls per artifact.
 func (bps *BuildPropertySetter) SetProperties(artifacts []entities.Artifact) error {
 	if len(artifacts) == 0 || bps.serverDetails == nil {
 		return nil
@@ -194,20 +195,66 @@ func (bps *BuildPropertySetter) SetProperties(artifacts []entities.Artifact) err
 		return fmt.Errorf("create services manager: %w", err)
 	}
 
+	// Convert artifacts to ResultItem format for batch processing
+	resultItems := bps.convertToResultItems(artifacts)
+	if len(resultItems) == 0 {
+		return nil
+	}
+
+	// Write all items to a temp file (like Docker does)
+	pathToFile, err := bps.writeItemsToFile(resultItems)
+	if err != nil {
+		return fmt.Errorf("write items to file: %w", err)
+	}
+
+	// Create reader and set properties in one batch call
+	reader := content.NewContentReader(pathToFile, content.DefaultKey)
+	defer closeReader(reader)
+
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	props := bps.formatBuildProperties(timestamp)
 
-	successCount := 0
-	for _, artifact := range artifacts {
-		if err := bps.setPropertiesOnArtifact(servicesManager, artifact, props); err != nil {
-			log.Debug(fmt.Sprintf("Failed to set properties on %s: %s", artifact.Name, err.Error()))
-			continue
-		}
-		successCount++
+	_, err = servicesManager.SetProps(services.PropsParams{Reader: reader, Props: props})
+	if err != nil {
+		return fmt.Errorf("set properties: %w", err)
 	}
 
-	log.Info(fmt.Sprintf("Set build properties on %d Conan artifacts", successCount))
+	log.Info(fmt.Sprintf("Set build properties on %d Conan artifacts (batch)", len(artifacts)))
 	return nil
+}
+
+// convertToResultItems converts build-info artifacts to ResultItem format for SetProps.
+func (bps *BuildPropertySetter) convertToResultItems(artifacts []entities.Artifact) []specutils.ResultItem {
+	var items []specutils.ResultItem
+	for _, artifact := range artifacts {
+		items = append(items, specutils.ResultItem{
+			Repo:        bps.targetRepo,
+			Path:        artifact.Path,
+			Name:        artifact.Name,
+			Actual_Sha1: artifact.Checksum.Sha1,
+			Actual_Md5:  artifact.Checksum.Md5,
+			Sha256:      artifact.Checksum.Sha256,
+		})
+	}
+	return items
+}
+
+// writeItemsToFile writes result items to a temp file for batch processing.
+func (bps *BuildPropertySetter) writeItemsToFile(items []specutils.ResultItem) (string, error) {
+	writer, err := content.NewContentWriter("results", true, false)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if closeErr := writer.Close(); closeErr != nil {
+			log.Debug(fmt.Sprintf("Failed to close writer: %s", closeErr))
+		}
+	}()
+
+	for _, item := range items {
+		writer.Write(item)
+	}
+	return writer.GetFilePath(), nil
 }
 
 // formatBuildProperties creates the build properties string.
@@ -221,31 +268,6 @@ func (bps *BuildPropertySetter) formatBuildProperties(timestamp string) string {
 	}
 
 	return props
-}
-
-// setPropertiesOnArtifact sets properties on a single artifact.
-func (bps *BuildPropertySetter) setPropertiesOnArtifact(manager artifactory.ArtifactoryServicesManager, artifact entities.Artifact, props string) error {
-	artifactPath := fmt.Sprintf("%s/%s/%s", bps.targetRepo, artifact.Path, artifact.Name)
-
-	searchParams := services.SearchParams{
-		CommonParams: &specutils.CommonParams{
-			Pattern: artifactPath,
-		},
-	}
-
-	reader, err := manager.SearchFiles(searchParams)
-	if err != nil {
-		return fmt.Errorf("search artifact: %w", err)
-	}
-	defer closeReader(reader)
-
-	propsParams := services.PropsParams{
-		Reader: reader,
-		Props:  props,
-	}
-
-	_, err = manager.SetProps(propsParams)
-	return err
 }
 
 // closeReader safely closes a content reader.

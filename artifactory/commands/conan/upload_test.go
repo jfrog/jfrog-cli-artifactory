@@ -176,3 +176,6 @@ func TestNewFlexPackCollector(t *testing.T) {
 	assert.Equal(t, workingDir, collector.config.WorkingDirectory)
 }
 
+
+
+

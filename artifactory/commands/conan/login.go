@@ -59,7 +59,6 @@ func ValidateAndLogin(remoteName string) (*config.ServerDetails, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Info(fmt.Sprintf("Found %d matching JFrog CLI config(s): %s", len(matchingConfigs), formatServerIDs(matchingConfigs)))
 
 	// Try to login with each matching config
 	return tryLoginWithConfigs(remoteName, matchingConfigs)
@@ -275,20 +274,22 @@ func loginToRemote(remoteName string, serverDetails *config.ServerDetails) error
 }
 
 // extractCredentials extracts username and password/token from server details.
+// For Conan authentication with Artifactory
 func extractCredentials(serverDetails *config.ServerDetails) (username, password string, err error) {
-	// Prefer access token over password
-	if serverDetails.AccessToken != "" {
-		username = serverDetails.User
-		if username == "" {
-			username = "token"
-		}
-		password = serverDetails.AccessToken
+	username = serverDetails.User
+	if username == "" {
+		username = "admin"
+	}
+
+	// Prefer password over access token for Conan (API keys work more reliably)
+	if serverDetails.Password != "" {
+		password = serverDetails.Password
 		return username, password, nil
 	}
 
-	if serverDetails.Password != "" {
-		username = serverDetails.User
-		password = serverDetails.Password
+	// Fall back to access token if no password
+	if serverDetails.AccessToken != "" {
+		password = serverDetails.AccessToken
 		return username, password, nil
 	}
 
@@ -303,4 +304,3 @@ func formatServerIDs(configs []*config.ServerDetails) string {
 	}
 	return strings.Join(ids, ", ")
 }
-
