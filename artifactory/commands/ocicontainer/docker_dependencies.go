@@ -3,6 +3,7 @@ package ocicontainer
 import (
 	"errors"
 	"fmt"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/repository"
 	"strings"
 	"sync"
 
@@ -108,7 +109,7 @@ func (ddp *DockerDependenciesBuilder) collectDetailsForBaseImage(baseImage Docke
 		return []utils.ResultItem{}, err
 	}
 
-	if repositoryDetails.RepoType == "remote" {
+	if repositoryDetails.RepoType == repository.Remote {
 		var markerLayers []string
 		markerLayers, layers = getMarkerLayerShasFromSearchResult(layers)
 		markerLayersDetails := handleMarkerLayersForDockerBuild(markerLayers, ddp.serviceManager, repositoryDetails.Key, imageName)
@@ -144,7 +145,7 @@ func (ddp *DockerDependenciesBuilder) collectDetailsForDigestBasedImage(image *I
 		return []utils.ResultItem{}, err
 	}
 
-	if repositoryDetails.RepoType == "remote" {
+	if repositoryDetails.RepoType == repository.Remote {
 		var markerLayers []string
 		markerLayers, layers = getMarkerLayerShasFromSearchResult(layers)
 		markerLayersDetails := handleMarkerLayersForDockerBuild(markerLayers, ddp.serviceManager, repositoryDetails.Key, imageName)
@@ -157,14 +158,14 @@ func (ddp *DockerDependenciesBuilder) collectDetailsForDigestBasedImage(image *I
 // applyRepoTypeModifications applies repository-type-specific path modifications
 func (ddp *DockerDependenciesBuilder) applyRepoTypeModifications(basePath string, repositoryDetails DockerRepositoryDetails) []string {
 	// for remote repositories, the image path is prefixed with "library/"
-	if repositoryDetails.RepoType == "remote" {
+	if repositoryDetails.RepoType == repository.Remote {
 		return []string{modifyPathForRemoteRepo(basePath)}
 	}
 
 	// virtual repository can contain remote repository and local repository
 	// multi-platform images are stored in local under folders like sha256:xyz format
 	// but in remote it's stored in folders like library/sha256__xyz format
-	if repositoryDetails.RepoType == "virtual" {
+	if repositoryDetails.RepoType == repository.Virtual {
 		return append([]string{modifyPathForRemoteRepo(basePath)}, basePath)
 	}
 

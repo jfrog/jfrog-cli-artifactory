@@ -87,7 +87,7 @@ func (dbib *DockerBuildInfoBuilder) Build() error {
 		log.Warn(fmt.Sprintf("Failed to get artifacts for '%s'. Error: %v", dbib.buildName, err))
 	}
 
-	err = dbib.applyBuildProps(resultsToApplyProps, artifactBuilder.GetPushedRepo())
+	err = dbib.applyBuildProps(resultsToApplyProps, artifactBuilder.GetOriginalDeploymentRepo())
 	if err != nil {
 		log.Warn(fmt.Sprintf("Failed to apply build prop. Error: %v", err))
 	}

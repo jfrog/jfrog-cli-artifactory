@@ -412,7 +412,7 @@ func TestGetPushedRepo(t *testing.T) {
 				repositoryDetails: tt.repoDetails,
 			}
 
-			result := builder.GetPushedRepo()
+			result := builder.GetOriginalDeploymentRepo()
 			assert.Equal(t, tt.expected, result)
 		})
 	}

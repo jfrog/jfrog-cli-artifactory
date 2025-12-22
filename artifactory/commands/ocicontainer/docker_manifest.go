@@ -14,6 +14,11 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+const (
+	osDarwin = "darwin"
+	osLinux  = "linux"
+)
+
 type DockerImage struct {
 	Image        string
 	OS           string
@@ -34,15 +39,18 @@ func (baseImage DockerImage) GetManifestDetails() (string, error) {
 		osArch = baseImage.Architecture
 	} else {
 		osName = runtime.GOOS
-		if osName == "darwin" {
-			osName = "linux"
+		if osName == osDarwin {
+			osName = osLinux
 		}
 		osArch = runtime.GOARCH
 	}
 
 	remoteImage, err := remote.Image(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain), remote.WithPlatform(v1.Platform{OS: osName, Architecture: osArch}))
-	if err != nil || remoteImage == nil {
-		return "", fmt.Errorf("error fetching manifest for %s: %w", imageRef, err)
+	if err != nil {
+		return "", errorutils.CheckError(err)
+	}
+	if remoteImage == nil {
+		return "", fmt.Errorf("error fetching manifest for %s", imageRef)
 	}
 
 	manifestShaDigest, err := remoteImage.Digest()
@@ -163,7 +171,10 @@ func (h *FatManifestHandler) FetchLayers(imageRef string, repository string) ([]
 	if err != nil {
 		return []utils.ResultItem{}, []utils.ResultItem{}, fmt.Errorf("parsing reference %s: %w", imageRef, err)
 	}
-	manifestShas := h.getManifestShaListForImage(ref)
+	manifestShas, err := h.getManifestShaListForImage(ref)
+	if err != nil {
+		return []utils.ResultItem{}, []utils.ResultItem{}, err
+	}
 	return h.getLayersForManifestSha(imageRef, manifestShas, repository)
 }
 
@@ -173,23 +184,21 @@ func (h *FatManifestHandler) BuildSearchPaths(imageName, imageTag, manifestDiges
 }
 
 // getManifestShaListForImage retrieves all platform manifest SHAs from a fat manifest
-func (h *FatManifestHandler) getManifestShaListForImage(imageReference name.Reference) []string {
+func (h *FatManifestHandler) getManifestShaListForImage(imageReference name.Reference) ([]string, error) {
 	index, err := remote.Index(imageReference, remote.WithAuthFromKeychain(authn.DefaultKeychain))
 	if err != nil {
-		log.Warn(fmt.Sprintf("Failed to get image index for image: %s. Error: %s", imageReference.Name(), err.Error()))
-		return []string{}
+		return []string{}, errorutils.CheckErrorf("Failed to get image index for image: %s. Error: %s", imageReference.Name(), err.Error())
 	}
 	manifestList, err := index.IndexManifest()
 	if err != nil {
-		log.Warn(fmt.Sprintf("Failed to get manifest list for image: %s. Error: %s", imageReference.Name(), err.Error()))
-		return []string{}
+		return []string{}, errorutils.CheckErrorf("Failed to get manifest list for image: %s. Error: %s", imageReference.Name(), err.Error())
 	}
 	manifestShas := make([]string, 0, len(manifestList.Manifests))
 	for _, descriptor := range manifestList.Manifests {
 		manifestShas = append(manifestShas, descriptor.Digest.String())
 	}
 	log.Debug(fmt.Sprintf("Found %d platform manifests", len(manifestShas)))
-	return manifestShas
+	return manifestShas, nil
 }
 
 // getLayersForManifestSha searches for layers across all manifest SHAs

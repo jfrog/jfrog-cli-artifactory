@@ -600,9 +600,9 @@ func TestAppendModuleInExistingBuildInfo(t *testing.T) {
 			},
 		}
 		moduleToAdd := &entities.Module{
-			Id:          "test:1.0.0",
+			Id:           "test:1.0.0",
 			Dependencies: []entities.Dependency{},
-			Artifacts:   []entities.Artifact{},
+			Artifacts:    []entities.Artifact{},
 		}
 		appendModuleInExistingBuildInfo(buildInfo, moduleToAdd)
 		assert.Len(t, buildInfo.Modules, 1)

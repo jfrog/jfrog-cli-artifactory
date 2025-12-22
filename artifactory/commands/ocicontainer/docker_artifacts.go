@@ -2,7 +2,9 @@ package ocicontainer
 
 import (
 	"fmt"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/repository"
 	"github.com/jfrog/jfrog-client-go/artifactory"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
@@ -28,6 +30,10 @@ func NewDockerArtifactsBuilder(serviceManager artifactory.ArtifactoryServicesMan
 // getArtifacts collects artifacts for the pushed image
 func (dab *DockerArtifactsBuilder) getArtifacts() (artifacts []buildinfo.Artifact, leadSha string, resultsToApplyProps []utils.ResultItem, err error) {
 	var resultItems []utils.ResultItem
+	if !dab.isImagePushed {
+		log.Debug("Image was not pushed, skipping artifact collection!")
+		return
+	}
 	if dab.isImagePushed {
 		leadSha, resultItems, resultsToApplyProps, err = dab.collectDetailsForPushedImage(dab.imageTag)
 		if err != nil {
@@ -51,6 +57,9 @@ func (dab *DockerArtifactsBuilder) collectDetailsForPushedImage(imageRef string)
 	}
 	dab.repositoryDetails = repositoryDetails
 	layers, resultsToApplyProps, err := NewDockerManifestHandler(dab.serviceManager).FetchLayersOfPushedImage(imageRef, searchableRepository, dockerManifestType)
+	if err != nil {
+		return "", []utils.ResultItem{}, []utils.ResultItem{}, errorutils.CheckError(err)
+	}
 	log.Debug(fmt.Sprintf("Collected %d layers, %d folders for props", len(layers), len(resultsToApplyProps)))
 	return leadSha, layers, resultsToApplyProps, err
 }
@@ -65,12 +74,12 @@ func (dab *DockerArtifactsBuilder) createArtifactsFromResults(results []utils.Re
 	return artifacts
 }
 
-// GetPushedRepo returns the repository where the image was pushed
-func (dab *DockerArtifactsBuilder) GetPushedRepo() string {
+// GetOriginalDeploymentRepo returns the repository where the image was pushed
+func (dab *DockerArtifactsBuilder) GetOriginalDeploymentRepo() string {
 	if dab.repositoryDetails == nil {
 		return ""
 	}
-	if dab.repositoryDetails.RepoType == "virtual" {
+	if dab.repositoryDetails.RepoType == repository.Virtual {
 		return dab.repositoryDetails.DefaultDeploymentRepo
 	}
 	return dab.repositoryDetails.Key
