@@ -204,8 +204,8 @@ func (c *ConanCommand) runConanCommand() error {
 
 // processBuildInfo processes build info after a successful upload.
 func (c *ConanCommand) processBuildInfo(uploadOutput string) error {
-	buildName, buildNumber, err := c.getBuildNameAndNumber()
-	if err != nil {
+	buildName, buildNumber, _ := c.getBuildNameAndNumber()
+	if buildName == "" || buildNumber == "" {
 		return nil // No build info configured, skip silently
 	}
 
@@ -222,8 +222,8 @@ func (c *ConanCommand) processBuildInfo(uploadOutput string) error {
 
 // collectAndSaveBuildInfo collects dependencies and saves build info locally.
 func (c *ConanCommand) collectAndSaveBuildInfo() error {
-	buildName, buildNumber, err := c.getBuildNameAndNumber()
-	if err != nil {
+	buildName, buildNumber, _ := c.getBuildNameAndNumber()
+	if buildName == "" || buildNumber == "" {
 		return nil // No build info configured, skip silently
 	}
 
@@ -236,21 +236,14 @@ func (c *ConanCommand) collectAndSaveBuildInfo() error {
 
 	collector, err := conanflex.NewConanFlexPack(conanConfig)
 	if err != nil {
-		log.Warn("Failed to create Conan FlexPack: " + err.Error())
-		return nil
+		return fmt.Errorf("failed to create Conan FlexPack: %w", err)
 	}
-
-	// Collect build info
 	buildInfo, err := collector.CollectBuildInfo(buildName, buildNumber)
 	if err != nil {
-		log.Warn("Failed to collect Conan build info: " + err.Error())
-		return nil
+		return fmt.Errorf("failed to collect Conan build info: %w", err)
 	}
-
-	// Save build info locally
 	if err := saveBuildInfoLocally(buildInfo); err != nil {
-		log.Warn("Failed to save build info: " + err.Error())
-		return nil
+		return fmt.Errorf("failed to save build info: %w", err)
 	}
 
 	log.Info(fmt.Sprintf("Conan build info collected. Use 'jf rt bp %s %s' to publish it.", buildName, buildNumber))

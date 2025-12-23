@@ -84,11 +84,11 @@ func (ac *ArtifactCollector) searchArtifacts(aqlQuery string) ([]entities.Artifa
 	}
 	defer closeReader(reader)
 
-	return parseSearchResults(reader)
+	return parseSearchResults(reader), nil
 }
 
 // parseSearchResults converts AQL search results to artifacts.
-func parseSearchResults(reader *content.ContentReader) ([]entities.Artifact, error) {
+func parseSearchResults(reader *content.ContentReader) []entities.Artifact {
 	var artifacts []entities.Artifact
 
 	for item := new(specutils.ResultItem); reader.NextRecord(item) == nil; item = new(specutils.ResultItem) {
@@ -104,7 +104,7 @@ func parseSearchResults(reader *content.ContentReader) ([]entities.Artifact, err
 		artifacts = append(artifacts, artifact)
 	}
 
-	return artifacts, nil
+	return artifacts
 }
 
 // ParsePackageReference parses a Conan package reference string into structured info.
@@ -231,9 +231,9 @@ func (bps *BuildPropertySetter) convertToResultItems(artifacts []entities.Artifa
 			Repo:        bps.targetRepo,
 			Path:        artifact.Path,
 			Name:        artifact.Name,
-			Actual_Sha1: artifact.Checksum.Sha1,
-			Actual_Md5:  artifact.Checksum.Md5,
-			Sha256:      artifact.Checksum.Sha256,
+			Actual_Sha1: artifact.Sha1,
+			Actual_Md5:  artifact.Md5,
+			Sha256:      artifact.Sha256,
 		})
 	}
 	return items
