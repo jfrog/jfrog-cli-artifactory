@@ -12,23 +12,29 @@ import (
 
 // CollectHelmBuildInfoWithFlexPack collects Helm build info using FlexPack
 func CollectHelmBuildInfoWithFlexPack(workingDir, buildName, buildNumber, project, commandName string, helmArgs []string, serverDetails *config.ServerDetails) error {
-	buildInfo, err := collectBuildInfoWithFlexPack(workingDir, buildName, buildNumber)
-	if err != nil {
-		return fmt.Errorf("failed to collect build info: %w", err)
-	}
-	if buildInfo == nil {
-		log.Debug("No build info collected, skipping further processing")
-		return nil
-	}
 	serviceManager, err := utils.CreateServiceManager(serverDetails, -1, 0, false)
 	if err != nil {
 		return fmt.Errorf("failed to create services manager: %w", err)
 	}
-	updateDependencyOCILayersInBuildInfo(buildInfo, serviceManager)
-	if commandName == "push" {
-		handlePushCommand(buildInfo, helmArgs, serviceManager)
+	buildInfoService := buildtool.CreateBuildInfoService()
+	build, err := buildInfoService.GetOrCreateBuildWithProject(buildName, buildNumber, project)
+	if err != nil {
+		return fmt.Errorf("failed to create build info: %w", err)
 	}
-	return saveBuildInfo(buildInfo, buildName, buildNumber, project)
+	buildInfo, err := build.ToBuildInfo()
+	if err != nil {
+		return fmt.Errorf("failed to build info: %w", err)
+	}
+	switch commandName {
+	case "push":
+		return handlePushCommand(buildInfo, helmArgs, serviceManager, buildName, buildNumber, project)
+	case "package":
+		return handlePackageCommand(buildInfo, helmArgs, serviceManager, buildName, buildNumber, project)
+	case "dependency":
+		return handleDependencyCommand(buildInfo, helmArgs, serviceManager, workingDir, buildName, buildNumber, project)
+	}
+	log.Info("Skipping helm build info because", commandName, "command is not collecting build info")
+	return nil
 }
 
 // collectBuildInfoWithFlexPack collects build info using FlexPack
@@ -53,6 +59,6 @@ func saveBuildInfo(buildInfo *entities.BuildInfo, buildName, buildNumber, projec
 		log.Warn("Failed to save build info for jfrog-cli compatibility: ", err.Error())
 		return err
 	}
-	log.Info("Build info saved locally. Use 'jf rt bp ", buildName, " ", buildNumber, "' to publish it to Artifactory.")
+	log.Info("Build info saved locally. Use 'jf rt bp", buildName, buildNumber, "' to publish it to Artifactory.")
 	return nil
 }

@@ -18,7 +18,7 @@ func (rbc *ReleaseBundleCreateCommand) createFromReleaseBundles(servicesManager 
 	if err != nil {
 		return err
 	}
-
+	releaseBundlesSource = rbc.convertProjectKeyToRepositoryKey(releaseBundlesSource)
 	if len(releaseBundlesSource.ReleaseBundles) == 0 {
 		return errorutils.CheckErrorf("at least one release bundle is expected in order to create a release bundle from release bundles")
 	}
@@ -38,6 +38,18 @@ func (rbc *ReleaseBundleCreateCommand) createReleaseBundleSourceFromSpec() (serv
 		return releaseBundlesSource, err
 	}
 	return releaseBundlesSource, nil
+}
+
+func (rbc *ReleaseBundleCreateCommand) convertProjectKeyToRepositoryKey(rbSources services.CreateFromReleaseBundlesSource) services.CreateFromReleaseBundlesSource {
+	releaseBundlesSource := services.CreateFromReleaseBundlesSource{}
+	for _, rb := range rbSources.ReleaseBundles {
+		rbSource := rb
+		if rbSource.ProjectKey != "" {
+			rbSource.RepositoryKey = rb.ProjectKey + "-release-bundles-v2"
+		}
+		releaseBundlesSource.ReleaseBundles = append(releaseBundlesSource.ReleaseBundles, rbSource)
+	}
+	return releaseBundlesSource
 }
 
 func (rbc *ReleaseBundleCreateCommand) convertToReleaseBundlesSource(bundles CreateFromReleaseBundlesSpec) services.CreateFromReleaseBundlesSource {

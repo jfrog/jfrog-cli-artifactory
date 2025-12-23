@@ -17,41 +17,33 @@ import (
 
 // DockerBuildInfoBuilder is a simplified builder for docker build command
 type DockerBuildInfoBuilder struct {
-	buildName                       string
-	buildNumber                     string
-	project                         string
-	module                          string
-	serviceManager                  artifactory.ArtifactoryServicesManager
-	imageTag                        string
-	baseImages                      []BaseImage
-	isImagePushed                   bool
-	cmdArgs                         []string
-	repositoryDetails               dockerRepositoryDetails
-	searchableLayerForApplyingProps []utils.ResultItem
+	buildName      string
+	buildNumber    string
+	project        string
+	module         string
+	serviceManager artifactory.ArtifactoryServicesManager
+	imageTag       string
+	baseImages     []DockerImage
+	isImagePushed  bool
+	cmdArgs        []string
 }
 
-type dockerRepositoryDetails struct {
+type DockerRepositoryDetails struct {
 	Key                   string `json:"key"`
 	RepoType              string `json:"rclass"`
 	DefaultDeploymentRepo string `json:"defaultDeploymentRepo"`
 }
 
-type BaseImage struct {
-	Image        string
-	OS           string
-	Architecture string
-}
-
-type manifestType string
+type ManifestType string
 
 const (
-	ManifestList manifestType = "list.manifest.json"
-	Manifest     manifestType = "manifest.json"
+	ManifestList ManifestType = "list.manifest.json"
+	Manifest     ManifestType = "manifest.json"
 )
 
 // NewDockerBuildInfoBuilder creates a new builder for docker build command
 func NewDockerBuildInfoBuilder(buildName, buildNumber, project string, module string, serviceManager artifactory.ArtifactoryServicesManager,
-	imageTag string, baseImages []BaseImage, isImagePushed bool, cmdArgs []string) *DockerBuildInfoBuilder {
+	imageTag string, baseImages []DockerImage, isImagePushed bool, cmdArgs []string) *DockerBuildInfoBuilder {
 
 	biImage := NewImage(imageTag)
 
@@ -79,21 +71,23 @@ func NewDockerBuildInfoBuilder(buildName, buildNumber, project string, module st
 
 // Build orchestrates the collection of dependencies and artifacts for the docker build
 func (dbib *DockerBuildInfoBuilder) Build() error {
+	log.Debug(fmt.Sprintf("Starting docker build-info collection for %s/%s", dbib.buildName, dbib.buildNumber))
 	if err := build.SaveBuildGeneralDetails(dbib.buildName, dbib.buildNumber, dbib.project); err != nil {
 		return err
 	}
 
-	dependencies, err := dbib.getDependencies()
+	dependencies, err := NewDockerDependenciesBuilder(dbib.baseImages, dbib.serviceManager).getDependencies()
 	if err != nil {
 		log.Warn(fmt.Sprintf("Failed to get dependencies for '%s'. Error: %v", dbib.buildName, err))
 	}
 
-	artifacts, leadSha, err := dbib.getArtifacts()
+	artifactBuilder := NewDockerArtifactsBuilder(dbib.serviceManager, dbib.imageTag, dbib.isImagePushed)
+	artifacts, leadSha, resultsToApplyProps, err := artifactBuilder.getArtifacts()
 	if err != nil {
 		log.Warn(fmt.Sprintf("Failed to get artifacts for '%s'. Error: %v", dbib.buildName, err))
 	}
 
-	err = dbib.applyBuildProps(dbib.searchableLayerForApplyingProps)
+	err = dbib.applyBuildProps(resultsToApplyProps, artifactBuilder.GetOriginalDeploymentRepo())
 	if err != nil {
 		log.Warn(fmt.Sprintf("Failed to apply build prop. Error: %v", err))
 	}
@@ -108,6 +102,7 @@ func (dbib *DockerBuildInfoBuilder) Build() error {
 		Artifacts:    artifacts,
 	}}}
 
+	log.Debug(fmt.Sprintf("Saving build info for %s/%s", dbib.buildName, dbib.buildNumber))
 	if err = build.SaveBuildInfo(dbib.buildName, dbib.buildNumber, dbib.project, buildInfo); err != nil {
 		return errorutils.CheckErrorf("failed to save build info for '%s/%s': %s", dbib.buildName, dbib.buildNumber, err.Error())
 	}
@@ -116,12 +111,15 @@ func (dbib *DockerBuildInfoBuilder) Build() error {
 }
 
 // applyBuildProps applies build properties to the artifacts
-func (dbib *DockerBuildInfoBuilder) applyBuildProps(items []utils.ResultItem) (err error) {
+func (dbib *DockerBuildInfoBuilder) applyBuildProps(items []utils.ResultItem, pushedRepo string) (err error) {
 	props, err := build.CreateBuildProperties(dbib.buildName, dbib.buildNumber, dbib.project)
 	if err != nil {
 		return
 	}
-	pushedRepo := dbib.getPushedRepo()
+	if pushedRepo == "" {
+		log.Warn("Pushed repository is empty, skipping applying build properties.")
+		return nil
+	}
 	filteredLayers := filterLayersFromVirtualRepo(items, pushedRepo)
 	if len(filteredLayers) == 0 {
 		log.Debug(fmt.Sprintf("Filtered layers length is 0 after filtering with pushedRepo: %s, All layers: %v", pushedRepo, items))

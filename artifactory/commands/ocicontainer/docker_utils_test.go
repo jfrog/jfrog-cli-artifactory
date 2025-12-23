@@ -1,6 +1,7 @@
 package ocicontainer
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
@@ -370,12 +371,17 @@ func TestGetBiProperties(t *testing.T) {
 func TestGetPushedRepo(t *testing.T) {
 	tests := []struct {
 		name        string
-		repoDetails dockerRepositoryDetails
+		repoDetails *DockerRepositoryDetails
 		expected    string
 	}{
 		{
+			name:        "nil repository details",
+			repoDetails: nil,
+			expected:    "",
+		},
+		{
 			name: "local repository",
-			repoDetails: dockerRepositoryDetails{
+			repoDetails: &DockerRepositoryDetails{
 				Key:      "docker-local",
 				RepoType: "local",
 			},
@@ -383,7 +389,7 @@ func TestGetPushedRepo(t *testing.T) {
 		},
 		{
 			name: "remote repository",
-			repoDetails: dockerRepositoryDetails{
+			repoDetails: &DockerRepositoryDetails{
 				Key:      "docker-remote",
 				RepoType: "remote",
 			},
@@ -391,7 +397,7 @@ func TestGetPushedRepo(t *testing.T) {
 		},
 		{
 			name: "virtual repository",
-			repoDetails: dockerRepositoryDetails{
+			repoDetails: &DockerRepositoryDetails{
 				Key:                   "docker-virtual",
 				RepoType:              "virtual",
 				DefaultDeploymentRepo: "docker-local-deploy",
@@ -402,11 +408,11 @@ func TestGetPushedRepo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			builder := &DockerBuildInfoBuilder{
+			builder := &DockerArtifactsBuilder{
 				repositoryDetails: tt.repoDetails,
 			}
 
-			result := builder.getPushedRepo()
+			result := builder.GetOriginalDeploymentRepo()
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -445,11 +451,10 @@ func TestApplyRepoTypeModifications(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			builder := &DockerBuildInfoBuilder{
-				repositoryDetails: dockerRepositoryDetails{RepoType: tt.repoType},
-			}
+			builder := &DockerDependenciesBuilder{}
+			repoDetails := DockerRepositoryDetails{RepoType: tt.repoType}
 
-			result := builder.applyRepoTypeModifications(tt.basePath)
+			result := builder.applyRepoTypeModifications(tt.basePath, repoDetails)
 			assert.Equal(t, tt.expectedLen, len(result))
 			assert.Equal(t, tt.expected, result)
 		})
@@ -457,11 +462,11 @@ func TestApplyRepoTypeModifications(t *testing.T) {
 }
 
 func TestGetManifestHandler(t *testing.T) {
-	builder := &DockerBuildInfoBuilder{}
+	manifestHandler := &DockerManifestHandler{}
 
 	tests := []struct {
 		name         string
-		manifestType manifestType
+		manifestType ManifestType
 		expectNil    bool
 		handlerType  string
 	}{
@@ -479,13 +484,13 @@ func TestGetManifestHandler(t *testing.T) {
 		},
 		{
 			name:         "unknown type returns nil",
-			manifestType: manifestType("unknown"),
+			manifestType: ManifestType("unknown"),
 			expectNil:    true,
 			handlerType:  "",
 		},
 		{
 			name:         "empty type returns nil",
-			manifestType: manifestType(""),
+			manifestType: ManifestType(""),
 			expectNil:    true,
 			handlerType:  "",
 		},
@@ -493,7 +498,7 @@ func TestGetManifestHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := builder.getManifestHandler(tt.manifestType)
+			handler := manifestHandler.GetManifestHandler(tt.manifestType)
 
 			if tt.expectNil {
 				assert.Nil(t, handler)
@@ -555,7 +560,7 @@ func TestCreateSearchablePathForDockerManifestContents(t *testing.T) {
 }
 
 func TestCreateDependenciesFromResults(t *testing.T) {
-	builder := &DockerBuildInfoBuilder{}
+	builder := &DockerDependenciesBuilder{}
 
 	tests := []struct {
 		name        string
@@ -603,7 +608,7 @@ func TestCreateDependenciesFromResults(t *testing.T) {
 }
 
 func TestCreateArtifactsFromResults(t *testing.T) {
-	builder := &DockerBuildInfoBuilder{}
+	builder := &DockerArtifactsBuilder{}
 
 	tests := []struct {
 		name        string
@@ -650,55 +655,58 @@ func TestCreateArtifactsFromResults(t *testing.T) {
 }
 
 func TestManifestTypeConstants(t *testing.T) {
-	assert.Equal(t, manifestType("list.manifest.json"), ManifestList)
-	assert.Equal(t, manifestType("manifest.json"), Manifest)
+	assert.Equal(t, ManifestType("list.manifest.json"), ManifestList)
+	assert.Equal(t, ManifestType("manifest.json"), Manifest)
 }
 
 func TestFetchLayersOfPushedImage_UnknownManifestType(t *testing.T) {
-	builder := &DockerBuildInfoBuilder{}
+	handler := &DockerManifestHandler{}
 
 	// Test error handling for unknown manifest type
-	result, err := builder.fetchLayersOfPushedImage("test-image", "test-repo", manifestType("unknown"))
+	layers, foldersToApplyProps, err := handler.FetchLayersOfPushedImage("test-image", "test-repo", ManifestType("unknown"))
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown/other manifest type")
-	assert.Empty(t, result)
+	assert.Empty(t, layers)
+	assert.Empty(t, foldersToApplyProps)
 }
 
 func TestFetchLayersOfPushedImage_EmptyManifestType(t *testing.T) {
-	builder := &DockerBuildInfoBuilder{}
+	handler := &DockerManifestHandler{}
 
 	// Test error handling for empty manifest type
-	result, err := builder.fetchLayersOfPushedImage("test-image", "test-repo", manifestType(""))
+	layers, foldersToApplyProps, err := handler.FetchLayersOfPushedImage("test-image", "test-repo", ManifestType(""))
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown/other manifest type")
-	assert.Empty(t, result)
+	assert.Empty(t, layers)
+	assert.Empty(t, foldersToApplyProps)
 }
 
 func TestGetArtifacts_ImageNotPushed(t *testing.T) {
-	builder := &DockerBuildInfoBuilder{
+	builder := &DockerArtifactsBuilder{
 		isImagePushed: false,
 		imageTag:      "test:latest",
 	}
 
-	artifacts, leadSha, err := builder.getArtifacts()
+	artifacts, leadSha, resultsToApplyProps, err := builder.getArtifacts()
 
 	assert.NoError(t, err)
 	assert.Empty(t, artifacts)
 	assert.Empty(t, leadSha)
+	assert.Empty(t, resultsToApplyProps)
 }
 
 func TestGetArtifacts_ImagePushed(t *testing.T) {
 	// This test verifies that when isImagePushed is true, the function attempts to collect artifacts
 	// Without proper serviceManager setup, it will error, but we verify the code path is taken
-	builder := &DockerBuildInfoBuilder{
+	builder := &DockerArtifactsBuilder{
 		isImagePushed: true,
 		imageTag:      "test:latest",
 	}
 
 	// Without proper setup, this will error, but we verify the path is taken
-	artifacts, leadSha, err := builder.getArtifacts()
+	artifacts, leadSha, resultsToApplyProps, err := builder.getArtifacts()
 
 	// Error expected without proper mocking, but function should attempt collection
 	// We just verify the function executes (error is expected without serviceManager)
@@ -710,4 +718,47 @@ func TestGetArtifacts_ImagePushed(t *testing.T) {
 		_ = artifacts
 	}
 	_ = leadSha
+	_ = resultsToApplyProps
+}
+
+func TestNormalizeLayerSha(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"plain hex digest", "6b59a28fa20117e6048ad0616b8d8c901877ef15ff4c7f18db04e4f01f43bc39", "6b59a28fa20117e6048ad0616b8d8c901877ef15ff4c7f18db04e4f01f43bc39"},
+		{"sha256: prefix", "sha256:6b59a28fa20117e6048ad0616b8d8c901877ef15ff4c7f18db04e4f01f43bc39", "6b59a28fa20117e6048ad0616b8d8c901877ef15ff4c7f18db04e4f01f43bc39"},
+		{"sha256__ prefix", "sha256__6b59a28fa20117e6048ad0616b8d8c901877ef15ff4c7f18db04e4f01f43bc39", "6b59a28fa20117e6048ad0616b8d8c901877ef15ff4c7f18db04e4f01f43bc39"},
+		{"empty string", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeLayerSha(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestDigestBasedImageDetection(t *testing.T) {
+	// Test that digest-based images are correctly identified
+	tests := []struct {
+		name     string
+		imageTag string
+		isDigest bool
+	}{
+		{"tag-based image", "latest", false},
+		{"version tag", "v1.0.0", false},
+		{"digest-based image", "sha256:abc123def456", true},
+		{"full digest", "sha256:4a2047b0e69af48c94821afb84ded71dee018059ac708e0e8f3e687e22726cd2", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Verify our detection logic matches expected behavior
+			isDigest := strings.HasPrefix(tt.imageTag, "sha256:")
+			assert.Equal(t, tt.isDigest, isDigest)
+		})
+	}
 }

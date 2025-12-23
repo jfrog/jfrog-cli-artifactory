@@ -94,7 +94,7 @@ func TestSetPypiRepoUrlWithCredentials_URLTransformation(t *testing.T) {
 			if password != "" {
 				// Construct base URL
 				baseUrl := rtUrl.Scheme + "://" + rtUrl.Host + rtUrl.Path
-				
+
 				// This is the logic from SetPypiRepoUrlWithCredentials that we're testing
 				publishUrl := strings.TrimSuffix(baseUrl, "/simple")
 				publishUrl = strings.TrimSuffix(publishUrl, "/")

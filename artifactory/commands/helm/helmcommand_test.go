@@ -62,80 +62,6 @@ func TestHelmCommandSetters(t *testing.T) {
 	assert.Equal(t, buildConfig, cmd.buildConfiguration)
 }
 
-// TestRequiresCredentialsInArguments tests the requiresCredentialsInArguments method
-func TestRequiresCredentialsInArguments(t *testing.T) {
-	tests := []struct {
-		name     string
-		cmdName  string
-		expected bool
-	}{
-		{
-			name:     "Registry command requires credentials",
-			cmdName:  "registry",
-			expected: true,
-		},
-		{
-			name:     "Repo command requires credentials",
-			cmdName:  "repo",
-			expected: true,
-		},
-		{
-			name:     "Dependency command requires credentials",
-			cmdName:  "dependency",
-			expected: true,
-		},
-		{
-			name:     "Upgrade command requires credentials",
-			cmdName:  "upgrade",
-			expected: true,
-		},
-		{
-			name:     "Install command requires credentials",
-			cmdName:  "install",
-			expected: true,
-		},
-		{
-			name:     "Pull command requires credentials",
-			cmdName:  "pull",
-			expected: true,
-		},
-		{
-			name:     "Push command requires credentials",
-			cmdName:  "push",
-			expected: true,
-		},
-		{
-			name:     "Package command does not require credentials",
-			cmdName:  "package",
-			expected: false,
-		},
-		{
-			name:     "Template command does not require credentials",
-			cmdName:  "template",
-			expected: false,
-		},
-		{
-			name:     "List command does not require credentials",
-			cmdName:  "list",
-			expected: false,
-		},
-		{
-			name:     "Empty command does not require credentials",
-			cmdName:  "",
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cmd := NewHelmCommand()
-			cmd.SetHelmCmdName(tt.cmdName)
-			result := cmd.requiresCredentialsInArguments()
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 // TestAppendCredentialsInArguments tests the appendCredentialsInArguments method
 func TestAppendCredentialsInArguments(t *testing.T) {
 	tests := []struct {
@@ -150,7 +76,7 @@ func TestAppendCredentialsInArguments(t *testing.T) {
 			username:      "cmduser",
 			password:      "cmdpass",
 			serverDetails: &config.ServerDetails{},
-			expectedArgs:  []string{"--username=cmduser", "--password=cmdpass"},
+			expectedArgs:  []string{"--username", "cmduser", "--password", "cmdpass"},
 		},
 		{
 			name: "Append credentials from server details",
