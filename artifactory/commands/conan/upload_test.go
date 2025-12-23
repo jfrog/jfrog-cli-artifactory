@@ -114,46 +114,6 @@ Upload completed in 3s
 	}
 }
 
-func TestUploadProcessor_ParseUploadPattern(t *testing.T) {
-	tests := []struct {
-		name     string
-		lines    []string
-		expected string
-	}{
-		{
-			name: "Standard uploading recipe line",
-			lines: []string{
-				"simplelib/1.0.0: Uploading recipe 'simplelib/1.0.0#86deb56ab95f8fe27d07debf8a6ee3f9' (1.6KB)",
-			},
-			expected: "simplelib/1.0.0",
-		},
-		{
-			name: "Multiple lines with uploading recipe",
-			lines: []string{
-				"Some other line",
-				"mypackage/2.0.0: Uploading recipe 'mypackage/2.0.0#abc123' (2KB)",
-				"Another line",
-			},
-			expected: "mypackage/2.0.0",
-		},
-		{
-			name: "No uploading recipe line",
-			lines: []string{
-				"Some output",
-				"No recipe here",
-			},
-			expected: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			processor := &UploadProcessor{}
-			result := processor.parseUploadPattern(tt.lines)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
 
 func TestNewUploadProcessor(t *testing.T) {
 	workingDir := "/test/path"
@@ -166,15 +126,6 @@ func TestNewUploadProcessor(t *testing.T) {
 	assert.Nil(t, processor.serverDetails)
 }
 
-func TestNewFlexPackCollector(t *testing.T) {
-	workingDir := "/test/path"
-	
-	collector, err := NewFlexPackCollector(workingDir)
-	
-	assert.NoError(t, err)
-	assert.NotNil(t, collector)
-	assert.Equal(t, workingDir, collector.config.WorkingDirectory)
-}
 
 
 

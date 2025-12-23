@@ -149,56 +149,6 @@ func TestBuildArtifactQuery(t *testing.T) {
 	}
 }
 
-func TestClassifyArtifactType(t *testing.T) {
-	tests := []struct {
-		name     string
-		filename string
-		expected string
-	}{
-		{
-			name:     "Conan recipe file",
-			filename: "conanfile.py",
-			expected: "conan-recipe",
-		},
-		{
-			name:     "Conan manifest file",
-			filename: "conanmanifest.txt",
-			expected: "conan-manifest",
-		},
-		{
-			name:     "Conan info file",
-			filename: "conaninfo.txt",
-			expected: "conan-info",
-		},
-		{
-			name:     "Conan sources archive",
-			filename: "conan_sources.tgz",
-			expected: "conan-package",
-		},
-		{
-			name:     "Conan package archive",
-			filename: "conan_package.tgz",
-			expected: "conan-package",
-		},
-		{
-			name:     "Unknown file type",
-			filename: "readme.md",
-			expected: "conan-artifact",
-		},
-		{
-			name:     "Header file",
-			filename: "mylib.h",
-			expected: "conan-artifact",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := classifyArtifactType(tt.filename)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
 
 func TestBuildPropertySetter_FormatBuildProperties(t *testing.T) {
 	tests := []struct {

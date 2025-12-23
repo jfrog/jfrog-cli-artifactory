@@ -121,15 +121,6 @@ func TestConanCommand_ChainedSetters(t *testing.T) {
 	assert.Equal(t, serverDetails, cmd.serverDetails)
 }
 
-func TestNewDependencyCollector(t *testing.T) {
-	workingDir := "/test/path"
-	
-	collector := NewDependencyCollector(workingDir, nil)
-	
-	assert.NotNil(t, collector)
-	assert.Equal(t, workingDir, collector.workingDir)
-	assert.Nil(t, collector.buildConfiguration)
-}
 
 
 

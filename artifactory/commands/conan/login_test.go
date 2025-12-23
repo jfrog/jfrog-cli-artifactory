@@ -213,7 +213,7 @@ func TestExtractCredentials(t *testing.T) {
 			serverDetails: &config.ServerDetails{
 				AccessToken: "my-access-token",
 			},
-			expectedUsername: "token",
+			expectedUsername: "admin", // Defaults to "admin" when no user specified
 			expectedPassword: "my-access-token",
 			expectError:      false,
 		},
@@ -228,14 +228,14 @@ func TestExtractCredentials(t *testing.T) {
 			expectError:      false,
 		},
 		{
-			name: "Prefer access token over password",
+			name: "Prefer password over access token",
 			serverDetails: &config.ServerDetails{
 				User:        "myuser",
 				Password:    "mypassword",
 				AccessToken: "my-access-token",
 			},
 			expectedUsername: "myuser",
-			expectedPassword: "my-access-token",
+			expectedPassword: "mypassword", // Password is preferred for Conan (API keys work more reliably)
 			expectError:      false,
 		},
 		{

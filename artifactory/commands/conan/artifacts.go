@@ -214,7 +214,7 @@ func (bps *BuildPropertySetter) SetProperties(artifacts []entities.Artifact) err
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	props := bps.formatBuildProperties(timestamp)
 
-	_, err = servicesManager.SetProps(services.PropsParams{Reader: reader, Props: props})
+	_, err = servicesManager.SetProps(services.PropsParams{Reader: reader, Props: props, UseDebugLogs: true, IsRecursive: true})
 	if err != nil {
 		return fmt.Errorf("set properties: %w", err)
 	}
