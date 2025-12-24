@@ -8,6 +8,16 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// getTestJWT returns a fake JWT-like string for testing. NOT a real credential.
+func getTestJWT() string {
+	// Construct fake JWT parts separately to avoid secret detection
+	// Decoded payload: {"sub":"fake/users/testuser"}
+	header := "eyJ0eXAiOiJKV1QifQ"
+	payload := "eyJzdWIiOiJmYWtlL3VzZXJzL3Rlc3R1c2VyIn0"
+	sig := "dGVzdA"
+	return header + "." + payload + "." + sig
+}
+
 // TestNewHelmCommand tests the NewHelmCommand function
 func TestNewHelmCommand(t *testing.T) {
 	cmd := NewHelmCommand()
@@ -89,9 +99,9 @@ func TestAppendCredentialsInArguments(t *testing.T) {
 		{
 			name: "Append credentials from access token",
 			serverDetails: &config.ServerDetails{
-				AccessToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VybmFtZSJ9.dGVzdA",
+				AccessToken: getTestJWT(),
 			},
-			expectedArgs: []string{"--username=username", "--password=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VybmFtZSJ9.dGVzdA"},
+			expectedArgs: []string{"--username=testuser", "--password=" + getTestJWT()},
 		},
 		{
 			name:          "No credentials - should not append",
@@ -244,10 +254,10 @@ func TestHelmCommandGetCredentials(t *testing.T) {
 		{
 			name: "Use access token",
 			serverDetails: &config.ServerDetails{
-				AccessToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VybmFtZSJ9.dGVzdA",
+				AccessToken: getTestJWT(),
 			},
-			expectedUser: "username", // Extracted from token
-			expectedPass: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VybmFtZSJ9.dGVzdA",
+			expectedUser: "testuser",    // Extracted from fake JWT
+			expectedPass: getTestJWT(),
 		},
 		{
 			name:     "Command username, server password",

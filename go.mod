@@ -1,16 +1,16 @@
 module github.com/jfrog/jfrog-cli-artifactory
 
-go 1.25.4
+go 1.25.5
 
 require (
 	github.com/c-bata/go-prompt v0.2.6
 	github.com/forPelevin/gomoji v1.4.1
 	github.com/google/go-containerregistry v0.20.7
 	github.com/jedib0t/go-pretty/v6 v6.7.5
-	github.com/jfrog/build-info-go v1.8.9-0.20251223092904-9e9460642431
+	github.com/jfrog/build-info-go v1.13.0
 	github.com/jfrog/gofrog v1.7.6
 	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251223102649-e659f6937251
-	github.com/jfrog/jfrog-client-go v1.55.1-0.20251223101502-1a13a993b0c7
+	github.com/jfrog/jfrog-client-go v1.55.1-0.20251223175315-5027a0378ff6
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1

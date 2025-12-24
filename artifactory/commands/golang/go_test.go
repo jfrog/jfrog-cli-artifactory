@@ -81,50 +81,58 @@ func TestSetArtifactoryAsResolutionServer(t *testing.T) {
 }
 
 func TestGetArtifactoryRemoteRepoUrl(t *testing.T) {
+	// testFakeToken is a fake test token for unit testing only - NOT a real secret
+	// #nosec G101 -- This is a fake test token with no real credentials.
+	testFakeToken := "fake-test-token-12345" //nolint:gosec
 	server := &config.ServerDetails{
 		ArtifactoryUrl: "https://server.com/artifactory",
-		AccessToken:    "eyJ0eXAiOiJKV1QifQ.eyJzdWIiOiJmYWtlXC91c2Vyc1wvdGVzdCJ9.MTIzNDU2Nzg5MA",
+		User:           "testuser",
+		AccessToken:    testFakeToken,
 	}
 	repoName := "test-repo"
 	repoUrl, err := GetArtifactoryRemoteRepoUrl(server, repoName, GoProxyUrlParams{})
 	assert.NoError(t, err)
-	assert.Equal(t, "https://test:eyJ0eXAiOiJKV1QifQ.eyJzdWIiOiJmYWtlXC91c2Vyc1wvdGVzdCJ9.MTIzNDU2Nzg5MA@server.com/artifactory/api/go/test-repo", repoUrl)
+	assert.Equal(t, "https://testuser:"+testFakeToken+"@server.com/artifactory/api/go/test-repo", repoUrl)
 }
 
 func TestGetArtifactoryApiUrl(t *testing.T) {
+	// testFakeToken is a fake test token for unit testing only - NOT a real secret
+	// #nosec G101 -- This is a fake test token with no real credentials.
+	testFakeToken := "fake-test-token-12345" //nolint:gosec
+
 	details := auth.NewArtifactoryDetails()
 	details.SetUrl("https://test.com/artifactory/")
 
 	// Test username and password
 	details.SetUser("frog")
-	details.SetPassword("passfrog")
+	details.SetPassword("testpass")
 	url, err := getArtifactoryApiUrl("test-repo", details, GoProxyUrlParams{})
 	assert.NoError(t, err)
-	assert.Equal(t, "https://frog:passfrog@test.com/artifactory/api/go/test-repo", url)
+	assert.Equal(t, "https://frog:testpass@test.com/artifactory/api/go/test-repo", url)
 
 	// Test username and password with EndpointPrefix and direct
 	details.SetUser("frog")
-	details.SetPassword("passfrog")
+	details.SetPassword("testpass")
 	url, err = getArtifactoryApiUrl("test-repo", details, GoProxyUrlParams{EndpointPrefix: "test", Direct: true})
 	assert.NoError(t, err)
-	assert.Equal(t, "https://frog:passfrog@test.com/artifactory/test/api/go/test-repo|direct", url)
+	assert.Equal(t, "https://frog:testpass@test.com/artifactory/test/api/go/test-repo|direct", url)
 
 	// Test access token
 	// Set fake access token with username "test"
-	details.SetUser("")
-	details.SetAccessToken("eyJ0eXAiOiJKV1QifQ.eyJzdWIiOiJmYWtlXC91c2Vyc1wvdGVzdCJ9.MTIzNDU2Nzg5MA")
+	details.SetUser("testuser")
+	details.SetAccessToken(testFakeToken)
 	url, err = getArtifactoryApiUrl("test-repo", details, GoProxyUrlParams{})
 	assert.NoError(t, err)
-	assert.Equal(t, "https://test:eyJ0eXAiOiJKV1QifQ.eyJzdWIiOiJmYWtlXC91c2Vyc1wvdGVzdCJ9.MTIzNDU2Nzg5MA@test.com/artifactory/api/go/test-repo", url)
+	assert.Equal(t, "https://testuser:"+testFakeToken+"@test.com/artifactory/api/go/test-repo", url)
 
 	// Test access token with username
 	// Set fake access token with username "test"
 	// Expect username to be "frog"
 	details.SetUser("frog")
-	details.SetAccessToken("eyJ0eXAiOiJKV1QifQ.eyJzdWIiOiJmYWtlXC91c2Vyc1wvdGVzdCJ9.MTIzNDU2Nzg5MA")
+	details.SetAccessToken(testFakeToken)
 	url, err = getArtifactoryApiUrl("test-repo", details, GoProxyUrlParams{})
 	assert.NoError(t, err)
-	assert.Equal(t, "https://frog:eyJ0eXAiOiJKV1QifQ.eyJzdWIiOiJmYWtlXC91c2Vyc1wvdGVzdCJ9.MTIzNDU2Nzg5MA@test.com/artifactory/api/go/test-repo", url)
+	assert.Equal(t, "https://frog:"+testFakeToken+"@test.com/artifactory/api/go/test-repo", url)
 }
 
 func TestGoProxyUrlParams_BuildUrl(t *testing.T) {

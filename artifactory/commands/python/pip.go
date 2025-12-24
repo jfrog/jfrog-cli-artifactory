@@ -50,12 +50,13 @@ func (pc *PipCommand) SetCommandName(commandName string) *PipCommand {
 }
 
 func CreatePipConfigManually(customPipConfigPath, repoWithCredsUrl string) error {
-	if err := os.MkdirAll(filepath.Dir(customPipConfigPath), os.ModePerm); err != nil {
+	cleanPath := filepath.Clean(customPipConfigPath)
+	if err := os.MkdirAll(filepath.Dir(cleanPath), os.ModePerm); err != nil {
 		return err
 	}
 	// Write the configuration to pip.conf.
 	configContent := fmt.Sprintf("[global]\nindex-url = %s\n", repoWithCredsUrl)
-	return os.WriteFile(customPipConfigPath, []byte(configContent), 0644)
+	return os.WriteFile(cleanPath, []byte(configContent), 0644)
 }
 
 func (pc *PipCommand) CommandName() string {

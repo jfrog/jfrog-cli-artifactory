@@ -1,6 +1,7 @@
 package replication
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -12,6 +13,37 @@ import (
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/stretchr/testify/assert"
 )
+
+// safeJSONDecode validates and decodes JSON data into the target struct.
+// This is test-only code that validates request payloads from our own test client.
+func safeJSONDecode(t *testing.T, data []byte, target interface{}) {
+	t.Helper()
+	// Validate input is not empty
+	if len(data) == 0 {
+		t.Fatal("empty content for unmarshal")
+	}
+	// Validate JSON syntax before decoding
+	if !json.Valid(data) {
+		t.Fatal("invalid JSON syntax in request body")
+	}
+	// Decode using json.NewDecoder for safer parsing
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(target); err != nil {
+		t.Fatalf("failed to decode JSON: %v", err)
+	}
+}
+
+// unmarshalReplicationBody safely unmarshals and validates replication body from test request.
+func unmarshalReplicationBody(t *testing.T, content []byte) utils.UpdateReplicationBody {
+	t.Helper()
+	var body utils.UpdateReplicationBody
+	safeJSONDecode(t, content, &body)
+	// Validate output data
+	if body.RepoKey == "" {
+		t.Log("warning: unmarshaled replication body has empty RepoKey")
+	}
+	return body
+}
 
 var (
 	templatesPath = filepath.Join("..", "testdata", "replication")
@@ -64,9 +96,8 @@ func createMockServer(t *testing.T, replicationCmd *ReplicationCreateCommand) *h
 		content, err := io.ReadAll(r.Body)
 		assert.NoError(t, err)
 
-		// Unmarshal body
-		var actual utils.UpdateReplicationBody
-		assert.NoError(t, json.Unmarshal(content, &actual))
+		// Unmarshal and validate body
+		actual := unmarshalReplicationBody(t, content)
 
 		// Make sure the sent replication body equals to the expected
 		assert.Equal(t, *expected, actual)

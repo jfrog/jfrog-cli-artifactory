@@ -62,10 +62,11 @@ func TestSetPypiRepoUrlWithCredentials_URLTransformation(t *testing.T) {
 			expectedURL: "https://my-server.jfrog.io/artifactory/api/pypi/poetry-remote",
 		},
 		{
-			name:        "Works with access token",
-			repository:  "poetry-local",
-			serverURL:   "https://my-server.jfrog.io/artifactory",
-			accessToken: "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0",
+			name:       "Works with access token",
+			repository: "poetry-local",
+			serverURL:  "https://my-server.jfrog.io/artifactory",
+			// #nosec G101 -- This is a fake test token with no real credentials.
+			accessToken: "fake-test-token-for-unit-testing-only", //nolint:gosec
 			expectedURL: "https://my-server.jfrog.io/artifactory/api/pypi/poetry-local",
 		},
 		{

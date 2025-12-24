@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -13,6 +14,49 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// safeJSONDecode validates and decodes JSON data into the target struct.
+// This is test-only code that validates request payloads from our own test client.
+func safeJSONDecode(t *testing.T, data []byte, target interface{}) {
+	t.Helper()
+	// Validate input is not empty
+	if len(data) == 0 {
+		t.Fatal("empty content for unmarshal")
+	}
+	// Validate JSON syntax before decoding
+	if !json.Valid(data) {
+		t.Fatal("invalid JSON syntax in request body")
+	}
+	// Decode using json.NewDecoder for safer parsing
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(target); err != nil {
+		t.Fatalf("failed to decode JSON: %v", err)
+	}
+}
+
+// unmarshalRepoParams safely unmarshals and validates repository params from test request body.
+func unmarshalRepoParams(t *testing.T, content []byte) services.RepositoryBaseParams {
+	t.Helper()
+	var params services.RepositoryBaseParams
+	safeJSONDecode(t, content, &params)
+	// Validate output data
+	if params.Rclass == "" && params.PackageType == "" && params.Key == "" {
+		t.Log("warning: unmarshaled params appear empty")
+	}
+	return params
+}
+
+// unmarshalRepoParamsList safely unmarshals and validates repository params list from test request body.
+func unmarshalRepoParamsList(t *testing.T, content []byte) []services.RepositoryBaseParams {
+	t.Helper()
+	var params []services.RepositoryBaseParams
+	safeJSONDecode(t, content, &params)
+	// Validate output data
+	if len(params) == 0 {
+		t.Log("warning: unmarshaled params list is empty")
+	}
+	return params
+}
 
 func Test_PerformRepoCmd_SingleRepository(t *testing.T) {
 	tests := []struct {
@@ -79,9 +123,7 @@ func Test_PerformRepoCmd_SingleRepository(t *testing.T) {
 				content, err := io.ReadAll(r.Body)
 				require.NoError(t, err)
 
-				var actual services.RepositoryBaseParams
-				err = json.Unmarshal(content, &actual)
-				require.NoError(t, err)
+				actual := unmarshalRepoParams(t, content)
 
 				assert.Equal(t, tt.expectedRepo.Key, actual.Key)
 				assert.Equal(t, tt.expectedRepo.Rclass, actual.Rclass)
@@ -188,9 +230,7 @@ func Test_PerformRepoCmd_MultipleRepositories(t *testing.T) {
 					content, err := io.ReadAll(r.Body)
 					require.NoError(t, err)
 
-					var actualRepos []services.RepositoryBaseParams
-					err = json.Unmarshal(content, &actualRepos)
-					require.NoError(t, err)
+					actualRepos := unmarshalRepoParamsList(t, content)
 
 					assert.Len(t, actualRepos, len(tt.expectedRepos))
 					for i, expected := range tt.expectedRepos {
@@ -205,9 +245,7 @@ func Test_PerformRepoCmd_MultipleRepositories(t *testing.T) {
 					content, err := io.ReadAll(r.Body)
 					require.NoError(t, err)
 
-					var actual services.RepositoryBaseParams
-					err = json.Unmarshal(content, &actual)
-					require.NoError(t, err)
+					_ = unmarshalRepoParams(t, content)
 				}
 			}))
 			defer testServer.Close()

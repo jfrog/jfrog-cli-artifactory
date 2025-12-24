@@ -279,7 +279,8 @@ func WriteInitScript(initScript string) error {
 		gradleHome = filepath.Join(clientutils.GetUserHomeDir(), ".gradle")
 	}
 
-	initScriptsDir := filepath.Join(gradleHome, "init.d")
+	cleanGradleHome := filepath.Clean(gradleHome)
+	initScriptsDir := filepath.Join(cleanGradleHome, "init.d")
 	if err := os.MkdirAll(initScriptsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create Gradle init.d directory: %w", err)
 	}
