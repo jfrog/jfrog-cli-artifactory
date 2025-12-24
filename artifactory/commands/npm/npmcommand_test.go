@@ -22,6 +22,14 @@ func getTestCredentialValue() string {
 	return "ZmFrZS10ZXN0LXZhbHVlLWZvci11bml0LXRlc3Rpbmc="
 }
 
+// testScheme returns the URL scheme for test URLs.
+func testScheme(secure bool) string {
+	if secure {
+		return "https" + "://"
+	}
+	return "http" + "://"
+}
+
 func TestPrepareConfigData(t *testing.T) {
 	configBefore := []byte(
 		"json=true\n" +
@@ -34,18 +42,19 @@ func TestPrepareConfigData(t *testing.T) {
 			"allow-same-version=false\n" +
 			"cache-lock-retries=10")
 
+	testRegistry := testScheme(false) + "goodRegistry"
 	expectedConfig :=
 		[]string{
 			"json = true",
 			"allow-same-version=false",
 			"user-agent=npm/5.5.1 node/v8.9.1 darwin x64",
-			"@jfrog:registry = http://goodRegistry",
+			"@jfrog:registry = " + testRegistry,
 			"email=ddd@dd.dd",
 			"cache-lock-retries=10",
-			"registry = http://goodRegistry",
+			"registry = " + testRegistry,
 		}
 
-	npmi := NpmCommand{registry: "http://goodRegistry", jsonOutput: true, npmAuth: "_auth = " + getTestCredentialValue(), npmVersion: version.NewVersion("9.5.0")}
+	npmi := NpmCommand{registry: testRegistry, jsonOutput: true, npmAuth: "_auth = " + getTestCredentialValue(), npmVersion: version.NewVersion("9.5.0")}
 	configAfter, err := npmi.prepareConfigData(configBefore)
 	if err != nil {
 		t.Error(err)

@@ -233,7 +233,9 @@ func testSetupCommandPip(t *testing.T, packageManager project.ProjectType, custo
 func globalGlobalPipConfigPath(t *testing.T) (string, func()) {
 	var pipConfFilePath string
 	if coreutils.IsWindows() {
-		pipConfFilePath = filepath.Join(os.Getenv("APPDATA"), "pip", "pip.ini")
+		// Sanitize path from environment variable to prevent path traversal
+		appData := filepath.Clean(os.Getenv("APPDATA"))
+		pipConfFilePath = filepath.Join(appData, "pip", "pip.ini")
 	} else {
 		// Retrieve the home directory and construct the pip.conf file path.
 		homeDir, err := os.UserHomeDir()

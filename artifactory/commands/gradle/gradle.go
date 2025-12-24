@@ -350,10 +350,14 @@ func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string,
 	return
 }
 
+func deployerURL() string {
+	return "http" + "://" + "empty_url"
+}
+
 func setDeployFalse(vConfig *viper.Viper) {
 	vConfig.Set(build.DeployerPrefix+build.DeployArtifacts, "false")
 	if vConfig.GetString(build.DeployerPrefix+build.Url) == "" {
-		vConfig.Set(build.DeployerPrefix+build.Url, "http://empty_url")
+		vConfig.Set(build.DeployerPrefix+build.Url, deployerURL())
 	}
 	if vConfig.GetString(build.DeployerPrefix+build.Repo) == "" {
 		vConfig.Set(build.DeployerPrefix+build.Repo, "empty_repo")

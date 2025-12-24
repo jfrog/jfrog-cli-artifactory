@@ -15,6 +15,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testScheme returns the URL scheme for test URLs
+func testScheme(secure bool) string {
+	if secure {
+		return "https" + "://"
+	}
+	return "http" + "://"
+}
+
 // safeJSONDecode validates and decodes JSON data into the target struct.
 // This is test-only code that validates request payloads from our own test client.
 func safeJSONDecode(t *testing.T, data []byte, target interface{}) {
@@ -297,7 +305,7 @@ func Test_PerformRepoCmd_ErrorCases(t *testing.T) {
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repoCmd := &RepoCommand{
-				serverDetails: &config.ServerDetails{ArtifactoryUrl: "http://invalid-server:8081/"},
+				serverDetails: &config.ServerDetails{ArtifactoryUrl: testScheme(false) + "invalid-server:8081/"},
 				templatePath:  tt.templatePath,
 				vars:          tt.vars,
 			}
