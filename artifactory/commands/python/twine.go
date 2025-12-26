@@ -193,7 +193,7 @@ func (tc *TwineCommand) uploadAndCollectBuildInfo() error {
 
 	var fileInitials string
 	for _, arg := range artifacts {
-		if strings.HasSuffix(arg.Name, "tar.gz") {
+		if strings.HasSuffix(arg.Name, ".tar.gz") {
 			fileInitials = arg.Name
 		}
 	}
