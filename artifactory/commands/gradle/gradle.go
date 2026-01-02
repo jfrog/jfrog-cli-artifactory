@@ -172,13 +172,11 @@ func (gc *GradleCommand) runWithGradleNative() error {
 		log.Debug(fmt.Sprintf("Using build file directory as FlexPack working directory: %s", flexpackWorkingDir))
 	}
 
-	// Get Gradle executable path using build-info-go flexpack
 	gradleExecPath, err := buildinfoflexpack.GetGradleExecutablePath(workingDir)
 	if err != nil {
 		return fmt.Errorf("failed to find Gradle executable: %w", err)
 	}
 
-	// Execute Gradle command directly (no JFrog Gradle plugin)
 	cmd := exec.Command(gradleExecPath, gc.tasks...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	if err = cmd.Run(); err != nil {
@@ -186,15 +184,13 @@ func (gc *GradleCommand) runWithGradleNative() error {
 		return errorutils.CheckError(err)
 	}
 
-	// Check if build info collection is requested
 	if gc.configuration != nil {
 		isCollect, err := gc.configuration.IsCollectBuildInfo()
 		if err != nil {
 			return err
 		}
 		if isCollect {
-			log.Info("Collecting build info for executed command...")
-
+			log.Debug("Collecting build info for executed command...")
 			buildName, buildNumber, err := gc.getBuildNameAndNumber()
 			if err != nil {
 				return err
@@ -202,11 +198,10 @@ func (gc *GradleCommand) runWithGradleNative() error {
 
 			// Call FlexPack collection using the flexpack working directory
 			if err := flexpackgradle.CollectGradleBuildInfoWithFlexPack(flexpackWorkingDir, buildName, buildNumber, gc.tasks, gc.configuration, gc.serverDetails); err != nil {
-				log.Warn("Failed to collect Gradle build info (command already succeeded): " + err.Error())
+				log.Warn("Failed to collect Gradle build info with Flexpack:")
 			}
 		}
 	}
-	log.Info("Gradle build completed successfully")
 	return nil
 }
 
