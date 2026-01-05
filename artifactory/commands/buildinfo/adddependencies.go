@@ -2,9 +2,10 @@ package buildinfo
 
 import (
 	"errors"
-	ioutils "github.com/jfrog/gofrog/io"
 	regxp "regexp"
 	"strconv"
+
+	ioutils "github.com/jfrog/gofrog/io"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
@@ -152,6 +153,7 @@ func (badc *BuildAddDependenciesCommand) collectRemoteDependencies() (success, f
 	if err != nil {
 		return
 	}
+	defer ioutils.Close(reader, &err)
 	success, fail, err = badc.readRemoteDependencies(reader)
 	return
 }
