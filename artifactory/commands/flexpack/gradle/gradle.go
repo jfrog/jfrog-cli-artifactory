@@ -126,9 +126,8 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, pro
 		log.Warn("No artifacts found to set build properties")
 		return nil
 	}
-	// Resolve artifacts by checksum (AQL) to get actual deployed items (e.g., timestamped snapshots).
+
 	artifacts = resolveArtifactsByChecksum(servicesManager, artifacts)
-	// This creates: build.name=<name>;build.number=<number>;build.timestamp=<timestamp>
 	buildProps, err := buildUtils.CreateBuildProperties(buildName, buildNumber, projectKey)
 	if err != nil {
 		// Fallback to manual creation if CreateBuildProperties fails
@@ -137,7 +136,6 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, pro
 		buildProps = fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp)
 	}
 
-	// Add project key to properties if specified (same as non-FlexPack flow sets deploy.build.project)
 	if projectKey != "" {
 		buildProps += fmt.Sprintf(";build.project=%s", projectKey)
 	}
@@ -152,7 +150,6 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, pro
 		writer.Write(art)
 	}
 
-	// Close flushes all writes and surfaces any accumulated errors
 	if closeErr := writer.Close(); closeErr != nil {
 		// Clean up temp file on error
 		if writerFilePath := writer.GetFilePath(); writerFilePath != "" {
@@ -162,10 +159,7 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, pro
 		}
 		return fmt.Errorf("failed to close content writer: %w", closeErr)
 	}
-
 	writerFilePath := writer.GetFilePath()
-
-	// Ensure temp file cleanup after we're done (success or failure)
 	defer func() {
 		if writerFilePath != "" {
 			if removeErr := os.Remove(writerFilePath); removeErr != nil {
@@ -319,6 +313,8 @@ func resolveRepoForModule(module entities.Module, workingDir string, moduleRepoC
 	moduleWorkingDir := resolveModuleDir(module, workingDir)
 
 	cacheKey := fmt.Sprintf("%s|%s", moduleWorkingDir, version)
+	rootCacheKey := fmt.Sprintf("%s|%s", workingDir, version)
+
 	if cached, ok := moduleRepoCache[cacheKey]; ok {
 		return cached
 	}
@@ -326,7 +322,14 @@ func resolveRepoForModule(module entities.Module, workingDir string, moduleRepoC
 	repo, err := getGradleDeployRepository(moduleWorkingDir, workingDir, version)
 	if err != nil && moduleWorkingDir != workingDir {
 		log.Debug(fmt.Sprintf("Repo not found in module dir %s, trying root: %v", moduleWorkingDir, err))
+		if cached, ok := moduleRepoCache[rootCacheKey]; ok && cached != "" {
+			moduleRepoCache[cacheKey] = cached
+			return cached
+		}
 		repo, err = getGradleDeployRepository(workingDir, workingDir, version)
+		if err == nil {
+			moduleRepoCache[rootCacheKey] = repo
+		}
 	}
 	if err != nil {
 		log.Warn("failed to resolve Gradle deploy repository for module " + module.Id)
