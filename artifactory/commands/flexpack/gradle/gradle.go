@@ -218,7 +218,7 @@ func collectArtifactsFromBuildInfo(buildInfo *entities.BuildInfo, workingDir str
 				Repo:   repo,
 				Path:   itemPath,
 				Name:   art.Name,
-				Sha256: art.Checksum.Sha256,
+				Sha256: art.Sha256,
 			})
 		}
 	}
