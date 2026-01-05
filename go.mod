@@ -125,14 +125,4 @@ require (
 
 replace github.com/jfrog/build-info-go => github.com/nitinp19/build-info-go v1.12.3-0.20260105091537-1d3a1e03c01e
 
-<<<<<<< HEAD
 // replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251026182600-8a8c0428f538
-=======
-//replace github.com/jfrog/jfrog-client-go => github.com/fluxxBot/jfrog-client-go v1.50.1-0.20251206093435-1427f3711c0b
-
-//replace github.com/jfrog/build-info-go => github.com/naveenku-jfrog/build-info-go v1.12.1-0.20251204140510-1d49e7aa4a2b
-
-replace github.com/jfrog/build-info-go => github.com/nitinp19/build-info-go v1.8.9-0.20260102150253-fde455e3932f
-
-replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251026182600-8a8c0428f538
->>>>>>> 8b375bf (fixing gradle edge case)
