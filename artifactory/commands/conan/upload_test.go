@@ -114,19 +114,13 @@ Upload completed in 3s
 	}
 }
 
-
 func TestNewUploadProcessor(t *testing.T) {
 	workingDir := "/test/path"
-	
+
 	processor := NewUploadProcessor(workingDir, nil, nil)
-	
+
 	assert.NotNil(t, processor)
 	assert.Equal(t, workingDir, processor.workingDir)
 	assert.Nil(t, processor.buildConfiguration)
 	assert.Nil(t, processor.serverDetails)
 }
-
-
-
-
-

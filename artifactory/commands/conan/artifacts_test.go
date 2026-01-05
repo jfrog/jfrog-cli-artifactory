@@ -149,7 +149,6 @@ func TestBuildArtifactQuery(t *testing.T) {
 	}
 }
 
-
 func TestBuildPropertySetter_FormatBuildProperties(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -192,9 +191,9 @@ func TestBuildPropertySetter_FormatBuildProperties(t *testing.T) {
 
 func TestNewArtifactCollector(t *testing.T) {
 	targetRepo := "conan-local"
-	
+
 	collector := NewArtifactCollector(nil, targetRepo)
-	
+
 	assert.NotNil(t, collector)
 	assert.Equal(t, targetRepo, collector.targetRepo)
 	assert.Nil(t, collector.serverDetails)
@@ -205,16 +204,12 @@ func TestNewBuildPropertySetter(t *testing.T) {
 	buildNumber := "1"
 	projectKey := "test-project"
 	targetRepo := "conan-local"
-	
+
 	setter := NewBuildPropertySetter(nil, targetRepo, buildName, buildNumber, projectKey)
-	
+
 	assert.NotNil(t, setter)
 	assert.Equal(t, buildName, setter.buildName)
 	assert.Equal(t, buildNumber, setter.buildNumber)
 	assert.Equal(t, projectKey, setter.projectKey)
 	assert.Equal(t, targetRepo, setter.targetRepo)
 }
-
-
-
-
