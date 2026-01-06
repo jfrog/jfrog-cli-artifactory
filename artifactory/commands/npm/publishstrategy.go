@@ -48,6 +48,11 @@ func (nps *NpmPublishStrategy) GetBuildArtifacts() []buildinfo.Artifact {
 func ConvertArtifactsDetailsToBuildInfoArtifacts(artifactsDetailsReader []*content.ContentReader, convertFunc func(*content.ContentReader) ([]buildinfo.Artifact, error)) []buildinfo.Artifact {
 	buildArtifacts := make([]buildinfo.Artifact, 0, len(artifactsDetailsReader))
 	for _, artifactReader := range artifactsDetailsReader {
+		// Skip nil readers to avoid nil pointer dereference when converting artifacts
+		if artifactReader == nil {
+			log.Debug("Skipping nil artifact details reader")
+			continue
+		}
 		buildArtifact, err := convertFunc(artifactReader)
 		if err != nil {
 			log.Warn("Failed converting artifact details to build info artifacts: ", err.Error())
