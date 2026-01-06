@@ -11,7 +11,10 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strings"
 )
+
+const PASSWORD_STDIN = "password-stdin"
 
 // HelmCommand represents a Helm command execution
 type HelmCommand struct {
@@ -104,7 +107,7 @@ func (hc *HelmCommand) Run() error {
 func (hc *HelmCommand) appendCredentialsInArguments() {
 	if hc.username != "" && hc.password != "" {
 		hc.helmArgs = append(hc.helmArgs, "--username", hc.username)
-		hc.helmArgs = append(hc.helmArgs, "--password", hc.password)
+		hc.helmArgs = append(hc.helmArgs, "--"+PASSWORD_STDIN)
 		return
 	}
 	if hc.cmdName != "registry" && hc.serverId == "" {
@@ -116,18 +119,62 @@ func (hc *HelmCommand) appendCredentialsInArguments() {
 		return
 	}
 	hc.helmArgs = append(hc.helmArgs, fmt.Sprintf("--username=%s", username))
-	hc.helmArgs = append(hc.helmArgs, fmt.Sprintf("--password=%s", password))
+	hc.helmArgs = append(hc.helmArgs, "--"+PASSWORD_STDIN)
+	hc.password = password
+}
+
+// hasPasswordStdinFlag checks if --password-stdin flag is present in helmArgs
+func (hc *HelmCommand) hasPasswordStdinFlag() bool {
+	passwordStdinFlag := "--" + PASSWORD_STDIN
+	for _, arg := range hc.helmArgs {
+		if arg == passwordStdinFlag {
+			return true
+		}
+	}
+	return false
+}
+
+// executeWithPasswordStdin executes the helm command with password from stdin
+func (hc *HelmCommand) executeWithPasswordStdin(helmCmd *exec.Cmd) error {
+	stdin, err := helmCmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
+	defer func(stdin io.WriteCloser) {
+		err := stdin.Close()
+		if err != nil {
+			log.Warn("Failed to close stdin pipe")
+			return
+		}
+	}(stdin)
+	if err := helmCmd.Start(); err != nil {
+		return fmt.Errorf("failed to start helm command: %w", err)
+	}
+	if _, err = io.WriteString(stdin, hc.password+"\n"); err != nil {
+		err = helmCmd.Wait()
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("failed to write password to stdin: %w", err)
+	}
+	return helmCmd.Wait()
 }
 
 // executeHelmCommand executes the native Helm command
 func (hc *HelmCommand) executeHelmCommand() error {
 	log.Info("Running Helm ", hc.cmdName, ".")
+	if hc.cmdName == "registry" {
+		return hc.performRegistryLogin()
+	}
 	args := append([]string{hc.cmdName}, hc.helmArgs...)
 	helmCmd := exec.Command("helm", args...)
 	helmCmd.Stdout = os.Stdout
 	helmCmd.Stderr = os.Stderr
-	helmCmd.Stdin = os.Stdin
 	helmCmd.Dir = hc.workingDirectory
+	if hc.hasPasswordStdinFlag() && hc.password != "" {
+		return hc.executeWithPasswordStdin(helmCmd)
+	}
+	helmCmd.Stdin = os.Stdin
 	return helmCmd.Run()
 }
 
@@ -167,21 +214,42 @@ func (hc *HelmCommand) performRegistryLogin() error {
 		log.Debug("No server details available for helm registry login")
 		return nil
 	}
-	registryURL, err := hc.getRegistryURL()
-	if err != nil {
-		log.Debug("Failed to get registry URL: ", err)
-		return nil
-	}
+	var err error
+	registryURL := hc.extractHostFromHelmArgs()
 	if registryURL == "" {
-		log.Debug("No server URL available for helm registry login")
-		return nil
+		registryURL, err = hc.getRegistryURL()
+		if err != nil {
+			return fmt.Errorf("failed to get registry URL for helm registry login: %w", err)
+		}
+		if registryURL == "" {
+			return fmt.Errorf("no registry URL available for helm registry login")
+		}
 	}
 	user, pass := hc.getCredentials()
 	if user == "" || pass == "" {
-		log.Debug("No credentials available for helm registry login")
-		return nil
+		return fmt.Errorf("no credentials available for helm registry login")
 	}
 	return hc.executeHelmLogin(registryURL, user, pass)
+}
+
+// extractHostFromHelmArgs extracts the host/registry URL from helm registry login arguments
+func (hc *HelmCommand) extractHostFromHelmArgs() string {
+	if hc.cmdName != "registry" {
+		return ""
+	}
+	foundLogin := false
+	for _, arg := range hc.helmArgs {
+		if arg == "login" {
+			foundLogin = true
+			continue
+		}
+		if foundLogin && !strings.HasPrefix(arg, "-") {
+			if strings.Contains(arg, ".") || strings.Contains(arg, ":") {
+				return arg
+			}
+		}
+	}
+	return ""
 }
 
 // getRegistryURL extracts registry URL from server details
@@ -221,10 +289,40 @@ func (hc *HelmCommand) getCredentials() (string, string) {
 // executeHelmLogin executes the helm registry login command
 func (hc *HelmCommand) executeHelmLogin(registryURL, user, pass string) error {
 	log.Debug("Performing helm registry login to", registryURL, " with user ", user)
-	cmdLogin := exec.Command("helm", "registry", "login", registryURL, "--username", user, "--password", pass)
+	cmdLogin := exec.Command("helm", "registry", "login", registryURL, "--username", user, "--"+PASSWORD_STDIN)
 	cmdLogin.Stdout = io.Discard
 	cmdLogin.Stderr = os.Stderr
-	if err := cmdLogin.Run(); err != nil {
+	stdin, err := cmdLogin.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
+	if err = cmdLogin.Start(); err != nil {
+		err = stdin.Close()
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("helm registry login failed: %w", err)
+	}
+	_, err = io.WriteString(stdin, pass+"\n")
+	if err != nil {
+		err = stdin.Close()
+		if err != nil {
+			return err
+		}
+		err = cmdLogin.Wait()
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("failed to write password to stdin: %w", err)
+	}
+	if err = stdin.Close(); err != nil {
+		err = cmdLogin.Wait()
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("failed to close stdin: %w", err)
+	}
+	if err = cmdLogin.Wait(); err != nil {
 		return fmt.Errorf("helm registry login failed: %w", err)
 	}
 	log.Debug("Helm registry login to successful, ", registryURL)

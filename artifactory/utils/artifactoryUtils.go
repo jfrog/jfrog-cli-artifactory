@@ -3,13 +3,19 @@ package utils
 import (
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
+
+	buildinfoflexpack "github.com/jfrog/build-info-go/flexpack"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	artifactoryUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	"strconv"
-	"strings"
 )
+
+func ShouldRunNative(configPath string) bool {
+	return buildinfoflexpack.IsFlexPackEnabled() && configPath == ""
+}
 
 func CreateDownloadConfiguration(c *components.Context) (downloadConfiguration *artifactoryUtils.DownloadConfiguration, err error) {
 	downloadConfiguration = new(artifactoryUtils.DownloadConfiguration)

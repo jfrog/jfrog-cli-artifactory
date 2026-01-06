@@ -4,11 +4,15 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/template"
 
+	buildinfoflexpack "github.com/jfrog/build-info-go/flexpack/gradle"
+	flexpackgradle "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/flexpack/gradle"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
+	artifactoryutils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -21,6 +25,7 @@ import (
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/spf13/viper"
 )
 
@@ -112,6 +117,10 @@ func (gc *GradleCommand) shouldCreateBuildArtifactsFile() bool {
 }
 
 func (gc *GradleCommand) Run() error {
+	if artifactoryutils.ShouldRunNative(gc.configPath) {
+		return gc.runWithGradleNative()
+	}
+
 	vConfig, err := gc.init()
 	if err != nil {
 		return err
@@ -139,6 +148,94 @@ func (gc *GradleCommand) unmarshalDeployableArtifacts(filesPath string) error {
 	}
 	gc.setResult(result)
 	return nil
+}
+
+// runWithGradleNative executes Gradle using FlexPack for dependency resolution and build info collection
+func (gc *GradleCommand) runWithGradleNative() error {
+	log.Debug("Gradle native implementation activated")
+
+	// Get working directory - default to current directory
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+
+	// Check if a build file is specified via -b or --build-file flag
+	flexpackWorkingDir := workingDir
+	if buildFilePath := extractBuildFilePath(gc.tasks); buildFilePath != "" {
+		buildFileDir := filepath.Dir(buildFilePath)
+		if filepath.IsAbs(buildFileDir) {
+			flexpackWorkingDir = buildFileDir
+		} else {
+			flexpackWorkingDir = filepath.Join(workingDir, buildFileDir)
+		}
+		log.Debug(fmt.Sprintf("Using build file directory as FlexPack working directory: %s", flexpackWorkingDir))
+	}
+
+	gradleExecPath, err := buildinfoflexpack.GetGradleExecutablePath(workingDir)
+	if err != nil {
+		return fmt.Errorf("failed to find Gradle executable: %w", err)
+	}
+
+	cmd := exec.Command(gradleExecPath, gc.tasks...)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err = cmd.Run(); err != nil {
+		log.Error("Failed to execute Gradle command: " + err.Error())
+		return errorutils.CheckError(err)
+	}
+
+	if gc.configuration != nil {
+		isCollect, err := gc.configuration.IsCollectBuildInfo()
+		if err != nil {
+			return err
+		}
+		if isCollect {
+			log.Debug("Collecting build info for executed command...")
+			buildName, buildNumber, err := gc.getBuildNameAndNumber()
+			if err != nil {
+				return err
+			}
+
+			// Call FlexPack collection using the flexpack working directory
+			if err := flexpackgradle.CollectGradleBuildInfoWithFlexPack(flexpackWorkingDir, buildName, buildNumber, gc.tasks, gc.configuration, gc.serverDetails); err != nil {
+				log.Warn("Failed to collect Gradle build info with Flexpack:")
+			}
+		}
+	}
+	return nil
+}
+
+// It looks for -b/--build-file flags (build file path) and -p/--project-dir flags (project directory).
+func extractBuildFilePath(tasks []string) string {
+	for i, task := range tasks {
+		// Check for -b<path> (no space)
+		if strings.HasPrefix(task, "-b") && len(task) > 2 && task[2] != '-' {
+			return task[2:]
+		}
+		// Check for --build-file=<path>
+		if strings.HasPrefix(task, "--build-file=") {
+			return strings.TrimPrefix(task, "--build-file=")
+		}
+		// Check for -b <path> or --build-file <path> (with space)
+		if (task == "-b" || task == "--build-file") && i+1 < len(tasks) {
+			return tasks[i+1]
+		}
+		// Check for -p<path> (no space) - project directory
+		if strings.HasPrefix(task, "-p") && len(task) > 2 && task[2] != '-' {
+			// For -p, the path is already a directory, append a dummy file to get consistent behavior
+			return filepath.Join(task[2:], "build.gradle")
+		}
+		// Check for --project-dir=<path>
+		if strings.HasPrefix(task, "--project-dir=") {
+			dir := strings.TrimPrefix(task, "--project-dir=")
+			return filepath.Join(dir, "build.gradle")
+		}
+		// Check for -p <path> or --project-dir <path> (with space)
+		if (task == "-p" || task == "--project-dir") && i+1 < len(tasks) {
+			return filepath.Join(tasks[i+1], "build.gradle")
+		}
+	}
+	return ""
 }
 
 // ConditionalUpload will scan the artifact using Xray and will upload them only if the scan passes with no
@@ -243,6 +340,16 @@ func (gc *GradleCommand) setResult(result *commandsutils.Result) *GradleCommand 
 	return gc
 }
 
+// getBuildNameAndNumber returns the build name and build number from the configuration
+func (gc *GradleCommand) getBuildNameAndNumber() (buildName, buildNumber string, err error) {
+	buildName, err = gc.configuration.GetBuildName()
+	if err != nil {
+		return
+	}
+	buildNumber, err = gc.configuration.GetBuildNumber()
+	return
+}
+
 type InitScriptAuthConfig struct {
 	ArtifactoryURL         string
 	GradleRepoName         string
@@ -278,13 +385,14 @@ func WriteInitScript(initScript string) error {
 	if gradleHome == "" {
 		gradleHome = filepath.Join(clientutils.GetUserHomeDir(), ".gradle")
 	}
+	// Sanitize the path to prevent directory traversal attacks
+	gradleHome = filepath.Clean(gradleHome)
 
-	cleanGradleHome := filepath.Clean(gradleHome)
-	initScriptsDir := filepath.Join(cleanGradleHome, "init.d")
+	initScriptsDir := filepath.Clean(filepath.Join(gradleHome, "init.d"))
 	if err := os.MkdirAll(initScriptsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create Gradle init.d directory: %w", err)
 	}
-	jfrogInitScriptPath := filepath.Join(initScriptsDir, InitScriptName)
+	jfrogInitScriptPath := filepath.Clean(filepath.Join(initScriptsDir, InitScriptName))
 	if err := os.WriteFile(jfrogInitScriptPath, []byte(initScript), 0644); err != nil {
 		return fmt.Errorf("failed to write Gradle init script to %s: %w", jfrogInitScriptPath, err)
 	}
@@ -350,14 +458,10 @@ func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string,
 	return
 }
 
-func deployerURL() string {
-	return "http" + "://" + "empty_url"
-}
-
 func setDeployFalse(vConfig *viper.Viper) {
 	vConfig.Set(build.DeployerPrefix+build.DeployArtifacts, "false")
 	if vConfig.GetString(build.DeployerPrefix+build.Url) == "" {
-		vConfig.Set(build.DeployerPrefix+build.Url, deployerURL())
+		vConfig.Set(build.DeployerPrefix+build.Url, "https://empty_url")
 	}
 	if vConfig.GetString(build.DeployerPrefix+build.Repo) == "" {
 		vConfig.Set(build.DeployerPrefix+build.Repo, "empty_repo")
