@@ -69,7 +69,7 @@ func getGradleDeployRepository(workingDir, rootDir, version string) (string, err
 	return "", fmt.Errorf("no deployment repository found in Gradle configuration or environment")
 }
 
-// It works only if the key has "repo", "artifactory", "url", or "deploy" in the name
+// It works only if the key has "repo", "url", or "deploy" in the name
 func findRepoInProperties(props map[string]string, isSnapshot bool) (string, error) {
 	var candidates []string
 	seen := make(map[string]bool)

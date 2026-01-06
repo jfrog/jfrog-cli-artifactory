@@ -7,7 +7,7 @@ require (
 	github.com/forPelevin/gomoji v1.4.1
 	github.com/google/go-containerregistry v0.20.7
 	github.com/jedib0t/go-pretty/v6 v6.7.5
-	github.com/jfrog/build-info-go v1.13.1-0.20251230063402-e9f0a3564df1
+	github.com/jfrog/build-info-go v1.13.1-0.20260106060835-a1a07c967546
 	github.com/jfrog/gofrog v1.7.6
 	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251223102649-e659f6937251
 	github.com/jfrog/jfrog-client-go v1.55.1-0.20251230061734-d954605bdb23
@@ -122,7 +122,5 @@ require (
 	k8s.io/client-go v0.34.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
-
-replace github.com/jfrog/build-info-go => github.com/nitinp19/build-info-go v1.12.3-0.20260105091537-1d3a1e03c01e
 
 // replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251026182600-8a8c0428f538
