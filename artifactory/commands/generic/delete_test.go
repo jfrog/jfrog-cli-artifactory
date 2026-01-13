@@ -250,11 +250,11 @@ func TestErrorsJoin(t *testing.T) {
 // length - deletedCount represents failed items
 func TestDeleteFilesCountBehavior(t *testing.T) {
 	tests := []struct {
-		name                  string
-		deletedCount          int
-		totalLength           int
-		expectedSuccessCount  int
-		expectedFailedCount   int
+		name                 string
+		deletedCount         int
+		totalLength          int
+		expectedSuccessCount int
+		expectedFailedCount  int
 	}{
 		{
 			name:                 "All items deleted successfully",
@@ -304,4 +304,3 @@ func TestDeleteFilesCountBehavior(t *testing.T) {
 		})
 	}
 }
-

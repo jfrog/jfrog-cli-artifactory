@@ -48,13 +48,13 @@ func (dc *DeleteCommand) Run() (err error) {
 		}
 	}
 	if allowDelete {
-		successCount, failedCount, deleteErr := dc.DeleteFiles(reader)
+		var successCount, failedCount int
+		successCount, failedCount, err = dc.DeleteFiles(reader)
 		// Always set the result counts, even if an error occurred
 		// This follows the pattern used by move/copy commands
 		result := dc.Result()
 		result.SetSuccessCount(successCount)
 		result.SetFailCount(failedCount)
-		err = deleteErr
 	}
 	return
 }
