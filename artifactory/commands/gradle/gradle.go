@@ -386,7 +386,7 @@ func WriteInitScript(initScript string) error {
 	if gradleHome == "" {
 		// Try Java's user.home first (fixes container issue where $HOME != user.home)
 		if javaHome, err := getJavaUserHome(); err == nil && javaHome != "" {
-			log.Debug(fmt.Sprintf("Using Java user.home for Gradle: %s", javaHome))
+			log.Debug("Using Java user.home for Gradle:", javaHome)
 			gradleHome = filepath.Join(javaHome, ".gradle")
 		} else {
 			// Fall back to $HOME if Java is not available
