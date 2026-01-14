@@ -282,8 +282,10 @@ func TestWriteInitScriptUsesJavaUserHome(t *testing.T) {
 	_, err = os.Stat(wrongPath)
 	assert.True(t, os.IsNotExist(err), "Init script should NOT be written to $HOME: %s", wrongPath)
 
-	// Cleanup
-	os.Remove(expectedPath)
+	// Cleanup - use t.Cleanup for deferred cleanup
+	t.Cleanup(func() {
+		_ = os.Remove(expectedPath)
+	})
 }
 
 // TestWriteInitScriptFallsBackToHome tests that WriteInitScript falls back to $HOME
@@ -298,9 +300,8 @@ func TestWriteInitScriptFallsBackToHome(t *testing.T) {
 
 	// Temporarily modify PATH to ensure Java is not found
 	// This simulates an environment where Java is not installed
-	originalPath := os.Getenv("PATH")
+	// Note: t.Setenv automatically restores the original value after the test
 	t.Setenv("PATH", "/nonexistent")
-	defer os.Setenv("PATH", originalPath)
 
 	initScript := "test init script for HOME fallback case"
 
