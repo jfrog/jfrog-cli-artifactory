@@ -38,7 +38,7 @@ const (
 
 	UserHomeEnv    = "GRADLE_USER_HOME"
 	InitScriptName = "jfrog.init.gradle"
-	JavaUserHome   = "user.home"
+	javaUserHome   = "user.home"
 )
 
 type GradleCommand struct {
@@ -416,8 +416,14 @@ func getJavaUserHome() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to run java: %w", err)
 	}
-	for _, line := range strings.Split(string(output), "\n") {
-		if strings.Contains(line, JavaUserHome) {
+	return parseUserHomeFromJavaOutput(string(output))
+}
+
+// parseUserHomeFromJavaOutput extracts the user.home property from Java's -XshowSettings:properties output.
+// This is separated from getJavaUserHome for unit testing purposes.
+func parseUserHomeFromJavaOutput(output string) (string, error) {
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, javaUserHome) {
 			parts := strings.SplitN(line, "=", 2)
 			if len(parts) == 2 {
 				return strings.TrimSpace(parts[1]), nil
