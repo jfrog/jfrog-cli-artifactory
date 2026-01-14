@@ -246,9 +246,49 @@ func TestParseUserHomeFromJavaOutput(t *testing.T) {
 	}
 }
 
-// TestWriteInitScriptWithoutGradleUserHome tests WriteInitScript when GRADLE_USER_HOME is not set
-// In this case, the function should attempt to use Java's user.home or fall back to $HOME
-func TestWriteInitScriptWithoutGradleUserHome(t *testing.T) {
+// TestWriteInitScriptUsesJavaUserHome specifically tests the new case where
+// Java's user.home is used instead of $HOME when GRADLE_USER_HOME is not set.
+// This is the fix for container environments where $HOME differs from Java's user.home.
+func TestWriteInitScriptUsesJavaUserHome(t *testing.T) {
+	// Get Java's user.home - skip if Java is not available
+	javaHome, err := getJavaUserHome()
+	if err != nil {
+		t.Skip("Java not available, skipping test")
+	}
+
+	// Ensure GRADLE_USER_HOME is NOT set so we exercise the Java user.home path
+	t.Setenv(UserHomeEnv, "")
+
+	// Set $HOME to a DIFFERENT temp directory to simulate container environment
+	// where $HOME differs from Java's user.home
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+
+	initScript := "test init script for java user.home case"
+
+	err = WriteInitScript(initScript)
+	assert.NoError(t, err)
+
+	// Verify: init script should be in Java's user.home, NOT in fake $HOME
+	expectedPath := filepath.Join(javaHome, ".gradle", "init.d", InitScriptName)
+	wrongPath := filepath.Join(fakeHome, ".gradle", "init.d", InitScriptName)
+
+	// Should exist in Java user.home (the correct location)
+	content, err := os.ReadFile(expectedPath)
+	assert.NoError(t, err, "Init script should be written to Java user.home: %s", expectedPath)
+	assert.Equal(t, initScript, string(content))
+
+	// Should NOT exist in fake $HOME (this was the bug!)
+	_, err = os.Stat(wrongPath)
+	assert.True(t, os.IsNotExist(err), "Init script should NOT be written to $HOME: %s", wrongPath)
+
+	// Cleanup
+	os.Remove(expectedPath)
+}
+
+// TestWriteInitScriptFallsBackToHome tests that WriteInitScript falls back to $HOME
+// when both GRADLE_USER_HOME is not set AND Java is not available
+func TestWriteInitScriptFallsBackToHome(t *testing.T) {
 	// Ensure GRADLE_USER_HOME is NOT set
 	t.Setenv(UserHomeEnv, "")
 
@@ -256,24 +296,22 @@ func TestWriteInitScriptWithoutGradleUserHome(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)
 
-	initScript := "test init script for fallback case"
+	// Temporarily modify PATH to ensure Java is not found
+	// This simulates an environment where Java is not installed
+	originalPath := os.Getenv("PATH")
+	t.Setenv("PATH", "/nonexistent")
+	defer os.Setenv("PATH", originalPath)
 
-	// This test verifies the function completes without error
-	// The actual path depends on whether Java is available or not
+	initScript := "test init script for HOME fallback case"
+
 	err := WriteInitScript(initScript)
 	assert.NoError(t, err)
 
-	// Verify the init script was written somewhere
-	// Check the fallback location ($HOME/.gradle/init.d/)
+	// Verify the init script was written to $HOME fallback location
 	fallbackPath := filepath.Join(tempDir, ".gradle", "init.d", InitScriptName)
-	if _, statErr := os.Stat(fallbackPath); statErr == nil {
-		// File was written to fallback location
-		content, readErr := os.ReadFile(fallbackPath)
-		assert.NoError(t, readErr)
-		assert.Equal(t, initScript, string(content))
-	}
-	// Note: If Java is available, the file might be written to Java's user.home instead
-	// Both cases are valid outcomes of this test
+	content, err := os.ReadFile(fallbackPath)
+	assert.NoError(t, err, "Init script should be written to $HOME fallback: %s", fallbackPath)
+	assert.Equal(t, initScript, string(content))
 }
 
 // TestExtractBuildFilePathWindowsPaths tests Windows-style paths if on Windows
