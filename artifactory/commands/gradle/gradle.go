@@ -38,6 +38,7 @@ const (
 
 	UserHomeEnv    = "GRADLE_USER_HOME"
 	InitScriptName = "jfrog.init.gradle"
+	JavaUserHome   = "user.home"
 )
 
 type GradleCommand struct {
@@ -416,7 +417,7 @@ func getJavaUserHome() (string, error) {
 		return "", fmt.Errorf("failed to run java: %w", err)
 	}
 	for _, line := range strings.Split(string(output), "\n") {
-		if strings.Contains(line, "user.home") {
+		if strings.Contains(line, JavaUserHome) {
 			parts := strings.SplitN(line, "=", 2)
 			if len(parts) == 2 {
 				return strings.TrimSpace(parts[1]), nil
