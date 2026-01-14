@@ -251,7 +251,7 @@ func TestParseUserHomeFromJavaOutput(t *testing.T) {
 // This is the fix for container environments where $HOME differs from Java's user.home.
 func TestWriteInitScriptUsesJavaUserHome(t *testing.T) {
 	// Get Java's user.home - skip if Java is not available
-	javaHome, err := getJavaUserHome()
+	javaHome, err := GetJavaUserHome()
 	if err != nil {
 		t.Skip("Java not available, skipping test")
 	}
@@ -282,10 +282,8 @@ func TestWriteInitScriptUsesJavaUserHome(t *testing.T) {
 	_, err = os.Stat(wrongPath)
 	assert.True(t, os.IsNotExist(err), "Init script should NOT be written to $HOME: %s", wrongPath)
 
-	// Cleanup - use t.Cleanup for deferred cleanup
-	t.Cleanup(func() {
-		_ = os.Remove(expectedPath)
-	})
+	// Cleanup
+	os.Remove(expectedPath)
 }
 
 // TestWriteInitScriptFallsBackToHome tests that WriteInitScript falls back to $HOME
@@ -300,8 +298,9 @@ func TestWriteInitScriptFallsBackToHome(t *testing.T) {
 
 	// Temporarily modify PATH to ensure Java is not found
 	// This simulates an environment where Java is not installed
-	// Note: t.Setenv automatically restores the original value after the test
+	originalPath := os.Getenv("PATH")
 	t.Setenv("PATH", "/nonexistent")
+	defer os.Setenv("PATH", originalPath)
 
 	initScript := "test init script for HOME fallback case"
 

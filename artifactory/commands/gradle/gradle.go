@@ -385,7 +385,7 @@ func WriteInitScript(initScript string) error {
 	gradleHome := os.Getenv(UserHomeEnv)
 	if gradleHome == "" {
 		// Try Java's user.home first (fixes container issue where $HOME != user.home)
-		if javaHome, err := getJavaUserHome(); err == nil && javaHome != "" {
+		if javaHome, err := GetJavaUserHome(); err == nil && javaHome != "" {
 			log.Debug("Using Java user.home for Gradle:", javaHome)
 			gradleHome = filepath.Join(javaHome, ".gradle")
 		} else {
@@ -407,10 +407,10 @@ func WriteInitScript(initScript string) error {
 	return nil
 }
 
-// getJavaUserHome queries Java for its user.home system property.
+// GetJavaUserHome queries Java for its user.home system property.
 // Gradle uses this property (not $HOME) to determine where to look for init scripts.
 // This fixes issues in containers where $HOME and Java's user.home can differ.
-func getJavaUserHome() (string, error) {
+func GetJavaUserHome() (string, error) {
 	cmd := exec.Command("java", "-XshowSettings:properties", "-version")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -420,7 +420,7 @@ func getJavaUserHome() (string, error) {
 }
 
 // parseUserHomeFromJavaOutput extracts the user.home property from Java's -XshowSettings:properties output.
-// This is separated from getJavaUserHome for unit testing purposes.
+// This is separated from GetJavaUserHome for unit testing purposes.
 func parseUserHomeFromJavaOutput(output string) (string, error) {
 	for _, line := range strings.Split(output, "\n") {
 		if strings.Contains(line, javaUserHome) {
