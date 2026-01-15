@@ -363,12 +363,10 @@ func parsePackageSpec(packageSpec string) (scope, name, version string, ok bool)
 
 	if strings.HasPrefix(fullName, "@") {
 		scopeAndName := fullName[1:]
-		slashIndex := strings.Index(scopeAndName, "/")
-		if slashIndex == -1 {
+		scope, name, found := strings.Cut(scopeAndName, "/")
+		if !found {
 			return "", "", "", false
 		}
-		scope = scopeAndName[:slashIndex]
-		name = scopeAndName[slashIndex+1:]
 		return scope, name, version, true
 	}
 
@@ -379,10 +377,12 @@ func parsePackageSpec(packageSpec string) (scope, name, version string, ok bool)
 func (nc *NpmCommand) checkIfVersionBlocked(versionMatches [][]string) error {
 	rtAuth, err := nc.serverDetails.CreateArtAuthConfig()
 	if err != nil {
+		log.Debug("Failed to create auth config for curation check:", err.Error())
 		return nil
 	}
 	rtManager, err := rtUtils.CreateServiceManager(nc.serverDetails, 2, 0, false)
 	if err != nil {
+		log.Debug("Failed to create service manager for curation check:", err.Error())
 		return nil
 	}
 	httpClientDetails := rtAuth.CreateHttpClientDetails()
@@ -407,7 +407,7 @@ func (nc *NpmCommand) checkIfVersionBlocked(versionMatches [][]string) error {
 			continue
 		}
 		if resp.StatusCode == http.StatusForbidden {
-			return fmt.Errorf("403 Forbidden: Package %s@%s is blocked %s", displayName, version, string(respBody))
+			return fmt.Errorf("403 Forbidden: For Package %s@%s : %s", displayName, version, string(respBody))
 		}
 	}
 	return nil
