@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -13,6 +15,7 @@ import (
 	biUtils "github.com/jfrog/build-info-go/build/utils"
 	"github.com/jfrog/gofrog/version"
 	commandUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
+	rtUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/npm"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
@@ -313,7 +316,109 @@ func (nc *NpmCommand) Run() (err error) {
 		err = errors.Join(err, nc.installHandler.RestoreNpmrc())
 	}()
 	err = nc.installHandler.Install()
+	if err != nil {
+		if nc.cmdName == "install" || nc.cmdName == "ci" {
+			if blockedErr := nc.handle404Errors(err); blockedErr != nil {
+				err = blockedErr
+			}
+		}
+	}
 	return
+}
+
+// handle404Errors checks if a 404/ETARGET error is actually a blocked package (403)
+func (nc *NpmCommand) handle404Errors(installErr error) error {
+	var npm404ErrorPattern = regexp.MustCompile(`(?i)(404|ETARGET|notarget|No matching version found)`)
+	errMsg := installErr.Error()
+
+	if !npm404ErrorPattern.MatchString(errMsg) {
+		return nil
+	}
+	if nc.serverDetails == nil || nc.repo == "" {
+		return nil
+	}
+
+	packageWithVersionRegex := regexp.MustCompile(`No matching version found for\s+([@a-zA-Z0-9][a-zA-Z0-9._/-]*(?:/[a-zA-Z0-9._-]+)?@[0-9][0-9a-zA-Z._-]*)`)
+	versionMatches := packageWithVersionRegex.FindAllStringSubmatch(errMsg, -1)
+
+	if len(versionMatches) > 0 {
+		return nc.checkIfVersionBlocked(versionMatches)
+	}
+	return nil
+}
+
+// parsePackageSpec parses a package spec like "@scope/name@version"
+// Examples:
+//   - "@angular/core@15.0.0" -> scope="angular", name="core", version="15.0.0"
+//   - "lodash@4.17.21"       -> scope="", name="lodash", version="4.17.21"
+func parsePackageSpec(packageSpec string) (scope, name, version string, ok bool) {
+	versionSeparator := strings.LastIndex(packageSpec, "@")
+
+	if versionSeparator == -1 || versionSeparator == 0 {
+		return "", "", "", false
+	}
+
+	fullName := packageSpec[:versionSeparator]
+	version = strings.TrimSuffix(packageSpec[versionSeparator+1:], ".")
+
+	if strings.HasPrefix(fullName, "@") {
+		scopeAndName := fullName[1:]
+		slashIndex := strings.Index(scopeAndName, "/")
+		if slashIndex == -1 {
+			return "", "", "", false
+		}
+		scope = scopeAndName[:slashIndex]
+		name = scopeAndName[slashIndex+1:]
+		return scope, name, version, true
+	}
+
+	return "", fullName, version, true
+}
+
+// checkIfVersionBlocked does a GET request for the package to check if it's blocked by curation
+func (nc *NpmCommand) checkIfVersionBlocked(versionMatches [][]string) error {
+	rtAuth, err := nc.serverDetails.CreateArtAuthConfig()
+	if err != nil {
+		return nil
+	}
+	rtManager, err := rtUtils.CreateServiceManager(nc.serverDetails, 2, 0, false)
+	if err != nil {
+		return nil
+	}
+	httpClientDetails := rtAuth.CreateHttpClientDetails()
+	artiUrl := strings.TrimSuffix(nc.serverDetails.ArtifactoryUrl, "/")
+
+	for _, match := range versionMatches {
+		if len(match) < 2 {
+			continue
+		}
+		scope, pkgName, version, ok := parsePackageSpec(match[1])
+		if !ok {
+			continue
+		}
+		displayName := pkgName
+		if scope != "" {
+			displayName = "@" + scope + "/" + pkgName
+		}
+
+		packageUrl := nc.buildPackageTarballUrl(artiUrl, scope, pkgName, version)
+		resp, respBody, _, err := rtManager.Client().SendGet(packageUrl, true, &httpClientDetails)
+		if err != nil || resp == nil {
+			continue
+		}
+		if resp.StatusCode == http.StatusForbidden {
+			return fmt.Errorf("403 Forbidden: Package %s@%s is blocked %s", displayName, version, string(respBody))
+		}
+	}
+	return nil
+}
+
+// buildPackageTarballUrl builds URL for package tarball
+func (nc *NpmCommand) buildPackageTarballUrl(artiUrl, scope, pkgName, version string) string {
+	if scope != "" {
+		return fmt.Sprintf("%s/api/npm/%s/@%s/%s/-/%s-%s.tgz", artiUrl, nc.repo, scope, pkgName, pkgName, version)
+	}
+	return fmt.Sprintf("%s/api/npm/%s/%s/-/%s-%s.tgz", artiUrl, nc.repo, pkgName, pkgName, version)
 }
 
 func (nc *NpmCommand) prepareBuildInfoModule() error {

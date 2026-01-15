@@ -1,7 +1,14 @@
 package npm
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
 	biutils "github.com/jfrog/build-info-go/utils"
 	"github.com/jfrog/gofrog/version"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
@@ -9,11 +16,6 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/tests"
 	testsUtils "github.com/jfrog/jfrog-client-go/utils/tests"
 	"github.com/stretchr/testify/assert"
-	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
 )
 
 // getTestCredentialValue returns a fake base64-encoded value for testing. NOT a real credential.
@@ -169,4 +171,47 @@ func TestSetArtifactoryAsResolutionServer(t *testing.T) {
 	}()
 
 	assert.FileExists(t, filepath.Join(tmpDir, ".npmrc"))
+}
+
+func TestParsePackageSpec(t *testing.T) {
+	scope, name, ver, ok := parsePackageSpec("@angular/core@15.0.0")
+	assert.True(t, ok)
+	assert.Equal(t, "angular", scope)
+	assert.Equal(t, "core", name)
+	assert.Equal(t, "15.0.0", ver)
+
+	scope, name, ver, ok = parsePackageSpec("lodash@4.17.21")
+	assert.True(t, ok)
+	assert.Equal(t, "", scope)
+	assert.Equal(t, "lodash", name)
+	assert.Equal(t, "4.17.21", ver)
+
+	_, _, _, ok = parsePackageSpec("lodash")
+	assert.False(t, ok)
+
+	_, _, _, ok = parsePackageSpec("@angular@15.0.0")
+	assert.False(t, ok)
+}
+
+func TestHandle404Errors(t *testing.T) {
+	nc := &NpmCommand{}
+
+	err := nc.handle404Errors(errors.New("some random error"))
+	assert.Nil(t, err)
+
+	err = nc.handle404Errors(errors.New("No matching version found for lodash@4.17.21"))
+	assert.Nil(t, err)
+}
+
+func TestBuildPackageTarballUrl(t *testing.T) {
+	nc := &NpmCommand{}
+	nc.SetRepo("npm-remote")
+
+	// Scoped package
+	url := nc.buildPackageTarballUrl("https://artifactory.example.com", "angular", "core", "15.0.0")
+	assert.Equal(t, "https://artifactory.example.com/api/npm/npm-remote/@angular/core/-/core-15.0.0.tgz", url)
+
+	// Regular package
+	url = nc.buildPackageTarballUrl("https://artifactory.example.com", "", "lodash", "4.17.21")
+	assert.Equal(t, "https://artifactory.example.com/api/npm/npm-remote/lodash/-/lodash-4.17.21.tgz", url)
 }
