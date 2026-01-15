@@ -124,8 +124,3 @@ require (
 )
 
 // replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251026182600-8a8c0428f538
-
-replace (
-	github.com/jfrog/build-info-go => /Users/basselm/Github/build-info-go
-	github.com/jfrog/jfrog-cli-core/v2 => /Users/basselm/Github/jfrog-cli-core
-)
