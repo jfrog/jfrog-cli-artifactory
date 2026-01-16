@@ -502,7 +502,7 @@ func setPropsWithRetry(
 		}
 
 		_, err = servicesManager.SetProps(params)
-		reader.Close()
+		_ = reader.Close()
 
 		if err == nil {
 			log.Debug(fmt.Sprintf("Set CI VCS properties on: %s", artifactPath))
@@ -563,7 +563,7 @@ func createSingleArtifactReader(artifactPath string) (*content.ContentReader, er
 	// Parse path into repo/path/name
 	parts := strings.SplitN(artifactPath, "/", 2)
 	if len(parts) < 2 {
-		writer.Close()
+		_ = writer.Close()
 		return nil, fmt.Errorf("invalid artifact path: %s", artifactPath)
 	}
 

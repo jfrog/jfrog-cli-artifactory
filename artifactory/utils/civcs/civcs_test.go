@@ -47,7 +47,7 @@ func TestGetCIVcsPropsString(t *testing.T) {
 
 			// Set test env vars
 			for k, v := range tt.envVars {
-				os.Setenv(k, v)
+				_ = os.Setenv(k, v)
 			}
 
 			result := GetCIVcsPropsString()
@@ -109,12 +109,12 @@ func TestMergeWithUserProps(t *testing.T) {
 
 			if tt.ciProps != "" {
 				// Setup GitHub Actions environment
-				os.Setenv("CI", "true")
-				os.Setenv("GITHUB_ACTIONS", "true")
-				os.Setenv("GITHUB_WORKFLOW", "test")
-				os.Setenv("GITHUB_RUN_ID", "123")
-				os.Setenv("GITHUB_REPOSITORY_OWNER", "myorg")
-				os.Setenv("GITHUB_REPOSITORY", "myorg/myrepo")
+				_ = os.Setenv("CI", "true")
+				_ = os.Setenv("GITHUB_ACTIONS", "true")
+				_ = os.Setenv("GITHUB_WORKFLOW", "test")
+				_ = os.Setenv("GITHUB_RUN_ID", "123")
+				_ = os.Setenv("GITHUB_REPOSITORY_OWNER", "myorg")
+				_ = os.Setenv("GITHUB_REPOSITORY", "myorg/myrepo")
 			}
 
 			result := MergeWithUserProps(tt.userProps)
@@ -157,6 +157,6 @@ func clearCIEnvVars() {
 		"CI_PROJECT_PATH",
 	}
 	for _, v := range envVars {
-		os.Unsetenv(v)
+		_ = os.Unsetenv(v)
 	}
 }
