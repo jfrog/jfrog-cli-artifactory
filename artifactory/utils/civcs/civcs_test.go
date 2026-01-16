@@ -88,16 +88,22 @@ func TestMergeWithUserProps(t *testing.T) {
 			expected:  "foo=bar;vcs.provider=github;vcs.org=myorg;vcs.repo=myrepo",
 		},
 		{
-			name:      "user already has vcs.provider - no override",
+			name:      "user already has vcs.provider - adds other CI props",
 			userProps: "vcs.provider=custom",
 			ciProps:   "vcs.provider=github;vcs.org=myorg;vcs.repo=myrepo",
-			expected:  "vcs.provider=custom",
+			expected:  "vcs.provider=custom;vcs.org=myorg;vcs.repo=myrepo",
 		},
 		{
-			name:      "user already has vcs.org - no override",
+			name:      "user already has vcs.org - adds other CI props",
 			userProps: "foo=bar;vcs.org=customorg",
 			ciProps:   "vcs.provider=github;vcs.org=myorg;vcs.repo=myrepo",
-			expected:  "foo=bar;vcs.org=customorg",
+			expected:  "foo=bar;vcs.org=customorg;vcs.provider=github;vcs.repo=myrepo",
+		},
+		{
+			name:      "user has all vcs props - no CI props added",
+			userProps: "vcs.provider=custom;vcs.org=customorg;vcs.repo=customrepo",
+			ciProps:   "vcs.provider=github;vcs.org=myorg;vcs.repo=myrepo",
+			expected:  "vcs.provider=custom;vcs.org=customorg;vcs.repo=customrepo",
 		},
 	}
 
@@ -118,28 +124,6 @@ func TestMergeWithUserProps(t *testing.T) {
 			}
 
 			result := MergeWithUserProps(tt.userProps)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestContainsVcsProps(t *testing.T) {
-	tests := []struct {
-		name     string
-		props    string
-		expected bool
-	}{
-		{name: "empty", props: "", expected: false},
-		{name: "no vcs props", props: "foo=bar;baz=qux", expected: false},
-		{name: "has vcs.provider", props: "vcs.provider=github", expected: true},
-		{name: "has vcs.org", props: "foo=bar;vcs.org=myorg", expected: true},
-		{name: "has vcs.repo", props: "vcs.repo=myrepo", expected: true},
-		{name: "case insensitive", props: "VCS.PROVIDER=github", expected: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := containsVcsProps(tt.props)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

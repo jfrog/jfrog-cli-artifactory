@@ -120,7 +120,9 @@ func setPropsWithRetry(
 			Props:  props,
 		}
 		_, err = servicesManager.SetProps(params)
-		_ = reader.Close()
+		if closeErr := reader.Close(); closeErr != nil {
+			log.Debug("Failed to close reader for", artifactPath, ":", closeErr)
+		}
 		if err == nil {
 			log.Debug("Set CI VCS properties on:", artifactPath)
 			return propsResultSuccess
@@ -179,7 +181,9 @@ func createSingleArtifactReader(artifactPath string) (*content.ContentReader, er
 	// Parse path into repo/path/name
 	parts := strings.SplitN(artifactPath, "/", 2)
 	if len(parts) < 2 {
-		_ = writer.Close()
+		if closeErr := writer.Close(); closeErr != nil {
+			log.Debug("Failed to close writer:", closeErr)
+		}
 		return nil, fmt.Errorf("invalid artifact path: %s", artifactPath)
 	}
 	repo := parts[0]

@@ -32,22 +32,33 @@ func GetCIVcsPropsString() string {
 }
 
 // MergeWithUserProps adds CI VCS props to user-provided props, respecting user precedence.
-// If user already specified vcs.provider, vcs.org, or vcs.repo, those are NOT overridden.
+// Only adds CI properties that the user hasn't already specified.
+// For example, if user set vcs.org, we still add vcs.provider and vcs.repo from CI.
 func MergeWithUserProps(userProps string) string {
-	ciProps := GetCIVcsPropsString()
-	if ciProps == "" || containsVcsProps(userProps) {
+	info := cienv.GetCIVcsInfo()
+	if info.IsEmpty() {
 		return userProps
+	}
+	var ciParts []string
+	// Only add CI properties that user hasn't specified (case-sensitive)
+	if info.Provider != "" && !strings.Contains(userProps, "vcs.provider=") {
+		ciParts = append(ciParts, "vcs.provider="+info.Provider)
+	}
+	if info.Org != "" && !strings.Contains(userProps, "vcs.org=") {
+		ciParts = append(ciParts, "vcs.org="+info.Org)
+	}
+	if info.Repo != "" && !strings.Contains(userProps, "vcs.repo=") {
+		ciParts = append(ciParts, "vcs.repo="+info.Repo)
+	}
+	if len(ciParts) == 0 {
+		return userProps
+	}
+	ciProps := strings.Join(ciParts, ";")
+	if ciProps != "" {
+		log.Debug("CI VCS properties to add:", ciProps)
 	}
 	if userProps == "" {
 		return ciProps
 	}
 	return userProps + ";" + ciProps
-}
-
-// containsVcsProps checks if the props string contains any vcs.provider, vcs.org, or vcs.repo.
-func containsVcsProps(props string) bool {
-	lower := strings.ToLower(props)
-	return strings.Contains(lower, "vcs.provider=") ||
-		strings.Contains(lower, "vcs.org=") ||
-		strings.Contains(lower, "vcs.repo=")
 }
