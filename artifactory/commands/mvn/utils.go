@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jfrog/build-info-go/build"
+	"github.com/jfrog/build-info-go/utils/cienv"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/flexpack"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
@@ -217,6 +218,10 @@ func createMvnRunProps(vConfig *viper.Viper, buildArtifactsDetailsFile string, t
 	if vConfig.IsSet("resolver") {
 		vConfig.Set("buildInfoConfig.artifactoryResolutionEnabled", "true")
 	}
+
+	// Set CI VCS properties if in CI environment
+	setCIVcsPropsToConfig(vConfig)
+
 	buildInfoProps, err := buildUtils.CreateBuildInfoProps(buildArtifactsDetailsFile, vConfig, project.Maven)
 	if err != nil {
 		return nil, useWrapper, err
@@ -237,6 +242,33 @@ func createMvnRunProps(vConfig *viper.Viper, buildArtifactsDetailsFile string, t
 	}
 
 	return buildInfoProps, useWrapper, nil
+}
+
+// CI VCS property keys for Maven/Gradle extractor
+const (
+	vcsProviderKey = "vcs.provider"
+	vcsOrgKey      = "vcs.org"
+	vcsRepoKey     = "vcs.repo"
+)
+
+// setCIVcsPropsToConfig sets CI VCS properties to viper config if running in CI environment.
+// These are picked up by the Maven extractor and set as properties on deployed artifacts.
+func setCIVcsPropsToConfig(vConfig *viper.Viper) {
+	ciVcsInfo := cienv.GetCIVcsInfo()
+	if ciVcsInfo.IsEmpty() {
+		return
+	}
+	log.Debug("Setting CI VCS properties for Maven extractor: provider=%s, org=%s, repo=%s",
+		ciVcsInfo.Provider, ciVcsInfo.Org, ciVcsInfo.Repo)
+	if ciVcsInfo.Provider != "" {
+		vConfig.Set(vcsProviderKey, ciVcsInfo.Provider)
+	}
+	if ciVcsInfo.Org != "" {
+		vConfig.Set(vcsOrgKey, ciVcsInfo.Org)
+	}
+	if ciVcsInfo.Repo != "" {
+		vConfig.Set(vcsRepoKey, ciVcsInfo.Repo)
+	}
 }
 
 func setDeployFalse(vConfig *viper.Viper) {

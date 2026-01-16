@@ -124,3 +124,6 @@ require (
 )
 
 // replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251026182600-8a8c0428f538
+
+// Local development replaces
+replace github.com/jfrog/build-info-go => ../build-info-go
