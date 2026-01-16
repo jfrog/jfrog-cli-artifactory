@@ -331,7 +331,6 @@ func (bpc *BuildPublishCommand) setCIVcsPropsOnArtifacts(
 		// Not in CI or no registered provider - silently skip
 		return
 	}
-
 	log.Debug("Detected CI provider:", ciVcsInfo.Provider, ", org:", ciVcsInfo.Org, ", repo:", ciVcsInfo.Repo)
 
 	// Build props string
@@ -350,7 +349,6 @@ func (bpc *BuildPublishCommand) setCIVcsPropsOnArtifacts(
 		// All artifacts were skipped due to missing repo paths
 		return
 	}
-
 	log.Info("Setting CI VCS properties on", len(artifactPaths), "artifacts...")
 	// Set properties on each artifact with retry
 	var failedCount int
@@ -368,7 +366,6 @@ func (bpc *BuildPublishCommand) setCIVcsPropsOnArtifacts(
 			failedCount++
 		}
 	}
-
 	// Log summary
 	successCount := len(artifactPaths) - failedCount - notFoundCount
 	if successCount > 0 {

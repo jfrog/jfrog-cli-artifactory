@@ -52,7 +52,6 @@ func extractArtifactPathsWithWarnings(buildInfo *buildinfo.BuildInfo) ([]string,
 				skippedCount++
 				continue
 			}
-
 			fullPath := constructArtifactPath(artifact)
 			if fullPath != "" {
 				paths = append(paths, fullPath)
@@ -102,7 +101,6 @@ func setPropsWithRetry(
 	props string,
 ) propsResult {
 	var lastErr error
-
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
 			// Exponential backoff: 1s, 2s, 4s
@@ -117,15 +115,12 @@ func setPropsWithRetry(
 			log.Debug("Failed to create reader for", artifactPath, ":", err)
 			return propsResultFailed
 		}
-
 		params := services.PropsParams{
 			Reader: reader,
 			Props:  props,
 		}
-
 		_, err = servicesManager.SetProps(params)
 		_ = reader.Close()
-
 		if err == nil {
 			log.Debug("Set CI VCS properties on:", artifactPath)
 			return propsResultSuccess
@@ -145,7 +140,6 @@ func setPropsWithRetry(
 				return propsResultFailed
 			}
 		}
-
 		lastErr = err
 		log.Debug("Attempt", attempt+1, "failed for", artifactPath, ":", err)
 	}
@@ -188,21 +182,17 @@ func createSingleArtifactReader(artifactPath string) (*content.ContentReader, er
 		_ = writer.Close()
 		return nil, fmt.Errorf("invalid artifact path: %s", artifactPath)
 	}
-
 	repo := parts[0]
 	pathAndName := parts[1]
 	dir, name := path.Split(pathAndName)
-
 	writer.Write(artclientutils.ResultItem{
 		Repo: repo,
 		Path: strings.TrimSuffix(dir, "/"),
 		Name: name,
 		Type: "file",
 	})
-
 	if err := writer.Close(); err != nil {
 		return nil, err
 	}
-
 	return content.NewContentReader(writer.GetFilePath(), "results"), nil
 }
