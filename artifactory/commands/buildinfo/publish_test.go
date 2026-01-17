@@ -10,8 +10,73 @@ import (
 	"github.com/jfrog/build-info-go/utils/cienv"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
+	"github.com/jfrog/jfrog-client-go/artifactory"
+	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"os"
 )
+
+type mockServicesManager struct {
+	artifactory.EmptyArtifactoryServicesManager
+	mock.Mock
+}
+
+func (m *mockServicesManager) SetProps(params services.PropsParams) (int, error) {
+	args := m.Called(params)
+	return args.Int(0), args.Error(1)
+}
+
+func TestSetCIVcsPropsOnArtifacts(t *testing.T) {
+	// 1. Setup environment
+	os.Setenv("CI", "true")
+	os.Setenv("GITHUB_ACTIONS", "true")
+	os.Setenv("GITHUB_WORKFLOW", "test")
+	os.Setenv("GITHUB_RUN_ID", "123")
+	os.Setenv("GITHUB_REPOSITORY_OWNER", "jfrog")
+	os.Setenv("GITHUB_REPOSITORY", "jfrog/jfrog-cli")
+	defer func() {
+		os.Unsetenv("CI")
+		os.Unsetenv("GITHUB_ACTIONS")
+		os.Unsetenv("GITHUB_WORKFLOW")
+		os.Unsetenv("GITHUB_RUN_ID")
+		os.Unsetenv("GITHUB_REPOSITORY_OWNER")
+		os.Unsetenv("GITHUB_REPOSITORY")
+	}()
+
+	// 2. Mock services manager
+	mockSM := new(mockServicesManager)
+	expectedProps := "vcs.provider=github;vcs.org=jfrog;vcs.repo=jfrog-cli"
+
+	// Expect SetProps to be called for the artifact
+	mockSM.On("SetProps", mock.MatchedBy(func(params services.PropsParams) bool {
+		return params.Props == expectedProps
+	})).Return(1, nil)
+
+	// 3. Setup build info
+	bi := &buildinfo.BuildInfo{
+		Modules: []buildinfo.Module{
+			{
+				Artifacts: []buildinfo.Artifact{
+					{
+						Name:                   "file.jar",
+						Path:                   "com/example/file.jar",
+						OriginalDeploymentRepo: "libs-release",
+					},
+				},
+			},
+		},
+	}
+
+	// 4. Run command
+	bpc := NewBuildPublishCommand()
+	bpc.setCIVcsPropsOnArtifacts(mockSM, bi)
+
+	// 5. Verify
+	mockSM.AssertExpectations(t)
+}
+
 
 func TestPrintBuildInfoLink(t *testing.T) {
 	timeNow := time.Now()
@@ -287,7 +352,7 @@ func TestBuildCIVcsPropsString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := buildCIVcsPropsString(tt.info)
+			result := civcs.BuildCIVcsPropsString(tt.info)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

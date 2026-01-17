@@ -11,6 +11,7 @@ import (
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/build-info-go/utils/cienv"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/formats"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -334,7 +335,7 @@ func (bpc *BuildPublishCommand) setCIVcsPropsOnArtifacts(
 	log.Debug("Detected CI provider:", ciVcsInfo.Provider, ", org:", ciVcsInfo.Org, ", repo:", ciVcsInfo.Repo)
 
 	// Build props string
-	props := buildCIVcsPropsString(ciVcsInfo)
+	props := civcs.BuildCIVcsPropsString(ciVcsInfo)
 	if props == "" {
 		return
 	}
@@ -349,28 +350,9 @@ func (bpc *BuildPublishCommand) setCIVcsPropsOnArtifacts(
 		// All artifacts were skipped due to missing repo paths
 		return
 	}
-	log.Info("Setting CI VCS properties on", len(artifactPaths), "artifacts...")
-	// Set properties on each artifact with retry
-	var failedCount int
-	var notFoundCount int
-	for _, artifactPath := range artifactPaths {
-		result := setPropsWithRetry(servicesManager, artifactPath, props)
-		switch result {
-		case propsResultSuccess:
-			// OK
-		case propsResultNotFound:
-			log.Warn("Artifact not found:", artifactPath)
-			notFoundCount++
-		case propsResultFailed:
-			log.Warn("Unable to set CI VCS properties on artifact:", artifactPath)
-			failedCount++
-		}
-	}
-	// Log summary
-	successCount := len(artifactPaths) - failedCount - notFoundCount
-	if successCount > 0 {
-		log.Info("Successfully set CI VCS properties on", successCount, "artifacts")
-	}
+	log.Debug("Setting CI VCS properties on", len(artifactPaths), "artifacts...")
+	// Set properties on all artifacts in a single batch call
+	setPropsOnArtifacts(servicesManager, artifactPaths, props)
 }
 
 func recordCommandSummary(buildInfo *buildinfo.BuildInfo, buildLink string) (err error) {

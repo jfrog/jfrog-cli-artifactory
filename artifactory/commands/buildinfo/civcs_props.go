@@ -7,7 +7,6 @@ import (
 	"time"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
-	"github.com/jfrog/build-info-go/utils/cienv"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	artclientutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
@@ -15,14 +14,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-// propsResult represents the outcome of setting properties on an artifact.
-type propsResult int
-
-const (
-	propsResultSuccess propsResult = iota
-	propsResultNotFound
-	propsResultFailed
-)
 const (
 	maxRetries     = 3
 	retryDelayBase = time.Second
@@ -75,80 +66,101 @@ func constructArtifactPath(artifact buildinfo.Artifact) string {
 	return ""
 }
 
-// buildCIVcsPropsString constructs the properties string from CI VCS info.
-func buildCIVcsPropsString(info cienv.CIVcsInfo) string {
-	var parts []string
-	if info.Provider != "" {
-		parts = append(parts, "vcs.provider="+info.Provider)
-	}
-	if info.Org != "" {
-		parts = append(parts, "vcs.org="+info.Org)
-	}
-	if info.Repo != "" {
-		parts = append(parts, "vcs.repo="+info.Repo)
-	}
-	return strings.Join(parts, ";")
-}
-
-// setPropsWithRetry sets properties on an artifact with retry logic.
-// Returns:
-// - propsResultSuccess: properties set successfully
-// - propsResultNotFound: artifact not found (404)
-// - propsResultFailed: failed after all retries
-func setPropsWithRetry(
+// setPropsOnArtifacts sets properties on multiple artifacts in a single API call with retry logic.
+// This is a major performance optimization over setting properties one by one.
+func setPropsOnArtifacts(
 	servicesManager artifactory.ArtifactoryServicesManager,
-	artifactPath string,
+	artifactPaths []string,
 	props string,
-) propsResult {
+) {
+	if len(artifactPaths) == 0 {
+		return
+	}
+
 	var lastErr error
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
 			// Exponential backoff: 1s, 2s, 4s
 			delay := retryDelayBase * time.Duration(1<<(attempt-1))
-			log.Debug("Retrying property set for", artifactPath, "(attempt", attempt+1, "/", maxRetries, ") after", delay)
+			log.Debug("Retrying property set for artifacts (attempt", attempt+1, "/", maxRetries, ") after", delay)
 			time.Sleep(delay)
 		}
 
-		// Create reader for single artifact
-		reader, err := createSingleArtifactReader(artifactPath)
+		// Create reader for all artifacts
+		reader, err := createArtifactsReader(artifactPaths)
 		if err != nil {
-			log.Debug("Failed to create reader for", artifactPath, ":", err)
-			return propsResultFailed
+			log.Debug("Failed to create reader for artifacts:", err)
+			return
 		}
+
 		params := services.PropsParams{
 			Reader: reader,
 			Props:  props,
 		}
+
 		_, err = servicesManager.SetProps(params)
 		if closeErr := reader.Close(); closeErr != nil {
-			log.Debug("Failed to close reader for", artifactPath, ":", closeErr)
-		}
-		if err == nil {
-			log.Debug("Set CI VCS properties on:", artifactPath)
-			return propsResultSuccess
+			log.Debug("Failed to close reader:", closeErr)
 		}
 
-		// Check if error is 404 - don't retry
+		if err == nil {
+			log.Debug("Successfully set CI VCS properties on artifacts")
+			return
+		}
+
+		// Check if error is 404 - don't retry (some items might not exist, but we can't tell which ones from a batch call easily)
 		if is404Error(err) {
-			return propsResultNotFound
+			log.Debug("Batch property set returned 404, some artifacts might not exist")
+			return
 		}
 
 		// Check if error is 403 - limited retries
 		if is403Error(err) {
-			// 403 might be temporary (token refresh) or permanent (no permission)
-			// Retry once, then give up
 			if attempt >= 1 {
 				log.Debug("403 Forbidden persists, likely permission issue")
-				return propsResultFailed
+				return
 			}
 		}
+
 		lastErr = err
-		log.Debug("Attempt", attempt+1, "failed for", artifactPath, ":", err)
+		log.Debug("Batch attempt", attempt+1, "failed:", err)
 	}
 
-	// All retries exhausted
-	log.Debug("All", maxRetries, "attempts failed for", artifactPath, ":", lastErr)
-	return propsResultFailed
+	log.Debug("All", maxRetries, "batch attempts failed:", lastErr)
+}
+
+// createArtifactsReader creates a ContentReader containing all artifact paths for batch processing.
+func createArtifactsReader(artifactPaths []string) (*content.ContentReader, error) {
+	writer, err := content.NewContentWriter("results", true, false)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, artifactPath := range artifactPaths {
+		// Parse path into repo/path/name
+		parts := strings.SplitN(artifactPath, "/", 2)
+		if len(parts) < 2 {
+			log.Debug("Invalid artifact path skipped during reader creation:", artifactPath)
+			continue
+		}
+
+		repo := parts[0]
+		pathAndName := parts[1]
+		dir, name := path.Split(pathAndName)
+
+		writer.Write(artclientutils.ResultItem{
+			Repo: repo,
+			Path: strings.TrimSuffix(dir, "/"),
+			Name: name,
+			Type: "file",
+		})
+	}
+
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+
+	return content.NewContentReader(writer.GetFilePath(), "results"), nil
 }
 
 // is404Error checks if the error indicates a 404 Not Found response.
@@ -169,34 +181,4 @@ func is403Error(err error) bool {
 	errStr := strings.ToLower(err.Error())
 	return strings.Contains(errStr, "403") ||
 		strings.Contains(errStr, "forbidden")
-}
-
-// createSingleArtifactReader creates a ContentReader for a single artifact path.
-func createSingleArtifactReader(artifactPath string) (*content.ContentReader, error) {
-	writer, err := content.NewContentWriter("results", true, false)
-	if err != nil {
-		return nil, err
-	}
-
-	// Parse path into repo/path/name
-	parts := strings.SplitN(artifactPath, "/", 2)
-	if len(parts) < 2 {
-		if closeErr := writer.Close(); closeErr != nil {
-			log.Debug("Failed to close writer:", closeErr)
-		}
-		return nil, fmt.Errorf("invalid artifact path: %s", artifactPath)
-	}
-	repo := parts[0]
-	pathAndName := parts[1]
-	dir, name := path.Split(pathAndName)
-	writer.Write(artclientutils.ResultItem{
-		Repo: repo,
-		Path: strings.TrimSuffix(dir, "/"),
-		Name: name,
-		Type: "file",
-	})
-	if err := writer.Close(); err != nil {
-		return nil, err
-	}
-	return content.NewContentReader(writer.GetFilePath(), "results"), nil
 }

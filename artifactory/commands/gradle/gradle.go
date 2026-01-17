@@ -10,8 +10,8 @@ import (
 	"text/template"
 
 	buildinfoflexpack "github.com/jfrog/build-info-go/flexpack/gradle"
-	"github.com/jfrog/build-info-go/utils/cienv"
 	flexpackgradle "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/flexpack/gradle"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
 	artifactoryutils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
@@ -449,7 +449,7 @@ func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string,
 	}
 
 	// Set CI VCS properties if in CI environment
-	setCIVcsPropsToConfig(vConfig)
+	civcs.SetCIVcsPropsToConfig(vConfig)
 
 	props, err = build.CreateBuildInfoProps(deployableArtifactsFile, vConfig, project.Gradle)
 	if err != nil {
@@ -461,33 +461,6 @@ func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string,
 	}
 	plugin = vConfig.GetBool(usePlugin)
 	return
-}
-
-// CI VCS property keys for Gradle extractor
-const (
-	vcsProviderKey = "vcs.provider"
-	vcsOrgKey      = "vcs.org"
-	vcsRepoKey     = "vcs.repo"
-)
-
-// setCIVcsPropsToConfig sets CI VCS properties to viper config if running in CI environment.
-// These are picked up by the Gradle extractor and set as properties on deployed artifacts.
-func setCIVcsPropsToConfig(vConfig *viper.Viper) {
-	ciVcsInfo := cienv.GetCIVcsInfo()
-	if ciVcsInfo.IsEmpty() {
-		return
-	}
-	log.Debug("Setting CI VCS properties for Gradle extractor: provider=%s, org=%s, repo=%s",
-		ciVcsInfo.Provider, ciVcsInfo.Org, ciVcsInfo.Repo)
-	if ciVcsInfo.Provider != "" {
-		vConfig.Set(vcsProviderKey, ciVcsInfo.Provider)
-	}
-	if ciVcsInfo.Org != "" {
-		vConfig.Set(vcsOrgKey, ciVcsInfo.Org)
-	}
-	if ciVcsInfo.Repo != "" {
-		vConfig.Set(vcsRepoKey, ciVcsInfo.Repo)
-	}
 }
 
 func setDeployFalse(vConfig *viper.Viper) {
