@@ -321,10 +321,15 @@ func (bpc *BuildPublishCommand) getNextBuildNumber(buildName string, servicesMan
 // - Only runs when in a supported CI environment (GitHub Actions, GitLab CI, etc.)
 // - Never fails the build publish - only logs warnings on errors
 // - Retries transient failures but not 404 errors
+// - Does nothing if CI VCS props collection is disabled via JFROG_CLI_CI_VCS_PROPS_DISABLED
 func (bpc *BuildPublishCommand) setCIVcsPropsOnArtifacts(
 	servicesManager artifactory.ArtifactoryServicesManager,
 	buildInfo *buildinfo.BuildInfo,
 ) {
+	// Check if CI VCS props collection is disabled
+	if civcs.IsCIVcsPropsDisabled() {
+		return
+	}
 	// Check if running in a supported CI environment
 	// This requires CI=true AND a registered provider (GitHub, GitLab, etc.)
 	ciVcsInfo := cienv.GetCIVcsInfo()

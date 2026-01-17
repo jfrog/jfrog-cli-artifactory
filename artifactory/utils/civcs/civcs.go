@@ -1,6 +1,7 @@
 package civcs
 
 import (
+	"os"
 	"strings"
 
 	"github.com/jfrog/build-info-go/utils/cienv"
@@ -13,11 +14,26 @@ const (
 	VcsProviderKey = "vcs.provider"
 	VcsOrgKey      = "vcs.org"
 	VcsRepoKey     = "vcs.repo"
+
+	// CIVcsPropsDisabledEnvVar is the environment variable that disables CI VCS property collection.
+	// When set to "true", CI VCS properties will not be collected or set on artifacts.
+	// This is primarily used for testing to prevent CI VCS props from interfering with
+	// tests that check artifact properties.
+	CIVcsPropsDisabledEnvVar = "JFROG_CLI_CI_VCS_PROPS_DISABLED"
 )
+
+// IsCIVcsPropsDisabled checks if CI VCS property collection is disabled via environment variable.
+func IsCIVcsPropsDisabled() bool {
+	return os.Getenv(CIVcsPropsDisabledEnvVar) == "true"
+}
 
 // GetCIVcsPropsString returns CI VCS props if running in a CI environment, empty string otherwise.
 // Returns format: "vcs.provider=github;vcs.org=myorg;vcs.repo=myrepo"
+// Returns empty string if CI VCS props collection is disabled via JFROG_CLI_CI_VCS_PROPS_DISABLED.
 func GetCIVcsPropsString() string {
+	if IsCIVcsPropsDisabled() {
+		return ""
+	}
 	info := cienv.GetCIVcsInfo()
 	if info.IsEmpty() {
 		return ""
@@ -47,7 +63,11 @@ func BuildCIVcsPropsString(info cienv.CIVcsInfo) string {
 // MergeWithUserProps adds CI VCS props to user-provided props, respecting user precedence.
 // Only adds CI properties that the user hasn't already specified.
 // For example, if user set vcs.org, we still add vcs.provider and vcs.repo from CI.
+// Returns userProps unchanged if CI VCS props collection is disabled via JFROG_CLI_CI_VCS_PROPS_DISABLED.
 func MergeWithUserProps(userProps string) string {
+	if IsCIVcsPropsDisabled() {
+		return userProps
+	}
 	info := cienv.GetCIVcsInfo()
 	if info.IsEmpty() {
 		return userProps
@@ -90,7 +110,11 @@ func hasProp(props, key string) bool {
 // SetCIVcsPropsToConfig sets CI VCS properties to viper config if running in CI environment.
 // These are picked up by the Maven/Gradle extractor and set as properties on deployed artifacts.
 // Respects user precedence: if a property is already set, it is NOT overridden.
+// Does nothing if CI VCS props collection is disabled via JFROG_CLI_CI_VCS_PROPS_DISABLED.
 func SetCIVcsPropsToConfig(vConfig *viper.Viper) {
+	if IsCIVcsPropsDisabled() {
+		return
+	}
 	ciVcsInfo := cienv.GetCIVcsInfo()
 	if ciVcsInfo.IsEmpty() {
 		return
