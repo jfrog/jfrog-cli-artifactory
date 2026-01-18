@@ -2,16 +2,18 @@ package generic
 
 import (
 	"errors"
-	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
-	"github.com/jfrog/jfrog-client-go/artifactory"
 	"os"
+	"strconv"
+	"time"
 
 	buildInfo "github.com/jfrog/build-info-go/entities"
-
 	ioutils "github.com/jfrog/gofrog/io"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
+	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	rtServicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	clientUtils "github.com/jfrog/jfrog-client-go/utils"
@@ -19,8 +21,6 @@ import (
 	ioUtils "github.com/jfrog/jfrog-client-go/utils/io"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"strconv"
-	"time"
 )
 
 type UploadCommand struct {
@@ -120,6 +120,8 @@ func (uc *UploadCommand) upload() (err error) {
 		file.TargetProps = clientUtils.AddProps(file.TargetProps, file.Props)
 		file.TargetProps = clientUtils.AddProps(file.TargetProps, syncDeletesProp)
 		file.Props += syncDeletesProp
+		// Add CI VCS properties if in CI environment (respects user precedence)
+		file.TargetProps = civcs.MergeWithUserProps(file.TargetProps)
 		uploadParams, err := getUploadParams(file, uc.uploadConfiguration, buildProps, addVcsProps)
 		if err != nil {
 			errorOccurred = true

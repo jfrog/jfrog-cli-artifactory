@@ -10,6 +10,7 @@ import (
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/flexpack"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -217,6 +218,10 @@ func createMvnRunProps(vConfig *viper.Viper, buildArtifactsDetailsFile string, t
 	if vConfig.IsSet("resolver") {
 		vConfig.Set("buildInfoConfig.artifactoryResolutionEnabled", "true")
 	}
+
+	// Set CI VCS properties if in CI environment
+	civcs.SetCIVcsPropsToConfig(vConfig)
+
 	buildInfoProps, err := buildUtils.CreateBuildInfoProps(buildArtifactsDetailsFile, vConfig, project.Maven)
 	if err != nil {
 		return nil, useWrapper, err

@@ -61,6 +61,12 @@ func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber strin
 		projectKey = buildConfiguration.GetProject()
 	}
 
+	// Update OriginalDeploymentRepo on artifacts before saving build info
+	// This ensures 'jf rt bp' can set CI VCS properties later
+	if isPublishCommand {
+		updateOriginalDeploymentRepoOnArtifacts(buildInfo, workingDir)
+	}
+
 	if err := saveGradleFlexPackBuildInfo(buildInfo, projectKey); err != nil {
 		return fmt.Errorf("failed to save build info for jfrog-cli compatibility")
 	} else {
@@ -186,6 +192,32 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, pro
 
 	log.Info("Successfully set build properties on deployed Gradle artifacts")
 	return nil
+}
+
+// updateOriginalDeploymentRepoOnArtifacts updates OriginalDeploymentRepo on all artifacts in the build info.
+// This ensures 'jf rt bp' can later set CI VCS properties on artifacts.
+func updateOriginalDeploymentRepoOnArtifacts(buildInfo *entities.BuildInfo, workingDir string) {
+	if buildInfo == nil {
+		return
+	}
+
+	// Cache per (module dir, version) to avoid repeated lookups
+	moduleRepoCache := make(map[string]string)
+
+	for i := range buildInfo.Modules {
+		module := &buildInfo.Modules[i]
+		repo := resolveRepoForModule(*module, workingDir, moduleRepoCache)
+		if repo == "" {
+			log.Debug("Could not resolve repo for module:", module.Id)
+			continue
+		}
+
+		for j := range module.Artifacts {
+			if module.Artifacts[j].OriginalDeploymentRepo == "" {
+				module.Artifacts[j].OriginalDeploymentRepo = repo
+			}
+		}
+	}
 }
 
 func collectArtifactsFromBuildInfo(buildInfo *entities.BuildInfo, workingDir string) []servicesutils.ResultItem {

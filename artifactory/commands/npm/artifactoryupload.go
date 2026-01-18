@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
@@ -48,6 +49,10 @@ func (nru *npmRtUpload) doDeploy(target string, artDetails *config.ServerDetails
 	up := services.NewUploadParams()
 	up.CommonParams = &specutils.CommonParams{Pattern: packedFilePath, Target: target}
 	if err = nru.addDistTagIfSet(up.CommonParams); err != nil {
+		return err
+	}
+	// Add CI VCS properties if in CI environment
+	if err = nru.addCIVcsProps(up.CommonParams); err != nil {
 		return err
 	}
 	var totalFailed int
@@ -103,6 +108,27 @@ func (nru *npmRtUpload) addDistTagIfSet(params *specutils.CommonParams) error {
 		return err
 	}
 	params.TargetProps = props
+	return nil
+}
+
+// addCIVcsProps adds CI VCS properties to the upload params if in CI environment.
+func (nru *npmRtUpload) addCIVcsProps(params *specutils.CommonParams) error {
+	ciProps := civcs.GetCIVcsPropsString()
+	if ciProps == "" {
+		return nil
+	}
+	if params.TargetProps == nil {
+		props, err := specutils.ParseProperties(ciProps)
+		if err != nil {
+			return err
+		}
+		params.TargetProps = props
+	} else {
+		// Merge with existing properties
+		if err := params.TargetProps.ParseAndAddProperties(ciProps); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
