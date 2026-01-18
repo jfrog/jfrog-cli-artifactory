@@ -1,7 +1,6 @@
 package buildinfo
 
 import (
-	"fmt"
 	"path"
 	"strings"
 	"time"
@@ -19,40 +18,60 @@ const (
 	retryDelayBase = time.Second
 )
 
-// extractArtifactPathsWithWarnings extracts full Artifactory paths from build info artifacts.
-// Returns the list of valid paths and count of skipped artifacts (missing repo path).
-// Logs a warning for each artifact missing OriginalDeploymentRepo.
+// extractArtifactPathsWithWarnings extracts Artifactory paths from build info artifacts.
+// Returns the list of paths (may be complete or partial) and count of skipped artifacts.
+// Paths are constructed using OriginalDeploymentRepo + Path when available, or Path directly as fallback.
+// If property setting fails later due to incomplete paths, warnings will be logged at that point.
 func extractArtifactPathsWithWarnings(buildInfo *buildinfo.BuildInfo) ([]string, int) {
 	var paths []string
 	var skippedCount int
 
 	for _, module := range buildInfo.Modules {
 		for _, artifact := range module.Artifacts {
-			if artifact.OriginalDeploymentRepo == "" {
-				// OriginalDeploymentRepo is required to construct the full Artifactory path
-				// (e.g., "libs-release-local/com/example/artifact.jar") for setting properties.
-				// Without the repository name, we cannot target the artifact in Artifactory API.
-				artifactIdentifier := artifact.Name
-				if artifactIdentifier == "" {
-					artifactIdentifier = artifact.Path
-				}
-				if artifactIdentifier == "" {
-					artifactIdentifier = fmt.Sprintf("sha1:%s", artifact.Sha1)
-				}
-				log.Warn("Unable to find repo path for artifact:", artifactIdentifier)
+			fullPath := constructArtifactPathWithFallback(artifact)
+			if fullPath == "" {
+				// No path information at all - skip silently (nothing to try)
 				skippedCount++
 				continue
 			}
-			fullPath := constructArtifactPath(artifact)
-			if fullPath != "" {
-				paths = append(paths, fullPath)
-			}
+			paths = append(paths, fullPath)
 		}
 	}
 	return paths, skippedCount
 }
 
-// constructArtifactPath builds the full Artifactory path for an artifact.
+// constructArtifactPathWithFallback builds the full Artifactory path for an artifact.
+// Strategy:
+//  1. If OriginalDeploymentRepo is present: use OriginalDeploymentRepo + "/" + Path
+//  2. If OriginalDeploymentRepo is missing: use Path directly (it may or may not work)
+//  3. If neither available: return empty string (caller should warn and skip)
+func constructArtifactPathWithFallback(artifact buildinfo.Artifact) string {
+	// Primary: Use OriginalDeploymentRepo if available
+	if artifact.OriginalDeploymentRepo != "" {
+		if artifact.Path != "" {
+			return artifact.OriginalDeploymentRepo + "/" + artifact.Path
+		}
+		if artifact.Name != "" {
+			return artifact.OriginalDeploymentRepo + "/" + artifact.Name
+		}
+	}
+
+	// Fallback: Use Path directly - it might be a complete path or might fail
+	// If it fails, setPropsOnArtifacts will warn and move on
+	if artifact.Path != "" {
+		return artifact.Path
+	}
+
+	// Last resort: just the name (unlikely to work, but let it try)
+	if artifact.Name != "" {
+		return artifact.Name
+	}
+
+	// Nothing available
+	return ""
+}
+
+// constructArtifactPath builds the full Artifactory path for an artifact (legacy function).
 func constructArtifactPath(artifact buildinfo.Artifact) string {
 	if artifact.OriginalDeploymentRepo == "" {
 		return ""
@@ -68,6 +87,7 @@ func constructArtifactPath(artifact buildinfo.Artifact) string {
 
 // setPropsOnArtifacts sets properties on multiple artifacts in a single API call with retry logic.
 // This is a major performance optimization over setting properties one by one.
+// If property setting fails after retries, logs a warning and continues (does not fail the build).
 func setPropsOnArtifacts(
 	servicesManager artifactory.ArtifactoryServicesManager,
 	artifactPaths []string,
@@ -89,7 +109,7 @@ func setPropsOnArtifacts(
 		// Create reader for all artifacts
 		reader, err := createArtifactsReader(artifactPaths)
 		if err != nil {
-			log.Debug("Failed to create reader for artifacts:", err)
+			log.Debug("Failed to create reader for CI VCS properties:", err)
 			return
 		}
 
@@ -108,16 +128,16 @@ func setPropsOnArtifacts(
 			return
 		}
 
-		// Check if error is 404 - don't retry (some items might not exist, but we can't tell which ones from a batch call easily)
+		// Check if error is 404 - artifact path might be incorrect, skip silently
 		if is404Error(err) {
-			log.Debug("Batch property set returned 404, some artifacts might not exist")
+			log.Debug("Could not set CI VCS properties: some artifacts not found (path may be incomplete)")
 			return
 		}
 
-		// Check if error is 403 - limited retries
+		// Check if error is 403 - permission issue, skip silently
 		if is403Error(err) {
 			if attempt >= 1 {
-				log.Debug("403 Forbidden persists, likely permission issue")
+				log.Debug("Could not set CI VCS properties: permission denied")
 				return
 			}
 		}
@@ -126,7 +146,7 @@ func setPropsOnArtifacts(
 		log.Debug("Batch attempt", attempt+1, "failed:", err)
 	}
 
-	log.Debug("All", maxRetries, "batch attempts failed:", lastErr)
+	log.Debug("Failed to set CI VCS properties on artifacts after", maxRetries, "attempts:", lastErr)
 }
 
 // createArtifactsReader creates a ContentReader containing all artifact paths for batch processing.
