@@ -118,35 +118,35 @@ func setPropsOnArtifacts(
 			Props:  props,
 		}
 
-		_, err = servicesManager.SetProps(params)
+		successCount, err := servicesManager.SetProps(params)
 		if closeErr := reader.Close(); closeErr != nil {
 			log.Debug("Failed to close reader:", closeErr)
 		}
 
 		if err == nil {
-			log.Debug("Successfully set CI VCS properties on artifacts")
+			log.Info("CI VCS: Successfully set properties on", successCount, "artifacts")
 			return
 		}
 
 		// Check if error is 404 - artifact path might be incorrect, skip silently
 		if is404Error(err) {
-			log.Debug("Could not set CI VCS properties: some artifacts not found (path may be incomplete)")
+			log.Info("CI VCS: SetProps returned 404 - some artifacts not found (path may be incomplete)")
 			return
 		}
 
 		// Check if error is 403 - permission issue, skip silently
 		if is403Error(err) {
 			if attempt >= 1 {
-				log.Debug("Could not set CI VCS properties: permission denied")
+				log.Info("CI VCS: SetProps returned 403 - permission denied")
 				return
 			}
 		}
 
 		lastErr = err
-		log.Debug("Batch attempt", attempt+1, "failed:", err)
+		log.Info("CI VCS: Batch attempt", attempt+1, "failed:", err)
 	}
 
-	log.Debug("Failed to set CI VCS properties on artifacts after", maxRetries, "attempts:", lastErr)
+	log.Info("CI VCS: Failed to set properties after", maxRetries, "attempts:", lastErr)
 }
 
 // createArtifactsReader creates a ContentReader containing all artifact paths for batch processing.

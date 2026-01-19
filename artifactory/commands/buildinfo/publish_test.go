@@ -30,19 +30,19 @@ func (m *mockServicesManager) SetProps(params services.PropsParams) (int, error)
 
 func TestSetCIVcsPropsOnArtifacts(t *testing.T) {
 	// 1. Setup environment
-	os.Setenv("CI", "true")
-	os.Setenv("GITHUB_ACTIONS", "true")
-	os.Setenv("GITHUB_WORKFLOW", "test")
-	os.Setenv("GITHUB_RUN_ID", "123")
-	os.Setenv("GITHUB_REPOSITORY_OWNER", "jfrog")
-	os.Setenv("GITHUB_REPOSITORY", "jfrog/jfrog-cli")
+	_ = os.Setenv("CI", "true")
+	_ = os.Setenv("GITHUB_ACTIONS", "true")
+	_ = os.Setenv("GITHUB_WORKFLOW", "test")
+	_ = os.Setenv("GITHUB_RUN_ID", "123")
+	_ = os.Setenv("GITHUB_REPOSITORY_OWNER", "jfrog")
+	_ = os.Setenv("GITHUB_REPOSITORY", "jfrog/jfrog-cli")
 	defer func() {
-		os.Unsetenv("CI")
-		os.Unsetenv("GITHUB_ACTIONS")
-		os.Unsetenv("GITHUB_WORKFLOW")
-		os.Unsetenv("GITHUB_RUN_ID")
-		os.Unsetenv("GITHUB_REPOSITORY_OWNER")
-		os.Unsetenv("GITHUB_REPOSITORY")
+		_ = os.Unsetenv("CI")
+		_ = os.Unsetenv("GITHUB_ACTIONS")
+		_ = os.Unsetenv("GITHUB_WORKFLOW")
+		_ = os.Unsetenv("GITHUB_RUN_ID")
+		_ = os.Unsetenv("GITHUB_REPOSITORY_OWNER")
+		_ = os.Unsetenv("GITHUB_REPOSITORY")
 	}()
 
 	// 2. Mock services manager
