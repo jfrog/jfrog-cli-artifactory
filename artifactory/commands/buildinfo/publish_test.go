@@ -15,7 +15,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"os"
 )
 
 type mockServicesManager struct {
