@@ -34,6 +34,7 @@ type ReleaseBundleCreateCommand struct {
 	releaseBundleCmd
 	signingKeyName string
 	spec           *spec.SpecFiles
+	draft          bool
 	// Backward compatibility:
 	buildsSpecPath         string
 	releaseBundlesSpecPath string
@@ -78,6 +79,11 @@ func (rbc *ReleaseBundleCreateCommand) SetReleaseBundleProject(rbProjectKey stri
 
 func (rbc *ReleaseBundleCreateCommand) SetSpec(spec *spec.SpecFiles) *ReleaseBundleCreateCommand {
 	rbc.spec = spec
+	return rbc
+}
+
+func (rbc *ReleaseBundleCreateCommand) SetDraft(draft bool) *ReleaseBundleCreateCommand {
+	rbc.draft = draft
 	return rbc
 }
 
@@ -389,7 +395,7 @@ func (rbc *ReleaseBundleCreateCommand) multiSourcesDefinedFromSpec() ([]services
 func (rbc *ReleaseBundleCreateCommand) createFromMultipleSources(servicesManager *lifecycle.LifecycleServicesManager,
 	rbDetails services.ReleaseBundleDetails, queryParams services.CommonOptionalQueryParams,
 	sources []services.RbSource) (response []byte, err error) {
-	return servicesManager.CreateReleaseBundlesFromMultipleSources(rbDetails, queryParams, rbc.signingKeyName, sources)
+	return servicesManager.CreateReleaseBundlesFromMultipleSourcesDraft(rbDetails, queryParams, rbc.signingKeyName, sources, rbc.draft)
 }
 
 func (rbc *ReleaseBundleCreateCommand) createAqlQueryFromSpec() (aql string) {

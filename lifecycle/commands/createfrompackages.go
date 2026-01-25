@@ -15,7 +15,7 @@ func (rbc *ReleaseBundleCreateCommand) createFromPackages(servicesManager *lifec
 		return errorutils.CheckErrorf("at least one package is expected in order to create a release bundle from packages")
 	}
 
-	return servicesManager.CreateReleaseBundleFromPackages(rbDetails, queryParams, rbc.signingKeyName, packageSource)
+	return servicesManager.CreateReleaseBundleFromPackagesDraft(rbDetails, queryParams, rbc.signingKeyName, packageSource, rbc.draft)
 }
 
 func (rbc *ReleaseBundleCreateCommand) createPackageSourceFromSpec() services.CreateFromPackagesSource {

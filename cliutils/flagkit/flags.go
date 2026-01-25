@@ -490,6 +490,7 @@ const (
 	lcDeleteProperties       = lifecyclePrefix + DeleteProperty
 	SourceTypeReleaseBundles = "source-type-release-bundles"
 	SourceTypeBuilds         = "source-type-builds"
+	Draft                    = "draft"
 )
 
 var commandFlags = map[string][]string{
@@ -515,7 +516,7 @@ var commandFlags = map[string][]string{
 	},
 	cmddefs.ReleaseBundleCreate: {
 		platformUrl, user, password, accessToken, serverId, lcSigningKey, lcSync, lcProject, lcBuilds, lcReleaseBundles,
-		specFlag, specVars, BuildName, BuildNumber, SourceTypeReleaseBundles, SourceTypeBuilds,
+		specFlag, specVars, BuildName, BuildNumber, SourceTypeReleaseBundles, SourceTypeBuilds, Draft,
 	},
 	cmddefs.ReleaseBundlePromote: {
 		platformUrl, user, password, accessToken, serverId, lcSigningKey, lcSync, lcProject, lcIncludeRepos,
@@ -1103,6 +1104,7 @@ var flagsMap = map[string]components.Flag{
 	lcDeleteProperties:       components.NewStringFlag(DeleteProperty, "Properties to be deleted on the of Manifest Release Bundle version.", components.SetMandatoryFalse()),
 	SourceTypeReleaseBundles: components.NewStringFlag(SourceTypeReleaseBundles, "List of semicolon-seperated(;) release bundles in the form of 'name=releaseBundleName1, version=version1; name=releaseBundleName2, version=version2' to be included in the new bundle.", components.SetMandatoryFalse()),
 	SourceTypeBuilds:         components.NewStringFlag(SourceTypeBuilds, "List of semicolon-separated(;) builds in the form of 'name=buildName1, id=runID1, include-deps=true; name=buildName2, id=runID2' to be included in the new bundle.", components.SetMandatoryFalse()),
+	Draft:                    components.NewBoolFlag(Draft, "Set to true to create the release bundle as a draft. A draft release bundle can be updated and finalized later.", components.WithBoolDefaultValueFalse()),
 }
 
 func GetCommandFlags(cmdKey string) []components.Flag {
