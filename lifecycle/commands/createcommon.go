@@ -175,11 +175,26 @@ func (rbc *ReleaseBundleCreateCommand) Run() error {
 		if err != nil {
 			return err
 		}
+		updateReleaseBundleRepoKeyWithProject(sources)
 		_, err = rbc.createFromMultipleSources(servicesManager, rbDetails, queryParams, sources)
 		return err
 	}
 
 	return errorutils.CheckErrorf("release bundle creation failed, unable to identify source for creation")
+}
+
+func updateReleaseBundleRepoKeyWithProject(sources []services.RbSource) {
+	if len(sources) == 0 || sources[0].SourceType != "release_bundles" {
+		return
+	}
+	for i := range sources {
+		for j := range sources[i].ReleaseBundles {
+			rb := &sources[i].ReleaseBundles[j]
+			if rb.ProjectKey != "" {
+				rb.RepositoryKey = rb.ProjectKey + "-release-bundles-v2"
+			}
+		}
+	}
 }
 
 func parseKeyValueString(input string) map[string]string {
