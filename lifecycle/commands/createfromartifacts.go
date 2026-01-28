@@ -19,7 +19,7 @@ func (rbc *ReleaseBundleCreateCommand) createFromArtifacts(lcServicesManager *li
 		return err
 	}
 
-	return lcServicesManager.CreateReleaseBundleFromArtifacts(rbDetails, queryParams, rbc.signingKeyName, artifactsSource)
+	return lcServicesManager.CreateReleaseBundleFromArtifactsDraft(rbDetails, queryParams, rbc.signingKeyName, artifactsSource, rbc.draft)
 }
 
 func (rbc *ReleaseBundleCreateCommand) getArtifactFilesFromSpec() []spec.File {

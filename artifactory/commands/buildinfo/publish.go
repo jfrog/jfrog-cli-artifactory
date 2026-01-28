@@ -3,15 +3,17 @@ package buildinfo
 import (
 	"errors"
 	"fmt"
-	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/build-info-go/utils/cienv"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/formats"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
@@ -197,6 +199,11 @@ func (bpc *BuildPublishCommand) Run() error {
 		return err
 	}
 
+	// Set CI VCS properties on artifacts from build info.
+	// This only runs if we're in a supported CI environment (GitHub Actions, GitLab CI, etc.)
+	// Note: This never returns an error - it only logs warnings on failure
+	bpc.setCIVcsPropsOnArtifacts(servicesManager, buildInfo)
+
 	majorVersion, err := utils.GetRtMajorVersion(servicesManager)
 	if err != nil {
 		return err
@@ -307,6 +314,54 @@ func (bpc *BuildPublishCommand) getNextBuildNumber(buildName string, servicesMan
 	}
 	latestBuildNumber++
 	return strconv.Itoa(latestBuildNumber), nil
+}
+
+// setCIVcsPropsOnArtifacts sets CI VCS properties on all artifacts in the build info.
+// This method:
+// - Only runs when in a supported CI environment (GitHub Actions, GitLab CI, etc.)
+// - Never fails the build publish - only logs warnings on errors
+// - Retries transient failures but not 404 errors
+// - Does nothing if CI VCS props collection is disabled via JFROG_CLI_CI_VCS_PROPS_DISABLED
+func (bpc *BuildPublishCommand) setCIVcsPropsOnArtifacts(
+	servicesManager artifactory.ArtifactoryServicesManager,
+	buildInfo *buildinfo.BuildInfo,
+) {
+	// Check if CI VCS props collection is disabled
+	if civcs.IsCIVcsPropsDisabled() {
+		return
+	}
+	// Check if running in a supported CI environment
+	// This requires CI=true AND a registered provider (GitHub, GitLab, etc.)
+	ciVcsInfo := cienv.GetCIVcsInfo()
+	if ciVcsInfo.IsEmpty() {
+		// Not in CI or no registered provider - silently skip
+		return
+	}
+	log.Info("CI VCS: Detected provider:", ciVcsInfo.Provider, ", org:", ciVcsInfo.Org, ", repo:", ciVcsInfo.Repo)
+
+	// Build props string
+	props := civcs.BuildCIVcsPropsString(ciVcsInfo)
+	if props == "" {
+		log.Info("CI VCS: Empty props string, skipping")
+		return
+	}
+
+	// Extract artifact paths from build info (with warnings for missing repo paths)
+	artifactPaths, skippedCount := extractArtifactPathsWithWarnings(buildInfo)
+	log.Info("CI VCS: Extracted", len(artifactPaths), "artifact paths,", skippedCount, "skipped")
+	if len(artifactPaths) == 0 && skippedCount == 0 {
+		log.Info("CI VCS: No artifacts found in build info")
+		return
+	}
+	if len(artifactPaths) == 0 {
+		// All artifacts were skipped due to missing repo paths
+		log.Info("CI VCS: All artifacts skipped due to missing repo paths")
+		return
+	}
+	log.Info("CI VCS: Setting properties on", len(artifactPaths), "artifacts with props:", props)
+	// Set properties on all artifacts in a single batch call
+	setPropsOnArtifacts(servicesManager, artifactPaths, props)
+	log.Info("CI VCS: Property setting completed")
 }
 
 func recordCommandSummary(buildInfo *buildinfo.BuildInfo, buildLink string) (err error) {

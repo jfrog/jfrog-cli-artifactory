@@ -25,7 +25,7 @@ func (rbc *ReleaseBundleCreateCommand) createFromBuilds(servicesManager *lifecyc
 		return errorutils.CheckErrorf("at least one build is expected in order to create a release bundle from builds")
 	}
 
-	return servicesManager.CreateReleaseBundleFromBuilds(rbDetails, queryParams, rbc.signingKeyName, buildsSource)
+	return servicesManager.CreateReleaseBundleFromBuildsDraft(rbDetails, queryParams, rbc.signingKeyName, buildsSource, rbc.draft)
 }
 
 func (rbc *ReleaseBundleCreateCommand) createBuildSourceFromSpec() (buildsSource services.CreateFromBuildsSource, err error) {

@@ -23,7 +23,7 @@ func (rbc *ReleaseBundleCreateCommand) createFromReleaseBundles(servicesManager 
 		return errorutils.CheckErrorf("at least one release bundle is expected in order to create a release bundle from release bundles")
 	}
 
-	return servicesManager.CreateReleaseBundleFromBundles(rbDetails, queryParams, rbc.signingKeyName, releaseBundlesSource)
+	return servicesManager.CreateReleaseBundleFromBundlesDraft(rbDetails, queryParams, rbc.signingKeyName, releaseBundlesSource, rbc.draft)
 }
 
 func (rbc *ReleaseBundleCreateCommand) createReleaseBundleSourceFromSpec() (services.CreateFromReleaseBundlesSource, error) {

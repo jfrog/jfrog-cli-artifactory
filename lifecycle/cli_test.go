@@ -2,15 +2,16 @@ package lifecycle
 
 import (
 	"bytes"
+	"path/filepath"
+	"strings"
+	"testing"
+
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	clientTestUtils "github.com/jfrog/jfrog-client-go/utils/tests"
 	"github.com/stretchr/testify/assert"
-	"path/filepath"
-	"strings"
-	"testing"
 )
 
 func TestValidateCreateReleaseBundleContext(t *testing.T) {
@@ -35,6 +36,11 @@ func TestValidateCreateReleaseBundleContext(t *testing.T) {
 		{"spec without signing key", []string{"name", "version", "env"}, []string{"spec=/path/to/file"}, true},
 		{"spec correct", []string{"name", "version"}, []string{
 			"spec=/path/to/file", flagkit.SigningKey + "=key"}, false},
+		// Draft flag tests - draft flag should not affect validation
+		{"spec with draft flag", []string{"name", "version"}, []string{
+			"spec=/path/to/file", flagkit.SigningKey + "=key"}, false},
+		{"builds with draft flag", []string{"name", "version"}, []string{
+			flagkit.Builds + "=/path/to/file", flagkit.SigningKey + "=key"}, false},
 	}
 
 	for _, test := range testRuns {
@@ -150,4 +156,36 @@ func CreateContext(t *testing.T, testStringFlags, testArgs []string, testBoolFla
 		return nil
 	}
 	return ctx, &bytes.Buffer{}
+}
+
+func TestDraftFlagReading(t *testing.T) {
+	testRuns := []struct {
+		name          string
+		boolFlags     map[string]bool
+		expectedDraft bool
+	}{
+		{
+			name:          "draft flag not set",
+			boolFlags:     nil,
+			expectedDraft: false,
+		},
+		{
+			name:          "draft flag set to true",
+			boolFlags:     map[string]bool{flagkit.Draft: true},
+			expectedDraft: true,
+		},
+		{
+			name:          "draft flag set to false",
+			boolFlags:     map[string]bool{flagkit.Draft: false},
+			expectedDraft: false,
+		},
+	}
+
+	for _, test := range testRuns {
+		t.Run(test.name, func(t *testing.T) {
+			context, _ := CreateContext(t, []string{}, []string{}, test.boolFlags)
+			draftValue := context.GetBoolFlagValue(flagkit.Draft)
+			assert.Equal(t, test.expectedDraft, draftValue)
+		})
+	}
 }
