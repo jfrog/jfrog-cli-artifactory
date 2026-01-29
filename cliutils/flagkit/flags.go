@@ -519,7 +519,7 @@ var commandFlags = map[string][]string{
 		specFlag, specVars, BuildName, BuildNumber, SourceTypeReleaseBundles, SourceTypeBuilds, Draft,
 	},
 	cmddefs.ReleaseBundleUpdate: {
-		platformUrl, user, password, accessToken, serverId, lcProject,
+		platformUrl, user, password, accessToken, serverId, lcSync, lcProject,
 		specFlag, specVars, SourceTypeReleaseBundles, SourceTypeBuilds,
 	},
 	cmddefs.ReleaseBundlePromote: {

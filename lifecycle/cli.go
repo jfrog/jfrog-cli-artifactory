@@ -300,6 +300,7 @@ func update(c *components.Context) (err error) {
 		SetReleaseBundleVersion(c.GetArgumentAt(1)).
 		SetReleaseBundleProject(pluginsCommon.GetProject(c)).
 		SetSpec(updateSpec).
+		SetSync(c.GetBoolFlagValue(flagkit.Sync)).
 		SetReleaseBundlesSources(c.GetStringFlagValue(flagkit.SourceTypeReleaseBundles)).
 		SetBuildsSources(c.GetStringFlagValue(flagkit.SourceTypeBuilds))
 

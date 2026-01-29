@@ -189,3 +189,108 @@ func TestDraftFlagReading(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateUpdateReleaseBundleContext(t *testing.T) {
+	testRuns := []struct {
+		name        string
+		args        []string
+		flags       []string
+		expectError bool
+	}{
+		// Argument validation tests
+		{
+			name:        "no arguments - should fail",
+			args:        []string{},
+			flags:       []string{"spec=/path/to/file"},
+			expectError: true,
+		},
+		{
+			name:        "one argument - should fail",
+			args:        []string{"bundle-name"},
+			flags:       []string{"spec=/path/to/file"},
+			expectError: true,
+		},
+		{
+			name:        "three arguments - should fail",
+			args:        []string{"bundle-name", "1.0.0", "extra"},
+			flags:       []string{"spec=/path/to/file"},
+			expectError: true,
+		},
+		// Source validation tests
+		{
+			name:        "no sources provided - should fail",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{},
+			expectError: true,
+		},
+		{
+			name:        "spec file provided - should pass",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{"spec=/path/to/file"},
+			expectError: false,
+		},
+		{
+			name:        "source-type-builds provided - should pass",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{flagkit.SourceTypeBuilds + "=name=build1,id=123"},
+			expectError: false,
+		},
+		{
+			name:        "source-type-release-bundles provided - should pass",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{flagkit.SourceTypeReleaseBundles + "=name=rb1,version=1.0"},
+			expectError: false,
+		},
+		{
+			name:        "both source-type flags provided - should pass",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{flagkit.SourceTypeBuilds + "=name=build1,id=123", flagkit.SourceTypeReleaseBundles + "=name=rb1,version=1.0"},
+			expectError: false,
+		},
+	}
+
+	for _, test := range testRuns {
+		t.Run(test.name, func(t *testing.T) {
+			context, buffer := CreateContext(t, test.flags, test.args, nil)
+			err := validateUpdateReleaseBundleContext(context)
+			if test.expectError {
+				assert.Error(t, err, buffer)
+			} else {
+				assert.NoError(t, err, buffer)
+			}
+		})
+	}
+}
+
+func TestSyncFlagReading(t *testing.T) {
+	testRuns := []struct {
+		name         string
+		boolFlags    map[string]bool
+		expectedSync bool
+	}{
+		{
+			// Default value when not set - note: in real CLI the default is true, but in test context it's false
+			name:         "sync flag not set",
+			boolFlags:    nil,
+			expectedSync: false,
+		},
+		{
+			name:         "sync flag set to true",
+			boolFlags:    map[string]bool{flagkit.Sync: true},
+			expectedSync: true,
+		},
+		{
+			name:         "sync flag set to false",
+			boolFlags:    map[string]bool{flagkit.Sync: false},
+			expectedSync: false,
+		},
+	}
+
+	for _, test := range testRuns {
+		t.Run(test.name, func(t *testing.T) {
+			context, _ := CreateContext(t, []string{}, []string{}, test.boolFlags)
+			syncValue := context.GetBoolFlagValue(flagkit.Sync)
+			assert.Equal(t, test.expectedSync, syncValue)
+		})
+	}
+}
