@@ -247,6 +247,19 @@ func TestValidateUpdateReleaseBundleContext(t *testing.T) {
 			flags:       []string{flagkit.SourceTypeBuilds + "=name=build1,id=123", flagkit.SourceTypeReleaseBundles + "=name=rb1,version=1.0"},
 			expectError: false,
 		},
+		// Project flag tests
+		{
+			name:        "spec with project flag - should pass",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{"spec=/path/to/file", "project=my-project"},
+			expectError: false,
+		},
+		{
+			name:        "source-type-builds with project flag - should pass",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{flagkit.SourceTypeBuilds + "=name=build1,id=123", "project=my-project"},
+			expectError: false,
+		},
 	}
 
 	for _, test := range testRuns {

@@ -3,9 +3,6 @@ package commands
 import (
 	"encoding/json"
 
-	rtUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
-	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
-	rtServices "github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/lifecycle"
 	"github.com/jfrog/jfrog-client-go/lifecycle/services"
@@ -32,7 +29,7 @@ func (rbc *ReleaseBundleCreateCommand) createBuildSourceFromSpec() (buildsSource
 	if rbc.buildsSpecPath != "" {
 		buildsSource, err = rbc.getBuildSourceFromBuildsSpec()
 	} else {
-		buildsSource, err = rbc.convertSpecToBuildsSource(rbc.spec.Files)
+		buildsSource, err = convertSpecToBuildsSource(rbc.serverDetails, rbc.spec.Files)
 	}
 	return buildsSource, err
 }
@@ -65,38 +62,12 @@ func (rbc *ReleaseBundleCreateCommand) convertBuildsSpecToBuildsSource(builds Cr
 	return buildsSource, nil
 }
 
-func (rbc *ReleaseBundleCreateCommand) convertSpecToBuildsSource(files []spec.File) (services.CreateFromBuildsSource, error) {
-	buildsSource := services.CreateFromBuildsSource{}
-	for _, file := range files {
-		// support multiple sources
-		if file.Build != "" {
-			buildName, buildNumber, err := rbc.getBuildDetailsFromIdentifier(file.Build, file.Project)
-			if err != nil {
-				return services.CreateFromBuildsSource{}, err
-			}
-			isIncludeDeps, err := file.IsIncludeDeps(false)
-			if err != nil {
-				return services.CreateFromBuildsSource{}, err
-			}
-
-			buildSource := services.BuildSource{
-				BuildName:           buildName,
-				BuildNumber:         buildNumber,
-				BuildRepository:     utils.GetBuildInfoRepositoryByProject(file.Project),
-				IncludeDependencies: isIncludeDeps,
-			}
-			buildsSource.Builds = append(buildsSource.Builds, buildSource)
-		}
-	}
-	return buildsSource, nil
-}
-
 func (rbc *ReleaseBundleCreateCommand) getLatestBuildNumberIfEmpty(buildName, buildNumber, project string) (string, error) {
 	if buildNumber != "" {
 		return buildNumber, nil
 	}
 
-	aqlService, err := rbc.getAqlService()
+	aqlService, err := getAqlService(rbc.serverDetails)
 	if err != nil {
 		return "", err
 	}
@@ -109,30 +80,6 @@ func (rbc *ReleaseBundleCreateCommand) getLatestBuildNumberIfEmpty(buildName, bu
 		return "", errorutils.CheckErrorf("could not find a build info with name '%s' in artifactory", buildName)
 	}
 	return buildNumber, nil
-}
-
-func (rbc *ReleaseBundleCreateCommand) getBuildDetailsFromIdentifier(buildIdentifier, project string) (string, string, error) {
-	aqlService, err := rbc.getAqlService()
-	if err != nil {
-		return "", "", err
-	}
-
-	buildName, buildNumber, err := utils.GetBuildNameAndNumberFromBuildIdentifier(buildIdentifier, project, aqlService)
-	if err != nil {
-		return "", "", err
-	}
-	if buildName == "" || buildNumber == "" {
-		return "", "", errorutils.CheckErrorf("could not identify a build info by the '%s' identifier in artifactory", buildIdentifier)
-	}
-	return buildName, buildNumber, nil
-}
-
-func (rbc *ReleaseBundleCreateCommand) getAqlService() (*rtServices.AqlService, error) {
-	rtServiceManager, err := rtUtils.CreateServiceManager(rbc.serverDetails, 3, 0, false)
-	if err != nil {
-		return nil, err
-	}
-	return rtServices.NewAqlService(rtServiceManager.GetConfig().GetServiceDetails(), rtServiceManager.Client()), nil
 }
 
 type CreateFromBuildsSpec struct {
