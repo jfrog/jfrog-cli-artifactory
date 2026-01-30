@@ -141,7 +141,7 @@ func getBuildDetailsFromIdentifier(serverDetails *config.ServerDetails, buildIde
 
 // getArtifactFilesFromSpec filters spec files to return only those with a Pattern (artifacts)
 func getArtifactFilesFromSpec(files []spec.File) []spec.File {
-	var artifactFiles []spec.File
+	artifactFiles := make([]spec.File, 0, len(files))
 	for _, file := range files {
 		if file.Pattern != "" {
 			artifactFiles = append(artifactFiles, file)
@@ -152,8 +152,10 @@ func getArtifactFilesFromSpec(files []spec.File) []spec.File {
 
 // aqlResultToArtifactsSource converts AQL search results to CreateFromArtifacts source
 func aqlResultToArtifactsSource(readers []*content.ContentReader) (artifactsSource services.CreateFromArtifacts, err error) {
+	// Allocate buffer once outside the loops to avoid unnecessary heap allocations on every iteration
+	searchResult := new(rtServicesUtils.ResultItem)
 	for _, reader := range readers {
-		for searchResult := new(rtServicesUtils.ResultItem); reader.NextRecord(searchResult) == nil; searchResult = new(rtServicesUtils.ResultItem) {
+		for reader.NextRecord(searchResult) == nil {
 			artifactsSource.Artifacts = append(artifactsSource.Artifacts, services.ArtifactSource{
 				Path:   path.Join(searchResult.Repo, searchResult.Path, searchResult.Name),
 				Sha256: searchResult.Sha256,
