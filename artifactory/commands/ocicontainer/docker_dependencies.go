@@ -74,7 +74,7 @@ func (ddp *DockerDependenciesBuilder) collectDetailsForBaseImage(baseImage Docke
 	if err != nil {
 		return []utils.ResultItem{}, err
 	}
-	imageName, err := image.GetImageShortName()
+	imageName, err := image.GetImageLongNameWithoutRepoWithoutTag()
 	if err != nil {
 		return []utils.ResultItem{}, err
 	}
