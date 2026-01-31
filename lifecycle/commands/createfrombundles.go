@@ -3,8 +3,6 @@ package commands
 import (
 	"encoding/json"
 
-	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
-	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/lifecycle"
 	"github.com/jfrog/jfrog-client-go/lifecycle/services"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -32,7 +30,7 @@ func (rbc *ReleaseBundleCreateCommand) createReleaseBundleSourceFromSpec() (serv
 	if rbc.releaseBundlesSpecPath != "" {
 		releaseBundlesSource, err = rbc.getReleaseBundlesSourceFromBundlesSpec()
 	} else {
-		releaseBundlesSource, err = rbc.convertSpecToReleaseBundlesSource(rbc.spec.Files)
+		releaseBundlesSource, err = convertSpecToReleaseBundlesSource(rbc.spec.Files)
 	}
 	if err != nil {
 		return releaseBundlesSource, err
@@ -63,32 +61,6 @@ func (rbc *ReleaseBundleCreateCommand) convertToReleaseBundlesSource(bundles Cre
 		releaseBundlesSource.ReleaseBundles = append(releaseBundlesSource.ReleaseBundles, rbSource)
 	}
 	return releaseBundlesSource
-}
-
-func (rbc *ReleaseBundleCreateCommand) convertSpecToReleaseBundlesSource(files []spec.File) (services.CreateFromReleaseBundlesSource, error) {
-	releaseBundlesSource := services.CreateFromReleaseBundlesSource{}
-	for _, file := range files {
-		// support multiple sources
-		if file.Bundle == "" {
-			continue
-		}
-
-		name, version, err := utils.ParseNameAndVersion(file.Bundle, false)
-		if err != nil {
-			return releaseBundlesSource, err
-		}
-		if name == "" || version == "" {
-			return releaseBundlesSource, errorutils.CheckErrorf(
-				"invalid release bundle source was provided. Both name and version are mandatory. Provided name: '%s', version: '%s'", name, version)
-		}
-		rbSource := services.ReleaseBundleSource{
-			ReleaseBundleName:    name,
-			ReleaseBundleVersion: version,
-			ProjectKey:           file.Project,
-		}
-		releaseBundlesSource.ReleaseBundles = append(releaseBundlesSource.ReleaseBundles, rbSource)
-	}
-	return releaseBundlesSource, nil
 }
 
 func (rbc *ReleaseBundleCreateCommand) getReleaseBundlesSourceFromBundlesSpec() (releaseBundlesSource services.CreateFromReleaseBundlesSource, err error) {

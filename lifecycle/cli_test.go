@@ -189,3 +189,147 @@ func TestDraftFlagReading(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateUpdateReleaseBundleContext(t *testing.T) {
+	testRuns := []struct {
+		name        string
+		args        []string
+		flags       []string
+		boolFlags   map[string]bool
+		expectError bool
+	}{
+		// Argument validation tests
+		{
+			name:        "no arguments - should fail",
+			args:        []string{},
+			flags:       []string{"spec=/path/to/file"},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
+			expectError: true,
+		},
+		{
+			name:        "one argument - should fail",
+			args:        []string{"bundle-name"},
+			flags:       []string{"spec=/path/to/file"},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
+			expectError: true,
+		},
+		{
+			name:        "three arguments - should fail",
+			args:        []string{"bundle-name", "1.0.0", "extra"},
+			flags:       []string{"spec=/path/to/file"},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
+			expectError: true,
+		},
+		// Operation flag validation tests
+		{
+			name:        "missing add flag - should fail",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{"spec=/path/to/file"},
+			boolFlags:   nil,
+			expectError: true,
+		},
+		{
+			name:        "add flag set to false - should fail",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{"spec=/path/to/file"},
+			boolFlags:   map[string]bool{flagkit.AddSources: false},
+			expectError: true,
+		},
+		// Source validation tests
+		{
+			name:        "no sources provided - should fail",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
+			expectError: true,
+		},
+		{
+			name:        "spec file provided with add flag - should pass",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{"spec=/path/to/file"},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
+			expectError: false,
+		},
+		{
+			name:        "source-type-builds provided with add flag - should pass",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{flagkit.SourceTypeBuilds + "=name=build1,id=123"},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
+			expectError: false,
+		},
+		{
+			name:        "source-type-release-bundles provided with add flag - should pass",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{flagkit.SourceTypeReleaseBundles + "=name=rb1,version=1.0"},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
+			expectError: false,
+		},
+		{
+			name:        "both source-type flags provided with add flag - should pass",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{flagkit.SourceTypeBuilds + "=name=build1,id=123", flagkit.SourceTypeReleaseBundles + "=name=rb1,version=1.0"},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
+			expectError: false,
+		},
+		// Project flag tests
+		{
+			name:        "spec with project flag and add flag - should pass",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{"spec=/path/to/file", "project=my-project"},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
+			expectError: false,
+		},
+		{
+			name:        "source-type-builds with project flag and add flag - should pass",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{flagkit.SourceTypeBuilds + "=name=build1,id=123", "project=my-project"},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
+			expectError: false,
+		},
+	}
+
+	for _, test := range testRuns {
+		t.Run(test.name, func(t *testing.T) {
+			context, buffer := CreateContext(t, test.flags, test.args, test.boolFlags)
+			err := validateUpdateReleaseBundleContext(context)
+			if test.expectError {
+				assert.Error(t, err, buffer)
+			} else {
+				assert.NoError(t, err, buffer)
+			}
+		})
+	}
+}
+
+func TestSyncFlagReading(t *testing.T) {
+	testRuns := []struct {
+		name         string
+		boolFlags    map[string]bool
+		expectedSync bool
+	}{
+		{
+			// Default value when not set - note: in real CLI the default is true, but in test context it's false
+			name:         "sync flag not set",
+			boolFlags:    nil,
+			expectedSync: false,
+		},
+		{
+			name:         "sync flag set to true",
+			boolFlags:    map[string]bool{flagkit.Sync: true},
+			expectedSync: true,
+		},
+		{
+			name:         "sync flag set to false",
+			boolFlags:    map[string]bool{flagkit.Sync: false},
+			expectedSync: false,
+		},
+	}
+
+	for _, test := range testRuns {
+		t.Run(test.name, func(t *testing.T) {
+			context, _ := CreateContext(t, []string{}, []string{}, test.boolFlags)
+			syncValue := context.GetBoolFlagValue(flagkit.Sync)
+			assert.Equal(t, test.expectedSync, syncValue)
+		})
+	}
+}

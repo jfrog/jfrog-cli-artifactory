@@ -22,6 +22,7 @@ import (
 	rbExport "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/export"
 	rbImport "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/importbundle"
 	rbPromote "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/promote"
+	rbUpdate "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/update"
 	artifactoryUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
@@ -51,6 +52,15 @@ func GetCommands() []components.Command {
 			Arguments:   rbCreate.GetArguments(),
 			Category:    lcCategory,
 			Action:      create,
+		},
+		{
+			Name:        cmddefs.ReleaseBundleUpdate,
+			Aliases:     []string{"rbu"},
+			Flags:       flagkit.GetCommandFlags(cmddefs.ReleaseBundleUpdate),
+			Description: rbUpdate.GetDescription(),
+			Arguments:   rbUpdate.GetArguments(),
+			Category:    lcCategory,
+			Action:      update,
 		},
 		{
 			Name:        "release-bundle-promote",
@@ -243,6 +253,63 @@ func create(c *components.Context) (err error) {
 	}
 
 	return commands.Exec(createCmd)
+}
+
+func validateUpdateReleaseBundleContext(c *components.Context) error {
+	if show, err := pluginsCommon.ShowCmdHelpIfNeeded(c, c.Arguments); show || err != nil {
+		return err
+	}
+
+	if len(c.Arguments) != 2 {
+		return pluginsCommon.WrongNumberOfArgumentsHandler(c)
+	}
+
+	// Check that an operation flag is provided (--add is mandatory)
+	if !c.GetBoolFlagValue(flagkit.AddSources) {
+		return errorutils.CheckErrorf("at least one operation flag must be provided: --%s", flagkit.AddSources)
+	}
+
+	// Check that at least one source method is provided
+	hasSpec := c.IsFlagSet("spec")
+	hasSourceTypeFlags := c.IsFlagSet(flagkit.SourceTypeReleaseBundles) || c.IsFlagSet(flagkit.SourceTypeBuilds)
+
+	if !hasSpec && !hasSourceTypeFlags {
+		return errorutils.CheckErrorf("either --spec or source type flags (--%s, --%s) must be provided",
+			flagkit.SourceTypeReleaseBundles, flagkit.SourceTypeBuilds)
+	}
+
+	return nil
+}
+
+func update(c *components.Context) (err error) {
+	if err = validateUpdateReleaseBundleContext(c); err != nil {
+		return err
+	}
+
+	lcDetails, err := createLifecycleDetailsByFlags(c)
+	if err != nil {
+		return
+	}
+
+	var updateSpec *speccore.SpecFiles
+	if c.IsFlagSet("spec") {
+		updateSpec, err = commonCliUtils.GetSpec(c, true, false)
+		if err != nil {
+			return
+		}
+	}
+
+	updateCmd := lifecycle.NewReleaseBundleUpdateCommand().
+		SetServerDetails(lcDetails).
+		SetReleaseBundleName(c.GetArgumentAt(0)).
+		SetReleaseBundleVersion(c.GetArgumentAt(1)).
+		SetReleaseBundleProject(pluginsCommon.GetProject(c)).
+		SetSpec(updateSpec).
+		SetSync(c.GetBoolFlagValue(flagkit.Sync)).
+		SetReleaseBundlesSources(c.GetStringFlagValue(flagkit.SourceTypeReleaseBundles)).
+		SetBuildsSources(c.GetStringFlagValue(flagkit.SourceTypeBuilds))
+
+	return commands.Exec(updateCmd)
 }
 
 // the function validates that the current artifactory version supports multiple source feature

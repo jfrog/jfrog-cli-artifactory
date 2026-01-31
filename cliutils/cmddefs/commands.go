@@ -10,6 +10,7 @@ const (
 
 	// Lifecycle Commands
 	ReleaseBundleCreate       = "release-bundle-create"
+	ReleaseBundleUpdate       = "release-bundle-update"
 	ReleaseBundlePromote      = "release-bundle-promote"
 	ReleaseBundleDistribute   = "release-bundle-distribute"
 	ReleaseBundleDeleteLocal  = "release-bundle-delete-local"

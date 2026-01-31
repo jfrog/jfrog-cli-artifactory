@@ -10,7 +10,7 @@ require (
 	github.com/jfrog/build-info-go v1.13.1-0.20260119231731-3cc4a0771bbd
 	github.com/jfrog/gofrog v1.7.6
 	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260106204841-744f3f71817b
-	github.com/jfrog/jfrog-client-go v1.55.1-0.20260121110006-56e09db08899
+	github.com/jfrog/jfrog-client-go v1.55.1-0.20260128141727-bd34d78a3e48
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1

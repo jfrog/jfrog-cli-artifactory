@@ -491,6 +491,7 @@ const (
 	SourceTypeReleaseBundles = "source-type-release-bundles"
 	SourceTypeBuilds         = "source-type-builds"
 	Draft                    = "draft"
+	AddSources               = "add"
 )
 
 var commandFlags = map[string][]string{
@@ -517,6 +518,10 @@ var commandFlags = map[string][]string{
 	cmddefs.ReleaseBundleCreate: {
 		platformUrl, user, password, accessToken, serverId, lcSigningKey, lcSync, lcProject, lcBuilds, lcReleaseBundles,
 		specFlag, specVars, BuildName, BuildNumber, SourceTypeReleaseBundles, SourceTypeBuilds, Draft,
+	},
+	cmddefs.ReleaseBundleUpdate: {
+		platformUrl, user, password, accessToken, serverId, lcSync, lcProject,
+		specFlag, specVars, SourceTypeReleaseBundles, SourceTypeBuilds, AddSources,
 	},
 	cmddefs.ReleaseBundlePromote: {
 		platformUrl, user, password, accessToken, serverId, lcSigningKey, lcSync, lcProject, lcIncludeRepos,
@@ -1105,6 +1110,7 @@ var flagsMap = map[string]components.Flag{
 	SourceTypeReleaseBundles: components.NewStringFlag(SourceTypeReleaseBundles, "List of semicolon-seperated(;) release bundles in the form of 'name=releaseBundleName1, version=version1; name=releaseBundleName2, version=version2' to be included in the new bundle.", components.SetMandatoryFalse()),
 	SourceTypeBuilds:         components.NewStringFlag(SourceTypeBuilds, "List of semicolon-separated(;) builds in the form of 'name=buildName1, id=runID1, include-deps=true; name=buildName2, id=runID2' to be included in the new bundle.", components.SetMandatoryFalse()),
 	Draft:                    components.NewBoolFlag(Draft, "Set to true to create the release bundle as a draft. A draft release bundle can be updated and finalized later.", components.WithBoolDefaultValueFalse()),
+	AddSources:               components.NewBoolFlag(AddSources, "Add sources to an existing draft release bundle.", components.WithBoolDefaultValueFalse()),
 }
 
 func GetCommandFlags(cmdKey string) []components.Flag {
