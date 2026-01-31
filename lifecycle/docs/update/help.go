@@ -5,7 +5,7 @@ import "github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 var Usage = []string{"rbu [command options] <release bundle name> <release bundle version>"}
 
 func GetDescription() string {
-	return "Update an existing draft release bundle by adding sources"
+	return "Update an existing draft release bundle. The --add flag is mandatory to specify the type of operation."
 }
 
 func GetArguments() []components.Argument {

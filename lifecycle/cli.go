@@ -264,6 +264,11 @@ func validateUpdateReleaseBundleContext(c *components.Context) error {
 		return pluginsCommon.WrongNumberOfArgumentsHandler(c)
 	}
 
+	// Check that an operation flag is provided (--add is mandatory)
+	if !c.GetBoolFlagValue(flagkit.AddSources) {
+		return errorutils.CheckErrorf("at least one operation flag must be provided: --%s", flagkit.AddSources)
+	}
+
 	// Check that at least one source method is provided
 	hasSpec := c.IsFlagSet("spec")
 	hasSourceTypeFlags := c.IsFlagSet(flagkit.SourceTypeReleaseBundles) || c.IsFlagSet(flagkit.SourceTypeBuilds)

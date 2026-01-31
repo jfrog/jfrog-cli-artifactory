@@ -195,6 +195,7 @@ func TestValidateUpdateReleaseBundleContext(t *testing.T) {
 		name        string
 		args        []string
 		flags       []string
+		boolFlags   map[string]bool
 		expectError bool
 	}{
 		// Argument validation tests
@@ -202,18 +203,36 @@ func TestValidateUpdateReleaseBundleContext(t *testing.T) {
 			name:        "no arguments - should fail",
 			args:        []string{},
 			flags:       []string{"spec=/path/to/file"},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
 			expectError: true,
 		},
 		{
 			name:        "one argument - should fail",
 			args:        []string{"bundle-name"},
 			flags:       []string{"spec=/path/to/file"},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
 			expectError: true,
 		},
 		{
 			name:        "three arguments - should fail",
 			args:        []string{"bundle-name", "1.0.0", "extra"},
 			flags:       []string{"spec=/path/to/file"},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
+			expectError: true,
+		},
+		// Operation flag validation tests
+		{
+			name:        "missing add flag - should fail",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{"spec=/path/to/file"},
+			boolFlags:   nil,
+			expectError: true,
+		},
+		{
+			name:        "add flag set to false - should fail",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{"spec=/path/to/file"},
+			boolFlags:   map[string]bool{flagkit.AddSources: false},
 			expectError: true,
 		},
 		// Source validation tests
@@ -221,50 +240,57 @@ func TestValidateUpdateReleaseBundleContext(t *testing.T) {
 			name:        "no sources provided - should fail",
 			args:        []string{"bundle-name", "1.0.0"},
 			flags:       []string{},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
 			expectError: true,
 		},
 		{
-			name:        "spec file provided - should pass",
+			name:        "spec file provided with add flag - should pass",
 			args:        []string{"bundle-name", "1.0.0"},
 			flags:       []string{"spec=/path/to/file"},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
 			expectError: false,
 		},
 		{
-			name:        "source-type-builds provided - should pass",
+			name:        "source-type-builds provided with add flag - should pass",
 			args:        []string{"bundle-name", "1.0.0"},
 			flags:       []string{flagkit.SourceTypeBuilds + "=name=build1,id=123"},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
 			expectError: false,
 		},
 		{
-			name:        "source-type-release-bundles provided - should pass",
+			name:        "source-type-release-bundles provided with add flag - should pass",
 			args:        []string{"bundle-name", "1.0.0"},
 			flags:       []string{flagkit.SourceTypeReleaseBundles + "=name=rb1,version=1.0"},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
 			expectError: false,
 		},
 		{
-			name:        "both source-type flags provided - should pass",
+			name:        "both source-type flags provided with add flag - should pass",
 			args:        []string{"bundle-name", "1.0.0"},
 			flags:       []string{flagkit.SourceTypeBuilds + "=name=build1,id=123", flagkit.SourceTypeReleaseBundles + "=name=rb1,version=1.0"},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
 			expectError: false,
 		},
 		// Project flag tests
 		{
-			name:        "spec with project flag - should pass",
+			name:        "spec with project flag and add flag - should pass",
 			args:        []string{"bundle-name", "1.0.0"},
 			flags:       []string{"spec=/path/to/file", "project=my-project"},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
 			expectError: false,
 		},
 		{
-			name:        "source-type-builds with project flag - should pass",
+			name:        "source-type-builds with project flag and add flag - should pass",
 			args:        []string{"bundle-name", "1.0.0"},
 			flags:       []string{flagkit.SourceTypeBuilds + "=name=build1,id=123", "project=my-project"},
+			boolFlags:   map[string]bool{flagkit.AddSources: true},
 			expectError: false,
 		},
 	}
 
 	for _, test := range testRuns {
 		t.Run(test.name, func(t *testing.T) {
-			context, buffer := CreateContext(t, test.flags, test.args, nil)
+			context, buffer := CreateContext(t, test.flags, test.args, test.boolFlags)
 			err := validateUpdateReleaseBundleContext(context)
 			if test.expectError {
 				assert.Error(t, err, buffer)
