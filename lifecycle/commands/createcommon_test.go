@@ -1,11 +1,12 @@
 package commands
 
 import (
+	"testing"
+
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/lifecycle/services"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestValidateCreationSources(t *testing.T) {
@@ -144,6 +145,65 @@ func TestValidateFileForPackageAndMultipleSourceSupportedVer(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, testCase.expectedSourceType, sourceType)
+			}
+		})
+	}
+}
+
+func TestUpdateReleaseBundleRepoKeyWithProject(t *testing.T) {
+	testCases := []struct {
+		testName     string
+		sources      []services.RbSource
+		expectedRepo string
+		shouldUpdate bool
+	}{
+		{"empty sources", []services.RbSource{}, "", false},
+		{"first source is not release_bundles", []services.RbSource{{SourceType: "builds", Builds: []services.BuildSource{{BuildName: "test-build", BuildNumber: "1"}}}}, "", false},
+		{"release_bundles source with ProjectKey", []services.RbSource{{SourceType: "release_bundles", ReleaseBundles: []services.ReleaseBundleSource{{ReleaseBundleName: "bundle1", ReleaseBundleVersion: "1.0.0", ProjectKey: "myproject", RepositoryKey: ""}}}}, "myproject-release-bundles-v2", true},
+		{"release_bundles source without ProjectKey", []services.RbSource{{SourceType: "release_bundles", ReleaseBundles: []services.ReleaseBundleSource{{ReleaseBundleName: "bundle1", ReleaseBundleVersion: "1.0.0", ProjectKey: "", RepositoryKey: "existing-repo"}}}}, "existing-repo", false},
+		{"multiple release bundles with ProjectKey", []services.RbSource{{SourceType: "release_bundles", ReleaseBundles: []services.ReleaseBundleSource{{ReleaseBundleName: "bundle1", ReleaseBundleVersion: "1.0.0", ProjectKey: "project1", RepositoryKey: ""}, {ReleaseBundleName: "bundle2", ReleaseBundleVersion: "2.0.0", ProjectKey: "project2", RepositoryKey: ""}}}}, "project1-release-bundles-v2", true},
+		{"multiple sources with first being release_bundles", []services.RbSource{{SourceType: "release_bundles", ReleaseBundles: []services.ReleaseBundleSource{{ReleaseBundleName: "bundle1", ReleaseBundleVersion: "1.0.0", ProjectKey: "project1", RepositoryKey: ""}}}, {SourceType: "release_bundles", ReleaseBundles: []services.ReleaseBundleSource{{ReleaseBundleName: "bundle2", ReleaseBundleVersion: "2.0.0", ProjectKey: "project2", RepositoryKey: ""}}}}, "project1-release-bundles-v2", true},
+		{"mixed ProjectKey values in same source", []services.RbSource{{SourceType: "release_bundles", ReleaseBundles: []services.ReleaseBundleSource{{ReleaseBundleName: "bundle1", ReleaseBundleVersion: "1.0.0", ProjectKey: "project1", RepositoryKey: ""}, {ReleaseBundleName: "bundle2", ReleaseBundleVersion: "2.0.0", ProjectKey: "", RepositoryKey: "existing-repo"}, {ReleaseBundleName: "bundle3", ReleaseBundleVersion: "3.0.0", ProjectKey: "project3", RepositoryKey: ""}}}}, "project1-release-bundles-v2", true},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.testName, func(t *testing.T) {
+			// Create a copy of sources to avoid modifying the original test data
+			sourcesCopy := make([]services.RbSource, len(testCase.sources))
+			for i := range testCase.sources {
+				sourcesCopy[i] = testCase.sources[i]
+				if len(sourcesCopy[i].ReleaseBundles) > 0 {
+					sourcesCopy[i].ReleaseBundles = make([]services.ReleaseBundleSource, len(testCase.sources[i].ReleaseBundles))
+					copy(sourcesCopy[i].ReleaseBundles, testCase.sources[i].ReleaseBundles)
+				}
+			}
+			updateReleaseBundleRepoKeyWithProject(sourcesCopy)
+			if !testCase.shouldUpdate {
+				// Verify no changes were made
+				for i := range testCase.sources {
+					if len(testCase.sources[i].ReleaseBundles) > 0 {
+						for j := range testCase.sources[i].ReleaseBundles {
+							assert.Equal(t, testCase.sources[i].ReleaseBundles[j].RepositoryKey, sourcesCopy[i].ReleaseBundles[j].RepositoryKey)
+						}
+					}
+				}
+			} else {
+				// Verify RepositoryKey was updated for bundles with ProjectKey
+				for i := range sourcesCopy {
+					if sourcesCopy[i].SourceType == "release_bundles" {
+						for j := range sourcesCopy[i].ReleaseBundles {
+							rb := sourcesCopy[i].ReleaseBundles[j]
+							if rb.ProjectKey != "" {
+								expectedRepo := rb.ProjectKey + "-release-bundles-v2"
+								assert.Equal(t, expectedRepo, rb.RepositoryKey, "RepositoryKey should be updated for bundle with ProjectKey")
+							} else {
+								// If no ProjectKey, RepositoryKey should remain unchanged
+								originalRb := testCase.sources[i].ReleaseBundles[j]
+								assert.Equal(t, originalRb.RepositoryKey, rb.RepositoryKey, "RepositoryKey should remain unchanged when ProjectKey is empty")
+							}
+						}
+					}
+				}
 			}
 		})
 	}

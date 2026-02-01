@@ -122,7 +122,7 @@ func (uc *UploadCommand) upload() (err error) {
 		file.Props += syncDeletesProp
 		// Add CI VCS properties if in CI environment (respects user precedence)
 		file.TargetProps = civcs.MergeWithUserProps(file.TargetProps)
-		uploadParams, err := getUploadParams(file, uc.uploadConfiguration, buildProps, addVcsProps)
+		uploadParams, err := getUploadParams(file, uc.uploadConfiguration, buildProps, addVcsProps, uc.DryRun())
 		if err != nil {
 			errorOccurred = true
 			log.Error(err)
@@ -202,7 +202,7 @@ func (uc *UploadCommand) upload() (err error) {
 	return
 }
 
-func getUploadParams(f *spec.File, configuration *utils.UploadConfiguration, buildProps string, addVcsProps bool) (uploadParams services.UploadParams, err error) {
+func getUploadParams(f *spec.File, configuration *utils.UploadConfiguration, buildProps string, addVcsProps bool, dryRun bool) (uploadParams services.UploadParams, err error) {
 	uploadParams = services.NewUploadParams()
 	uploadParams.CommonParams, err = f.ToCommonParams()
 	if err != nil {
@@ -233,10 +233,14 @@ func getUploadParams(f *spec.File, configuration *utils.UploadConfiguration, bui
 		return
 	}
 
-	uploadParams.IncludeDirs, err = f.IsIncludeDirs(false)
+	includeDirs, err := f.IsIncludeDirs(false)
 	if err != nil {
 		return
 	}
+
+	// Disable IncludeDirs in dry-run mode to prevent directory structure creation
+	uploadParams.IncludeDirs = includeDirs && !dryRun
+	log.Debug("In Dry-run mode, include-dir flag will be ignored.")
 
 	uploadParams.Flat, err = f.IsFlat(true)
 	if err != nil {
