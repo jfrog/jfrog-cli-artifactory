@@ -34,6 +34,7 @@ type ReleaseBundleCreateCommand struct {
 	releaseBundleCmd
 	signingKeyName string
 	spec           *spec.SpecFiles
+	draft          bool
 	// Backward compatibility:
 	buildsSpecPath         string
 	releaseBundlesSpecPath string
@@ -78,6 +79,11 @@ func (rbc *ReleaseBundleCreateCommand) SetReleaseBundleProject(rbProjectKey stri
 
 func (rbc *ReleaseBundleCreateCommand) SetSpec(spec *spec.SpecFiles) *ReleaseBundleCreateCommand {
 	rbc.spec = spec
+	return rbc
+}
+
+func (rbc *ReleaseBundleCreateCommand) SetDraft(draft bool) *ReleaseBundleCreateCommand {
+	rbc.draft = draft
 	return rbc
 }
 
@@ -169,11 +175,26 @@ func (rbc *ReleaseBundleCreateCommand) Run() error {
 		if err != nil {
 			return err
 		}
+		updateReleaseBundleRepoKeyWithProject(sources)
 		_, err = rbc.createFromMultipleSources(servicesManager, rbDetails, queryParams, sources)
 		return err
 	}
 
 	return errorutils.CheckErrorf("release bundle creation failed, unable to identify source for creation")
+}
+
+func updateReleaseBundleRepoKeyWithProject(sources []services.RbSource) {
+	if len(sources) == 0 || sources[0].SourceType != "release_bundles" {
+		return
+	}
+	for i := range sources {
+		for j := range sources[i].ReleaseBundles {
+			rb := &sources[i].ReleaseBundles[j]
+			if rb.ProjectKey != "" {
+				rb.RepositoryKey = rb.ProjectKey + "-release-bundles-v2"
+			}
+		}
+	}
 }
 
 func parseKeyValueString(input string) map[string]string {
@@ -389,7 +410,7 @@ func (rbc *ReleaseBundleCreateCommand) multiSourcesDefinedFromSpec() ([]services
 func (rbc *ReleaseBundleCreateCommand) createFromMultipleSources(servicesManager *lifecycle.LifecycleServicesManager,
 	rbDetails services.ReleaseBundleDetails, queryParams services.CommonOptionalQueryParams,
 	sources []services.RbSource) (response []byte, err error) {
-	return servicesManager.CreateReleaseBundlesFromMultipleSources(rbDetails, queryParams, rbc.signingKeyName, sources)
+	return servicesManager.CreateReleaseBundlesFromMultipleSourcesDraft(rbDetails, queryParams, rbc.signingKeyName, sources, rbc.draft)
 }
 
 func (rbc *ReleaseBundleCreateCommand) createAqlQueryFromSpec() (aql string) {

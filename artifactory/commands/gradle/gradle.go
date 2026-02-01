@@ -11,6 +11,7 @@ import (
 
 	buildinfoflexpack "github.com/jfrog/build-info-go/flexpack/gradle"
 	flexpackgradle "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/flexpack/gradle"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
 	artifactoryutils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
@@ -480,6 +481,10 @@ func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string,
 	if disableDeploy {
 		setDeployFalse(vConfig)
 	}
+
+	// Set CI VCS properties if in CI environment
+	civcs.SetCIVcsPropsToConfig(vConfig)
+
 	props, err = build.CreateBuildInfoProps(deployableArtifactsFile, vConfig, project.Gradle)
 	if err != nil {
 		return
