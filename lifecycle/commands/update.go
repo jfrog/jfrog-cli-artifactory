@@ -74,6 +74,11 @@ func (rbu *ReleaseBundleUpdateCommand) Run() error {
 		return err
 	}
 
+	// Validate Artifactory version supports draft bundle operations (update only works on draft bundles)
+	if err := ValidateFeatureSupportedVersion(rbu.serverDetails, minArtifactoryVersionForDraftBundleSupport); err != nil {
+		return errorutils.CheckErrorf("release bundle update requires Artifactory version %s or higher", minArtifactoryVersionForDraftBundleSupport)
+	}
+
 	servicesManager, rbDetails, queryParams, err := rbu.getPrerequisites()
 	if err != nil {
 		return err
