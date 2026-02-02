@@ -139,9 +139,6 @@ func detectDependency(name, modulePath string, replaces map[string]Replace, curr
 
 	// No replace directive found, check if current branch exists in the dependency repo
 	repo := fmt.Sprintf("jfrog/%s", name)
-	if name == "jfrog-cli-core" {
-		repo = "jfrog/jfrog-cli-core"
-	}
 
 	// Check if the current branch exists in the repo
 	if branchExists(repo, currentBranch) {
@@ -168,6 +165,7 @@ func branchExists(repo, branch string) bool {
 	cmd := exec.Command("git", "ls-remote", "--heads", url, branch)
 	out, err := cmd.Output()
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to check branch '%s' in %s: %v\n", branch, repo, err)
 		return false
 	}
 
