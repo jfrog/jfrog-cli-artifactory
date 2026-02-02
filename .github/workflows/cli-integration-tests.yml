@@ -556,14 +556,9 @@ jobs:
         uses: jfrog/.github/actions/install-go-with-cache@main
 
       - name: Setup Go workspace
-        shell: bash
-        run: |
-          go work init
-          go work use ./jfrog-cli
-          go work use ./jfrog-cli-artifactory
-          [ -d "./build-info-go" ] && go work use ./build-info-go || true
-          [ -d "./jfrog-client-go" ] && go work use ./jfrog-client-go || true
-          [ -d "./jfrog-cli-core" ] && go work use ./jfrog-cli-core || true
+        uses: ./.github/actions/setup-go-workspace
+        with:
+          os_name: ubuntu
 
       - name: Containerize Artifactory
         run: |
@@ -614,14 +609,9 @@ jobs:
         uses: jfrog/.github/actions/install-go-with-cache@main
 
       - name: Setup Go workspace
-        shell: bash
-        run: |
-          go work init
-          go work use ./jfrog-cli
-          go work use ./jfrog-cli-artifactory
-          [ -d "./build-info-go" ] && go work use ./build-info-go || true
-          [ -d "./jfrog-client-go" ] && go work use ./jfrog-client-go || true
-          [ -d "./jfrog-cli-core" ] && go work use ./jfrog-cli-core || true
+        uses: ./.github/actions/setup-go-workspace
+        with:
+          os_name: ubuntu
 
       - name: Run Podman tests
         working-directory: jfrog-cli
