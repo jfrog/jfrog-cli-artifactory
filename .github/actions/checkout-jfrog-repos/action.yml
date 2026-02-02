@@ -1,8 +1,7 @@
 name: 'Checkout JFrog Repositories'
-description: 'Checkout all required JFrog repositories for integration tests. Note: jfrog-cli-artifactory should already be checked out to root before calling this action.'
+description: 'Checkout jfrog-cli and optional dependency repositories. jfrog-cli-artifactory stays at root.'
 
 inputs:
-  # Optional dependency overrides (from Detect-Deps job)
   build_info_go_repo:
     description: 'Repository for build-info-go override'
     required: false
@@ -31,18 +30,6 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Move jfrog-cli-artifactory to subdirectory
-      shell: bash
-      run: |
-        mkdir -p /tmp/cli-artifactory-temp
-        find . -maxdepth 1 -not -name '.' -not -name '.git' -not -name '.github' -exec mv {} /tmp/cli-artifactory-temp/ \;
-        mkdir -p jfrog-cli-artifactory
-        mv /tmp/cli-artifactory-temp/* jfrog-cli-artifactory/ 2>/dev/null || true
-        mv /tmp/cli-artifactory-temp/.* jfrog-cli-artifactory/ 2>/dev/null || true
-        rmdir /tmp/cli-artifactory-temp 2>/dev/null || true
-        cp -r .github jfrog-cli-artifactory/.github
-        ls -la
-
     - name: Checkout jfrog-cli
       uses: actions/checkout@v4
       with:
