@@ -1,0 +1,44 @@
+name: 'Checkout JFrog Repository'
+description: 'Checkout a JFrog repository with conditional logic based on whether repo/ref are provided'
+
+inputs:
+  repository:
+    description: 'Repository to checkout (e.g., jfrog/jfrog-cli). If empty, step is skipped.'
+    required: false
+    default: ''
+  ref:
+    description: 'Branch/tag/SHA to checkout'
+    required: false
+    default: 'master'
+  path:
+    description: 'Relative path to checkout to'
+    required: true
+  default-repository:
+    description: 'Default repository to use if repository input is empty but checkout is still needed'
+    required: false
+    default: ''
+  default-ref:
+    description: 'Default ref to use with default-repository'
+    required: false
+    default: 'master'
+
+runs:
+  using: 'composite'
+  steps:
+    # Checkout from specified repository if provided
+    - name: Checkout from specified repo
+      if: inputs.repository != ''
+      uses: actions/checkout@v5
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ inputs.ref }}
+        path: ${{ inputs.path }}
+
+    # Checkout from default repository if no specific repo but default is provided
+    - name: Checkout from default repo
+      if: inputs.repository == '' && inputs.default-repository != ''
+      uses: actions/checkout@v5
+      with:
+        repository: ${{ inputs.default-repository }}
+        ref: ${{ inputs.default-ref }}
+        path: ${{ inputs.path }}
