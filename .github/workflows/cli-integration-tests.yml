@@ -39,7 +39,7 @@ jobs:
       jfrog_cli_core_ref: ${{ steps.detect.outputs.jfrog_cli_core_ref }}
     steps:
       - name: Checkout jfrog-cli-artifactory
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -74,44 +74,21 @@ jobs:
       JFROG_CLI_LOG_LEVEL: DEBUG
       GOPROXY: direct
     steps:
-      # First checkout jfrog-cli-artifactory to root to make composite action available
-      - name: Checkout jfrog-cli-artifactory
-        uses: actions/checkout@v5
+      - name: Checkout jfrog-cli-artifactory (for composite action)
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          path: jfrog-cli-artifactory
 
-      - name: Checkout jfrog-cli
-        uses: actions/checkout@v5
+      - name: Checkout all JFrog repositories
+        uses: ./.github/actions/checkout-jfrog-repos
         with:
-          repository: jfrog/jfrog-cli
-          ref: master
-          path: jfrog-cli
-
-      - name: Checkout build-info-go
-        if: needs.Detect-Deps.outputs.build_info_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
-          path: build-info-go
-
-      - name: Checkout jfrog-client-go
-        if: needs.Detect-Deps.outputs.jfrog_client_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
-          path: jfrog-client-go
-
-      - name: Checkout jfrog-cli-core
-        if: needs.Detect-Deps.outputs.jfrog_cli_core_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
-          path: jfrog-cli-core
+          build_info_go_repo: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
+          build_info_go_ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
+          jfrog_client_go_repo: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
+          jfrog_client_go_ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
+          jfrog_cli_core_repo: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
+          jfrog_cli_core_ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
 
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
@@ -173,43 +150,21 @@ jobs:
       JFROG_CLI_LOG_LEVEL: DEBUG
       GOPROXY: direct
     steps:
-      - name: Checkout jfrog-cli-artifactory
-        uses: actions/checkout@v5
+      - name: Checkout jfrog-cli-artifactory (for composite action)
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          path: jfrog-cli-artifactory
 
-      - name: Checkout jfrog-cli
-        uses: actions/checkout@v5
+      - name: Checkout all JFrog repositories
+        uses: ./.github/actions/checkout-jfrog-repos
         with:
-          repository: jfrog/jfrog-cli
-          ref: master
-          path: jfrog-cli
-
-      - name: Checkout build-info-go
-        if: needs.Detect-Deps.outputs.build_info_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
-          path: build-info-go
-
-      - name: Checkout jfrog-client-go
-        if: needs.Detect-Deps.outputs.jfrog_client_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
-          path: jfrog-client-go
-
-      - name: Checkout jfrog-cli-core
-        if: needs.Detect-Deps.outputs.jfrog_cli_core_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
-          path: jfrog-cli-core
+          build_info_go_repo: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
+          build_info_go_ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
+          jfrog_client_go_repo: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
+          jfrog_client_go_ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
+          jfrog_cli_core_repo: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
+          jfrog_cli_core_ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
 
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
@@ -257,43 +212,21 @@ jobs:
       JFROG_CLI_LOG_LEVEL: DEBUG
       GOPROXY: direct
     steps:
-      - name: Checkout jfrog-cli-artifactory
-        uses: actions/checkout@v5
+      - name: Checkout jfrog-cli-artifactory (for composite action)
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          path: jfrog-cli-artifactory
 
-      - name: Checkout jfrog-cli
-        uses: actions/checkout@v5
+      - name: Checkout all JFrog repositories
+        uses: ./.github/actions/checkout-jfrog-repos
         with:
-          repository: jfrog/jfrog-cli
-          ref: master
-          path: jfrog-cli
-
-      - name: Checkout build-info-go
-        if: needs.Detect-Deps.outputs.build_info_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
-          path: build-info-go
-
-      - name: Checkout jfrog-client-go
-        if: needs.Detect-Deps.outputs.jfrog_client_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
-          path: jfrog-client-go
-
-      - name: Checkout jfrog-cli-core
-        if: needs.Detect-Deps.outputs.jfrog_cli_core_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
-          path: jfrog-cli-core
+          build_info_go_repo: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
+          build_info_go_ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
+          jfrog_client_go_repo: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
+          jfrog_client_go_ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
+          jfrog_cli_core_repo: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
+          jfrog_cli_core_ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
 
       - name: Prepare ubuntu
         if: matrix.os.name == 'ubuntu'
@@ -372,43 +305,21 @@ jobs:
       JFROG_CLI_LOG_LEVEL: DEBUG
       GOPROXY: direct
     steps:
-      - name: Checkout jfrog-cli-artifactory
-        uses: actions/checkout@v5
+      - name: Checkout jfrog-cli-artifactory (for composite action)
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          path: jfrog-cli-artifactory
 
-      - name: Checkout jfrog-cli
-        uses: actions/checkout@v5
+      - name: Checkout all JFrog repositories
+        uses: ./.github/actions/checkout-jfrog-repos
         with:
-          repository: jfrog/jfrog-cli
-          ref: master
-          path: jfrog-cli
-
-      - name: Checkout build-info-go
-        if: needs.Detect-Deps.outputs.build_info_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
-          path: build-info-go
-
-      - name: Checkout jfrog-client-go
-        if: needs.Detect-Deps.outputs.jfrog_client_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
-          path: jfrog-client-go
-
-      - name: Checkout jfrog-cli-core
-        if: needs.Detect-Deps.outputs.jfrog_cli_core_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
-          path: jfrog-cli-core
+          build_info_go_repo: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
+          build_info_go_ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
+          jfrog_client_go_repo: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
+          jfrog_client_go_ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
+          jfrog_cli_core_repo: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
+          jfrog_cli_core_ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
 
       - name: Install npm
         uses: actions/setup-node@v5
@@ -469,43 +380,21 @@ jobs:
       JFROG_CLI_LOG_LEVEL: DEBUG
       GOPROXY: direct
     steps:
-      - name: Checkout jfrog-cli-artifactory
-        uses: actions/checkout@v5
+      - name: Checkout jfrog-cli-artifactory (for composite action)
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          path: jfrog-cli-artifactory
 
-      - name: Checkout jfrog-cli
-        uses: actions/checkout@v5
+      - name: Checkout all JFrog repositories
+        uses: ./.github/actions/checkout-jfrog-repos
         with:
-          repository: jfrog/jfrog-cli
-          ref: master
-          path: jfrog-cli
-
-      - name: Checkout build-info-go
-        if: needs.Detect-Deps.outputs.build_info_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
-          path: build-info-go
-
-      - name: Checkout jfrog-client-go
-        if: needs.Detect-Deps.outputs.jfrog_client_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
-          path: jfrog-client-go
-
-      - name: Checkout jfrog-cli-core
-        if: needs.Detect-Deps.outputs.jfrog_cli_core_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
-          path: jfrog-cli-core
+          build_info_go_repo: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
+          build_info_go_ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
+          jfrog_client_go_repo: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
+          jfrog_client_go_ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
+          jfrog_cli_core_repo: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
+          jfrog_cli_core_ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
 
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
@@ -566,43 +455,21 @@ jobs:
       GOPROXY: direct
       GRADLE_OPTS: -Dorg.gradle.daemon=false
     steps:
-      - name: Checkout jfrog-cli-artifactory
-        uses: actions/checkout@v5
+      - name: Checkout jfrog-cli-artifactory (for composite action)
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          path: jfrog-cli-artifactory
 
-      - name: Checkout jfrog-cli
-        uses: actions/checkout@v5
+      - name: Checkout all JFrog repositories
+        uses: ./.github/actions/checkout-jfrog-repos
         with:
-          repository: jfrog/jfrog-cli
-          ref: master
-          path: jfrog-cli
-
-      - name: Checkout build-info-go
-        if: needs.Detect-Deps.outputs.build_info_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
-          path: build-info-go
-
-      - name: Checkout jfrog-client-go
-        if: needs.Detect-Deps.outputs.jfrog_client_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
-          path: jfrog-client-go
-
-      - name: Checkout jfrog-cli-core
-        if: needs.Detect-Deps.outputs.jfrog_cli_core_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
-          path: jfrog-cli-core
+          build_info_go_repo: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
+          build_info_go_ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
+          jfrog_client_go_repo: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
+          jfrog_client_go_ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
+          jfrog_cli_core_repo: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
+          jfrog_cli_core_ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
 
       - name: Setup Java
         uses: actions/setup-java@v5
@@ -667,43 +534,21 @@ jobs:
       JFROG_CLI_LOG_LEVEL: DEBUG
       GOPROXY: direct
     steps:
-      - name: Checkout jfrog-cli-artifactory
-        uses: actions/checkout@v5
+      - name: Checkout jfrog-cli-artifactory (for composite action)
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          path: jfrog-cli-artifactory
 
-      - name: Checkout jfrog-cli
-        uses: actions/checkout@v5
+      - name: Checkout all JFrog repositories
+        uses: ./.github/actions/checkout-jfrog-repos
         with:
-          repository: jfrog/jfrog-cli
-          ref: master
-          path: jfrog-cli
-
-      - name: Checkout build-info-go
-        if: needs.Detect-Deps.outputs.build_info_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
-          path: build-info-go
-
-      - name: Checkout jfrog-client-go
-        if: needs.Detect-Deps.outputs.jfrog_client_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
-          path: jfrog-client-go
-
-      - name: Checkout jfrog-cli-core
-        if: needs.Detect-Deps.outputs.jfrog_cli_core_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
-          path: jfrog-cli-core
+          build_info_go_repo: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
+          build_info_go_ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
+          jfrog_client_go_repo: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
+          jfrog_client_go_ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
+          jfrog_cli_core_repo: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
+          jfrog_cli_core_ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
 
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
@@ -762,43 +607,21 @@ jobs:
       JFROG_CLI_LOG_LEVEL: DEBUG
       GOPROXY: direct
     steps:
-      - name: Checkout jfrog-cli-artifactory
-        uses: actions/checkout@v5
+      - name: Checkout jfrog-cli-artifactory (for composite action)
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          path: jfrog-cli-artifactory
 
-      - name: Checkout jfrog-cli
-        uses: actions/checkout@v5
+      - name: Checkout all JFrog repositories
+        uses: ./.github/actions/checkout-jfrog-repos
         with:
-          repository: jfrog/jfrog-cli
-          ref: master
-          path: jfrog-cli
-
-      - name: Checkout build-info-go
-        if: needs.Detect-Deps.outputs.build_info_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
-          path: build-info-go
-
-      - name: Checkout jfrog-client-go
-        if: needs.Detect-Deps.outputs.jfrog_client_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
-          path: jfrog-client-go
-
-      - name: Checkout jfrog-cli-core
-        if: needs.Detect-Deps.outputs.jfrog_cli_core_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
-          path: jfrog-cli-core
+          build_info_go_repo: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
+          build_info_go_ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
+          jfrog_client_go_repo: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
+          jfrog_client_go_ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
+          jfrog_cli_core_repo: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
+          jfrog_cli_core_ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
 
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
@@ -849,43 +672,21 @@ jobs:
       JFROG_CLI_LOG_LEVEL: DEBUG
       GOPROXY: direct
     steps:
-      - name: Checkout jfrog-cli-artifactory
-        uses: actions/checkout@v5
+      - name: Checkout jfrog-cli-artifactory (for composite action)
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          path: jfrog-cli-artifactory
 
-      - name: Checkout jfrog-cli
-        uses: actions/checkout@v5
+      - name: Checkout all JFrog repositories
+        uses: ./.github/actions/checkout-jfrog-repos
         with:
-          repository: jfrog/jfrog-cli
-          ref: master
-          path: jfrog-cli
-
-      - name: Checkout build-info-go
-        if: needs.Detect-Deps.outputs.build_info_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
-          path: build-info-go
-
-      - name: Checkout jfrog-client-go
-        if: needs.Detect-Deps.outputs.jfrog_client_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
-          path: jfrog-client-go
-
-      - name: Checkout jfrog-cli-core
-        if: needs.Detect-Deps.outputs.jfrog_cli_core_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
-          path: jfrog-cli-core
+          build_info_go_repo: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
+          build_info_go_ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
+          jfrog_client_go_repo: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
+          jfrog_client_go_ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
+          jfrog_cli_core_repo: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
+          jfrog_cli_core_ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
 
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
@@ -929,43 +730,21 @@ jobs:
       JFROG_CLI_LOG_LEVEL: DEBUG
       GOPROXY: direct
     steps:
-      - name: Checkout jfrog-cli-artifactory
-        uses: actions/checkout@v5
+      - name: Checkout jfrog-cli-artifactory (for composite action)
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          path: jfrog-cli-artifactory
 
-      - name: Checkout jfrog-cli
-        uses: actions/checkout@v5
+      - name: Checkout all JFrog repositories
+        uses: ./.github/actions/checkout-jfrog-repos
         with:
-          repository: jfrog/jfrog-cli
-          ref: master
-          path: jfrog-cli
-
-      - name: Checkout build-info-go
-        if: needs.Detect-Deps.outputs.build_info_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
-          path: build-info-go
-
-      - name: Checkout jfrog-client-go
-        if: needs.Detect-Deps.outputs.jfrog_client_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
-          path: jfrog-client-go
-
-      - name: Checkout jfrog-cli-core
-        if: needs.Detect-Deps.outputs.jfrog_cli_core_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
-          path: jfrog-cli-core
+          build_info_go_repo: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
+          build_info_go_ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
+          jfrog_client_go_repo: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
+          jfrog_client_go_ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
+          jfrog_cli_core_repo: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
+          jfrog_cli_core_ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
 
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
@@ -1002,43 +781,21 @@ jobs:
       JFROG_CLI_LOG_LEVEL: DEBUG
       GOPROXY: direct
     steps:
-      - name: Checkout jfrog-cli-artifactory
-        uses: actions/checkout@v5
+      - name: Checkout jfrog-cli-artifactory (for composite action)
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          path: jfrog-cli-artifactory
 
-      - name: Checkout jfrog-cli
-        uses: actions/checkout@v5
+      - name: Checkout all JFrog repositories
+        uses: ./.github/actions/checkout-jfrog-repos
         with:
-          repository: jfrog/jfrog-cli
-          ref: master
-          path: jfrog-cli
-
-      - name: Checkout build-info-go
-        if: needs.Detect-Deps.outputs.build_info_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
-          path: build-info-go
-
-      - name: Checkout jfrog-client-go
-        if: needs.Detect-Deps.outputs.jfrog_client_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
-          path: jfrog-client-go
-
-      - name: Checkout jfrog-cli-core
-        if: needs.Detect-Deps.outputs.jfrog_cli_core_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
-          path: jfrog-cli-core
+          build_info_go_repo: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
+          build_info_go_ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
+          jfrog_client_go_repo: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
+          jfrog_client_go_ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
+          jfrog_cli_core_repo: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
+          jfrog_cli_core_ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
 
       - name: Setup Python3
         uses: actions/setup-python@v6
@@ -1105,43 +862,21 @@ jobs:
       JFROG_CLI_LOG_LEVEL: DEBUG
       GOPROXY: direct
     steps:
-      - name: Checkout jfrog-cli-artifactory
-        uses: actions/checkout@v5
+      - name: Checkout jfrog-cli-artifactory (for composite action)
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          path: jfrog-cli-artifactory
 
-      - name: Checkout jfrog-cli
-        uses: actions/checkout@v5
+      - name: Checkout all JFrog repositories
+        uses: ./.github/actions/checkout-jfrog-repos
         with:
-          repository: jfrog/jfrog-cli
-          ref: master
-          path: jfrog-cli
-
-      - name: Checkout build-info-go
-        if: needs.Detect-Deps.outputs.build_info_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
-          path: build-info-go
-
-      - name: Checkout jfrog-client-go
-        if: needs.Detect-Deps.outputs.jfrog_client_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
-          path: jfrog-client-go
-
-      - name: Checkout jfrog-cli-core
-        if: needs.Detect-Deps.outputs.jfrog_cli_core_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
-          path: jfrog-cli-core
+          build_info_go_repo: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
+          build_info_go_ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
+          jfrog_client_go_repo: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
+          jfrog_client_go_ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
+          jfrog_cli_core_repo: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
+          jfrog_cli_core_ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
 
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
@@ -1195,43 +930,21 @@ jobs:
       JFROG_CLI_LOG_LEVEL: DEBUG
       GOPROXY: direct
     steps:
-      - name: Checkout jfrog-cli-artifactory
-        uses: actions/checkout@v5
+      - name: Checkout jfrog-cli-artifactory (for composite action)
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          path: jfrog-cli-artifactory
 
-      - name: Checkout jfrog-cli
-        uses: actions/checkout@v5
+      - name: Checkout all JFrog repositories
+        uses: ./.github/actions/checkout-jfrog-repos
         with:
-          repository: jfrog/jfrog-cli
-          ref: master
-          path: jfrog-cli
-
-      - name: Checkout build-info-go
-        if: needs.Detect-Deps.outputs.build_info_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
-          path: build-info-go
-
-      - name: Checkout jfrog-client-go
-        if: needs.Detect-Deps.outputs.jfrog_client_go_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
-          path: jfrog-client-go
-
-      - name: Checkout jfrog-cli-core
-        if: needs.Detect-Deps.outputs.jfrog_cli_core_repo != ''
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
-          ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
-          path: jfrog-cli-core
+          build_info_go_repo: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
+          build_info_go_ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
+          jfrog_client_go_repo: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
+          jfrog_client_go_ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
+          jfrog_cli_core_repo: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
+          jfrog_cli_core_ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
 
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main

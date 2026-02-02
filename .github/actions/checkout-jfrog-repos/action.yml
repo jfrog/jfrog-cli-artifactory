@@ -1,0 +1,80 @@
+name: 'Checkout JFrog Repositories'
+description: 'Checkout all required JFrog repositories for integration tests. Note: jfrog-cli-artifactory should already be checked out to root before calling this action.'
+
+inputs:
+  # Optional dependency overrides (from Detect-Deps job)
+  build_info_go_repo:
+    description: 'Repository for build-info-go override'
+    required: false
+    default: ''
+  build_info_go_ref:
+    description: 'Ref for build-info-go override'
+    required: false
+    default: ''
+  jfrog_client_go_repo:
+    description: 'Repository for jfrog-client-go override'
+    required: false
+    default: ''
+  jfrog_client_go_ref:
+    description: 'Ref for jfrog-client-go override'
+    required: false
+    default: ''
+  jfrog_cli_core_repo:
+    description: 'Repository for jfrog-cli-core override'
+    required: false
+    default: ''
+  jfrog_cli_core_ref:
+    description: 'Ref for jfrog-cli-core override'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    # Note: jfrog-cli-artifactory is already at root (needed to access this action)
+    # We just need to rename/move it to the expected subdirectory
+    - name: Move jfrog-cli-artifactory to subdirectory
+      shell: bash
+      run: |
+        # Create temp directory and move all files except .git
+        mkdir -p /tmp/cli-artifactory-temp
+        # Move everything to temp (excluding hidden files that might cause issues)
+        find . -maxdepth 1 -not -name '.' -not -name '.git' -exec mv {} /tmp/cli-artifactory-temp/ \;
+        # Create subdirectory and move back
+        mkdir -p jfrog-cli-artifactory
+        mv /tmp/cli-artifactory-temp/* jfrog-cli-artifactory/ 2>/dev/null || true
+        mv /tmp/cli-artifactory-temp/.* jfrog-cli-artifactory/ 2>/dev/null || true
+        rmdir /tmp/cli-artifactory-temp 2>/dev/null || true
+        echo "Moved jfrog-cli-artifactory to subdirectory"
+        ls -la
+
+    - name: Checkout jfrog-cli
+      uses: actions/checkout@v4
+      with:
+        repository: jfrog/jfrog-cli
+        ref: master
+        path: jfrog-cli
+
+    - name: Checkout build-info-go
+      if: inputs.build_info_go_repo != ''
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.build_info_go_repo }}
+        ref: ${{ inputs.build_info_go_ref }}
+        path: build-info-go
+
+    - name: Checkout jfrog-client-go
+      if: inputs.jfrog_client_go_repo != ''
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.jfrog_client_go_repo }}
+        ref: ${{ inputs.jfrog_client_go_ref }}
+        path: jfrog-client-go
+
+    - name: Checkout jfrog-cli-core
+      if: inputs.jfrog_cli_core_repo != ''
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.jfrog_cli_core_repo }}
+        ref: ${{ inputs.jfrog_cli_core_ref }}
+        path: jfrog-cli-core
