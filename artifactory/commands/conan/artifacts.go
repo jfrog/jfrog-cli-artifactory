@@ -92,9 +92,19 @@ func parseSearchResults(reader *content.ContentReader) []entities.Artifact {
 	var artifacts []entities.Artifact
 
 	for item := new(specutils.ResultItem); reader.NextRecord(item) == nil; item = new(specutils.ResultItem) {
+		// Construct the path within the repo (path/name)
+		artifactPath := item.Path
+		if item.Name != "" {
+			if artifactPath != "" {
+				artifactPath = artifactPath + "/" + item.Name
+			} else {
+				artifactPath = item.Name
+			}
+		}
 		artifact := entities.Artifact{
-			Name: item.Name,
-			Path: item.Path,
+			Name:                   item.Name,
+			Path:                   artifactPath,
+			OriginalDeploymentRepo: item.Repo,
 			Checksum: entities.Checksum{
 				Sha1:   item.Actual_Sha1,
 				Sha256: item.Sha256,
