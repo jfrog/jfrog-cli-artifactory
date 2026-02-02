@@ -31,21 +31,16 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    # Note: jfrog-cli-artifactory is already at root (needed to access this action)
-    # We just need to rename/move it to the expected subdirectory
     - name: Move jfrog-cli-artifactory to subdirectory
       shell: bash
       run: |
-        # Create temp directory and move all files except .git
         mkdir -p /tmp/cli-artifactory-temp
-        # Move everything to temp (excluding hidden files that might cause issues)
-        find . -maxdepth 1 -not -name '.' -not -name '.git' -exec mv {} /tmp/cli-artifactory-temp/ \;
-        # Create subdirectory and move back
+        find . -maxdepth 1 -not -name '.' -not -name '.git' -not -name '.github' -exec mv {} /tmp/cli-artifactory-temp/ \;
         mkdir -p jfrog-cli-artifactory
         mv /tmp/cli-artifactory-temp/* jfrog-cli-artifactory/ 2>/dev/null || true
         mv /tmp/cli-artifactory-temp/.* jfrog-cli-artifactory/ 2>/dev/null || true
         rmdir /tmp/cli-artifactory-temp 2>/dev/null || true
-        echo "Moved jfrog-cli-artifactory to subdirectory"
+        cp -r .github jfrog-cli-artifactory/.github
         ls -la
 
     - name: Checkout jfrog-cli
