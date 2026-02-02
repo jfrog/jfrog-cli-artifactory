@@ -129,7 +129,8 @@ func (npc *NpmPublishCommand) Init() error {
 	if err != nil {
 		return err
 	}
-	filteredNpmArgs, useNative, err := coreutils.ExtractUseNativeFromArgs(filteredNpmArgs)
+	// Check for native mode (env var or deprecated flag)
+	useNative, filteredNpmArgs, err := CheckIsNativeAndFetchFilteredArgs(filteredNpmArgs)
 	if err != nil {
 		return err
 	}
