@@ -136,6 +136,13 @@ func (rbc *ReleaseBundleCreateCommand) Run() error {
 		return err
 	}
 
+	// Validate Artifactory version supports draft bundle creation
+	if rbc.draft {
+		if err := ValidateFeatureSupportedVersion(rbc.serverDetails, minArtifactoryVersionForDraftBundleSupport); err != nil {
+			return errorutils.CheckErrorf("draft bundle creation requires Artifactory version %s or higher", minArtifactoryVersionForDraftBundleSupport)
+		}
+	}
+
 	servicesManager, rbDetails, queryParams, err := rbc.getPrerequisites()
 	if err != nil {
 		return err

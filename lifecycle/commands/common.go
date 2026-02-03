@@ -22,6 +22,7 @@ const (
 	releaseBundlesV2                                      = "release-bundles-v2"
 	minimalLifecycleArtifactoryVersion                    = "7.63.2"
 	minArtifactoryVersionForMultiSourceAndPackagesSupport = "7.114.0"
+	minArtifactoryVersionForDraftBundleSupport            = "7.136.0"
 )
 
 type releaseBundleCmd struct {
