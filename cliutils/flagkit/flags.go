@@ -523,6 +523,9 @@ var commandFlags = map[string][]string{
 		platformUrl, user, password, accessToken, serverId, lcSync, lcProject,
 		specFlag, specVars, SourceTypeReleaseBundles, SourceTypeBuilds, AddSources,
 	},
+	cmddefs.ReleaseBundleFinalize: {
+		platformUrl, user, password, accessToken, serverId, lcSigningKey, lcSync, lcProject,
+	},
 	cmddefs.ReleaseBundlePromote: {
 		platformUrl, user, password, accessToken, serverId, lcSigningKey, lcSync, lcProject, lcIncludeRepos,
 		lcExcludeRepos, PromotionType,

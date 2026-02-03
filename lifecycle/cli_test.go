@@ -333,3 +333,91 @@ func TestSyncFlagReading(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateFinalizeReleaseBundleContext(t *testing.T) {
+	testRuns := []struct {
+		name        string
+		args        []string
+		flags       []string
+		boolFlags   map[string]bool
+		expectError bool
+	}{
+		// Argument validation tests
+		{
+			name:        "no arguments - should fail",
+			args:        []string{},
+			flags:       []string{},
+			boolFlags:   nil,
+			expectError: true,
+		},
+		{
+			name:        "one argument - should fail",
+			args:        []string{"bundle-name"},
+			flags:       []string{},
+			boolFlags:   nil,
+			expectError: true,
+		},
+		{
+			name:        "three arguments - should fail",
+			args:        []string{"bundle-name", "1.0.0", "extra"},
+			flags:       []string{},
+			boolFlags:   nil,
+			expectError: true,
+		},
+		{
+			name:        "two arguments - should pass",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{},
+			boolFlags:   nil,
+			expectError: false,
+		},
+		// With optional flags
+		{
+			name:        "with signing key - should pass",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{flagkit.SigningKey + "=my-key"},
+			boolFlags:   nil,
+			expectError: false,
+		},
+		{
+			name:        "with project flag - should pass",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{"project=my-project"},
+			boolFlags:   nil,
+			expectError: false,
+		},
+		{
+			name:        "with sync flag true - should pass",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{},
+			boolFlags:   map[string]bool{flagkit.Sync: true},
+			expectError: false,
+		},
+		{
+			name:        "with sync flag false - should pass",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{},
+			boolFlags:   map[string]bool{flagkit.Sync: false},
+			expectError: false,
+		},
+		{
+			name:        "with all optional flags - should pass",
+			args:        []string{"bundle-name", "1.0.0"},
+			flags:       []string{flagkit.SigningKey + "=my-key", "project=my-project"},
+			boolFlags:   map[string]bool{flagkit.Sync: true},
+			expectError: false,
+		},
+	}
+
+	for _, test := range testRuns {
+		t.Run(test.name, func(t *testing.T) {
+			context, buffer := CreateContext(t, test.flags, test.args, test.boolFlags)
+			err := validateFinalizeReleaseBundleContext(context)
+			if test.expectError {
+				assert.Error(t, err, buffer)
+			} else {
+				assert.NoError(t, err, buffer)
+			}
+		})
+	}
+}
