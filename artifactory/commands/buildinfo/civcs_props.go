@@ -1,15 +1,14 @@
 package buildinfo
 
 import (
-	"path"
 	"strings"
 	"time"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
+	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
-	artclientutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
-	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -85,18 +84,14 @@ func constructArtifactPath(artifact buildinfo.Artifact) string {
 	return ""
 }
 
-// setPropsOnArtifacts sets properties on multiple artifacts in a single API call with retry logic.
-// This is a major performance optimization over setting properties one by one.
+// setPropsOnArtifacts sets properties on multiple artifacts using search-based resolution.
+// This uses the same search mechanism as 'jf rt set-props', which resolves virtual repository
+// paths to their underlying local repositories before setting properties.
 // If property setting fails after retries, logs a warning and continues (does not fail the build).
-func setPropsOnArtifacts(
-	servicesManager artifactory.ArtifactoryServicesManager,
-	artifactPaths []string,
-	props string,
-) {
+func setPropsOnArtifacts(servicesManager artifactory.ArtifactoryServicesManager, artifactPaths []string, props string) {
 	if len(artifactPaths) == 0 {
 		return
 	}
-
 	var lastErr error
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
@@ -106,23 +101,34 @@ func setPropsOnArtifacts(
 			time.Sleep(delay)
 		}
 
-		// Create reader for all artifacts
-		reader, err := createArtifactsReader(artifactPaths)
+		// Build spec from artifact paths - this enables virtual repo resolution
+		specFiles := buildSpecFromPaths(artifactPaths)
+
+		// Use SearchItems to resolve paths (including virtual -> local repo resolution)
+		reader, err := generic.SearchItems(specFiles, servicesManager)
 		if err != nil {
-			log.Debug("Failed to create reader for CI VCS properties:", err)
-			return
+			log.Debug("CI VCS: Search failed for artifacts:", err)
+			lastErr = err
+			continue
 		}
 
+		// Check if any artifacts were found
+		length, _ := reader.Length()
+		if length == 0 {
+			if closeErr := reader.Close(); closeErr != nil {
+				log.Debug("Failed to close reader:", closeErr)
+			}
+			log.Debug("CI VCS: No artifacts found via search, paths may not exist")
+			return
+		}
 		params := services.PropsParams{
 			Reader: reader,
 			Props:  props,
 		}
-
 		successCount, err := servicesManager.SetProps(params)
 		if closeErr := reader.Close(); closeErr != nil {
 			log.Debug("Failed to close reader:", closeErr)
 		}
-
 		if err == nil {
 			log.Info("CI VCS: Successfully set properties on", successCount, "artifacts")
 			return
@@ -130,10 +136,9 @@ func setPropsOnArtifacts(
 
 		// Check if error is 404 - artifact path might be incorrect, skip silently
 		if is404Error(err) {
-			log.Info("CI VCS: SetProps returned 404 - some artifacts not found (path may be incomplete)")
+			log.Info("CI VCS: SetProps returned 404 - some artifacts not found")
 			return
 		}
-
 		// Check if error is 403 - permission issue, skip silently
 		if is403Error(err) {
 			if attempt >= 1 {
@@ -141,46 +146,22 @@ func setPropsOnArtifacts(
 				return
 			}
 		}
-
 		lastErr = err
 		log.Info("CI VCS: Batch attempt", attempt+1, "failed:", err)
 	}
-
 	log.Info("CI VCS: Failed to set properties after", maxRetries, "attempts:", lastErr)
 }
 
-// createArtifactsReader creates a ContentReader containing all artifact paths for batch processing.
-func createArtifactsReader(artifactPaths []string) (*content.ContentReader, error) {
-	writer, err := content.NewContentWriter("results", true, false)
-	if err != nil {
-		return nil, err
-	}
-
+// buildSpecFromPaths creates a SpecFiles object from artifact paths for search-based resolution.
+// Each path becomes a separate file pattern in the spec.
+func buildSpecFromPaths(artifactPaths []string) *spec.SpecFiles {
+	specFiles := &spec.SpecFiles{}
 	for _, artifactPath := range artifactPaths {
-		// Parse path into repo/path/name
-		parts := strings.SplitN(artifactPath, "/", 2)
-		if len(parts) < 2 {
-			log.Debug("Invalid artifact path skipped during reader creation:", artifactPath)
-			continue
-		}
-
-		repo := parts[0]
-		pathAndName := parts[1]
-		dir, name := path.Split(pathAndName)
-
-		writer.Write(artclientutils.ResultItem{
-			Repo: repo,
-			Path: strings.TrimSuffix(dir, "/"),
-			Name: name,
-			Type: "file",
+		specFiles.Files = append(specFiles.Files, spec.File{
+			Pattern: artifactPath,
 		})
 	}
-
-	if err := writer.Close(); err != nil {
-		return nil, err
-	}
-
-	return content.NewContentReader(writer.GetFilePath(), "results"), nil
+	return specFiles
 }
 
 // is404Error checks if the error indicates a 404 Not Found response.

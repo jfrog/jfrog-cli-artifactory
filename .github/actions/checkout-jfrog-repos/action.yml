@@ -1,0 +1,62 @@
+name: 'Checkout JFrog Repositories'
+description: 'Checkout jfrog-cli and optional dependency repositories. jfrog-cli-artifactory stays at root.'
+
+inputs:
+  build_info_go_repo:
+    description: 'Repository for build-info-go override'
+    required: false
+    default: ''
+  build_info_go_ref:
+    description: 'Ref for build-info-go override'
+    required: false
+    default: ''
+  jfrog_client_go_repo:
+    description: 'Repository for jfrog-client-go override'
+    required: false
+    default: ''
+  jfrog_client_go_ref:
+    description: 'Ref for jfrog-client-go override'
+    required: false
+    default: ''
+  jfrog_cli_core_repo:
+    description: 'Repository for jfrog-cli-core override'
+    required: false
+    default: ''
+  jfrog_cli_core_ref:
+    description: 'Ref for jfrog-cli-core override'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Checkout jfrog-cli
+      uses: actions/checkout@v4
+      with:
+        repository: jfrog/jfrog-cli
+        ref: master
+        path: jfrog-cli
+
+    - name: Checkout build-info-go
+      if: inputs.build_info_go_repo != ''
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.build_info_go_repo }}
+        ref: ${{ inputs.build_info_go_ref }}
+        path: build-info-go
+
+    - name: Checkout jfrog-client-go
+      if: inputs.jfrog_client_go_repo != ''
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.jfrog_client_go_repo }}
+        ref: ${{ inputs.jfrog_client_go_ref }}
+        path: jfrog-client-go
+
+    - name: Checkout jfrog-cli-core
+      if: inputs.jfrog_cli_core_repo != ''
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.jfrog_cli_core_repo }}
+        ref: ${{ inputs.jfrog_cli_core_ref }}
+        path: jfrog-cli-core

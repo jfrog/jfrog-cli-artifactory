@@ -20,6 +20,7 @@ import (
 	rbDeleteRemote "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/deleteremote"
 	rbDistribute "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/distribute"
 	rbExport "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/export"
+	rbFinalize "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/finalize"
 	rbImport "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/importbundle"
 	rbPromote "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/promote"
 	rbUpdate "github.com/jfrog/jfrog-cli-artifactory/lifecycle/docs/update"
@@ -61,6 +62,15 @@ func GetCommands() []components.Command {
 			Arguments:   rbUpdate.GetArguments(),
 			Category:    lcCategory,
 			Action:      update,
+		},
+		{
+			Name:        cmddefs.ReleaseBundleFinalize,
+			Aliases:     []string{"rbf"},
+			Flags:       flagkit.GetCommandFlags(cmddefs.ReleaseBundleFinalize),
+			Description: rbFinalize.GetDescription(),
+			Arguments:   rbFinalize.GetArguments(),
+			Category:    lcCategory,
+			Action:      finalize,
 		},
 		{
 			Name:        "release-bundle-promote",
@@ -310,6 +320,39 @@ func update(c *components.Context) (err error) {
 		SetBuildsSources(c.GetStringFlagValue(flagkit.SourceTypeBuilds))
 
 	return commands.Exec(updateCmd)
+}
+
+func validateFinalizeReleaseBundleContext(c *components.Context) error {
+	if show, err := pluginsCommon.ShowCmdHelpIfNeeded(c, c.Arguments); show || err != nil {
+		return err
+	}
+
+	if len(c.Arguments) != 2 {
+		return pluginsCommon.WrongNumberOfArgumentsHandler(c)
+	}
+
+	return nil
+}
+
+func finalize(c *components.Context) (err error) {
+	if err = validateFinalizeReleaseBundleContext(c); err != nil {
+		return err
+	}
+
+	lcDetails, err := createLifecycleDetailsByFlags(c)
+	if err != nil {
+		return
+	}
+
+	finalizeCmd := lifecycle.NewReleaseBundleFinalizeCommand().
+		SetServerDetails(lcDetails).
+		SetReleaseBundleName(c.GetArgumentAt(0)).
+		SetReleaseBundleVersion(c.GetArgumentAt(1)).
+		SetReleaseBundleProject(pluginsCommon.GetProject(c)).
+		SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey)).
+		SetSync(c.GetBoolFlagValue(flagkit.Sync))
+
+	return commands.Exec(finalizeCmd)
 }
 
 // the function validates that the current artifactory version supports multiple source feature
