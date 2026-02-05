@@ -1,7 +1,13 @@
-package npm
+package pnpm
 
 import (
 	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
 	biutils "github.com/jfrog/build-info-go/utils"
 	"github.com/jfrog/gofrog/version"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
@@ -9,11 +15,6 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/tests"
 	testsUtils "github.com/jfrog/jfrog-client-go/utils/tests"
 	"github.com/stretchr/testify/assert"
-	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
 )
 
 // getTestCredentialValue returns a fake base64-encoded value for testing. NOT a real credential.
@@ -33,7 +34,7 @@ func testScheme(secure bool) string {
 func TestPrepareConfigData(t *testing.T) {
 	configBefore := []byte(
 		"json=true\n" +
-			"user-agent=npm/5.5.1 node/v8.9.1 darwin x64\n" +
+			"user-agent=pnpm/7.0.0 node/v18.0.0 darwin x64\n" +
 			"metrics-registry=http://somebadregistry\nscope=\n" +
 			"//reg=ddddd\n" +
 			"@jfrog:registry=http://somebadregistry\n" +
@@ -47,15 +48,15 @@ func TestPrepareConfigData(t *testing.T) {
 		[]string{
 			"json = true",
 			"allow-same-version=false",
-			"user-agent=npm/5.5.1 node/v8.9.1 darwin x64",
+			"user-agent=pnpm/7.0.0 node/v18.0.0 darwin x64",
 			"@jfrog:registry = " + testRegistry,
 			"email=ddd@dd.dd",
 			"cache-lock-retries=10",
 			"registry = " + testRegistry,
 		}
 
-	npmi := NpmCommand{registry: testRegistry, jsonOutput: true, npmAuth: "_auth = " + getTestCredentialValue(), npmVersion: version.NewVersion("9.5.0")}
-	configAfter, err := npmi.prepareConfigData(configBefore)
+	pnpmi := PnpmCommand{registry: testRegistry, jsonOutput: true, npmAuth: "_auth = " + getTestCredentialValue(), pnpmVersion: version.NewVersion("7.5.0")}
+	configAfter, err := pnpmi.prepareConfigData(configBefore)
 	if err != nil {
 		t.Error(err)
 	}
@@ -73,7 +74,7 @@ func TestPrepareConfigData(t *testing.T) {
 		}
 	}
 
-	// Assert that NPM_CONFIG__AUTH environment variable was set
+	// Assert that NPM_CONFIG__AUTH environment variable was set (pnpm uses npm config vars)
 	assert.Equal(t, getTestCredentialValue(), os.Getenv(fmt.Sprintf(npmConfigAuthEnv, "//goodRegistry/", utils.NpmConfigAuthKey)))
 	testsUtils.UnSetEnvAndAssert(t, fmt.Sprintf(npmConfigAuthEnv, "//goodRegistry/", utils.NpmConfigAuthKey))
 }
@@ -81,15 +82,15 @@ func TestPrepareConfigData(t *testing.T) {
 func TestSetNpmConfigAuthEnv(t *testing.T) {
 	testCases := []struct {
 		name        string
-		npmCm       *NpmCommand
+		pnpmCm      *PnpmCommand
 		authKey     string
 		value       string
 		expectedEnv string
 	}{
 		{
 			name: "set scoped registry auth env",
-			npmCm: &NpmCommand{
-				npmVersion: version.NewVersion("9.3.1"),
+			pnpmCm: &PnpmCommand{
+				pnpmVersion: version.NewVersion("7.5.0"),
 			},
 			authKey:     utils.NpmConfigAuthKey,
 			value:       "some_auth_token",
@@ -97,8 +98,8 @@ func TestSetNpmConfigAuthEnv(t *testing.T) {
 		},
 		{
 			name: "set scoped registry authToken env",
-			npmCm: &NpmCommand{
-				npmVersion: version.NewVersion("9.3.1"),
+			pnpmCm: &PnpmCommand{
+				pnpmVersion: version.NewVersion("7.5.0"),
 			},
 			authKey:     utils.NpmConfigAuthTokenKey,
 			value:       "some_auth_token",
@@ -106,8 +107,8 @@ func TestSetNpmConfigAuthEnv(t *testing.T) {
 		},
 		{
 			name: "set legacy auth env",
-			npmCm: &NpmCommand{
-				npmVersion: version.NewVersion("8.16.3"),
+			pnpmCm: &PnpmCommand{
+				pnpmVersion: version.NewVersion("6.5.0"),
 			},
 			authKey:     utils.NpmConfigAuthKey,
 			value:       "some_auth_token",
@@ -115,8 +116,8 @@ func TestSetNpmConfigAuthEnv(t *testing.T) {
 		},
 		{
 			name: "set legacy auth env even though authToken is passed",
-			npmCm: &NpmCommand{
-				npmVersion: version.NewVersion("8.16.3"),
+			pnpmCm: &PnpmCommand{
+				pnpmVersion: version.NewVersion("6.5.0"),
 			},
 			authKey:     utils.NpmConfigAuthTokenKey,
 			value:       "some_auth_token",
@@ -126,8 +127,8 @@ func TestSetNpmConfigAuthEnv(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			tc.npmCm.registry = "https://registry.example.com"
-			err := tc.npmCm.setNpmConfigAuthEnv(tc.value, tc.authKey)
+			tc.pnpmCm.registry = "https://registry.example.com"
+			err := tc.pnpmCm.setNpmConfigAuthEnv(tc.value, tc.authKey)
 			assert.NoError(t, err)
 			envValue := os.Getenv(tc.expectedEnv)
 			assert.Equal(t, tc.value, envValue)
@@ -140,6 +141,7 @@ func TestSetArtifactoryAsResolutionServer(t *testing.T) {
 	tmpDir, createTempDirCallback := tests.CreateTempDirWithCallbackAndAssert(t)
 	defer createTempDirCallback()
 
+	// pnpm uses the same project structure as npm
 	npmProjectPath := filepath.Join("..", "..", "..", "tests", "testdata", "npm-project")
 	err := biutils.CopyDir(npmProjectPath, tmpDir, false, nil)
 	assert.NoError(t, err)
