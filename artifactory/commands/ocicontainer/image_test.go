@@ -138,14 +138,14 @@ func TestGetImageLongNameWithoutRepoWithoutTag(t *testing.T) {
 	}
 
 	for _, v := range imageTags {
-		result, err := NewImage(v.in).GetImageLongNameWithoutRepoWithoutTag()
+		result, err := NewImage(v.in).GetImageLongNameWithoutRepoAndTag()
 		assert.NoError(t, err)
 		if result != v.expected {
-			t.Errorf("GetImageLongNameWithoutRepoWithoutTag(\"%s\") => '%s', want '%s'", v.in, result, v.expected)
+			t.Errorf("GetImageLongNameWithoutRepoAndTag(\"%s\") => '%s', want '%s'", v.in, result, v.expected)
 		}
 	}
 	// Validate failure upon missing image name
-	_, err := NewImage("domain").GetImageLongNameWithoutRepoWithoutTag()
+	_, err := NewImage("domain").GetImageLongNameWithoutRepoAndTag()
 	assert.Error(t, err)
 }
 

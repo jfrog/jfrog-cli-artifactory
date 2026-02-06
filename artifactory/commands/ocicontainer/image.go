@@ -119,11 +119,11 @@ func (image *Image) GetImageLongNameWithoutRepoWithTag() (string, error) {
 	return longName, nil
 }
 
-// GetImageLongNameWithoutRepoWithoutTag removes the registry hostname and repository name, returning the organization and image name.
+// GetImageLongNameWithoutRepoAndTag removes the registry hostname and repository name, returning the organization and image name.
 // e.g., "docker-local/myorg/hello-world:latest" -> "myorg/hello-world"
 // e.g., "docker-local/hello-world:latest" -> "hello-world"
 // e.g., "docker-local/myorg/hello-world@sha256:12334" -> "myorg/hello-world"
-func (image *Image) GetImageLongNameWithoutRepoWithoutTag() (string, error) {
+func (image *Image) GetImageLongNameWithoutRepoAndTag() (string, error) {
 	imageName, err := image.GetImageLongNameWithoutRepoWithTag()
 	if err != nil {
 		return "", err

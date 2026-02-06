@@ -2,9 +2,10 @@ package ocicontainer
 
 import (
 	"fmt"
+	"runtime"
+
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/jfrog/jfrog-client-go/artifactory"
-	"runtime"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -139,7 +140,7 @@ func (h *SingleManifestHandler) FetchLayers(imageRef string, repository string) 
 	if err != nil {
 		return []utils.ResultItem{}, []utils.ResultItem{}, err
 	}
-	imageName, err := image.GetImageLongNameWithoutRepoWithoutTag()
+	imageName, err := image.GetImageLongNameWithoutRepoAndTag()
 	if err != nil {
 		return []utils.ResultItem{}, []utils.ResultItem{}, err
 	}
@@ -210,7 +211,7 @@ func (h *FatManifestHandler) getLayersForManifestSha(imageRef string, manifestSh
 
 	// Get the image tag folder path (contains list.manifest.json)
 	image := NewImage(imageRef)
-	imageName, err := image.GetImageLongNameWithoutRepoWithoutTag()
+	imageName, err := image.GetImageLongNameWithoutRepoAndTag()
 	if err != nil {
 		return []utils.ResultItem{}, foldersToApplyProps, err
 	}
@@ -249,7 +250,7 @@ func (h *FatManifestHandler) getLayersForManifestSha(imageRef string, manifestSh
 // createSearchablePathForDockerManifestContents builds search paths like imageName/sha256:xxx
 // For nested paths like repo/org/image, this returns org/image/sha256:xxx
 func (h *FatManifestHandler) createSearchablePathForDockerManifestContents(imageRef string, manifestShas []string) []string {
-	imageName, err := NewImage(imageRef).GetImageLongNameWithoutRepoWithoutTag()
+	imageName, err := NewImage(imageRef).GetImageLongNameWithoutRepoAndTag()
 	if err != nil {
 		log.Warn(fmt.Sprintf("Failed to get image name: %s. Error: %s while creating searchable paths for docker manifest contents.", imageRef, err.Error()))
 		return []string{}
