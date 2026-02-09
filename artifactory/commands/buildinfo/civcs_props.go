@@ -122,34 +122,35 @@ func setPropsOnArtifacts(servicesManager artifactory.ArtifactoryServicesManager,
 			return
 		}
 		params := services.PropsParams{
-			Reader: reader,
-			Props:  props,
+			Reader:       reader,
+			Props:        props,
+			UseDebugLogs: true,
 		}
 		successCount, err := servicesManager.SetProps(params)
 		if closeErr := reader.Close(); closeErr != nil {
 			log.Debug("Failed to close reader:", closeErr)
 		}
 		if err == nil {
-			log.Info("CI VCS: Successfully set properties on", successCount, "artifacts")
+			log.Debug("CI VCS: Successfully set properties on", successCount, "artifacts")
 			return
 		}
 
 		// Check if error is 404 - artifact path might be incorrect, skip silently
 		if is404Error(err) {
-			log.Info("CI VCS: SetProps returned 404 - some artifacts not found")
+			log.Debug("CI VCS: SetProps returned 404 - some artifacts not found")
 			return
 		}
 		// Check if error is 403 - permission issue, skip silently
 		if is403Error(err) {
 			if attempt >= 1 {
-				log.Info("CI VCS: SetProps returned 403 - permission denied")
+				log.Debug("CI VCS: SetProps returned 403 - permission denied")
 				return
 			}
 		}
 		lastErr = err
-		log.Info("CI VCS: Batch attempt", attempt+1, "failed:", err)
+		log.Debug("CI VCS: Batch attempt", attempt+1, "failed:", err)
 	}
-	log.Info("CI VCS: Failed to set properties after", maxRetries, "attempts:", lastErr)
+	log.Debug("CI VCS: Failed to set properties after", maxRetries, "attempts:", lastErr)
 }
 
 // buildSpecFromPaths creates a SpecFiles object from artifact paths for search-based resolution.

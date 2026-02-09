@@ -337,31 +337,31 @@ func (bpc *BuildPublishCommand) setCIVcsPropsOnArtifacts(
 		// Not in CI or no registered provider - silently skip
 		return
 	}
-	log.Info("CI VCS: Detected provider:", ciVcsInfo.Provider, ", org:", ciVcsInfo.Org, ", repo:", ciVcsInfo.Repo)
+	log.Debug("CI VCS: Detected provider:", ciVcsInfo.Provider, ", org:", ciVcsInfo.Org, ", repo:", ciVcsInfo.Repo)
 
 	// Build props string
 	props := civcs.BuildCIVcsPropsString(ciVcsInfo)
 	if props == "" {
-		log.Info("CI VCS: Empty props string, skipping")
+		log.Debug("CI VCS: Empty props string, skipping")
 		return
 	}
 
 	// Extract artifact paths from build info (with warnings for missing repo paths)
 	artifactPaths, skippedCount := extractArtifactPathsWithWarnings(buildInfo)
-	log.Info("CI VCS: Extracted", len(artifactPaths), "artifact paths,", skippedCount, "skipped")
+	log.Debug("CI VCS: Extracted", len(artifactPaths), "artifact paths,", skippedCount, "skipped")
 	if len(artifactPaths) == 0 && skippedCount == 0 {
-		log.Info("CI VCS: No artifacts found in build info")
+		log.Debug("CI VCS: No artifacts found in build info")
 		return
 	}
 	if len(artifactPaths) == 0 {
 		// All artifacts were skipped due to missing repo paths
-		log.Info("CI VCS: All artifacts skipped due to missing repo paths")
+		log.Debug("CI VCS: All artifacts skipped due to missing repo paths")
 		return
 	}
-	log.Info("CI VCS: Setting properties on", len(artifactPaths), "artifacts with props:", props)
+	log.Debug("CI VCS: Setting properties on", len(artifactPaths), "artifacts with props:", props)
 	// Set properties on all artifacts in a single batch call
 	setPropsOnArtifacts(servicesManager, artifactPaths, props)
-	log.Info("CI VCS: Property setting completed")
+	log.Debug("CI VCS: Property setting completed")
 }
 
 func recordCommandSummary(buildInfo *buildinfo.BuildInfo, buildLink string) (err error) {
