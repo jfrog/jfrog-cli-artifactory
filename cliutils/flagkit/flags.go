@@ -95,6 +95,9 @@ const (
 	GroupAddUsers                = "group-add-users"
 	GroupDelete                  = "group-delete"
 	passphrase                   = "passphrase"
+	Revision                     = "revision"
+	EtagTimeout                  = "etag-timeout"
+	RepoType                     = "repo-type"
 
 	// ReleaseBundleSearch command flags
 	ReleaseBundleSearch = "release-bundle-search"
