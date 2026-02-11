@@ -11,9 +11,12 @@ import (
 
 // CI VCS property keys used by Maven/Gradle extractors
 const (
-	VcsProviderKey = "vcs.provider"
-	VcsOrgKey      = "vcs.org"
-	VcsRepoKey     = "vcs.repo"
+	VcsProviderKey  = "vcs.provider"
+	VcsOrgKey       = "vcs.org"
+	VcsRepoKey      = "vcs.repo"
+	VcsUrlKey       = "vcs.url"
+	VcsRevisionKey  = "vcs.revision"
+	VcsBranchKey    = "vcs.branch"
 
 	// CIVcsPropsDisabledEnvVar is the environment variable that disables CI VCS property collection.
 	// When set to "true", CI VCS properties will not be collected or set on artifacts.
@@ -57,6 +60,15 @@ func BuildCIVcsPropsString(info cienv.CIVcsInfo) string {
 	if info.Repo != "" {
 		parts = append(parts, "vcs.repo="+info.Repo)
 	}
+	if info.Url != "" {
+		parts = append(parts, "vcs.url="+info.Url)
+	}
+	if info.Revision != "" {
+		parts = append(parts, "vcs.revision="+info.Revision)
+	}
+	if info.Branch != "" {
+		parts = append(parts, "vcs.branch="+info.Branch)
+	}
 	return strings.Join(parts, ";")
 }
 
@@ -82,6 +94,15 @@ func MergeWithUserProps(userProps string) string {
 	}
 	if info.Repo != "" && !hasProp(userProps, "vcs.repo") {
 		ciParts = append(ciParts, "vcs.repo="+info.Repo)
+	}
+	if info.Url != "" && !hasProp(userProps, "vcs.url") {
+		ciParts = append(ciParts, "vcs.url="+info.Url)
+	}
+	if info.Revision != "" && !hasProp(userProps, "vcs.revision") {
+		ciParts = append(ciParts, "vcs.revision="+info.Revision)
+	}
+	if info.Branch != "" && !hasProp(userProps, "vcs.branch") {
+		ciParts = append(ciParts, "vcs.branch="+info.Branch)
 	}
 	if len(ciParts) == 0 {
 		return userProps
@@ -128,5 +149,14 @@ func SetCIVcsPropsToConfig(vConfig *viper.Viper) {
 	}
 	if ciVcsInfo.Repo != "" && !vConfig.IsSet(VcsRepoKey) {
 		vConfig.Set(VcsRepoKey, ciVcsInfo.Repo)
+	}
+	if ciVcsInfo.Url != "" && !vConfig.IsSet(VcsUrlKey) {
+		vConfig.Set(VcsUrlKey, ciVcsInfo.Url)
+	}
+	if ciVcsInfo.Revision != "" && !vConfig.IsSet(VcsRevisionKey) {
+		vConfig.Set(VcsRevisionKey, ciVcsInfo.Revision)
+	}
+	if ciVcsInfo.Branch != "" && !vConfig.IsSet(VcsBranchKey) {
+		vConfig.Set(VcsBranchKey, ciVcsInfo.Branch)
 	}
 }

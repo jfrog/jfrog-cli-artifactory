@@ -1,10 +1,24 @@
 package civcs
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/jfrog/build-info-go/utils/cienv"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestBuildCIVcsPropsString_UrlRevisionBranch(t *testing.T) {
+	info := cienv.CIVcsInfo{
+		Provider: "github", Org: "jfrog", Repo: "jfrog-cli",
+		Url: "https://github.com/jfrog/jfrog-cli", Revision: "abc123", Branch: "main",
+	}
+	result := BuildCIVcsPropsString(info)
+	assert.Contains(t, result, "vcs.url=https://github.com/jfrog/jfrog-cli")
+	assert.Contains(t, result, "vcs.revision=abc123")
+	assert.Contains(t, result, "vcs.branch=main")
+	assert.True(t, strings.HasPrefix(result, "vcs.provider=github;vcs.org=jfrog;vcs.repo=jfrog-cli;"))
+}
 
 func TestGetCIVcsPropsString(t *testing.T) {
 	tests := []struct {
@@ -134,6 +148,9 @@ func clearCIEnvVars(t *testing.T) {
 		"GITHUB_RUN_ID",
 		"GITHUB_REPOSITORY_OWNER",
 		"GITHUB_REPOSITORY",
+		"GITHUB_SERVER_URL",
+		"GITHUB_SHA",
+		"GITHUB_REF",
 		"GITLAB_CI",
 		"CI_PROJECT_PATH",
 	}
