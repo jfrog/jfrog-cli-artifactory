@@ -35,26 +35,7 @@ func handlePushCommand(buildInfo *entities.BuildInfo, helmArgs []string, service
 	if project != "" {
 		buildProps += fmt.Sprintf(";build.project=%s", project)
 	}
-	aqlQuery := fmt.Sprintf(`{
-	  "repo": "%s",
-	  "path": "%s/%s",
-	  "name": "manifest.json"
-	}`, repoName, chartName, chartVersion)
-	resultMap, err := searchOCIArtifactsByAQL(serviceManager, aqlQuery)
-	if err != nil {
-		return fmt.Errorf("failed to search manifest for %s : %s: %w", chartName, chartVersion, err)
-	}
-	if len(resultMap) == 0 {
-		return fmt.Errorf("no manifest found for chart: %s : %s", chartName, chartVersion)
-	}
-	manifestSha256, err := getManifestSha256(resultMap)
-	if err != nil {
-		return err
-	}
-	if manifestSha256 == "" {
-		return fmt.Errorf("no manifest found for chart: %s : %s", chartName, chartVersion)
-	}
-	resultMap, err = searchPushedArtifacts(serviceManager, repoName, chartName, manifestSha256, buildProps)
+	resultMap, err := searchPushedArtifacts(serviceManager, repoName, chartName, chartVersion, buildProps)
 	if err != nil {
 		return fmt.Errorf("failed to search oci layers for %s : %s: %w", chartName, chartVersion, err)
 	}
@@ -89,11 +70,11 @@ func handlePushCommand(buildInfo *entities.BuildInfo, helmArgs []string, service
 }
 
 // searchPushedArtifacts searches for pushed OCI artifacts using a search pattern
-func searchPushedArtifacts(serviceManager artifactory.ArtifactoryServicesManager, repoName, chartName, manifestSha256 string, buildProperties string) (map[string]*servicesUtils.ResultItem, error) {
+func searchPushedArtifacts(serviceManager artifactory.ArtifactoryServicesManager, repoName, chartName, chartVersion string, buildProperties string) (map[string]*servicesUtils.ResultItem, error) {
 	aqlQuery := fmt.Sprintf(`{
 	  "repo": "%s",
-	  "path": "%s/sha256:%s"
-	}`, repoName, chartName, manifestSha256)
+	  "path": "%s/%s"
+	}`, repoName, chartName, chartVersion)
 	searchParams := services.SearchParams{
 		CommonParams: &servicesUtils.CommonParams{
 			Aql: servicesUtils.Aql{ItemsFind: aqlQuery},
@@ -120,7 +101,7 @@ func searchPushedArtifacts(serviceManager artifactory.ArtifactoryServicesManager
 		}
 	}
 	if buildProperties != "" {
-		err = overwriteReaderWithManifestFolder(reader, repoName, chartName, "sha256:"+manifestSha256)
+		err = overwriteReaderWithManifestFolder(reader, repoName, chartName, chartVersion)
 		if err != nil {
 			return nil, err
 		}
