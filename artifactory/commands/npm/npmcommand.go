@@ -369,7 +369,7 @@ func addArrayConfigs(key, arrayValue string) string {
 	valuesSlice := strings.Split(values, ",")
 	var configArrayValues strings.Builder
 	for _, val := range valuesSlice {
-		configArrayValues.WriteString(fmt.Sprintf("%s[] = %s\n", key, val))
+		fmt.Fprintf(&configArrayValues, "%s[] = %s\n", key, val)
 	}
 
 	return configArrayValues.String()
