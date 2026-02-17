@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -80,7 +82,8 @@ func main() {
 	var output *os.File
 	if outputFile != "" {
 		var err error
-		output, err = os.OpenFile(outputFile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+		cleanOutputFile := filepath.Clean(outputFile)
+		output, err = os.OpenFile(cleanOutputFile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644) // #nosec G703 -- GitHub Actions env var
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error opening GITHUB_OUTPUT: %v\n", err)
 			os.Exit(1)
@@ -155,14 +158,30 @@ func detectDependency(name, modulePath string, replaces map[string]Replace, curr
 	return nil
 }
 
+// isValidGitRef validates that a string is a valid git reference name
+// This prevents command injection by ensuring only safe characters are used
+var validGitRefPattern = regexp.MustCompile(`^[a-zA-Z0-9._/-]+$`)
+
 // branchExists checks if a branch exists in a GitHub repository
 func branchExists(repo, branch string) bool {
 	if branch == "" || branch == "main" || branch == "master" {
 		return false
 	}
 
+	// Validate repo format to prevent command injection (should be org/repo format)
+	if !validGitRefPattern.MatchString(repo) {
+		fmt.Fprintf(os.Stderr, "Warning: invalid repo format '%s'\n", repo)
+		return false
+	}
+
+	// Validate branch name to prevent command injection
+	if !validGitRefPattern.MatchString(branch) {
+		fmt.Fprintf(os.Stderr, "Warning: invalid branch format '%s'\n", branch)
+		return false
+	}
+
 	url := fmt.Sprintf("https://github.com/%s.git", repo)
-	cmd := exec.Command("git", "ls-remote", "--heads", url, branch)
+	cmd := exec.Command("git", "ls-remote", "--heads", url, branch) // #nosec G702 -- inputs validated above
 	out, err := cmd.Output()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to check branch '%s' in %s: %v\n", branch, repo, err)

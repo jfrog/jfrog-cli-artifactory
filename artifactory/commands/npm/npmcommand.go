@@ -170,7 +170,8 @@ func (nc *NpmCommand) PreparePrerequisites(repo string) error {
 	}
 	log.Debug("Working directory set to:", nc.workingDirectory)
 
-	_, useNative, err := coreutils.ExtractUseNativeFromArgs(nc.npmArgs)
+	// Check for native mode (env var or deprecated flag)
+	useNative, _, err := CheckIsNativeAndFetchFilteredArgs(nc.npmArgs)
 	if err != nil {
 		return err
 	}

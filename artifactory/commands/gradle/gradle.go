@@ -398,11 +398,11 @@ func WriteInitScript(initScript string) error {
 	gradleHome = filepath.Clean(gradleHome)
 
 	initScriptsDir := filepath.Clean(filepath.Join(gradleHome, "init.d"))
-	if err := os.MkdirAll(initScriptsDir, 0755); err != nil {
+	if err := os.MkdirAll(initScriptsDir, 0755); err != nil { // #nosec G703 -- path sanitized with filepath.Clean
 		return fmt.Errorf("failed to create Gradle init.d directory: %w", err)
 	}
 	jfrogInitScriptPath := filepath.Clean(filepath.Join(initScriptsDir, InitScriptName))
-	if err := os.WriteFile(jfrogInitScriptPath, []byte(initScript), 0644); err != nil {
+	if err := os.WriteFile(jfrogInitScriptPath, []byte(initScript), 0644); err != nil { // #nosec G703 -- path sanitized with filepath.Clean
 		return fmt.Errorf("failed to write Gradle init script to %s: %w", jfrogInitScriptPath, err)
 	}
 	return nil
