@@ -533,6 +533,18 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
+      - name: Configure Docker 29 for Legacy Support
+        run: |
+          sudo bash -c 'cat <<EOF > /etc/docker/daemon.json
+          {
+            "insecure-registries": ["localhost:8082"],
+            "features": {
+              "containerd-snapshotter": false
+            }
+          }
+          EOF'
+          sudo systemctl restart docker
+
       - name: Checkout all JFrog repositories
         uses: ./.github/actions/checkout-jfrog-repos
         with:
@@ -558,13 +570,9 @@ jobs:
         env:
           RTLIC: ${{ secrets.RTLIC }}
 
-      - name: Wait for Artifactory to finish loading
-        uses: nev7n/wait_for_response@v1
-        with:
-          url: "http://localhost:8082"
-          responseCode: 200
-          timeout: 600000
-          interval: 500
+      - name: Wait for Artifactory (Native)
+        run: |
+          timeout 600s bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost:8082)" != "200" ]]; do sleep 5; done'
 
       - name: Run Docker tests
         working-directory: jfrog-cli
@@ -583,6 +591,18 @@ jobs:
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Configure Docker 29 for Legacy Support
+        run: |
+          sudo bash -c 'cat <<EOF > /etc/docker/daemon.json
+          {
+            "insecure-registries": ["localhost:8082"],
+            "features": {
+              "containerd-snapshotter": false
+            }
+          }
+          EOF'
+          sudo systemctl restart docker
 
       - name: Checkout all JFrog repositories
         uses: ./.github/actions/checkout-jfrog-repos
