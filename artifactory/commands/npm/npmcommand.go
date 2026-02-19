@@ -59,6 +59,8 @@ type NpmCommand struct {
 	collectBuildInfo    bool
 	buildInfoModule     *build.NpmModule
 	installHandler      *NpmInstallStrategy
+	// When true, skips the 404 error handling that checks if packages are blocked by curation
+	disableCVSCheck bool
 }
 
 func NewNpmCommand(cmdName string, collectBuildInfo bool) *NpmCommand {
@@ -107,6 +109,11 @@ func (nc *NpmCommand) SetRepo(repo string) *NpmCommand {
 	return nc
 }
 
+func (nc *NpmCommand) SetDisableCVSCheck(disable bool) *NpmCommand {
+	nc.disableCVSCheck = disable
+	return nc
+}
+
 func (nc *NpmCommand) Init() error {
 	// Read config file.
 	log.Debug("Preparing to read the config file", nc.configFilePath)
@@ -123,7 +130,13 @@ func (nc *NpmCommand) Init() error {
 	if err != nil {
 		return err
 	}
+	// Extract --disable-cvs-check flag
+	filteredNpmArgs, disableCVSCheck, err := coreutils.ExtractBoolFlagFromArgs(filteredNpmArgs, "disable-cvs-check")
+	if err != nil {
+		return err
+	}
 	nc.SetRepoConfig(repoConfig).SetArgs(filteredNpmArgs).SetBuildConfiguration(buildConfiguration)
+	nc.SetDisableCVSCheck(disableCVSCheck)
 	return nil
 }
 
@@ -317,7 +330,7 @@ func (nc *NpmCommand) Run() (err error) {
 	}()
 	err = nc.installHandler.Install()
 	if err != nil {
-		if nc.cmdName == "install" || nc.cmdName == "ci" {
+		if !nc.disableCVSCheck && (nc.cmdName == "install" || nc.cmdName == "ci") {
 			if blockedErr := nc.handle404Errors(err); blockedErr != nil {
 				err = blockedErr
 			}
@@ -359,6 +372,7 @@ func parsePackageSpec(packageSpec string) (scope, name, version string, ok bool)
 	}
 
 	fullName := packageSpec[:versionSeparator]
+	// npm error line is "No matching version found for pkg@version.", the trailing period is sentence punctuation and gets captured by the regex.
 	version = strings.TrimSuffix(packageSpec[versionSeparator+1:], ".")
 
 	if strings.HasPrefix(fullName, "@") {
@@ -373,16 +387,14 @@ func parsePackageSpec(packageSpec string) (scope, name, version string, ok bool)
 	return "", fullName, version, true
 }
 
-// checkIfVersionBlocked does a GET request for the package to check if it's blocked by curation
+// checkIfVersionBlocked does a head request for the package to check if it's blocked by curation based on npm notice header
 func (nc *NpmCommand) checkIfVersionBlocked(versionMatches [][]string) error {
 	rtAuth, err := nc.serverDetails.CreateArtAuthConfig()
 	if err != nil {
-		log.Debug("Failed to create auth config for curation check:", err.Error())
 		return nil
 	}
 	rtManager, err := rtUtils.CreateServiceManager(nc.serverDetails, 2, 0, false)
 	if err != nil {
-		log.Debug("Failed to create service manager for curation check:", err.Error())
 		return nil
 	}
 	httpClientDetails := rtAuth.CreateHttpClientDetails()
@@ -402,12 +414,23 @@ func (nc *NpmCommand) checkIfVersionBlocked(versionMatches [][]string) error {
 		}
 
 		packageUrl := nc.buildPackageTarballUrl(artiUrl, scope, pkgName, version)
-		resp, respBody, _, err := rtManager.Client().SendGet(packageUrl, true, &httpClientDetails)
+		resp, _, err := rtManager.Client().SendHead(packageUrl, &httpClientDetails)
 		if err != nil || resp == nil {
 			continue
 		}
 		if resp.StatusCode == http.StatusForbidden {
-			return fmt.Errorf("403 Forbidden: For Package %s@%s : %s", displayName, version, string(respBody))
+			if notice := resp.Header.Get("Npm-Notice"); notice != "" {
+				return fmt.Errorf("403 Forbidden: Package %s@%s: %s", displayName, version, notice)
+			}
+			// Npm-Notice header missing, fall back to GET to retrieve the reason from the response body.
+			resp, respBody, _, err := rtManager.Client().SendGet(packageUrl, true, &httpClientDetails)
+			if err != nil || resp == nil {
+				return fmt.Errorf("403 Forbidden: Package %s@%s", displayName, version)
+			}
+			if resp.StatusCode == http.StatusForbidden && len(respBody) > 0 {
+				return fmt.Errorf("403 Forbidden: Package %s@%s: %s", displayName, version, string(respBody))
+			}
+			return fmt.Errorf("403 Forbidden: Package %s@%s", displayName, version)
 		}
 	}
 	return nil
