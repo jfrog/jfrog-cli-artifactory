@@ -391,10 +391,12 @@ func parsePackageSpec(packageSpec string) (scope, name, version string, ok bool)
 func (nc *NpmCommand) checkIfVersionBlocked(versionMatches [][]string) error {
 	rtAuth, err := nc.serverDetails.CreateArtAuthConfig()
 	if err != nil {
+		log.Debug("Failed to create auth config for curation check:", err.Error())
 		return nil
 	}
 	rtManager, err := rtUtils.CreateServiceManager(nc.serverDetails, 2, 0, false)
 	if err != nil {
+		log.Debug("Failed to create service manager for curation check:", err.Error())
 		return nil
 	}
 	httpClientDetails := rtAuth.CreateHttpClientDetails()
