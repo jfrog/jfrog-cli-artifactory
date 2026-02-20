@@ -40,6 +40,11 @@ const (
 	npmLegacyConfigAuthEnv = "npm_config__auth"
 )
 
+var (
+	npm404ErrorPattern      = regexp.MustCompile(`(?i)(404|ETARGET|notarget|No matching version found)`)
+	packageWithVersionRegex = regexp.MustCompile(`No matching version found for\s+([@a-zA-Z0-9][a-zA-Z0-9._/-]*(?:/[a-zA-Z0-9._-]+)?@[0-9][0-9a-zA-Z._-]*)`)
+)
+
 type NpmCommand struct {
 	CommonArgs
 	cmdName        string
@@ -341,7 +346,6 @@ func (nc *NpmCommand) Run() (err error) {
 
 // handle404Errors checks if a 404/ETARGET error is actually a blocked package (403)
 func (nc *NpmCommand) handle404Errors(installErr error) error {
-	var npm404ErrorPattern = regexp.MustCompile(`(?i)(404|ETARGET|notarget|No matching version found)`)
 	errMsg := installErr.Error()
 
 	if !npm404ErrorPattern.MatchString(errMsg) {
@@ -351,13 +355,22 @@ func (nc *NpmCommand) handle404Errors(installErr error) error {
 		return nil
 	}
 
-	packageWithVersionRegex := regexp.MustCompile(`No matching version found for\s+([@a-zA-Z0-9][a-zA-Z0-9._/-]*(?:/[a-zA-Z0-9._-]+)?@[0-9][0-9a-zA-Z._-]*)`)
-	versionMatches := packageWithVersionRegex.FindAllStringSubmatch(errMsg, -1)
-
-	if len(versionMatches) > 0 {
-		return nc.checkIfVersionBlocked(versionMatches)
+	packageSpecs := extractPackageSpecs(errMsg)
+	if len(packageSpecs) > 0 {
+		return nc.checkIfVersionBlocked(packageSpecs)
 	}
 	return nil
+}
+
+func extractPackageSpecs(errMsg string) []string {
+	matches := packageWithVersionRegex.FindAllStringSubmatch(errMsg, -1)
+	specs := make([]string, 0, len(matches))
+	for _, m := range matches {
+		if len(m) >= 2 {
+			specs = append(specs, m[1])
+		}
+	}
+	return specs
 }
 
 // parsePackageSpec parses a package spec like "@scope/name@version"
@@ -366,15 +379,15 @@ func (nc *NpmCommand) handle404Errors(installErr error) error {
 //   - "lodash@4.17.21"       -> scope="", name="lodash", version="4.17.21"
 func parsePackageSpec(packageSpec string) (scope, name, version string, ok bool) {
 	versionSeparator := strings.LastIndex(packageSpec, "@")
-
 	if versionSeparator == -1 || versionSeparator == 0 {
 		return "", "", "", false
 	}
-
 	fullName := packageSpec[:versionSeparator]
-	// npm error line is "No matching version found for pkg@version.", the trailing period is sentence punctuation and gets captured by the regex.
-	version = strings.TrimSuffix(packageSpec[versionSeparator+1:], ".")
 
+	version = strings.TrimSuffix(packageSpec[versionSeparator+1:], ".")
+	if version == "" {
+		return "", "", "", false
+	}
 	if strings.HasPrefix(fullName, "@") {
 		scopeAndName := fullName[1:]
 		scope, name, found := strings.Cut(scopeAndName, "/")
@@ -387,8 +400,8 @@ func parsePackageSpec(packageSpec string) (scope, name, version string, ok bool)
 	return "", fullName, version, true
 }
 
-// checkIfVersionBlocked does a head request for the package to check if it's blocked by curation based on npm notice header
-func (nc *NpmCommand) checkIfVersionBlocked(versionMatches [][]string) error {
+// checkIfVersionBlocked does a HEAD request for each package spec to check if it's blocked by curation (403).
+func (nc *NpmCommand) checkIfVersionBlocked(packageSpecs []string) error {
 	rtAuth, err := nc.serverDetails.CreateArtAuthConfig()
 	if err != nil {
 		log.Debug("Failed to create auth config for curation check:", err.Error())
@@ -400,13 +413,10 @@ func (nc *NpmCommand) checkIfVersionBlocked(versionMatches [][]string) error {
 		return nil
 	}
 	httpClientDetails := rtAuth.CreateHttpClientDetails()
-	artiUrl := strings.TrimSuffix(nc.serverDetails.ArtifactoryUrl, "/")
+	artifactoryURL := strings.TrimSuffix(nc.serverDetails.ArtifactoryUrl, "/")
 
-	for _, match := range versionMatches {
-		if len(match) < 2 {
-			continue
-		}
-		scope, pkgName, version, ok := parsePackageSpec(match[1])
+	for _, spec := range packageSpecs {
+		scope, pkgName, version, ok := parsePackageSpec(spec)
 		if !ok {
 			continue
 		}
@@ -415,7 +425,7 @@ func (nc *NpmCommand) checkIfVersionBlocked(versionMatches [][]string) error {
 			displayName = "@" + scope + "/" + pkgName
 		}
 
-		packageUrl := nc.buildPackageTarballUrl(artiUrl, scope, pkgName, version)
+		packageUrl := nc.buildPackageTarballUrl(artifactoryURL, scope, pkgName, version)
 		resp, _, err := rtManager.Client().SendHead(packageUrl, &httpClientDetails)
 		if err != nil || resp == nil {
 			continue
@@ -426,10 +436,7 @@ func (nc *NpmCommand) checkIfVersionBlocked(versionMatches [][]string) error {
 			}
 			// Npm-Notice header missing, fall back to GET to retrieve the reason from the response body.
 			resp, respBody, _, err := rtManager.Client().SendGet(packageUrl, true, &httpClientDetails)
-			if err != nil || resp == nil {
-				return fmt.Errorf("403 Forbidden: Package %s@%s", displayName, version)
-			}
-			if resp.StatusCode == http.StatusForbidden && len(respBody) > 0 {
+			if err == nil && resp != nil && resp.StatusCode == http.StatusForbidden && len(respBody) > 0 {
 				return fmt.Errorf("403 Forbidden: Package %s@%s: %s", displayName, version, string(respBody))
 			}
 			return fmt.Errorf("403 Forbidden: Package %s@%s", displayName, version)
@@ -439,11 +446,11 @@ func (nc *NpmCommand) checkIfVersionBlocked(versionMatches [][]string) error {
 }
 
 // buildPackageTarballUrl builds URL for package tarball
-func (nc *NpmCommand) buildPackageTarballUrl(artiUrl, scope, pkgName, version string) string {
+func (nc *NpmCommand) buildPackageTarballUrl(artifactoryURL, scope, pkgName, version string) string {
 	if scope != "" {
-		return fmt.Sprintf("%s/api/npm/%s/@%s/%s/-/%s-%s.tgz", artiUrl, nc.repo, scope, pkgName, pkgName, version)
+		return fmt.Sprintf("%s/api/npm/%s/@%s/%s/-/%s-%s.tgz", artifactoryURL, nc.repo, scope, pkgName, pkgName, version)
 	}
-	return fmt.Sprintf("%s/api/npm/%s/%s/-/%s-%s.tgz", artiUrl, nc.repo, pkgName, pkgName, version)
+	return fmt.Sprintf("%s/api/npm/%s/%s/-/%s-%s.tgz", artifactoryURL, nc.repo, pkgName, pkgName, version)
 }
 
 func (nc *NpmCommand) prepareBuildInfoModule() error {

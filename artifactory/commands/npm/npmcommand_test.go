@@ -193,6 +193,9 @@ func TestParsePackageSpec(t *testing.T) {
 
 	_, _, _, ok = parsePackageSpec("@angular@15.0.0")
 	assert.False(t, ok)
+
+	_, _, _, ok = parsePackageSpec("lodash@")
+	assert.False(t, ok)
 }
 
 func TestHandle404Errors(t *testing.T) {

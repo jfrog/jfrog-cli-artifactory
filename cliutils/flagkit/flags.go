@@ -361,7 +361,7 @@ const (
 	npmDetailedSummary = npmPrefix + detailedSummary
 	runNative          = "run-native"
 	npmWorkspaces      = "workspaces"
-	DisableCVSCheck    = "disable-cvs-check"
+	disableCVSCheck    = "disable-cvs-check"
 
 	// Unique nuget/dotnet config flags
 	nugetV2                  = "nuget-v2"
@@ -693,7 +693,7 @@ var commandFlags = map[string][]string{
 		global, serverIdResolve, serverIdDeploy, repoResolve, repoDeploy,
 	},
 	NpmInstallCi: {
-		BuildName, BuildNumber, module, Project, runNative, DisableCVSCheck,
+		BuildName, BuildNumber, module, Project, runNative, disableCVSCheck,
 	},
 	NpmPublish: {
 		BuildName, BuildNumber, module, Project, npmDetailedSummary, xrayScan, xrOutput, runNative, npmWorkspaces,
@@ -1033,7 +1033,7 @@ var flagsMap = map[string]components.Flag{
 	allowInsecureConnections: components.NewBoolFlag(allowInsecureConnections, "Set to true if you wish to configure NuGet sources with unsecured connections. This is recommended for testing purposes only.", components.WithBoolDefaultValueFalse()),
 	npmDetailedSummary:       components.NewBoolFlag(detailedSummary, "Set to true to include a list of the affected files in the command summary.", components.WithBoolDefaultValueFalse()),
 	nugetV2:                  components.NewBoolFlag(nugetV2, "Set to true if you'd like to use the NuGet V2 protocol when restoring packages from Artifactory.", components.WithBoolDefaultValueFalse()),
-	DisableCVSCheck:          components.NewBoolFlag(DisableCVSCheck, "[Default: false] Set to true to disable the CVS check that verifies if 404 errors are due to blocked packages.", components.WithBoolDefaultValueFalse()),
+	disableCVSCheck:          components.NewBoolFlag(disableCVSCheck, "Set to true to disable the CVS check that verifies if 404 errors are due to blocked packages.", components.WithBoolDefaultValueFalse()),
 
 	// GoPublish specific commands flags
 	goPublishExclusions: components.NewStringFlag(exclusions, "List of semicolon-separated(;) exclusions. Exclusions can include the * and the ? wildcards.", components.SetMandatoryFalse()),
