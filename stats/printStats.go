@@ -361,7 +361,7 @@ func FormatWithDisplayTags(v interface{}) string {
 			continue
 		}
 		fieldValue := val.Field(i)
-		builder.WriteString(fmt.Sprintf("%s: %v\n", displayTag, fieldValue.Interface()))
+		fmt.Fprintf(&builder, "%s: %v\n", displayTag, fieldValue.Interface())
 	}
 	return builder.String()
 }

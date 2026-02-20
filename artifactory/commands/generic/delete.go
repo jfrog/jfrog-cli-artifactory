@@ -1,6 +1,8 @@
 package generic
 
 import (
+	"errors"
+
 	ioutils "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
@@ -46,12 +48,13 @@ func (dc *DeleteCommand) Run() (err error) {
 		}
 	}
 	if allowDelete {
-		var successCount int
-		var failedCount int
+		var successCount, failedCount int
 		successCount, failedCount, err = dc.DeleteFiles(reader)
+		// Always set the result counts, even if an error occurred
+		// This follows the pattern used by move/copy commands
 		result := dc.Result()
-		result.SetFailCount(failedCount)
 		result.SetSuccessCount(successCount)
+		result.SetFailCount(failedCount)
 	}
 	return
 }
@@ -108,15 +111,17 @@ func (dc *DeleteCommand) DeleteFiles(reader *content.ContentReader) (successCoun
 	if err != nil {
 		return 0, 0, err
 	}
-	deletedCount, err := servicesManager.DeleteFiles(reader)
-	if err != nil {
-		return 0, 0, err
+	// Perform deletion - capture both count and error separately
+	deletedCount, deleteErr := servicesManager.DeleteFiles(reader)
+	// Get total length to calculate failed count
+	length, lengthErr := reader.Length()
+	if lengthErr != nil {
+		// If we can't get the length, return what we have with the original error
+		return deletedCount, 0, errors.Join(deleteErr, lengthErr)
 	}
-	length, err := reader.Length()
-	if err != nil {
-		return 0, 0, err
-	}
-	return deletedCount, length - deletedCount, err
+	// Return actual counts even when there was an error during deletion
+	// This follows the pattern used by move/copy commands
+	return deletedCount, length - deletedCount, deleteErr
 }
 
 func getDeleteParams(f *spec.File) (deleteParams services.DeleteParams, err error) {

@@ -118,6 +118,37 @@ func TestGetImageLongNameWithoutRepoWithTag(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestGetImageLongNameWithoutRepoWithoutTag(t *testing.T) {
+	var imageTags = []struct {
+		in       string
+		expected string
+	}{
+		// Simple cases: repo/image:tag -> image
+		{"domain:8080/repo-name/hello-world:latest", "hello-world"},
+		{"domain/repo-name/hello-world:latest", "hello-world"},
+		// Nested path cases: repo/org/image:tag -> org/image
+		{"domain/repo-name/org-name/hello-world:latest", "org-name/hello-world"},
+		{"domain/repo-name/org-name/hello-world", "org-name/hello-world"},
+		{"domain:8080/docker-local/myorg/myimage:v1.0", "myorg/myimage"},
+		// Deeply nested paths
+		{"domain/repo/path/to/image:tag", "path/to/image"},
+		// Digest-based images
+		{"domain:8080/repo-name/hello-world@sha256:abc123", "hello-world"},
+		{"domain/repo-name/org-name/hello-world@sha256:abc123def456", "org-name/hello-world"},
+	}
+
+	for _, v := range imageTags {
+		result, err := NewImage(v.in).GetImageLongNameWithoutRepoAndTag()
+		assert.NoError(t, err)
+		if result != v.expected {
+			t.Errorf("GetImageLongNameWithoutRepoAndTag(\"%s\") => '%s', want '%s'", v.in, result, v.expected)
+		}
+	}
+	// Validate failure upon missing image name
+	_, err := NewImage("domain").GetImageLongNameWithoutRepoAndTag()
+	assert.Error(t, err)
+}
+
 func TestGetImageShortNameWithTag(t *testing.T) {
 	var imageTags = []struct {
 		in       string

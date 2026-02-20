@@ -891,7 +891,7 @@ func TestExtractRepoKeyFromArtifactoryUrlEdgeCases(t *testing.T) {
 	}{
 		{
 			name:     "URL with userinfo",
-			url:      "http://user:pass@localhost:8081/artifactory/libs-release",
+			url:      "http://user:placeholder@localhost:8081/artifactory/libs-release", // #nosec G101 -- test data with placeholder credential
 			expected: "libs-release",
 			wantErr:  false,
 		},

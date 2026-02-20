@@ -2,9 +2,10 @@ package ocicontainer
 
 import (
 	"fmt"
+	"runtime"
+
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/jfrog/jfrog-client-go/artifactory"
-	"runtime"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -139,19 +140,22 @@ func (h *SingleManifestHandler) FetchLayers(imageRef string, repository string) 
 	if err != nil {
 		return []utils.ResultItem{}, []utils.ResultItem{}, err
 	}
-	imageName, err := image.GetImageShortName()
+	imageName, err := image.GetImageLongNameWithoutRepoAndTag()
 	if err != nil {
 		return []utils.ResultItem{}, []utils.ResultItem{}, err
 	}
 	expectedImagePath := imageName + "/" + imageTag
-	folderToApplyProps = append(folderToApplyProps, utils.ResultItem{
-		Repo: repository,
-		Path: expectedImagePath,
-		Type: "folder",
-	})
 	layers, err := searchArtifactoryForFilesByPath(repository, []string{expectedImagePath}, h.serviceManager)
 	if err != nil {
 		return []utils.ResultItem{}, folderToApplyProps, err
+	}
+
+	if len(layers) > 0 {
+		folderToApplyProps = append(folderToApplyProps, utils.ResultItem{
+			Repo: repository,
+			Path: expectedImagePath,
+			Type: "folder",
+		})
 	}
 	log.Debug(fmt.Sprintf("Found %d layers at path %s", len(layers), expectedImagePath))
 	return layers, folderToApplyProps, nil
@@ -204,8 +208,28 @@ func (h *FatManifestHandler) getManifestShaListForImage(imageReference name.Refe
 // getLayersForManifestSha searches for layers across all manifest SHAs
 func (h *FatManifestHandler) getLayersForManifestSha(imageRef string, manifestShas []string, repository string) ([]utils.ResultItem, []utils.ResultItem, error) {
 	var foldersToApplyProps []utils.ResultItem
-	searchablePathForManifest := h.createSearchablePathForDockerManifestContents(imageRef, manifestShas)
 
+	// Get the image tag folder path (contains list.manifest.json)
+	image := NewImage(imageRef)
+	imageName, err := image.GetImageLongNameWithoutRepoAndTag()
+	if err != nil {
+		return []utils.ResultItem{}, foldersToApplyProps, err
+	}
+	imageTag, err := image.GetImageTag()
+	if err != nil {
+		return []utils.ResultItem{}, foldersToApplyProps, err
+	}
+	imageTagPath := fmt.Sprintf("%s/%s", imageName, imageTag)
+
+	// Add the image tag folder to apply properties
+	foldersToApplyProps = append(foldersToApplyProps, utils.ResultItem{
+		Repo: repository,
+		Path: imageTagPath,
+		Type: "folder",
+	})
+
+	// Add all SHA folders (contain platform-specific manifests and layers)
+	searchablePathForManifest := h.createSearchablePathForDockerManifestContents(imageRef, manifestShas)
 	for _, path := range searchablePathForManifest {
 		foldersToApplyProps = append(foldersToApplyProps, utils.ResultItem{
 			Repo: repository,
@@ -214,7 +238,9 @@ func (h *FatManifestHandler) getLayersForManifestSha(imageRef string, manifestSh
 		})
 	}
 
-	layers, err := searchArtifactoryForFilesByPath(repository, searchablePathForManifest, h.serviceManager)
+	// Search in both image tag path (for list.manifest.json) and SHA paths (for platform manifests/layers)
+	allSearchPaths := append([]string{imageTagPath}, searchablePathForManifest...)
+	layers, err := searchArtifactoryForFilesByPath(repository, allSearchPaths, h.serviceManager)
 	if err != nil {
 		return []utils.ResultItem{}, foldersToApplyProps, err
 	}
@@ -222,8 +248,9 @@ func (h *FatManifestHandler) getLayersForManifestSha(imageRef string, manifestSh
 }
 
 // createSearchablePathForDockerManifestContents builds search paths like imageName/sha256:xxx
+// For nested paths like repo/org/image, this returns org/image/sha256:xxx
 func (h *FatManifestHandler) createSearchablePathForDockerManifestContents(imageRef string, manifestShas []string) []string {
-	imageName, err := NewImage(imageRef).GetImageShortName()
+	imageName, err := NewImage(imageRef).GetImageLongNameWithoutRepoAndTag()
 	if err != nil {
 		log.Warn(fmt.Sprintf("Failed to get image name: %s. Error: %s while creating searchable paths for docker manifest contents.", imageRef, err.Error()))
 		return []string{}

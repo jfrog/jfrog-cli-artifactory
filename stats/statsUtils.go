@@ -76,7 +76,7 @@ type ArtifactoryStats struct {
 	LifecycleServiceManager lifecycle.LifecycleServicesManager
 	JPDServicesManager      jpd.JPDServicesManager
 	Format                  string
-	AccessToken             string
+	AccessToken             string // #nosec G117 -- public API field used by jfrog-cli
 	ServerId                string
 	ServerUrl               string
 	DisplayLimit            int

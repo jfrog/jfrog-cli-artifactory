@@ -11,6 +11,7 @@ import (
 
 	buildinfoflexpack "github.com/jfrog/build-info-go/flexpack/gradle"
 	flexpackgradle "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/flexpack/gradle"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
 	artifactoryutils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
@@ -38,6 +39,7 @@ const (
 
 	UserHomeEnv    = "GRADLE_USER_HOME"
 	InitScriptName = "jfrog.init.gradle"
+	javaUserHome   = "user.home"
 )
 
 type GradleCommand struct {
@@ -383,20 +385,53 @@ func GenerateInitScript(config InitScriptAuthConfig) (string, error) {
 func WriteInitScript(initScript string) error {
 	gradleHome := os.Getenv(UserHomeEnv)
 	if gradleHome == "" {
-		gradleHome = filepath.Join(clientutils.GetUserHomeDir(), ".gradle")
+		// Try Java's user.home first (fixes container issue where $HOME != user.home)
+		if javaHome, err := GetJavaUserHome(); err == nil && javaHome != "" {
+			log.Debug("Using Java user.home for Gradle:", javaHome)
+			gradleHome = filepath.Join(javaHome, ".gradle")
+		} else {
+			// Fall back to $HOME if Java is not available
+			gradleHome = filepath.Join(clientutils.GetUserHomeDir(), ".gradle")
+		}
 	}
 	// Sanitize the path to prevent directory traversal attacks
 	gradleHome = filepath.Clean(gradleHome)
 
 	initScriptsDir := filepath.Clean(filepath.Join(gradleHome, "init.d"))
-	if err := os.MkdirAll(initScriptsDir, 0755); err != nil {
+	if err := os.MkdirAll(initScriptsDir, 0755); err != nil { // #nosec G703 -- path sanitized with filepath.Clean
 		return fmt.Errorf("failed to create Gradle init.d directory: %w", err)
 	}
 	jfrogInitScriptPath := filepath.Clean(filepath.Join(initScriptsDir, InitScriptName))
-	if err := os.WriteFile(jfrogInitScriptPath, []byte(initScript), 0644); err != nil {
+	if err := os.WriteFile(jfrogInitScriptPath, []byte(initScript), 0644); err != nil { // #nosec G703 -- path sanitized with filepath.Clean
 		return fmt.Errorf("failed to write Gradle init script to %s: %w", jfrogInitScriptPath, err)
 	}
 	return nil
+}
+
+// GetJavaUserHome queries Java for its user.home system property.
+// Gradle uses this property (not $HOME) to determine where to look for init scripts.
+// This fixes issues in containers where $HOME and Java's user.home can differ.
+func GetJavaUserHome() (string, error) {
+	cmd := exec.Command("java", "-XshowSettings:properties", "-version")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to run java: %w", err)
+	}
+	return parseUserHomeFromJavaOutput(string(output))
+}
+
+// parseUserHomeFromJavaOutput extracts the user.home property from Java's -XshowSettings:properties output.
+// This is separated from GetJavaUserHome for unit testing purposes.
+func parseUserHomeFromJavaOutput(output string) (string, error) {
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, javaUserHome) {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				return strings.TrimSpace(parts[1]), nil
+			}
+		}
+	}
+	return "", fmt.Errorf("user.home not found in java output")
 }
 
 func runGradle(vConfig *viper.Viper, tasks []string, deployableArtifactsFile string, configuration *build.BuildConfiguration, threads int, disableDeploy bool) error {
@@ -446,6 +481,10 @@ func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string,
 	if disableDeploy {
 		setDeployFalse(vConfig)
 	}
+
+	// Set CI VCS properties if in CI environment
+	civcs.SetCIVcsPropsToConfig(vConfig)
+
 	props, err = build.CreateBuildInfoProps(deployableArtifactsFile, vConfig, project.Gradle)
 	if err != nil {
 		return

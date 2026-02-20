@@ -78,7 +78,7 @@ func TestInitNewConfig(t *testing.T) {
 	}
 	configFile, err := InitNewConfig(tmpDir, repoName, server, false, true)
 	assert.NoError(t, err)
-	f, err := os.Open(configFile.Name())
+	f, err := os.Open(filepath.Clean(configFile.Name())) // #nosec G703 -- test file path
 	assert.NoError(t, err)
 	defer func() {
 		assert.NoError(t, f.Close())
@@ -102,7 +102,7 @@ func TestInitNewConfig(t *testing.T) {
 	server.AccessToken = "abc123"
 	configFile, err = InitNewConfig(tmpDir, repoName, server, true, true)
 	assert.NoError(t, err)
-	updatedConfigFile, err := os.Open(configFile.Name())
+	updatedConfigFile, err := os.Open(filepath.Clean(configFile.Name())) // #nosec G703 -- test file path
 	assert.NoError(t, err)
 	defer func() {
 		assert.NoError(t, updatedConfigFile.Close())

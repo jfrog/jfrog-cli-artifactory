@@ -119,6 +119,26 @@ func (image *Image) GetImageLongNameWithoutRepoWithTag() (string, error) {
 	return longName, nil
 }
 
+// GetImageLongNameWithoutRepoAndTag removes the registry hostname and repository name, returning the organization and image name.
+// e.g., "docker-local/myorg/hello-world:latest" -> "myorg/hello-world"
+// e.g., "docker-local/hello-world:latest" -> "hello-world"
+// e.g., "docker-local/myorg/hello-world@sha256:12334" -> "myorg/hello-world"
+func (image *Image) GetImageLongNameWithoutRepoAndTag() (string, error) {
+	imageName, err := image.GetImageLongNameWithoutRepoWithTag()
+	if err != nil {
+		return "", err
+	}
+	// Check for digest first (@sha256:...)
+	if digestIndex := strings.Index(imageName, "@"); digestIndex != -1 {
+		return imageName[:digestIndex], nil
+	}
+	// Otherwise strip the tag
+	if tagIndex := strings.LastIndex(imageName, ":"); tagIndex != -1 {
+		return imageName[:tagIndex], nil
+	}
+	return imageName, nil
+}
+
 // Get image tag or digest of an image.
 // e.g.: https://my-registry/docker-local/hello-world:latest -> latest
 // e.g.: https://my-registry/docker-local/hello-world@sha256:12334 -> sha256:12334

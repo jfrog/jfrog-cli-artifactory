@@ -191,7 +191,8 @@ func (nc *NpmCommand) PreparePrerequisites(repo string) error {
 	}
 	log.Debug("Working directory set to:", nc.workingDirectory)
 
-	_, useNative, err := coreutils.ExtractUseNativeFromArgs(nc.npmArgs)
+	// Check for native mode (env var or deprecated flag)
+	useNative, _, err := CheckIsNativeAndFetchFilteredArgs(nc.npmArgs)
 	if err != nil {
 		return err
 	}
@@ -505,7 +506,7 @@ func addArrayConfigs(key, arrayValue string) string {
 	valuesSlice := strings.Split(values, ",")
 	var configArrayValues strings.Builder
 	for _, val := range valuesSlice {
-		configArrayValues.WriteString(fmt.Sprintf("%s[] = %s\n", key, val))
+		fmt.Fprintf(&configArrayValues, "%s[] = %s\n", key, val)
 	}
 
 	return configArrayValues.String()

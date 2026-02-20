@@ -2,16 +2,18 @@ package generic
 
 import (
 	"errors"
-	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
-	"github.com/jfrog/jfrog-client-go/artifactory"
 	"os"
+	"strconv"
+	"time"
 
 	buildInfo "github.com/jfrog/build-info-go/entities"
-
 	ioutils "github.com/jfrog/gofrog/io"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/commandsummary"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
+	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	rtServicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	clientUtils "github.com/jfrog/jfrog-client-go/utils"
@@ -19,8 +21,6 @@ import (
 	ioUtils "github.com/jfrog/jfrog-client-go/utils/io"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"strconv"
-	"time"
 )
 
 type UploadCommand struct {
@@ -120,7 +120,9 @@ func (uc *UploadCommand) upload() (err error) {
 		file.TargetProps = clientUtils.AddProps(file.TargetProps, file.Props)
 		file.TargetProps = clientUtils.AddProps(file.TargetProps, syncDeletesProp)
 		file.Props += syncDeletesProp
-		uploadParams, err := getUploadParams(file, uc.uploadConfiguration, buildProps, addVcsProps)
+		// Add CI VCS properties if in CI environment (respects user precedence)
+		file.TargetProps = civcs.MergeWithUserProps(file.TargetProps)
+		uploadParams, err := getUploadParams(file, uc.uploadConfiguration, buildProps, addVcsProps, uc.DryRun())
 		if err != nil {
 			errorOccurred = true
 			log.Error(err)
@@ -200,7 +202,7 @@ func (uc *UploadCommand) upload() (err error) {
 	return
 }
 
-func getUploadParams(f *spec.File, configuration *utils.UploadConfiguration, buildProps string, addVcsProps bool) (uploadParams services.UploadParams, err error) {
+func getUploadParams(f *spec.File, configuration *utils.UploadConfiguration, buildProps string, addVcsProps bool, dryRun bool) (uploadParams services.UploadParams, err error) {
 	uploadParams = services.NewUploadParams()
 	uploadParams.CommonParams, err = f.ToCommonParams()
 	if err != nil {
@@ -231,10 +233,14 @@ func getUploadParams(f *spec.File, configuration *utils.UploadConfiguration, bui
 		return
 	}
 
-	uploadParams.IncludeDirs, err = f.IsIncludeDirs(false)
+	includeDirs, err := f.IsIncludeDirs(false)
 	if err != nil {
 		return
 	}
+
+	// Disable IncludeDirs in dry-run mode to prevent directory structure creation
+	uploadParams.IncludeDirs = includeDirs && !dryRun
+	log.Debug("In Dry-run mode, include-dir flag will be ignored.")
 
 	uploadParams.Flat, err = f.IsFlat(true)
 	if err != nil {

@@ -61,7 +61,7 @@ func (ccb *ContainerCommandBase) SetRepo(repo string) *ContainerCommandBase {
 	return ccb
 }
 
-// Since 'RtMinVersion' version of Artifactory we can fetch the docker repository without the user input (witch is deprecated).
+// Since 'RtMinVersion' version of Artifactory we can fetch the docker repository without the user input (which is deprecated).
 func (ccb *ContainerCommandBase) IsGetRepoSupported() (bool, error) {
 	serviceManager, err := utils.CreateServiceManager(ccb.serverDetails, -1, 0, false)
 	if err != nil {

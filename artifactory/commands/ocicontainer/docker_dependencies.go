@@ -3,9 +3,10 @@ package ocicontainer
 import (
 	"errors"
 	"fmt"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/repository"
 	"strings"
 	"sync"
+
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/repository"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-client-go/artifactory"
@@ -74,7 +75,7 @@ func (ddp *DockerDependenciesBuilder) collectDetailsForBaseImage(baseImage Docke
 	if err != nil {
 		return []utils.ResultItem{}, err
 	}
-	imageName, err := image.GetImageShortName()
+	imageName, err := image.GetImageLongNameWithoutRepoAndTag()
 	if err != nil {
 		return []utils.ResultItem{}, err
 	}

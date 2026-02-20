@@ -104,6 +104,13 @@ func searchItems(spec *spec.SpecFiles, servicesManager artifactory.ArtifactorySe
 	return
 }
 
+// SearchItems is an exported wrapper for searchItems, allowing other packages
+// (such as buildinfo for CI VCS property setting) to use the search functionality.
+// This ensures virtual repository paths are resolved to their underlying local repositories.
+func SearchItems(specFiles *spec.SpecFiles, servicesManager artifactory.ArtifactoryServicesManager) (*content.ContentReader, error) {
+	return searchItems(specFiles, servicesManager)
+}
+
 func GetPropsParams(reader *content.ContentReader, properties string, repoOnly bool) (propsParams services.PropsParams) {
 	propsParams = services.NewPropsParams()
 	propsParams.Reader = reader

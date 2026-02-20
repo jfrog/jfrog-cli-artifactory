@@ -6,10 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	buildinfo "github.com/jfrog/build-info-go/entities"
-	"github.com/jfrog/build-info-go/utils"
-	"github.com/jfrog/gofrog/crypto"
-	"github.com/jfrog/gofrog/version"
 	"io"
 	"os"
 	"path"
@@ -17,6 +13,11 @@ import (
 	"strings"
 	"time"
 
+	buildinfo "github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/build-info-go/utils"
+	"github.com/jfrog/gofrog/crypto"
+	"github.com/jfrog/gofrog/version"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	_go "github.com/jfrog/jfrog-client-go/artifactory/services/go"
@@ -65,7 +66,8 @@ func publishPackage(packageVersion, targetRepo, buildName, buildNumber, projectK
 	var zipArtifact *buildinfo.Artifact
 	params := _go.NewGoParams()
 	params.Version = packageVersion
-	params.Props = props
+	// Add CI VCS properties if in CI environment (respects user precedence)
+	params.Props = civcs.MergeWithUserProps(props)
 	params.TargetRepo = targetRepo
 	params.ModuleId = moduleName
 	params.ModContent = modContent
