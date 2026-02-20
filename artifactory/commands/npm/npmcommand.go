@@ -41,7 +41,16 @@ const (
 )
 
 var (
-	npm404ErrorPattern      = regexp.MustCompile(`(?i)(404|ETARGET|notarget|No matching version found)`)
+	// npm404ErrorPattern matches common npm error indicators for missing packages.
+	// Example input: "notarget No matching version found for lodash@99.0.0"
+	// Matches: "ETARGET", "notarget", "No matching version found"
+	npm404ErrorPattern = regexp.MustCompile(`(?i)(404|ETARGET|notarget|No matching version found)`)
+
+	// packageWithVersionRegex extracts "pkg@version" from npm's "No matching version found"
+	// Example input: "No matching version found for @angular/core@15.0.0."
+	// Output: "@angular/core@15.0.0."
+	// Example input: "No matching version found for lodash@4.17.21"
+	// Output: "lodash@4.17.21"
 	packageWithVersionRegex = regexp.MustCompile(`No matching version found for\s+([@a-zA-Z0-9][a-zA-Z0-9._/-]*(?:/[a-zA-Z0-9._-]+)?@[0-9][0-9a-zA-Z._-]*)`)
 )
 
