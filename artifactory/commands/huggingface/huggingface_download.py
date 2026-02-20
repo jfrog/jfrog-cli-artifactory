@@ -6,7 +6,12 @@ using snapshot_download with configurable parameters.
 """
 
 from huggingface_hub import snapshot_download
+from huggingface_hub.utils import disable_progress_bars
 
+import os
+
+# Disable all progress bars for this session
+disable_progress_bars()
 
 def download(repo_id, repo_type, etag_timeout, revision=None,  **kwargs):
     """
@@ -33,5 +38,6 @@ def download(repo_id, repo_type, etag_timeout, revision=None,  **kwargs):
         revision=revision,
         repo_type=repo_type,
         etag_timeout=etag_timeout,
+        tqdm_class=None,
         **kwargs
     )
