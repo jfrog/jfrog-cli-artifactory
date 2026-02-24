@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -13,6 +15,7 @@ import (
 	biUtils "github.com/jfrog/build-info-go/build/utils"
 	"github.com/jfrog/gofrog/version"
 	commandUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
+	rtUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/npm"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
@@ -37,6 +40,20 @@ const (
 	npmLegacyConfigAuthEnv = "npm_config__auth"
 )
 
+var (
+	// npm404ErrorPattern matches common npm error indicators for missing packages.
+	// Example input: "notarget No matching version found for lodash@99.0.0"
+	// Matches: "ETARGET", "notarget", "No matching version found"
+	npm404ErrorPattern = regexp.MustCompile(`(?i)(404|ETARGET|notarget|No matching version found)`)
+
+	// packageWithVersionRegex extracts "pkg@version" from npm's "No matching version found"
+	// Example input: "No matching version found for @angular/core@15.0.0."
+	// Output: "@angular/core@15.0.0."
+	// Example input: "No matching version found for lodash@4.17.21"
+	// Output: "lodash@4.17.21"
+	packageWithVersionRegex = regexp.MustCompile(`No matching version found for\s+([@a-zA-Z0-9][a-zA-Z0-9._/-]*(?:/[a-zA-Z0-9._-]+)?@[0-9][0-9a-zA-Z._-]*)`)
+)
+
 type NpmCommand struct {
 	CommonArgs
 	cmdName        string
@@ -56,6 +73,8 @@ type NpmCommand struct {
 	collectBuildInfo    bool
 	buildInfoModule     *build.NpmModule
 	installHandler      *NpmInstallStrategy
+	// When true, skips the 404 error handling that checks if packages are blocked by curation
+	disableCVSCheck bool
 }
 
 func NewNpmCommand(cmdName string, collectBuildInfo bool) *NpmCommand {
@@ -104,6 +123,11 @@ func (nc *NpmCommand) SetRepo(repo string) *NpmCommand {
 	return nc
 }
 
+func (nc *NpmCommand) SetDisableCVSCheck(disable bool) *NpmCommand {
+	nc.disableCVSCheck = disable
+	return nc
+}
+
 func (nc *NpmCommand) Init() error {
 	// Read config file.
 	log.Debug("Preparing to read the config file", nc.configFilePath)
@@ -120,7 +144,13 @@ func (nc *NpmCommand) Init() error {
 	if err != nil {
 		return err
 	}
+	// Extract --disable-cvs-check flag
+	filteredNpmArgs, disableCVSCheck, err := coreutils.ExtractBoolFlagFromArgs(filteredNpmArgs, "disable-cvs-check")
+	if err != nil {
+		return err
+	}
 	nc.SetRepoConfig(repoConfig).SetArgs(filteredNpmArgs).SetBuildConfiguration(buildConfiguration)
+	nc.SetDisableCVSCheck(disableCVSCheck)
 	return nil
 }
 
@@ -314,7 +344,123 @@ func (nc *NpmCommand) Run() (err error) {
 		err = errors.Join(err, nc.installHandler.RestoreNpmrc())
 	}()
 	err = nc.installHandler.Install()
+	if err != nil {
+		if !nc.disableCVSCheck && (nc.cmdName == "install" || nc.cmdName == "ci") {
+			if blockedErr := nc.handle404Errors(err); blockedErr != nil {
+				err = blockedErr
+			}
+		}
+	}
 	return
+}
+
+// handle404Errors checks if a 404/ETARGET error is actually a blocked package (403)
+func (nc *NpmCommand) handle404Errors(installErr error) error {
+	errMsg := installErr.Error()
+
+	if !npm404ErrorPattern.MatchString(errMsg) {
+		return nil
+	}
+	if nc.serverDetails == nil || nc.repo == "" {
+		return nil
+	}
+
+	packageSpecs := extractPackageSpecs(errMsg)
+	if len(packageSpecs) > 0 {
+		return nc.checkIfVersionBlocked(packageSpecs)
+	}
+	return nil
+}
+
+func extractPackageSpecs(errMsg string) []string {
+	matches := packageWithVersionRegex.FindAllStringSubmatch(errMsg, -1)
+	specs := make([]string, 0, len(matches))
+	for _, m := range matches {
+		if len(m) >= 2 {
+			specs = append(specs, m[1])
+		}
+	}
+	return specs
+}
+
+// parsePackageSpec parses a package spec like "@scope/name@version"
+// Examples:
+//   - "@angular/core@15.0.0" -> scope="angular", name="core", version="15.0.0"
+//   - "lodash@4.17.21"       -> scope="", name="lodash", version="4.17.21"
+func parsePackageSpec(packageSpec string) (scope, name, version string, ok bool) {
+	versionSeparator := strings.LastIndex(packageSpec, "@")
+	if versionSeparator == -1 || versionSeparator == 0 {
+		return "", "", "", false
+	}
+	fullName := packageSpec[:versionSeparator]
+
+	version = strings.TrimSuffix(packageSpec[versionSeparator+1:], ".")
+	if version == "" {
+		return "", "", "", false
+	}
+	if strings.HasPrefix(fullName, "@") {
+		scopeAndName := fullName[1:]
+		scope, name, found := strings.Cut(scopeAndName, "/")
+		if !found {
+			return "", "", "", false
+		}
+		return scope, name, version, true
+	}
+
+	return "", fullName, version, true
+}
+
+// checkIfVersionBlocked does a HEAD request for each package spec to check if it's blocked by curation (403).
+func (nc *NpmCommand) checkIfVersionBlocked(packageSpecs []string) error {
+	rtAuth, err := nc.serverDetails.CreateArtAuthConfig()
+	if err != nil {
+		log.Debug("Failed to create auth config for curation check:", err.Error())
+		return nil
+	}
+	rtManager, err := rtUtils.CreateServiceManager(nc.serverDetails, 2, 0, false)
+	if err != nil {
+		log.Debug("Failed to create service manager for curation check:", err.Error())
+		return nil
+	}
+	httpClientDetails := rtAuth.CreateHttpClientDetails()
+	artifactoryURL := strings.TrimSuffix(nc.serverDetails.ArtifactoryUrl, "/")
+
+	for _, spec := range packageSpecs {
+		scope, pkgName, version, ok := parsePackageSpec(spec)
+		if !ok {
+			continue
+		}
+		displayName := pkgName
+		if scope != "" {
+			displayName = "@" + scope + "/" + pkgName
+		}
+
+		packageUrl := nc.buildPackageTarballUrl(artifactoryURL, scope, pkgName, version)
+		resp, _, err := rtManager.Client().SendHead(packageUrl, &httpClientDetails)
+		if err != nil || resp == nil {
+			continue
+		}
+		if resp.StatusCode == http.StatusForbidden {
+			if notice := resp.Header.Get("Npm-Notice"); notice != "" {
+				return fmt.Errorf("403 Forbidden: Package %s@%s: %s", displayName, version, notice)
+			}
+			// Npm-Notice header missing, fall back to GET to retrieve the reason from the response body.
+			resp, respBody, _, err := rtManager.Client().SendGet(packageUrl, true, &httpClientDetails)
+			if err == nil && resp != nil && resp.StatusCode == http.StatusForbidden && len(respBody) > 0 {
+				return fmt.Errorf("403 Forbidden: Package %s@%s: %s", displayName, version, string(respBody))
+			}
+			return fmt.Errorf("403 Forbidden: Package %s@%s", displayName, version)
+		}
+	}
+	return nil
+}
+
+// buildPackageTarballUrl builds URL for package tarball
+func (nc *NpmCommand) buildPackageTarballUrl(artifactoryURL, scope, pkgName, version string) string {
+	if scope != "" {
+		return fmt.Sprintf("%s/api/npm/%s/@%s/%s/-/%s-%s.tgz", artifactoryURL, nc.repo, scope, pkgName, pkgName, version)
+	}
+	return fmt.Sprintf("%s/api/npm/%s/%s/-/%s-%s.tgz", artifactoryURL, nc.repo, pkgName, pkgName, version)
 }
 
 func (nc *NpmCommand) prepareBuildInfoModule() error {
