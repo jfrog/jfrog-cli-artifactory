@@ -110,45 +110,6 @@ func verifyPythonVersion(pythonPath string) error {
 	return nil
 }
 
-// InstallHuggingFaceHub checks if huggingface_hub is installed and installs it if not
-func InstallHuggingFaceHub(pythonPath string) error {
-	// Check if huggingface_hub is already installed
-	checkCmd := exec.Command(pythonPath, "-c", "import huggingface_hub")
-	if err := checkCmd.Run(); err == nil {
-		log.Debug("huggingface_hub is already installed")
-		return nil
-	}
-	// Install huggingface_hub using pip with --user flag for externally-managed environments (PEP 668)
-	log.Info("Installing huggingface_hub library...")
-	installCmd := exec.Command(pythonPath, "-m", "pip", "install", "huggingface_hub", "--user", "--quiet")
-	output, err := installCmd.CombinedOutput()
-	if err != nil {
-		return errorutils.CheckErrorf("failed to install huggingface_hub: %w\nOutput: %s\nPlease install manually using: pip install huggingface_hub --user, or use a virtual environment", err, string(output))
-	}
-	log.Info("huggingface_hub installed successfully")
-	return nil
-}
-
-// InstallHFTransfer checks if hf_transfer is installed and installs it if not
-// hf_transfer is a Rust-based library that speeds up downloads/uploads with HuggingFace Hub
-func InstallHFTransfer(pythonPath string) error {
-	// Check if hf_transfer is already installed
-	checkCmd := exec.Command(pythonPath, "-c", "import hf_transfer")
-	if err := checkCmd.Run(); err == nil {
-		log.Debug("hf_transfer is already installed")
-		return nil
-	}
-	// Install hf_transfer using pip with --user flag for externally-managed environments (PEP 668)
-	log.Info("Installing hf_transfer library for faster downloads...")
-	installCmd := exec.Command(pythonPath, "-m", "pip", "install", "hf_transfer", "--user", "--quiet")
-	output, err := installCmd.CombinedOutput()
-	if err != nil {
-		return errorutils.CheckErrorf("failed to install hf_transfer: %w\nOutput: %s\nPlease install manually using: pip install hf_transfer --user, or use a virtual environment", err, string(output))
-	}
-	log.Info("hf_transfer installed successfully")
-	return nil
-}
-
 // HasTimestamp checks if a revision ID already contains a timestamp suffix
 // Example: "main_2026-02-09T09:01:17.646Z" returns true, "main" returns false
 func HasTimestamp(revision string) bool {
@@ -172,32 +133,6 @@ func GetRepoKeyFromHFEndpoint() (string, error) {
 	}
 	log.Debug("Extracted repo key from HF_ENDPOINT: ", repoKey)
 	return repoKey, nil
-}
-
-// GetHuggingFaceCliPath finds the huggingface-cli or hf command in PATH
-// Returns the command path and any prefix args needed (for Python module mode)
-func GetHuggingFaceCliPath() (cmdPath string, prefixArgs []string, err error) {
-	// Try huggingface-cli first
-	hfCliPath, lookErr := exec.LookPath("huggingface-cli")
-	if lookErr == nil {
-		log.Debug("Found huggingface-cli: ", hfCliPath)
-		return hfCliPath, nil, nil
-	}
-	// Try hf as fallback
-	hfCliPath, lookErr = exec.LookPath("hf")
-	if lookErr == nil {
-		log.Debug("Found hf: ", hfCliPath)
-		return hfCliPath, nil, nil
-	}
-	// Neither huggingface-cli nor hf found, fall back to Python module mode
-	log.Debug("huggingface-cli and hf commands not found in PATH, searching for Python executable...")
-	pythonPath, pythonErr := GetPythonPath()
-	if pythonErr != nil {
-		log.Debug("Python executable not found: ", pythonErr)
-		return "", nil, errorutils.CheckErrorf("huggingface-cli and hf commands not found in PATH, and Python executable is not available: %w", pythonErr)
-	}
-	log.Debug("Using Python module mode: ", pythonPath, " -m huggingface_hub.commands.huggingface_cli")
-	return pythonPath, []string{"-m", "huggingface_hub.commands.huggingface_cli"}, nil
 }
 
 // updateReaderContents updates the reader contents by writing the specified JSON value to all file paths

@@ -1,13 +1,17 @@
 package cli
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"sort"
 
 	"github.com/jfrog/build-info-go/entities"
-	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
+	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
@@ -39,41 +43,59 @@ func (hfd *HuggingFaceDownload) Run() error {
 	if hfd.repoId == "" {
 		return errorutils.CheckErrorf("repo_id cannot be empty")
 	}
-
-	// Find huggingface-cli or hf command (may fall back to Python module mode)
-	hfCliPath, prefixArgs, err := GetHuggingFaceCliPath()
+	pythonPath, err := GetPythonPath()
 	if err != nil {
 		return err
 	}
-
-	// Build huggingface-cli download command arguments
-	repoType := hfd.repoType
-	if repoType == "" {
-		repoType = "model"
-	}
-
-	var cmdArgs []string
-	cmdArgs = append(cmdArgs, prefixArgs...)
-	cmdArgs = append(cmdArgs, "download", hfd.repoId, "--repo-type", repoType)
-
-	if hfd.revision != "" {
-		cmdArgs = append(cmdArgs, "--revision", hfd.revision)
-	}
-
-	if hfd.etagTimeout > 0 {
-		cmdArgs = append(cmdArgs, "--etag-timeout", fmt.Sprintf("%d", hfd.etagTimeout))
-	}
-
-	log.Debug("Executing: ", hfCliPath, " ", cmdArgs)
-
-	cmd := exec.Command(hfCliPath, cmdArgs...)
-	output, err := cmd.CombinedOutput()
+	scriptDir, err := getHuggingFaceScriptPath("huggingface_download.py")
 	if err != nil {
-		return errorutils.CheckErrorf("huggingface-cli download failed: %w\nOutput: %s", err, string(output))
+		return errorutils.CheckError(err)
 	}
-
-	log.Info("Downloaded successfully: ", hfd.repoId)
-
+	args := map[string]interface{}{
+		"repo_id": hfd.repoId,
+	}
+	if hfd.revision != "" {
+		args["revision"] = hfd.revision
+	}
+	if hfd.repoType != "" {
+		args["repo_type"] = hfd.repoType
+	}
+	if hfd.etagTimeout > 0 {
+		args["etag_timeout"] = hfd.etagTimeout
+	}
+	argsJSON, err := json.Marshal(args)
+	if err != nil {
+		return errorutils.CheckErrorf("failed to marshal arguments to JSON: %w", err)
+	}
+	pythonCmd := BuildPythonDownloadCmd(string(argsJSON))
+	log.Debug("Executing Python function to download ", args["repo_type"], ": ", hfd.repoId)
+	cmd := exec.Command(pythonPath, "-u", "-c", pythonCmd)
+	cmd.Dir = scriptDir
+	var stdoutBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = io.MultiWriter(os.Stderr)
+	err = cmd.Run()
+	output := stdoutBuf.Bytes()
+	if len(output) == 0 {
+		if err != nil {
+			return errorutils.CheckErrorf("Python script produced no output and exited with error: %w", err)
+		}
+		return errorutils.CheckErrorf("Python script produced no output. The script may not be executing correctly.")
+	}
+	var result Response
+	if jsonErr := json.Unmarshal(output, &result); jsonErr != nil {
+		if err != nil {
+			return errorutils.CheckErrorf("failed to execute Python script: %w, output: %s", err, string(output))
+		}
+		return errorutils.CheckErrorf("failed to parse Python script output: %w, output: %s", jsonErr, string(output))
+	}
+	if !result.Success {
+		return errorutils.CheckErrorf("%s", result.Error)
+	}
+	if err != nil {
+		return errorutils.CheckErrorf("Python script execution failed: %w", err)
+	}
+	log.Info(fmt.Sprintf("Downloaded successfully to: %s", result.ModelPath))
 	if hfd.buildConfiguration != nil {
 		return hfd.CollectDependenciesForBuildInfo()
 	}
