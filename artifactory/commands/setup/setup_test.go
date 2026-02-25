@@ -678,12 +678,10 @@ func TestSetupCommand_Helm(t *testing.T) {
 			if testCase.name == "Anonymous Access" {
 				require.Error(t, err, "Helm registry login should fail for anonymous access")
 				assert.Contains(t, err.Error(), "credentials are required")
-			} else {
-				if err != nil {
-					assert.NotContains(t, err.Error(), "no credentials available")
-					assert.NotContains(t, err.Error(), "no registry URL available")
-				}
-			}
+		} else if err != nil {
+			assert.NotContains(t, err.Error(), "no credentials available")
+			assert.NotContains(t, err.Error(), "no registry URL available")
+		}
 		})
 	}
 }

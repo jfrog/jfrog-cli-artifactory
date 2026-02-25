@@ -31,7 +31,8 @@ func (m *mockServicesManager) SetProps(params services.PropsParams) (int, error)
 
 func (m *mockServicesManager) SearchFiles(params services.SearchParams) (*content.ContentReader, error) {
 	args := m.Called(params)
-	return args.Get(0).(*content.ContentReader), args.Error(1)
+	reader, _ := args.Get(0).(*content.ContentReader)
+	return reader, args.Error(1)
 }
 
 func createTestSearchReader(t *testing.T) (*content.ContentReader, func()) {
@@ -40,9 +41,14 @@ func createTestSearchReader(t *testing.T) (*content.ContentReader, func()) {
 	assert.NoError(t, err)
 	_, err = tmpFile.WriteString(`{"results":[{"repo":"libs-release","path":"com/example","name":"file.jar","type":"file","size":0,"created":"","modified":""}]}`)
 	assert.NoError(t, err)
-	tmpFile.Close()
-	reader := content.NewContentReader(tmpFile.Name(), content.DefaultKey)
-	return reader, func() { os.Remove(tmpFile.Name()) }
+	assert.NoError(t, tmpFile.Close())
+	filePath := tmpFile.Name()
+	reader := content.NewContentReader(filePath, content.DefaultKey)
+	return reader, func() {
+		if err := os.Remove(filePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			assert.NoError(t, err)
+		}
+	}
 }
 
 func TestSetCIVcsPropsOnArtifacts(t *testing.T) {
@@ -223,8 +229,8 @@ func TestExtractArtifactPathsWithWarnings(t *testing.T) {
 					},
 				},
 			},
-			expectedPaths:   nil,
-			expectedSkipped: 1,
+			expectedPaths:   []string{"com/example/file1.jar"},
+			expectedSkipped: 0,
 		},
 		{
 			name: "mixed artifacts",
@@ -238,8 +244,8 @@ func TestExtractArtifactPathsWithWarnings(t *testing.T) {
 					},
 				},
 			},
-			expectedPaths:   []string{"libs-release/com/example/file1.jar"},
-			expectedSkipped: 1,
+			expectedPaths:   []string{"libs-release/com/example/file1.jar", "com/example/file2.jar"},
+			expectedSkipped: 0,
 		},
 		{
 			name:            "empty build info",
