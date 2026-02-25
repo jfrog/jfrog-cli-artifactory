@@ -64,10 +64,9 @@ func TestSetCIVcsPropsOnArtifacts(t *testing.T) {
 	bpc := NewBuildPublishCommand()
 	bpc.setCIVcsPropsOnArtifacts(mockSM, bi)
 
-	// 5. Verify
+	// 5. Verify the mock
 	mockSM.AssertExpectations(t)
 }
-
 
 func TestPrintBuildInfoLink(t *testing.T) {
 	timeNow := time.Now()
