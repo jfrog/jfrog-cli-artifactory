@@ -150,7 +150,7 @@ func updateReaderContents(reader *content.ContentReader, repo, path, name string
 			},
 		},
 	}
-	jsonBytes, err := json.MarshalIndent(jsonData, "", "  ")
+	jsonBytes, err := json.Marshal(jsonData)
 	if err != nil {
 		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
