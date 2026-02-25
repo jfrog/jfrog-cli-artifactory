@@ -46,7 +46,11 @@ func createTestSearchReader(t *testing.T) (*content.ContentReader, func()) {
 }
 
 func TestSetCIVcsPropsOnArtifacts(t *testing.T) {
-	// 1. Setup environment
+	t.Setenv("GITHUB_SERVER_URL", "")
+	t.Setenv("GITHUB_SHA", "")
+	t.Setenv("GITHUB_REF", "")
+	t.Setenv("GITHUB_REF_NAME", "")
+	t.Setenv("GITHUB_HEAD_REF", "")
 	t.Setenv("CI", "true")
 	t.Setenv("GITHUB_ACTIONS", "true")
 	t.Setenv("GITHUB_WORKFLOW", "test")
@@ -89,7 +93,6 @@ func TestSetCIVcsPropsOnArtifacts(t *testing.T) {
 	// 5. Verify
 	mockSM.AssertExpectations(t)
 }
-
 
 func TestPrintBuildInfoLink(t *testing.T) {
 	timeNow := time.Now()

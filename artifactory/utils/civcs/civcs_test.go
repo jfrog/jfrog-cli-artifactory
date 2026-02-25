@@ -151,6 +151,8 @@ func clearCIEnvVars(t *testing.T) {
 		"GITHUB_SERVER_URL",
 		"GITHUB_SHA",
 		"GITHUB_REF",
+		"GITHUB_REF_NAME",
+		"GITHUB_HEAD_REF",
 		"GITLAB_CI",
 		"CI_PROJECT_PATH",
 	}
