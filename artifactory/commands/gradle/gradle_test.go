@@ -298,6 +298,8 @@ func TestWriteInitScriptFallsBackToHome(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)
 	if runtime.GOOS == "windows" {
+		t.Setenv("HOMEDRIVE", "")
+		t.Setenv("HOMEPATH", "")
 		t.Setenv("USERPROFILE", tempDir)
 	}
 
