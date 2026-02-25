@@ -37,11 +37,13 @@ except Exception as e:
 	sys.exit(1)`
 
 // PythonUploadSuccessBlock is the success block for upload operations
-const PythonUploadSuccessBlock = `f(**json.loads("""%s"""))
+// Using raw string (r"...") to prevent Python from interpreting backslashes in Windows paths as escape sequences
+const PythonUploadSuccessBlock = `f(**json.loads(r"""%s"""))
 	print(json.dumps({"success":True}))`
 
 // PythonDownloadSuccessBlock is the success block for download operations
-const PythonDownloadSuccessBlock = `r=f(**json.loads("""%s"""))
+// Using raw string (r"...") to prevent Python from interpreting backslashes in Windows paths as escape sequences
+const PythonDownloadSuccessBlock = `r=f(**json.loads(r"""%s"""))
 	print(json.dumps({"success":True,"model_path":r}))`
 
 // BuildPythonUploadCmd builds the Python command string for upload operations
