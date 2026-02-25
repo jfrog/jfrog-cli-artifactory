@@ -2,17 +2,19 @@ package buildinfo
 
 import (
 	"errors"
+	"os"
 	"strconv"
 	"testing"
 	"time"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/build-info-go/utils/cienv"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
+	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -27,6 +29,22 @@ func (m *mockServicesManager) SetProps(params services.PropsParams) (int, error)
 	return args.Int(0), args.Error(1)
 }
 
+func (m *mockServicesManager) SearchFiles(params services.SearchParams) (*content.ContentReader, error) {
+	args := m.Called(params)
+	return args.Get(0).(*content.ContentReader), args.Error(1)
+}
+
+func createTestSearchReader(t *testing.T) (*content.ContentReader, func()) {
+	t.Helper()
+	tmpFile, err := os.CreateTemp("", "test-search-*.json")
+	assert.NoError(t, err)
+	_, err = tmpFile.WriteString(`{"results":[{"repo":"libs-release","path":"com/example","name":"file.jar","type":"file","size":0,"created":"","modified":""}]}`)
+	assert.NoError(t, err)
+	tmpFile.Close()
+	reader := content.NewContentReader(tmpFile.Name(), content.DefaultKey)
+	return reader, func() { os.Remove(tmpFile.Name()) }
+}
+
 func TestSetCIVcsPropsOnArtifacts(t *testing.T) {
 	// 1. Setup environment
 	t.Setenv("CI", "true")
@@ -39,6 +57,10 @@ func TestSetCIVcsPropsOnArtifacts(t *testing.T) {
 	// 2. Mock services manager
 	mockSM := new(mockServicesManager)
 	expectedProps := "vcs.provider=github;vcs.org=jfrog;vcs.repo=jfrog-cli"
+
+	searchReader, cleanup := createTestSearchReader(t)
+	defer cleanup()
+	mockSM.On("SearchFiles", mock.Anything).Return(searchReader, nil)
 
 	// Expect SetProps to be called for the artifact
 	mockSM.On("SetProps", mock.MatchedBy(func(params services.PropsParams) bool {
