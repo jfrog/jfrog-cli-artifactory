@@ -297,10 +297,13 @@ func TestWriteInitScriptFallsBackToHome(t *testing.T) {
 	// Set a known HOME for the fallback case
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)
+	if runtime.GOOS == "windows" {
+		t.Setenv("HOMEDRIVE", "")
+		t.Setenv("HOMEPATH", "")
+		t.Setenv("USERPROFILE", tempDir)
+	}
 
 	// Temporarily modify PATH to ensure Java is not found
-	// This simulates an environment where Java is not installed
-	// Note: t.Setenv automatically restores the original value after the test
 	t.Setenv("PATH", "/nonexistent")
 
 	initScript := "test init script for HOME fallback case"
