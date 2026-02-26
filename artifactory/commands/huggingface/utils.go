@@ -3,6 +3,8 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -166,6 +168,31 @@ func updateReaderContents(reader *content.ContentReader, repo, path, name string
 		log.Debug(fmt.Sprintf("Successfully updated file %s with JSON content", filePath))
 	}
 	return nil
+}
+
+// executeAqlQuery executes an AQL query and parses the JSON response
+func executeAqlQuery(serviceManager artifactory.ArtifactoryServicesManager, aqlQuery string) ([]servicesUtils.ResultItem, error) {
+	reader, err := serviceManager.Aql(aqlQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute AQL query: %w", err)
+	}
+	defer func() {
+		if reader != nil {
+			_ = reader.Close()
+		}
+	}()
+	aqlResults, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, errorutils.CheckError(err)
+	}
+	parsedResult := new(servicesUtils.AqlSearchResult)
+	if err = json.Unmarshal(aqlResults, parsedResult); err != nil {
+		return nil, errorutils.CheckError(err)
+	}
+	if parsedResult.Results == nil {
+		return nil, nil
+	}
+	return parsedResult.Results, nil
 }
 
 func addBuildPropertiesOnArtifacts(serviceManager artifactory.ArtifactoryServicesManager, reader *content.ContentReader, buildProps string) {

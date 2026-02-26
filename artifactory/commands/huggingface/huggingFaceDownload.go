@@ -13,10 +13,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	"github.com/jfrog/jfrog-client-go/artifactory/services"
-	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
-	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -148,30 +145,15 @@ func (hfd *HuggingFaceDownload) GetDependencies() ([]entities.Dependency, error)
 		revisionPattern = hfd.revision + "_*"
 		multipleDirsInSearchResults = true
 	}
-	aqlQuery := fmt.Sprintf(`{"repo": "%s", "path": {"$match": "%s/%s/%s/*"}}`,
+	aqlQuery := fmt.Sprintf(`items.find({"repo":"%s","path":{"$match":"%s/%s/%s/*"}}).include("repo","path","name","actual_sha1","actual_md5","sha256","type")`,
 		repoKey,
 		repoTypePath,
 		hfd.repoId,
 		revisionPattern,
 	)
-	searchParams := services.SearchParams{
-		CommonParams: &servicesUtils.CommonParams{
-			Aql: servicesUtils.Aql{ItemsFind: aqlQuery},
-		},
-	}
-	reader, err := serviceManager.SearchFiles(searchParams)
+	results, err := executeAqlQuery(serviceManager, aqlQuery)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search for HuggingFace artifacts: %w", err)
-	}
-	defer func(reader *content.ContentReader) {
-		err := reader.Close()
-		if err != nil {
-			log.Error(err)
-		}
-	}(reader)
-	var results []servicesUtils.ResultItem
-	for item := new(servicesUtils.ResultItem); reader.NextRecord(item) == nil; item = new(servicesUtils.ResultItem) {
-		results = append(results, *item)
 	}
 	if len(results) == 0 {
 		return nil, nil
