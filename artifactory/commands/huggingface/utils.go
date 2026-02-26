@@ -258,6 +258,6 @@ func SaveBuildInfo(ctx *BuildInfoContext) error {
 		log.Warn("Failed to save build info: ", err.Error())
 		return err
 	}
-	log.Info("Build info saved locally. Use 'jf rt bp ", ctx.BuildName, " ", ctx.BuildNumber, "' to publish it to Artifactory.")
+	log.Info("Build info saved locally. Use 'jf rt bp", ctx.BuildName, ctx.BuildNumber, "' to publish it to Artifactory.")
 	return nil
 }
