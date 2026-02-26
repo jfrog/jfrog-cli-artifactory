@@ -130,8 +130,8 @@ func (hfu *HuggingFaceUpload) CollectArtifactsForBuildInfo() error {
 }
 
 // GetArtifacts returns HuggingFace model/dataset files in JFrog Artifactory
-func (hfd *HuggingFaceUpload) GetArtifacts(buildProperties string) ([]entities.Artifact, error) {
-	serviceManager, err := utils.CreateServiceManager(hfd.serverDetails, -1, 0, false)
+func (hfu *HuggingFaceUpload) GetArtifacts(buildProperties string) ([]entities.Artifact, error) {
+	serviceManager, err := utils.CreateServiceManager(hfu.serverDetails, -1, 0, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create services manager: %w", err)
 	}
@@ -139,20 +139,17 @@ func (hfd *HuggingFaceUpload) GetArtifacts(buildProperties string) ([]entities.A
 	if err != nil {
 		return nil, err
 	}
-	repoTypePath := hfd.repoType + "s"
-	if hfd.repoType == "" {
-		repoTypePath = "models"
-	}
-	revisionPattern := hfd.revision
+	repoTypePath := hfu.repoType + "s"
+	revisionPattern := hfu.revision
 	var multipleDirsInSearchResults = false
-	if !HasTimestamp(hfd.revision) {
-		revisionPattern = hfd.revision + "_*"
+	if !HasTimestamp(hfu.revision) {
+		revisionPattern = hfu.revision + "_*"
 		multipleDirsInSearchResults = true
 	}
 	aqlQuery := fmt.Sprintf(`{"repo": "%s", "path": {"$match": "%s/%s/%s/*"}}`,
 		repoKey,
 		repoTypePath,
-		hfd.repoId,
+		hfu.repoId,
 		revisionPattern,
 	)
 	searchParams := services.SearchParams{

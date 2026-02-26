@@ -136,9 +136,6 @@ func (hfd *HuggingFaceDownload) GetDependencies() ([]entities.Dependency, error)
 		return nil, err
 	}
 	repoTypePath := hfd.repoType + "s"
-	if hfd.repoType == "" {
-		repoTypePath = "models"
-	}
 	revisionPattern := hfd.revision
 	var multipleDirsInSearchResults = false
 	if !HasTimestamp(hfd.revision) {

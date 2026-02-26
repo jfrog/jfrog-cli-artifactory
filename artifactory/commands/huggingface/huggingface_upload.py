@@ -8,7 +8,7 @@ using HfApi with configurable parameters.
 from huggingface_hub import HfApi
 
 
-def upload(folder_path, repo_id, repo_type, revision=None, **kwargs):
+def upload(folder_path, repo_id, repo_type, revision, **kwargs):
     """
     Upload a model or dataset folder to HuggingFace Hub.
 
