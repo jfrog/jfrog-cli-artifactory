@@ -25,6 +25,8 @@ jobs:
 
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
+        with:
+          go-version-file: 'go.mod'
 
       - name: Run Go vet
         run: go vet -v ./...
@@ -38,6 +40,8 @@ jobs:
 
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
+        with:
+          go-version-file: 'go.mod'
 
       - name: Run golangci linter
         uses: jfrog/.github/actions/golangci-lint@main
@@ -51,6 +55,8 @@ jobs:
 
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
+        with:
+          go-version-file: 'go.mod'
         
       - name: Run Go-Sec scanner
         uses: jfrog/.github/actions/gosec-scanner@main

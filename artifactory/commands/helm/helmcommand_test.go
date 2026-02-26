@@ -78,6 +78,7 @@ func TestAppendCredentialsInArguments(t *testing.T) {
 		name          string
 		username      string
 		password      string
+		serverId      string
 		serverDetails *config.ServerDetails
 		expectedArgs  []string
 	}{
@@ -86,22 +87,24 @@ func TestAppendCredentialsInArguments(t *testing.T) {
 			username:      "cmduser",
 			password:      "cmdpass",
 			serverDetails: &config.ServerDetails{},
-			expectedArgs:  []string{"--username", "cmduser", "--password", "cmdpass"},
+			expectedArgs:  []string{"--username", "cmduser"},
 		},
 		{
-			name: "Append credentials from server details",
+			name:     "Append credentials from server details",
+			serverId: "test-server",
 			serverDetails: &config.ServerDetails{
 				User:     "serveruser",
 				Password: "serverpass",
 			},
-			expectedArgs: []string{"--username=serveruser", "--password=serverpass"},
+			expectedArgs: []string{"--username=serveruser", "--password-stdin"},
 		},
 		{
-			name: "Append credentials from access token",
+			name:     "Append credentials from access token",
+			serverId: "test-server",
 			serverDetails: &config.ServerDetails{
 				AccessToken: getTestJWT(),
 			},
-			expectedArgs: []string{"--username=testuser", "--password=" + getTestJWT()},
+			expectedArgs: []string{"--username=testuser", "--password-stdin"},
 		},
 		{
 			name:          "No credentials - should not append",
@@ -111,10 +114,11 @@ func TestAppendCredentialsInArguments(t *testing.T) {
 		{
 			name:     "Command username, server password",
 			username: "cmduser",
+			serverId: "test-server",
 			serverDetails: &config.ServerDetails{
 				Password: "serverpass",
 			},
-			expectedArgs: []string{"--username=cmduser", "--password=serverpass"},
+			expectedArgs: []string{"--username=cmduser", "--password-stdin"},
 		},
 	}
 
@@ -125,6 +129,7 @@ func TestAppendCredentialsInArguments(t *testing.T) {
 			cmd.SetHelmArgs([]string{"chart.tgz"})
 			cmd.SetUsername(tt.username)
 			cmd.SetPassword(tt.password)
+			cmd.SetServerId(tt.serverId)
 			if tt.serverDetails != nil {
 				cmd.SetServerDetails(tt.serverDetails)
 			} else {
@@ -134,12 +139,11 @@ func TestAppendCredentialsInArguments(t *testing.T) {
 			cmd.appendCredentialsInArguments()
 
 			if len(tt.expectedArgs) == 0 {
-				// Should not have appended anything if no credentials
 				assert.Equal(t, []string{"chart.tgz"}, cmd.helmArgs)
 			} else {
-				// Check that credentials were appended
-				assert.Contains(t, cmd.helmArgs, tt.expectedArgs[0])
-				assert.Contains(t, cmd.helmArgs, tt.expectedArgs[1])
+				for _, expected := range tt.expectedArgs {
+					assert.Contains(t, cmd.helmArgs, expected)
+				}
 			}
 		})
 	}
@@ -310,19 +314,19 @@ func TestPerformRegistryLogin(t *testing.T) {
 			expectedError: false, // Returns nil, doesn't error
 		},
 		{
-			name: "Server details without URL - should return nil",
+			name: "Server details without URL - should return error",
 			serverDetails: &config.ServerDetails{
 				User:     "user",
 				Password: "pass",
 			},
-			expectedError: false, // Returns nil, doesn't error
+			expectedError: true,
 		},
 		{
-			name: "Server details without credentials - should return nil",
+			name: "Server details without credentials - should return error",
 			serverDetails: &config.ServerDetails{
 				ArtifactoryUrl: "https://example.com",
 			},
-			expectedError: false, // Returns nil, doesn't error
+			expectedError: true,
 		},
 		{
 			name: "Valid server details with credentials",

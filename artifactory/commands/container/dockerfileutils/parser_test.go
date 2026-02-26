@@ -311,7 +311,7 @@ FROM alpine:3.18
 		arch  string
 	}{
 		{"ubuntu:20.04", "linux", "amd64"},
-		{"alpine:3.18", "linux", runtime.GOARCH},
+		{"alpine:3.18", runtime.GOOS, runtime.GOARCH},
 	}
 	if runtime.GOOS == "darwin" {
 		expected[1].os = "linux"
