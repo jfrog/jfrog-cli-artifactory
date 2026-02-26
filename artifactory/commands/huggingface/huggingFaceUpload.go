@@ -191,7 +191,6 @@ func (hfd *HuggingFaceUpload) GetArtifacts(buildProperties string) ([]entities.A
 		artifacts = append(artifacts, entities.Artifact{
 			Name: resultItem.Name,
 			Type: resultItem.Type,
-			Path: resultItem.Path,
 			Checksum: entities.Checksum{
 				Sha1:   resultItem.Actual_Sha1,
 				Md5:    resultItem.Actual_Md5,
