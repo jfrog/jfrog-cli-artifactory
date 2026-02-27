@@ -1,8 +1,10 @@
 package utils
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
@@ -11,6 +13,9 @@ import (
 	artifactoryUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
+	"github.com/jfrog/jfrog-client-go/artifactory"
+	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
 func ShouldRunNative(configPath string) bool {
@@ -111,4 +116,29 @@ func getDebFlag(c *components.Context) (deb string, err error) {
 		return "", errors.New("the --deb option should be in the form of distribution/component/architecture")
 	}
 	return deb, nil
+}
+
+// ExecuteAqlQuery executes an AQL query and parses the JSON response
+func ExecuteAqlQuery(serviceManager artifactory.ArtifactoryServicesManager, aqlQuery string) ([]servicesUtils.ResultItem, error) {
+	reader, err := serviceManager.Aql(aqlQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute AQL query: %w", err)
+	}
+	defer func() {
+		if reader != nil {
+			_ = reader.Close()
+		}
+	}()
+	aqlResults, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, errorutils.CheckError(err)
+	}
+	parsedResult := new(servicesUtils.AqlSearchResult)
+	if err = json.Unmarshal(aqlResults, parsedResult); err != nil {
+		return nil, errorutils.CheckError(err)
+	}
+	if parsedResult.Results == nil {
+		return nil, nil
+	}
+	return parsedResult.Results, nil
 }

@@ -3,8 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -139,31 +137,6 @@ func GetRepoKeyFromHFEndpoint() (string, error) {
 	return repoKey, nil
 }
 
-// executeAqlQuery executes an AQL query and parses the JSON response
-func executeAqlQuery(serviceManager artifactory.ArtifactoryServicesManager, aqlQuery string) ([]servicesUtils.ResultItem, error) {
-	reader, err := serviceManager.Aql(aqlQuery)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute AQL query: %w", err)
-	}
-	defer func() {
-		if reader != nil {
-			_ = reader.Close()
-		}
-	}()
-	aqlResults, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, errorutils.CheckError(err)
-	}
-	parsedResult := new(servicesUtils.AqlSearchResult)
-	if err = json.Unmarshal(aqlResults, parsedResult); err != nil {
-		return nil, errorutils.CheckError(err)
-	}
-	if parsedResult.Results == nil {
-		return nil, nil
-	}
-	return parsedResult.Results, nil
-}
-
 type aqlResult struct {
 	Results []aqlItem `json:"results"`
 }
@@ -254,6 +227,6 @@ func SaveBuildInfo(ctx *BuildInfoContext) error {
 		log.Warn("Failed to save build info: ", err.Error())
 		return err
 	}
-	log.Info("Build info saved locally. Use 'jf rt bp", ctx.BuildName, ctx.BuildNumber, "' to publish it to Artifactory.")
+	log.Info("Build info saved locally.")
 	return nil
 }

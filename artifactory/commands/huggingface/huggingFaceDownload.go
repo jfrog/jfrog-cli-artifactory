@@ -9,7 +9,8 @@ import (
 	"os/exec"
 
 	"github.com/jfrog/build-info-go/entities"
-	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
+	coreUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -126,7 +127,7 @@ func (hfd *HuggingFaceDownload) CollectDependenciesForBuildInfo() error {
 
 // GetDependencies returns HuggingFace model/dataset files in JFrog Artifactory
 func (hfd *HuggingFaceDownload) GetDependencies() ([]entities.Dependency, error) {
-	serviceManager, err := utils.CreateServiceManager(hfd.serverDetails, -1, 0, false)
+	serviceManager, err := coreUtils.CreateServiceManager(hfd.serverDetails, -1, 0, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create services manager: %w", err)
 	}
@@ -145,7 +146,7 @@ func (hfd *HuggingFaceDownload) GetDependencies() ([]entities.Dependency, error)
 		hfd.repoId,
 		revisionPattern,
 	)
-	results, err := executeAqlQuery(serviceManager, aqlQuery)
+	results, err := utils.ExecuteAqlQuery(serviceManager, aqlQuery)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search for HuggingFace artifacts: %w", err)
 	}
