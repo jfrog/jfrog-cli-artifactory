@@ -1,9 +1,17 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
+	"os"
 	"os/exec"
 
+	"github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
+	coreUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
+	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -18,12 +26,13 @@ type Response struct {
 
 // HuggingFaceDownload represents a command to download models or datasets from HuggingFace Hub
 type HuggingFaceDownload struct {
-	name          string
-	repoId        string
-	revision      string
-	repoType      string
-	etagTimeout   int
-	serverDetails *config.ServerDetails
+	name               string
+	repoId             string
+	revision           string
+	repoType           string
+	etagTimeout        int
+	serverDetails      *config.ServerDetails
+	buildConfiguration *buildUtils.BuildConfiguration
 }
 
 // Run executes the download command to fetch a model or dataset from HuggingFace Hub
@@ -40,14 +49,16 @@ func (hfd *HuggingFaceDownload) Run() error {
 		return errorutils.CheckError(err)
 	}
 	args := map[string]interface{}{
-		"repo_id":      hfd.repoId,
-		"revision":     hfd.revision,
-		"etag_timeout": hfd.etagTimeout,
+		"repo_id": hfd.repoId,
+	}
+	if hfd.revision != "" {
+		args["revision"] = hfd.revision
 	}
 	if hfd.repoType != "" {
 		args["repo_type"] = hfd.repoType
-	} else {
-		args["repo_type"] = "model"
+	}
+	if hfd.etagTimeout > 0 {
+		args["etag_timeout"] = hfd.etagTimeout
 	}
 	argsJSON, err := json.Marshal(args)
 	if err != nil {
@@ -55,9 +66,13 @@ func (hfd *HuggingFaceDownload) Run() error {
 	}
 	pythonCmd := BuildPythonDownloadCmd(string(argsJSON))
 	log.Debug("Executing Python function to download ", args["repo_type"], ": ", hfd.repoId)
-	cmd := exec.Command(pythonPath, "-c", pythonCmd)
+	cmd := exec.Command(pythonPath, "-u", "-c", pythonCmd)
 	cmd.Dir = scriptDir
-	output, err := cmd.CombinedOutput()
+	var stdoutBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = io.MultiWriter(os.Stderr)
+	err = cmd.Run()
+	output := stdoutBuf.Bytes()
 	if len(output) == 0 {
 		if err != nil {
 			return errorutils.CheckErrorf("Python script produced no output and exited with error: %w", err)
@@ -77,8 +92,81 @@ func (hfd *HuggingFaceDownload) Run() error {
 	if err != nil {
 		return errorutils.CheckErrorf("Python script execution failed: %w", err)
 	}
-	log.Info("Downloaded successfully to:", result.ModelPath)
+	log.Info(fmt.Sprintf("Downloaded successfully to: %s", result.ModelPath))
+	if hfd.buildConfiguration != nil {
+		return hfd.CollectDependenciesForBuildInfo()
+	}
 	return nil
+}
+
+func (hfd *HuggingFaceDownload) CollectDependenciesForBuildInfo() error {
+	ctx, err := GetBuildInfoContext(hfd.buildConfiguration, hfd.name)
+	if err != nil {
+		return err
+	}
+	if ctx == nil {
+		return nil
+	}
+	dependencies, err := hfd.GetDependencies()
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	if len(dependencies) == 0 {
+		return nil
+	}
+	// Add module and set dependencies before saving
+	if len(ctx.BuildInfo.Modules) == 0 {
+		ctx.BuildInfo.Modules = append(ctx.BuildInfo.Modules, entities.Module{
+			Type: entities.ModuleType(hfd.repoType),
+			Id:   hfd.repoId,
+		})
+	}
+	ctx.BuildInfo.Modules[0].Dependencies = dependencies
+	return SaveBuildInfo(ctx)
+}
+
+// GetDependencies returns HuggingFace model/dataset files in JFrog Artifactory
+func (hfd *HuggingFaceDownload) GetDependencies() ([]entities.Dependency, error) {
+	serviceManager, err := coreUtils.CreateServiceManager(hfd.serverDetails, -1, 0, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create services manager: %w", err)
+	}
+	repoKey, err := GetRepoKeyFromHFEndpoint()
+	if err != nil {
+		return nil, err
+	}
+	repoTypePath := hfd.repoType + "s"
+	revisionPattern := hfd.revision
+	if !HasTimestamp(hfd.revision) {
+		revisionPattern = hfd.revision + "_*"
+	}
+	aqlQuery := fmt.Sprintf(`items.find({"repo":"%s","path":{"$match":"%s/%s/%s/*"}}).include("repo","path","name","actual_sha1","actual_md5","sha256","type").sort({"$desc":["path"]})`,
+		repoKey,
+		repoTypePath,
+		hfd.repoId,
+		revisionPattern,
+	)
+	results, err := utils.ExecuteAqlQuery(serviceManager, aqlQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search for HuggingFace artifacts: %w", err)
+	}
+	if len(results) == 0 {
+		return nil, nil
+	}
+	var dependencies []entities.Dependency
+	for _, resultItem := range results {
+		dependencies = append(dependencies, entities.Dependency{
+			Id:         resultItem.Name,
+			Type:       resultItem.Type,
+			Repository: resultItem.Repo,
+			Checksum: entities.Checksum{
+				Sha1:   resultItem.Actual_Sha1,
+				Md5:    resultItem.Actual_Md5,
+				Sha256: resultItem.Sha256,
+			},
+		})
+	}
+	return dependencies, nil
 }
 
 // ServerDetails returns the server details configuration for the command
@@ -105,6 +193,18 @@ func (hfd *HuggingFaceDownload) SetRepoId(repoId string) *HuggingFaceDownload {
 // SetRevision sets the revision (branch, tag, or commit) for the download command
 func (hfd *HuggingFaceDownload) SetRevision(revision string) *HuggingFaceDownload {
 	hfd.revision = revision
+	return hfd
+}
+
+// SetServerDetails sets the revision (branch, tag, or commit) for the upload command
+func (hfd *HuggingFaceDownload) SetServerDetails(serverDetails *config.ServerDetails) *HuggingFaceDownload {
+	hfd.serverDetails = serverDetails
+	return hfd
+}
+
+// SetBuildConfiguration sets the build configuration
+func (hfd *HuggingFaceDownload) SetBuildConfiguration(buildConfiguration *buildUtils.BuildConfiguration) *HuggingFaceDownload {
+	hfd.buildConfiguration = buildConfiguration
 	return hfd
 }
 

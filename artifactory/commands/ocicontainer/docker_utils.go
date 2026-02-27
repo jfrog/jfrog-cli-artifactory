@@ -1,13 +1,12 @@
 package ocicontainer
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
 
+	artUtils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -79,7 +78,7 @@ func searchArtifactoryForFilesByPath(repository string, paths []string, serviceM
 		repository, strings.Join(pathConditions, ",\n        "))
 
 	// Execute AQL search
-	allResults, err := executeAqlQuery(serviceManager, aqlQuery)
+	allResults, err := artUtils.ExecuteAqlQuery(serviceManager, aqlQuery)
 	if err != nil {
 		return []utils.ResultItem{}, fmt.Errorf("failed to search Artifactory for layers by path: %w", err)
 	}
@@ -117,7 +116,7 @@ func SearchForImageLayersInPath(imageName, repository string, paths []string, se
 			repository, path, excludePath)
 
 		// Execute AQL search
-		allResults, err = executeAqlQuery(serviceManager, aqlQuery)
+		allResults, err = artUtils.ExecuteAqlQuery(serviceManager, aqlQuery)
 		if err != nil {
 			return []utils.ResultItem{}, fmt.Errorf("failed to search Artifactory for layers in path: %w", err)
 		}
@@ -138,7 +137,7 @@ func SearchManifestPathByDigest(repo, digest string, serviceManager artifactory.
 		"@docker.manifest.digest": "%s"
 	}).include("path")`, repo, strings.TrimPrefix(digest, "sha256:"), digest)
 
-	results, err := executeAqlQuery(serviceManager, aqlQuery)
+	results, err := artUtils.ExecuteAqlQuery(serviceManager, aqlQuery)
 	if err != nil {
 		return "", err
 	}
@@ -178,35 +177,6 @@ func deduplicateResultsBySha256(results []utils.ResultItem) []utils.ResultItem {
 		}
 	}
 	return deduplicated
-}
-
-// executeAqlQuery executes an AQL query and parses the JSON response
-func executeAqlQuery(serviceManager artifactory.ArtifactoryServicesManager, aqlQuery string) ([]utils.ResultItem, error) {
-	reader, err := serviceManager.Aql(aqlQuery)
-	if err != nil {
-		return nil, fmt.Errorf("failed to search Artifactory for layers: %w", err)
-	}
-	defer func() {
-		if reader != nil {
-			_ = reader.Close()
-		}
-	}()
-
-	aqlResults, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, errorutils.CheckError(err)
-	}
-	parsedResult := new(utils.AqlSearchResult)
-	if err = json.Unmarshal(aqlResults, parsedResult); err != nil {
-		return nil, errorutils.CheckError(err)
-	}
-
-	var allResults []utils.ResultItem
-	if parsedResult.Results != nil {
-		allResults = parsedResult.Results
-	}
-
-	return allResults, nil
 }
 
 // MARKER LAYER HANDLING
