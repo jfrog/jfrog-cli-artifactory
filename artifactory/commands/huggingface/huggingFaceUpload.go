@@ -4,19 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/jfrog/build-info-go/entities"
-	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
-	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
-	"github.com/jfrog/jfrog-client-go/artifactory/services"
-	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
-	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"io"
 	"os"
 	"os/exec"
-	"sort"
 	"strconv"
 	"time"
 
+	"github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
+	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -141,50 +137,25 @@ func (hfu *HuggingFaceUpload) GetArtifacts(buildProperties string) ([]entities.A
 	}
 	repoTypePath := hfu.repoType + "s"
 	revisionPattern := hfu.revision
-	var multipleDirsInSearchResults = false
 	if !HasTimestamp(hfu.revision) {
 		revisionPattern = hfu.revision + "_*"
-		multipleDirsInSearchResults = true
 	}
-	aqlQuery := fmt.Sprintf(`{"repo": "%s", "path": {"$match": "%s/%s/%s/*"}}`,
+	aqlQuery := fmt.Sprintf(`items.find({"repo":"%s","path":{"$match":"%s/%s/%s/*"}}).include("repo","path","name","actual_sha1","actual_md5","sha256","type").sort({"$desc":["path"]})`,
 		repoKey,
 		repoTypePath,
 		hfu.repoId,
 		revisionPattern,
 	)
-	searchParams := services.SearchParams{
-		CommonParams: &servicesUtils.CommonParams{
-			Aql: servicesUtils.Aql{ItemsFind: aqlQuery},
-		},
-	}
-	reader, err := serviceManager.SearchFiles(searchParams)
+	results, err := executeAqlQuery(serviceManager, aqlQuery)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search for HuggingFace artifacts: %w", err)
-	}
-	defer func(reader *content.ContentReader) {
-		err := reader.Close()
-		if err != nil {
-			log.Error(err)
-		}
-	}(reader)
-	var results []servicesUtils.ResultItem
-	for item := new(servicesUtils.ResultItem); reader.NextRecord(item) == nil; item = new(servicesUtils.ResultItem) {
-		results = append(results, *item)
 	}
 	if len(results) == 0 {
 		return nil, nil
 	}
-	if multipleDirsInSearchResults {
-		sort.Slice(results, func(i, j int) bool {
-			return results[i].Path > results[j].Path
-		})
-	}
-	var latestCreatedDir string
+	latestCreatedDir := results[0].Path
 	var artifacts []entities.Artifact
-	for index, resultItem := range results {
-		if index == 0 {
-			latestCreatedDir = resultItem.Path
-		}
+	for _, resultItem := range results {
 		artifacts = append(artifacts, entities.Artifact{
 			Name: resultItem.Name,
 			Type: resultItem.Type,
@@ -194,15 +165,18 @@ func (hfu *HuggingFaceUpload) GetArtifacts(buildProperties string) ([]entities.A
 				Sha256: resultItem.Sha256,
 			},
 		})
-		if latestCreatedDir != resultItem.Path {
-			break
-		}
 	}
-	err = updateReaderContents(reader, repoKey, latestCreatedDir, "")
+	// Create content reader for the folder to set build properties
+	reader, err := createContentReader(repoKey, latestCreatedDir, "", "folder")
 	if err != nil {
-		return nil, err
+		log.Warn("Failed to create content reader: ", err)
+		return artifacts, nil
 	}
-	reader.Reset()
+	defer func() {
+		if closeErr := reader.Close(); closeErr != nil {
+			log.Error(closeErr)
+		}
+	}()
 	addBuildPropertiesOnArtifacts(serviceManager, reader, buildProperties)
 	return artifacts, nil
 }

@@ -139,37 +139,6 @@ func GetRepoKeyFromHFEndpoint() (string, error) {
 	return repoKey, nil
 }
 
-// updateReaderContents updates the reader contents by writing the specified JSON value to all file paths
-func updateReaderContents(reader *content.ContentReader, repo, path, name string) error {
-	if reader == nil {
-		return fmt.Errorf("reader is nil")
-	}
-	jsonData := map[string]interface{}{
-		"results": []map[string]interface{}{
-			{
-				"repo": repo,
-				"path": path,
-				"name": name,
-				"type": "folder",
-			},
-		},
-	}
-	jsonBytes, err := json.Marshal(jsonData)
-	if err != nil {
-		return fmt.Errorf("failed to marshal JSON: %w", err)
-	}
-	filesPaths := reader.GetFilesPaths()
-	for _, filePath := range filesPaths {
-		err := os.WriteFile(filePath, jsonBytes, 0644)
-		if err != nil {
-			log.Warn(fmt.Sprintf("Failed to write JSON to file %s: %s", filePath, err))
-			continue
-		}
-		log.Debug(fmt.Sprintf("Successfully updated file %s with JSON content", filePath))
-	}
-	return nil
-}
-
 // executeAqlQuery executes an AQL query and parses the JSON response
 func executeAqlQuery(serviceManager artifactory.ArtifactoryServicesManager, aqlQuery string) ([]servicesUtils.ResultItem, error) {
 	reader, err := serviceManager.Aql(aqlQuery)
@@ -193,6 +162,33 @@ func executeAqlQuery(serviceManager artifactory.ArtifactoryServicesManager, aqlQ
 		return nil, nil
 	}
 	return parsedResult.Results, nil
+}
+
+type aqlResult struct {
+	Results []aqlItem `json:"results"`
+}
+
+type aqlItem struct {
+	Repo string `json:"repo"`
+	Path string `json:"path"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// createContentReader creates a ContentReader from the provided parameters
+func createContentReader(repo, path, name, itemType string) (*content.ContentReader, error) {
+	tempFile, err := os.CreateTemp("", "aql-results-*.json")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp file: %w", err)
+	}
+	filePath := tempFile.Name()
+	err = json.NewEncoder(tempFile).Encode(aqlResult{
+		Results: []aqlItem{{Repo: repo, Path: path, Name: name, Type: itemType}},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to write to temp file: %w", err)
+	}
+	return content.NewContentReader(filePath, content.DefaultKey), nil
 }
 
 func addBuildPropertiesOnArtifacts(serviceManager artifactory.ArtifactoryServicesManager, reader *content.ContentReader, buildProps string) {

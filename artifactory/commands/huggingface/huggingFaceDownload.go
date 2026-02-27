@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"sort"
 
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -137,12 +136,10 @@ func (hfd *HuggingFaceDownload) GetDependencies() ([]entities.Dependency, error)
 	}
 	repoTypePath := hfd.repoType + "s"
 	revisionPattern := hfd.revision
-	var multipleDirsInSearchResults = false
 	if !HasTimestamp(hfd.revision) {
 		revisionPattern = hfd.revision + "_*"
-		multipleDirsInSearchResults = true
 	}
-	aqlQuery := fmt.Sprintf(`items.find({"repo":"%s","path":{"$match":"%s/%s/%s/*"}}).include("repo","path","name","actual_sha1","actual_md5","sha256","type")`,
+	aqlQuery := fmt.Sprintf(`items.find({"repo":"%s","path":{"$match":"%s/%s/%s/*"}}).include("repo","path","name","actual_sha1","actual_md5","sha256","type").sort({"$desc":["path"]})`,
 		repoKey,
 		repoTypePath,
 		hfd.repoId,
@@ -155,17 +152,8 @@ func (hfd *HuggingFaceDownload) GetDependencies() ([]entities.Dependency, error)
 	if len(results) == 0 {
 		return nil, nil
 	}
-	if multipleDirsInSearchResults {
-		sort.Slice(results, func(i, j int) bool {
-			return results[i].Path > results[j].Path
-		})
-	}
-	var latestCreatedDir string
 	var dependencies []entities.Dependency
-	for index, resultItem := range results {
-		if index == 0 {
-			latestCreatedDir = resultItem.Path
-		}
+	for _, resultItem := range results {
 		dependencies = append(dependencies, entities.Dependency{
 			Id:         resultItem.Name,
 			Type:       resultItem.Type,
@@ -176,9 +164,6 @@ func (hfd *HuggingFaceDownload) GetDependencies() ([]entities.Dependency, error)
 				Sha256: resultItem.Sha256,
 			},
 		})
-		if latestCreatedDir != resultItem.Path {
-			break
-		}
 	}
 	return dependencies, nil
 }
