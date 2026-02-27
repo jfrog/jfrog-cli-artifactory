@@ -78,8 +78,8 @@ func TestPrepareConfigData(t *testing.T) {
 	}
 
 	// Assert that NPM_CONFIG__AUTH environment variable was set
-	assert.Equal(t, getTestCredentialValue(), os.Getenv(fmt.Sprintf(npmConfigAuthEnv, "//goodRegistry", utils.NpmConfigAuthKey)))
-	testsUtils.UnSetEnvAndAssert(t, fmt.Sprintf(npmConfigAuthEnv, "//goodRegistry", utils.NpmConfigAuthKey))
+	assert.Equal(t, getTestCredentialValue(), os.Getenv(fmt.Sprintf(npmConfigAuthEnv, "//goodRegistry/", utils.NpmConfigAuthKey)))
+	testsUtils.UnSetEnvAndAssert(t, fmt.Sprintf(npmConfigAuthEnv, "//goodRegistry/", utils.NpmConfigAuthKey))
 }
 
 func TestSetNpmConfigAuthEnv(t *testing.T) {
@@ -97,7 +97,7 @@ func TestSetNpmConfigAuthEnv(t *testing.T) {
 			},
 			authKey:     utils.NpmConfigAuthKey,
 			value:       "some_auth_token",
-			expectedEnv: "npm_config_//registry.example.com:_auth",
+			expectedEnv: "npm_config_//registry.example.com/:_auth",
 		},
 		{
 			name: "set scoped registry authToken env",
@@ -106,7 +106,7 @@ func TestSetNpmConfigAuthEnv(t *testing.T) {
 			},
 			authKey:     utils.NpmConfigAuthTokenKey,
 			value:       "some_auth_token",
-			expectedEnv: "npm_config_//registry.example.com:_authToken",
+			expectedEnv: "npm_config_//registry.example.com/:_authToken",
 		},
 		{
 			name: "set legacy auth env",

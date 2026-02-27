@@ -280,7 +280,11 @@ func (nc *NpmCommand) setNpmConfigAuthEnv(value, authKey string) error {
 	if nc.isNpmVersionSupportsScopedAuthEnv() {
 		// Get registry name without the protocol name but including the '//'
 		registryWithoutProtocolName := nc.registry[strings.Index(nc.registry, "://")+1:]
-		// Set "npm_config_//<registry-url>:_auth" environment variable to allow authentication with Artifactory
+		// Ensure registry ends with / (required for scoped auth)
+		if !strings.HasSuffix(registryWithoutProtocolName, "/") {
+			registryWithoutProtocolName += "/"
+		}
+		// Set "npm_config_//<registry-url>/:_auth" environment variable to allow authentication with Artifactory
 		scopedRegistryEnv := fmt.Sprintf(npmConfigAuthEnv, registryWithoutProtocolName, authKey)
 		return os.Setenv(scopedRegistryEnv, value)
 	}
