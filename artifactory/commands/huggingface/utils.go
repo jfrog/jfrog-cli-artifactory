@@ -1,17 +1,27 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 
+	"github.com/jfrog/build-info-go/entities"
+	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
+	"github.com/jfrog/jfrog-client-go/artifactory"
+	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
+
+// timestampPattern matches ISO 8601 timestamp format: _YYYY-MM-DDTHH:MM:SS.sssZ
+var timestampPattern = regexp.MustCompile(`_\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`)
 
 const minPythonVersion = 3
 
@@ -27,11 +37,13 @@ except Exception as e:
 	sys.exit(1)`
 
 // PythonUploadSuccessBlock is the success block for upload operations
-const PythonUploadSuccessBlock = `f(**json.loads("""%s"""))
+// Using raw string (r"...") to prevent Python from interpreting backslashes in Windows paths as escape sequences
+const PythonUploadSuccessBlock = `f(**json.loads(r"""%s"""))
 	print(json.dumps({"success":True}))`
 
 // PythonDownloadSuccessBlock is the success block for download operations
-const PythonDownloadSuccessBlock = `r=f(**json.loads("""%s"""))
+// Using raw string (r"...") to prevent Python from interpreting backslashes in Windows paths as escape sequences
+const PythonDownloadSuccessBlock = `r=f(**json.loads(r"""%s"""))
 	print(json.dumps({"success":True,"model_path":r}))`
 
 // BuildPythonUploadCmd builds the Python command string for upload operations
@@ -97,5 +109,124 @@ func verifyPythonVersion(pythonPath string) error {
 		return errorutils.CheckErrorf("Python version %d found, but version %d or higher is required", majorVersion, minPythonVersion)
 	}
 	log.Debug("Python version ", majorVersion, " verified (minimum required: ", minPythonVersion, ")")
+	return nil
+}
+
+// HasTimestamp checks if a revision ID already contains a timestamp suffix
+// Example: "main_2026-02-09T09:01:17.646Z" returns true, "main" returns false
+func HasTimestamp(revision string) bool {
+	return timestampPattern.MatchString(revision)
+}
+
+// GetRepoKeyFromHFEndpoint extracts the repository key from HF_ENDPOINT environment variable
+func GetRepoKeyFromHFEndpoint() (string, error) {
+	endpoint := os.Getenv("HF_ENDPOINT")
+	if endpoint == "" {
+		return "", errorutils.CheckErrorf("HF_ENDPOINT environment variable is not set")
+	}
+	endpoint = strings.TrimSuffix(endpoint, "/")
+	parts := strings.Split(endpoint, "/")
+	if len(parts) == 0 {
+		return "", errorutils.CheckErrorf("invalid HF_ENDPOINT format: %s", endpoint)
+	}
+	repoKey := parts[len(parts)-1]
+	if repoKey == "" {
+		return "", errorutils.CheckErrorf("could not extract repo key from HF_ENDPOINT: %s", endpoint)
+	}
+	log.Debug("Extracted repo key from HF_ENDPOINT: ", repoKey)
+	return repoKey, nil
+}
+
+type aqlResult struct {
+	Results []aqlItem `json:"results"`
+}
+
+type aqlItem struct {
+	Repo string `json:"repo"`
+	Path string `json:"path"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// createContentReader creates a ContentReader from the provided parameters
+func createContentReader(repo, path, name, itemType string) (*content.ContentReader, error) {
+	tempFile, err := os.CreateTemp("", "aql-results-*.json")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp file: %w", err)
+	}
+	filePath := tempFile.Name()
+	err = json.NewEncoder(tempFile).Encode(aqlResult{
+		Results: []aqlItem{{Repo: repo, Path: path, Name: name, Type: itemType}},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to write to temp file: %w", err)
+	}
+	return content.NewContentReader(filePath, content.DefaultKey), nil
+}
+
+func addBuildPropertiesOnArtifacts(serviceManager artifactory.ArtifactoryServicesManager, reader *content.ContentReader, buildProps string) {
+	propsParams := services.PropsParams{
+		Reader:      reader,
+		Props:       buildProps,
+		IsRecursive: true,
+	}
+	_, _ = serviceManager.SetProps(propsParams)
+}
+
+// BuildInfoContext holds the common build info components needed for both upload and download
+type BuildInfoContext struct {
+	BuildName   string
+	BuildNumber string
+	Project     string
+	BuildInfo   *entities.BuildInfo
+}
+
+// GetBuildInfoContext extracts common build configuration and creates build info context
+// Returns nil if build info collection is not enabled
+func GetBuildInfoContext(buildConfig *buildUtils.BuildConfiguration, commandName string) (*BuildInfoContext, error) {
+	if buildConfig == nil {
+		return nil, nil
+	}
+	isCollectBuildInfo, err := buildConfig.IsCollectBuildInfo()
+	if err != nil {
+		return nil, errorutils.CheckError(err)
+	}
+	if !isCollectBuildInfo {
+		return nil, nil
+	}
+	log.Info("Collecting build info for executed huggingface ", commandName, " command")
+	buildName, err := buildConfig.GetBuildName()
+	if err != nil {
+		return nil, errorutils.CheckError(err)
+	}
+	buildNumber, err := buildConfig.GetBuildNumber()
+	if err != nil {
+		return nil, errorutils.CheckError(err)
+	}
+	project := buildConfig.GetProject()
+	buildInfoService := buildUtils.CreateBuildInfoService()
+	build, err := buildInfoService.GetOrCreateBuildWithProject(buildName, buildNumber, project)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create build info: %w", err)
+	}
+	buildInfo, err := build.ToBuildInfo()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get build info: %w", err)
+	}
+	return &BuildInfoContext{
+		BuildName:   buildName,
+		BuildNumber: buildNumber,
+		Project:     project,
+		BuildInfo:   buildInfo,
+	}, nil
+}
+
+// SaveBuildInfo saves the build info from the context
+func SaveBuildInfo(ctx *BuildInfoContext) error {
+	if err := buildUtils.SaveBuildInfo(ctx.BuildName, ctx.BuildNumber, ctx.Project, ctx.BuildInfo); err != nil {
+		log.Warn("Failed to save build info: ", err.Error())
+		return err
+	}
+	log.Info("Build info saved locally.")
 	return nil
 }

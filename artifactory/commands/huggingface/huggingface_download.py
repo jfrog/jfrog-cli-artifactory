@@ -7,8 +7,7 @@ using snapshot_download with configurable parameters.
 
 from huggingface_hub import snapshot_download
 
-
-def download(repo_id, repo_type, etag_timeout, revision=None,  **kwargs):
+def download(repo_id, repo_type, etag_timeout, revision, **kwargs):
     """
     Download a model or dataset from HuggingFace Hub.
     Args:
