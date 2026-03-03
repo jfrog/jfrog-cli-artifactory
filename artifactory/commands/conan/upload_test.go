@@ -3,6 +3,7 @@ package conan
 import (
 	"testing"
 
+	conanflex "github.com/jfrog/build-info-go/flexpack/conan"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -117,10 +118,11 @@ Upload completed in 3s
 func TestNewUploadProcessor(t *testing.T) {
 	workingDir := "/test/path"
 
-	processor := NewUploadProcessor(workingDir, nil, nil)
+	processor := NewUploadProcessor(workingDir, nil, nil, conanflex.ConanConfig{WorkingDirectory: workingDir})
 
 	assert.NotNil(t, processor)
 	assert.Equal(t, workingDir, processor.workingDir)
+	assert.Equal(t, workingDir, processor.conanConfig.WorkingDirectory)
 	assert.Nil(t, processor.buildConfiguration)
 	assert.Nil(t, processor.serverDetails)
 }

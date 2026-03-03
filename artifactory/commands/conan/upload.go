@@ -22,14 +22,16 @@ type UploadProcessor struct {
 	workingDir         string
 	buildConfiguration *buildUtils.BuildConfiguration
 	serverDetails      *config.ServerDetails
+	conanConfig        conanflex.ConanConfig
 }
 
 // NewUploadProcessor creates a new upload processor.
-func NewUploadProcessor(workingDir string, buildConfig *buildUtils.BuildConfiguration, serverDetails *config.ServerDetails) *UploadProcessor {
+func NewUploadProcessor(workingDir string, buildConfig *buildUtils.BuildConfiguration, serverDetails *config.ServerDetails, conanConfig conanflex.ConanConfig) *UploadProcessor {
 	return &UploadProcessor{
 		workingDir:         workingDir,
 		buildConfiguration: buildConfig,
 		serverDetails:      serverDetails,
+		conanConfig:        conanConfig,
 	}
 }
 
@@ -304,11 +306,7 @@ func (up *UploadProcessor) collectDependencies() (*entities.BuildInfo, error) {
 		return nil, fmt.Errorf("get build number: %w", err)
 	}
 
-	conanConfig := conanflex.ConanConfig{
-		WorkingDirectory: up.workingDir,
-	}
-
-	collector, err := conanflex.NewConanFlexPack(conanConfig)
+	collector, err := conanflex.NewConanFlexPack(up.conanConfig)
 	if err != nil {
 		return nil, fmt.Errorf("create conan flexpack: %w", err)
 	}
