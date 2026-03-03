@@ -115,9 +115,9 @@ func readSettings(path string) (map[string]interface{}, error) {
 	return settings, nil
 }
 
-func safeWriteFile(path string, data []byte, perm os.FileMode) error {
+func safeWriteFile(path string, data []byte) error {
 	cleanPath := filepath.Clean(path)
-	f, err := os.OpenFile(cleanPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	f, err := os.OpenFile(cleanPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func writeSettings(path string, settings map[string]interface{}) error {
 
 	// Create backup
 	if data, err := os.ReadFile(cleanPath); err == nil {
-		if err := safeWriteFile(backupPath, data, 0644); err != nil {
+		if err := safeWriteFile(backupPath, data); err != nil {
 			log.Debug("Warning: failed to create backup:", err)
 		}
 	}
@@ -146,5 +146,5 @@ func writeSettings(path string, settings map[string]interface{}) error {
 		return err
 	}
 
-	return safeWriteFile(cleanPath, data, 0644)
+	return safeWriteFile(cleanPath, data)
 }

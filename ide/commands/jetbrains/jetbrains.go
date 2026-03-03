@@ -281,7 +281,7 @@ func (jc *JetbrainsCommand) createBackup(ide IDEInstallation) error {
 	// If a properties file doesn't exist, create an empty backup
 	if _, err := os.Stat(cleanPropertiesPath); os.IsNotExist(err) {
 		// Create an empty file for backup record
-		if err := safeWriteFile(backupPath, []byte("# Empty properties file backup\n"), 0644); err != nil {
+		if err := safeWriteFile(backupPath, []byte("# Empty properties file backup\n")); err != nil {
 			return fmt.Errorf("failed to create backup marker: %w", err)
 		}
 		jc.backupPaths[ide.PropertiesPath] = backupPath
@@ -295,7 +295,7 @@ func (jc *JetbrainsCommand) createBackup(ide IDEInstallation) error {
 	}
 
 	// Write backup
-	if err := safeWriteFile(backupPath, data, 0644); err != nil {
+	if err := safeWriteFile(backupPath, data); err != nil {
 		return fmt.Errorf("failed to create backup: %w", err)
 	}
 
@@ -328,7 +328,7 @@ func (jc *JetbrainsCommand) restoreBackup(ide IDEInstallation) error {
 		return nil
 	}
 
-	if err := safeWriteFile(cleanPropertiesPath, data, 0644); err != nil {
+	if err := safeWriteFile(cleanPropertiesPath, data); err != nil {
 		return fmt.Errorf("failed to restore backup: %w", err)
 	}
 
@@ -386,16 +386,16 @@ func (jc *JetbrainsCommand) modifyPropertiesFile(ide IDEInstallation, repository
 
 	// Write a modified properties file
 	content := strings.Join(lines, "\n") + "\n"
-	if err := safeWriteFile(ide.PropertiesPath, []byte(content), 0644); err != nil {
+	if err := safeWriteFile(ide.PropertiesPath, []byte(content)); err != nil {
 		return fmt.Errorf("failed to write properties file: %w", err)
 	}
 
 	return nil
 }
 
-func safeWriteFile(path string, data []byte, perm os.FileMode) error {
+func safeWriteFile(path string, data []byte) error {
 	cleanPath := filepath.Clean(path)
-	f, err := os.OpenFile(cleanPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	f, err := os.OpenFile(cleanPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}
