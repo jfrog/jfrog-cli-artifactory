@@ -67,20 +67,28 @@ func (containerManager *containerManager) RunNativeCmd(cmdParams []string) error
 
 // Get image ID
 func (containerManager *containerManager) Id(image *Image) (string, error) {
-	ref, err := name.ParseReference(image.Name())
+	if containerManager.GetContainerManagerType() == DockerClient {
+		ref, err := name.ParseReference(image.Name())
+		if err != nil {
+			return "", err
+		}
+		localImage, err := daemon.Image(ref)
+		if err != nil {
+			return "", err
+		}
+		localManifest, err := localImage.Manifest()
+		if err != nil {
+			return "", err
+		}
+		sha256ConfigHash := localManifest.Config.Digest.String()
+		return sha256ConfigHash, nil
+	}
+	cmd := &getImageIdCmd{image: image, containerManager: containerManager.GetContainerManagerType()}
+	content, err := cmd.RunCmd()
 	if err != nil {
 		return "", err
 	}
-	localImage, err := daemon.Image(ref)
-	if err != nil {
-		return "", err
-	}
-	localManifest, err := localImage.Manifest()
-	if err != nil {
-		return "", err
-	}
-	sha256ConfigHash := localManifest.Config.Digest.String()
-	return sha256ConfigHash, nil
+	return strings.Split(content, "\n")[0], nil
 }
 
 // Return the OS and architecture on which the image runs e.g. (linux, amd64, nil).
@@ -121,6 +129,30 @@ func (nc *nativeCmd) RunCmd() error {
 		command.Env = append(os.Environ(), "DOCKER_SCAN_SUGGEST=false")
 	}
 	return command.Run()
+}
+
+// Image get image id command
+type getImageIdCmd struct {
+	image            *Image
+	containerManager ContainerManagerType
+}
+
+func (getImageId *getImageIdCmd) GetCmd() *exec.Cmd {
+	var cmd []string
+	cmd = append(cmd, "images")
+	cmd = append(cmd, "--format", "{{.ID}}")
+	cmd = append(cmd, "--no-trunc")
+	cmd = append(cmd, getImageId.image.name)
+	return exec.Command(getImageId.containerManager.String(), cmd...)
+}
+
+func (getImageId *getImageIdCmd) RunCmd() (string, error) {
+	command := getImageId.GetCmd()
+	buffer := bytes.NewBuffer([]byte{})
+	command.Stderr = buffer
+	command.Stdout = buffer
+	err := command.Run()
+	return buffer.String(), err
 }
 
 // Get image system compatibility details
