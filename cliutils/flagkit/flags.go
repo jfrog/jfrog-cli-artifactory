@@ -496,6 +496,15 @@ const (
 	SourceTypeBuilds         = "source-type-builds"
 	Draft                    = "draft"
 	AddSources               = "add"
+
+	// Skills commands keys
+	SkillsPublish = "skills-publish"
+	SkillsInstall = "skills-install"
+
+	// Skills-specific flags
+	version     = "version"
+	installPath = "path"
+	skillsQuiet = "skills-" + quiet
 )
 
 var commandFlags = map[string][]string{
@@ -820,6 +829,12 @@ var commandFlags = map[string][]string{
 	ReleaseBundleSearch: {
 		Format, OrderBy, FilterBy, OrderAsc, Limit, Offset, Includes, Project,
 	},
+	SkillsPublish: {
+		url, user, password, accessToken, serverId, repo, version, skillsQuiet,
+	},
+	SkillsInstall: {
+		url, user, password, accessToken, serverId, repo, version, installPath, skillsQuiet,
+	},
 }
 
 var flagsMap = map[string]components.Flag{
@@ -1119,6 +1134,12 @@ var flagsMap = map[string]components.Flag{
 	SourceTypeBuilds:         components.NewStringFlag(SourceTypeBuilds, "List of semicolon-separated(;) builds in the form of 'name=buildName1, id=runID1, include-deps=true; name=buildName2, id=runID2' to be included in the new bundle.", components.SetMandatoryFalse()),
 	Draft:                    components.NewBoolFlag(Draft, "Set to true to create the release bundle as a draft. A draft release bundle can be updated and finalized later.", components.WithBoolDefaultValueFalse()),
 	AddSources:               components.NewBoolFlag(AddSources, "Add sources to an existing draft release bundle.", components.WithBoolDefaultValueFalse()),
+
+	// Skills-specific flags
+	repo:        components.NewStringFlag(repo, "Skills repository key in Artifactory.", components.SetMandatoryFalse()),
+	version:     components.NewStringFlag(version, "Skill version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
+	installPath: components.NewStringFlag(installPath, "Custom install path for the skill. Default: .cursor/skills/{slug}/", components.SetMandatoryFalse()),
+	skillsQuiet: components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
 }
 
 func GetCommandFlags(cmdKey string) []components.Flag {
