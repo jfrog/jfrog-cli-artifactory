@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/entities"
 	conanflex "github.com/jfrog/build-info-go/flexpack/conan"
 	gofrogcmd "github.com/jfrog/gofrog/io"
@@ -242,7 +241,8 @@ func (c *ConanCommand) collectAndSaveBuildInfo() error {
 	if err != nil {
 		return fmt.Errorf("failed to collect Conan build info: %w", err)
 	}
-	if err := saveBuildInfoLocally(buildInfo); err != nil {
+	projectKey := c.buildConfiguration.GetProject()
+	if err := saveBuildInfoLocally(buildInfo, projectKey); err != nil {
 		return fmt.Errorf("failed to save build info: %w", err)
 	}
 
@@ -304,10 +304,10 @@ func (c *ConanCommand) ServerDetails() (*config.ServerDetails, error) {
 }
 
 // saveBuildInfoLocally saves the build info for later publishing with 'jf rt bp'.
-func saveBuildInfoLocally(buildInfo *entities.BuildInfo) error {
-	service := build.NewBuildInfoService()
+func saveBuildInfoLocally(buildInfo *entities.BuildInfo, projectKey string) error {
+	service := buildUtils.CreateBuildInfoService()
 
-	buildInstance, err := service.GetOrCreateBuildWithProject(buildInfo.Name, buildInfo.Number, "")
+	buildInstance, err := service.GetOrCreateBuildWithProject(buildInfo.Name, buildInfo.Number, projectKey)
 	if err != nil {
 		return fmt.Errorf("create build: %w", err)
 	}

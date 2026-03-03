@@ -3,6 +3,8 @@ package ocicontainer
 import (
 	"bytes"
 	"fmt"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/daemon"
 	"os"
 	"os/exec"
 	"regexp"
@@ -65,7 +67,23 @@ func (containerManager *containerManager) RunNativeCmd(cmdParams []string) error
 
 // Get image ID
 func (containerManager *containerManager) Id(image *Image) (string, error) {
-	cmd := &getImageIdCmd{image: image, containerManager: containerManager.Type}
+	if containerManager.GetContainerManagerType() == DockerClient {
+		ref, err := name.ParseReference(image.Name())
+		if err != nil {
+			return "", err
+		}
+		localImage, err := daemon.Image(ref)
+		if err != nil {
+			return "", err
+		}
+		localManifest, err := localImage.Manifest()
+		if err != nil {
+			return "", err
+		}
+		sha256ConfigHash := localManifest.Config.Digest.String()
+		return sha256ConfigHash, nil
+	}
+	cmd := &getImageIdCmd{image: image, containerManager: containerManager.GetContainerManagerType()}
 	content, err := cmd.RunCmd()
 	if err != nil {
 		return "", err

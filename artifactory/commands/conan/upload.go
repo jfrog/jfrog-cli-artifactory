@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/entities"
 	conanflex "github.com/jfrog/build-info-go/flexpack/conan"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -362,9 +361,10 @@ func (up *UploadProcessor) setBuildProperties(artifacts []entities.Artifact, tar
 
 // saveBuildInfo saves the build info for later publishing.
 func (up *UploadProcessor) saveBuildInfo(buildInfo *entities.BuildInfo) error {
-	service := build.NewBuildInfoService()
+	service := buildUtils.CreateBuildInfoService()
 
-	buildInstance, err := service.GetOrCreateBuildWithProject(buildInfo.Name, buildInfo.Number, "")
+	projectKey := up.buildConfiguration.GetProject()
+	buildInstance, err := service.GetOrCreateBuildWithProject(buildInfo.Name, buildInfo.Number, projectKey)
 	if err != nil {
 		return fmt.Errorf("create build: %w", err)
 	}
