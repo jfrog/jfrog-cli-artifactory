@@ -117,9 +117,11 @@ func readSettings(path string) (map[string]interface{}, error) {
 
 // writeSettings writes settings.json with pretty formatting
 func writeSettings(path string, settings map[string]interface{}) error {
+	cleanPath := filepath.Clean(path)
+	backupPath := filepath.Clean(cleanPath + ".backup")
+
 	// Create backup
-	backupPath := path + ".backup"
-	if data, err := os.ReadFile(path); err == nil {
+	if data, err := os.ReadFile(cleanPath); err == nil {
 		if err := os.WriteFile(backupPath, data, 0644); err != nil {
 			log.Debug("Warning: failed to create backup:", err)
 		}
@@ -131,5 +133,5 @@ func writeSettings(path string, settings map[string]interface{}) error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(cleanPath, data, 0644)
 }

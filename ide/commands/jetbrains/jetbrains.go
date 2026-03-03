@@ -275,10 +275,11 @@ func (jc *JetbrainsCommand) parseIDEFromDirName(dirName string) *IDEInstallation
 
 // createBackup creates a backup of the original idea.properties file
 func (jc *JetbrainsCommand) createBackup(ide IDEInstallation) error {
-	backupPath := ide.PropertiesPath + ".backup." + time.Now().Format("20060102-150405")
+	cleanPropertiesPath := filepath.Clean(ide.PropertiesPath)
+	backupPath := filepath.Clean(cleanPropertiesPath + ".backup." + time.Now().Format("20060102-150405"))
 
 	// If a properties file doesn't exist, create an empty backup
-	if _, err := os.Stat(ide.PropertiesPath); os.IsNotExist(err) {
+	if _, err := os.Stat(cleanPropertiesPath); os.IsNotExist(err) {
 		// Create an empty file for backup record
 		if err := os.WriteFile(backupPath, []byte("# Empty properties file backup\n"), 0644); err != nil {
 			return fmt.Errorf("failed to create backup marker: %w", err)
@@ -288,7 +289,7 @@ func (jc *JetbrainsCommand) createBackup(ide IDEInstallation) error {
 	}
 
 	// Read an existing properties file
-	data, err := os.ReadFile(ide.PropertiesPath)
+	data, err := os.ReadFile(cleanPropertiesPath)
 	if err != nil {
 		return fmt.Errorf("failed to read properties file: %w", err)
 	}
@@ -310,7 +311,10 @@ func (jc *JetbrainsCommand) restoreBackup(ide IDEInstallation) error {
 		return fmt.Errorf("no backup path available for %s", ide.PropertiesPath)
 	}
 
-	data, err := os.ReadFile(backupPath)
+	cleanBackupPath := filepath.Clean(backupPath)
+	cleanPropertiesPath := filepath.Clean(ide.PropertiesPath)
+
+	data, err := os.ReadFile(cleanBackupPath)
 	if err != nil {
 		return fmt.Errorf("failed to read backup: %w", err)
 	}
@@ -318,13 +322,13 @@ func (jc *JetbrainsCommand) restoreBackup(ide IDEInstallation) error {
 	// Check if this was an empty file backup
 	if strings.Contains(string(data), "# Empty properties file backup") {
 		// Remove the properties file if it was created
-		if err := os.Remove(ide.PropertiesPath); err != nil && !os.IsNotExist(err) {
+		if err := os.Remove(cleanPropertiesPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("failed to remove created properties file: %w", err)
 		}
 		return nil
 	}
 
-	if err := os.WriteFile(ide.PropertiesPath, data, 0644); err != nil {
+	if err := os.WriteFile(cleanPropertiesPath, data, 0644); err != nil { //#nosec G703 -- path sanitized with filepath.Clean
 		return fmt.Errorf("failed to restore backup: %w", err)
 	}
 
