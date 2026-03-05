@@ -98,8 +98,6 @@ github.com/beevik/etree v1.6.0 h1:u8Kwy8pp9D9XeITj2Z0XtA5qqZEmtJtuXZRQi+j03eE=
 github.com/beevik/etree v1.6.0/go.mod h1:bh4zJxiIr62SOf9pRzN7UUYaEDa9HEKafK25+sLc0Gc=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
 github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
-github.com/bhanurp/jfrog-client-go v1.49.1-0.20260305114046-2b0ff03b6f49 h1:5BguVDGfQR4O2pRGRl3tbDQOpA+0E9nEP688/Yjsw6o=
-github.com/bhanurp/jfrog-client-go v1.49.1-0.20260305114046-2b0ff03b6f49/go.mod h1:sCE06+GngPoyrGO0c+vmhgMoVSP83UMNiZnIuNPzU8U=
 github.com/blang/semver v3.5.1+incompatible h1:cQNTCjp13qL8KC3Nbxr/y2Bqb63oX6wdnnjpJbkM4JQ=
 github.com/blang/semver v3.5.1+incompatible/go.mod h1:kRBLl5iJ+tD4TcOOxsy/0fnwebNt5EWlYSAyrTnjyyk=
 github.com/bradleyjkemp/cupaloy/v2 v2.8.0 h1:any4BmKE+jGIaMpnU8YgH/I2LPiLBufr6oMMlVBbn9M=
@@ -397,6 +395,8 @@ github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260106204841-744f3f71817b h1:gGGm
 github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260106204841-744f3f71817b/go.mod h1:+Hnaikp/xCSPD/q7txxRy4Zc0wzjW/usrCSf+6uONSQ=
 github.com/jfrog/jfrog-cli-evidence v0.8.3-0.20260202100913-d9ee9476845a h1:lTOAhUjKcOmM/0Kbj4V+I/VHPlW7YNAhIEVpGnCM5mI=
 github.com/jfrog/jfrog-cli-evidence v0.8.3-0.20260202100913-d9ee9476845a/go.mod h1:+XrcuHeakfxzARpmIr/bagjtfiRewpCbiPm0PDuKSIQ=
+github.com/jfrog/jfrog-client-go v1.55.1-0.20260305132144-f99feaed3f18 h1:uyVe+k7c7GzMuKzO3EGUU7ZcG+0cOYFZObI+OUZsHLs=
+github.com/jfrog/jfrog-client-go v1.55.1-0.20260305132144-f99feaed3f18/go.mod h1:sCE06+GngPoyrGO0c+vmhgMoVSP83UMNiZnIuNPzU8U=
 github.com/jmespath/go-jmespath v0.4.1-0.20220621161143-b0104c826a24 h1:liMMTbpW34dhU4az1GN0pTPADwNmvoRSeoZ6PItiqnY=
 github.com/jmespath/go-jmespath v0.4.1-0.20220621161143-b0104c826a24/go.mod h1:T8mJZnbsbmF+m6zOOFylbeCJqk5+pHWvzYPziyZiYoo=
 github.com/k0kubun/colorstring v0.0.0-20150214042306-9440f1994b88/go.mod h1:3w7q1U84EfirKl04SVQ/s7nPm1ZPhiXd34z40TNz36k=
