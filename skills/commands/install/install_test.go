@@ -61,7 +61,7 @@ func TestCopyDir(t *testing.T) {
 func TestGetDestDir(t *testing.T) {
 	cmd := NewInstallCommand().SetSlug("my-skill")
 
-	assert.Equal(t, filepath.Join(".cursor/skills", "my-skill"), cmd.getDestDir())
+	assert.Equal(t, filepath.Join(".", "my-skill"), cmd.getDestDir())
 
 	cmd.SetInstallPath("/custom/path")
 	assert.Equal(t, filepath.Join("/custom/path", "my-skill"), cmd.getDestDir())

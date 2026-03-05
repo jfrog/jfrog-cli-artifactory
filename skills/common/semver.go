@@ -46,6 +46,16 @@ func LatestVersion(versions []string) (string, error) {
 	return parsed[len(parsed)-1].Raw, nil
 }
 
+// NextMinorVersion takes a semver string and returns the next minor version
+// with patch reset to 0 (e.g. "1.2.3" -> "1.3.0").
+func NextMinorVersion(version string) (string, error) {
+	sv, err := parseSemver(version)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%d.%d.0", sv.Major, sv.Minor+1), nil
+}
+
 func parseSemver(version string) (semverParts, error) {
 	v := strings.TrimPrefix(version, "v")
 	parts := strings.SplitN(v, ".", 3)

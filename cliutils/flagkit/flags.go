@@ -504,6 +504,8 @@ const (
 	// Skills-specific flags
 	version     = "version"
 	installPath = "path"
+	signingKey  = "signing-key"
+	keyAlias    = "key-alias"
 	skillsQuiet = "skills-" + quiet
 )
 
@@ -830,10 +832,10 @@ var commandFlags = map[string][]string{
 		Format, OrderBy, FilterBy, OrderAsc, Limit, Offset, Includes, Project,
 	},
 	SkillsPublish: {
-		url, user, password, accessToken, serverId, repo, version, skillsQuiet,
+		url, user, password, accessToken, serverId, version, signingKey, keyAlias, skillsQuiet,
 	},
 	SkillsInstall: {
-		url, user, password, accessToken, serverId, repo, version, installPath, skillsQuiet,
+		url, user, password, accessToken, serverId, version, installPath, skillsQuiet,
 	},
 }
 
@@ -1138,7 +1140,9 @@ var flagsMap = map[string]components.Flag{
 	// Skills-specific flags
 	repo:        components.NewStringFlag(repo, "Skills repository key in Artifactory.", components.SetMandatoryFalse()),
 	version:     components.NewStringFlag(version, "Skill version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
-	installPath: components.NewStringFlag(installPath, "Custom install path for the skill. Default: .cursor/skills/{slug}/", components.SetMandatoryFalse()),
+	installPath: components.NewStringFlag(installPath, "Custom install path for the skill. Default: current directory.", components.SetMandatoryFalse()),
+	signingKey:  components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
+	keyAlias:    components.NewStringFlag(keyAlias, "Alias for the signing key. Overrides EVD_KEY_ALIAS env var.", components.SetMandatoryFalse()),
 	skillsQuiet: components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
 }
 

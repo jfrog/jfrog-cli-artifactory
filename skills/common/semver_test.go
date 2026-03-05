@@ -63,3 +63,30 @@ func TestLatestVersion(t *testing.T) {
 		})
 	}
 }
+
+func TestNextMinorVersion(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+		wantErr  bool
+	}{
+		{name: "basic", input: "1.2.3", expected: "1.3.0"},
+		{name: "zero minor", input: "2.0.0", expected: "2.1.0"},
+		{name: "high minor", input: "0.99.5", expected: "0.100.0"},
+		{name: "with v prefix", input: "v1.0.0", expected: "1.1.0"},
+		{name: "invalid", input: "not-a-version", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := NextMinorVersion(tt.input)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

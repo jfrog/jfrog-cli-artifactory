@@ -17,7 +17,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-const defaultInstallBase = ".cursor/skills"
+const defaultInstallBase = "."
 
 type InstallCommand struct {
 	serverDetails *config.ServerDetails
@@ -71,6 +71,8 @@ func (ic *InstallCommand) CommandName() string {
 }
 
 func (ic *InstallCommand) Run() error {
+	common.WarnIfXrayDisabled(ic.serverDetails, ic.repoKey)
+
 	version, err := ic.resolveVersion()
 	if err != nil {
 		return err
@@ -305,18 +307,14 @@ func copyFile(src, dst string) error {
 
 // RunInstall is the CLI action for `jf skills install`.
 func RunInstall(c *components.Context) error {
-	if c.GetNumberOfArgs() < 1 {
-		return fmt.Errorf("usage: jf skills install <slug> [options]")
+	if c.GetNumberOfArgs() < 2 {
+		return fmt.Errorf("usage: jf skills install <slug> <repo> [options]")
 	}
 
 	slug := c.GetArgumentAt(0)
+	repoKey := c.GetArgumentAt(1)
 
 	serverDetails, err := common.GetServerDetails(c)
-	if err != nil {
-		return err
-	}
-
-	repoKey, err := common.ResolveRepo(c, serverDetails)
 	if err != nil {
 		return err
 	}
