@@ -114,6 +114,13 @@ func (pc *PublishCommand) Run() error {
 		return err
 	}
 
+	if meta.Version != "" && meta.Version != version {
+		if updateErr := UpdateSkillMetaVersion(pc.skillDir, version); updateErr != nil {
+			return fmt.Errorf("failed to update SKILL.md version: %w", updateErr)
+		}
+		log.Info(fmt.Sprintf("Updated SKILL.md version from '%s' to '%s'", meta.Version, version))
+	}
+
 	log.Info(fmt.Sprintf("Publishing skill '%s' version '%s'", slug, version))
 
 	zipPath, err := pc.resolveZip(slug, version)

@@ -105,6 +105,114 @@ version: '1.5.0'
 	assert.Equal(t, "1.5.0", meta.Version)
 }
 
+func TestUpdateSkillMetaVersion_ReplacesExisting(t *testing.T) {
+	dir := t.TempDir()
+	skillMD := `---
+name: my-skill
+description: A great skill
+version: 1.0.0
+---
+
+# My Skill
+
+Body content here.
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillMD), 0644))
+
+	err := UpdateSkillMetaVersion(dir, "2.0.0")
+	require.NoError(t, err)
+
+	meta, err := ParseSkillMeta(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "2.0.0", meta.Version)
+	assert.Equal(t, "my-skill", meta.Name)
+	assert.Equal(t, "A great skill", meta.Description)
+
+	data, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "Body content here.")
+}
+
+func TestUpdateSkillMetaVersion_QuotedVersion(t *testing.T) {
+	dir := t.TempDir()
+	skillMD := `---
+name: quoted-skill
+version: "1.0.0"
+---
+
+# Quoted
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillMD), 0644))
+
+	err := UpdateSkillMetaVersion(dir, "3.0.0")
+	require.NoError(t, err)
+
+	meta, err := ParseSkillMeta(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "3.0.0", meta.Version)
+}
+
+func TestUpdateSkillMetaVersion_SingleQuotedVersion(t *testing.T) {
+	dir := t.TempDir()
+	skillMD := `---
+name: sq-skill
+version: '1.5.0'
+---
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillMD), 0644))
+
+	err := UpdateSkillMetaVersion(dir, "1.6.0")
+	require.NoError(t, err)
+
+	meta, err := ParseSkillMeta(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "1.6.0", meta.Version)
+}
+
+func TestUpdateSkillMetaVersion_NoVersionField(t *testing.T) {
+	dir := t.TempDir()
+	skillMD := `---
+name: no-version-skill
+description: No version here
+---
+
+# Content
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillMD), 0644))
+
+	err := UpdateSkillMetaVersion(dir, "1.0.0")
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
+	require.NoError(t, err)
+	assert.Equal(t, skillMD, string(data))
+}
+
+func TestUpdateSkillMetaVersion_PreservesBody(t *testing.T) {
+	dir := t.TempDir()
+	skillMD := `---
+name: body-skill
+version: 0.1.0
+---
+
+# My Skill
+
+Some **markdown** content with [links](https://example.com).
+
+` + "```python\nprint('hello')\n```\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillMD), 0644))
+
+	err := UpdateSkillMetaVersion(dir, "0.2.0")
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
+	require.NoError(t, err)
+	content := string(data)
+	assert.Contains(t, content, "version: 0.2.0")
+	assert.Contains(t, content, "Some **markdown** content with [links](https://example.com).")
+	assert.Contains(t, content, "print('hello')")
+}
+
 func TestValidateSlug(t *testing.T) {
 	assert.NoError(t, ValidateSlug("my-skill"))
 	assert.NoError(t, ValidateSlug("skill123"))
