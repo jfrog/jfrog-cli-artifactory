@@ -17,7 +17,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
-	serviceutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -131,11 +131,8 @@ func (pc *PublishCommand) Run() error {
 		return fmt.Errorf("failed to compute SHA256: %w", err)
 	}
 
-	targetProps := fmt.Sprintf("skill.name=%s;skill.description=%s;skill.version=%s",
-		slug, escapePropertyValue(meta.Description), version)
-
 	target := fmt.Sprintf("%s/%s/%s/", pc.repoKey, slug, version)
-	if err := pc.upload(zipPath, target, targetProps); err != nil {
+	if err := pc.upload(zipPath, target); err != nil {
 		return fmt.Errorf("upload failed: %w", err)
 	}
 
@@ -260,6 +257,7 @@ func zipSkillFolder(skillDir, slug, version string) (string, error) {
 	}
 
 	zipPath := filepath.Join(tmpDir, fmt.Sprintf("%s-%s.zip", slug, version))
+	// #nosec G304 -- path is constructed from controlled temp directory and user-provided slug
 	zipFile, err := os.Create(zipPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to create zip file: %w", err)
@@ -306,7 +304,7 @@ func zipSkillFolder(skillDir, slug, version string) (string, error) {
 			return err
 		}
 
-		// #nosec G304 -- Path is constructed from user-provided skill directory
+		// #nosec G304,G122 -- path is from user-provided skill directory via filepath.Walk
 		file, err := os.Open(path)
 		if err != nil {
 			return err
@@ -358,7 +356,7 @@ func computeSHA256(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func (pc *PublishCommand) upload(zipPath, target, targetProps string) error {
+func (pc *PublishCommand) upload(zipPath, target string) error {
 	serviceManager, err := utils.CreateUploadServiceManager(pc.serverDetails, 1, 3, 0, false, nil)
 	if err != nil {
 		return err
@@ -368,14 +366,6 @@ func (pc *PublishCommand) upload(zipPath, target, targetProps string) error {
 	uploadParams.Pattern = zipPath
 	uploadParams.Target = target
 	uploadParams.Flat = true
-	props := serviceutils.NewProperties()
-	for _, prop := range strings.Split(targetProps, ";") {
-		parts := strings.SplitN(prop, "=", 2)
-		if len(parts) == 2 {
-			props.AddProperty(parts[0], parts[1])
-		}
-	}
-	uploadParams.TargetProps = props
 
 	_, _, err = serviceManager.UploadFiles(artifactory.UploadServiceOptions{}, uploadParams)
 	return err
@@ -441,20 +431,13 @@ func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex string) {
 	log.Info("Evidence successfully attached.")
 }
 
-func escapePropertyValue(val string) string {
-	val = strings.ReplaceAll(val, ";", "\\;")
-	val = strings.ReplaceAll(val, "=", "\\=")
-	return val
-}
-
 // RunPublish is the CLI action for `jf skills publish`.
 func RunPublish(c *components.Context) error {
-	if c.GetNumberOfArgs() < 2 {
-		return fmt.Errorf("usage: jf skills publish <path-to-skill-folder> <repo> [options]")
+	if c.GetNumberOfArgs() < 1 {
+		return fmt.Errorf("usage: jf skills publish <path-to-skill-folder> [--repo <repo>] [options]")
 	}
 
 	skillDir := c.GetArgumentAt(0)
-	repoKey := c.GetArgumentAt(1)
 	absDir, err := filepath.Abs(skillDir)
 	if err != nil {
 		return fmt.Errorf("invalid skill path: %w", err)
@@ -470,6 +453,12 @@ func RunPublish(c *components.Context) error {
 		return err
 	}
 
+	quiet := common.IsQuiet(c)
+	repoKey, err := common.ResolveRepo(serverDetails, c.GetStringFlagValue("repo"), quiet)
+	if err != nil {
+		return err
+	}
+
 	cmd := NewPublishCommand().
 		SetServerDetails(serverDetails).
 		SetRepoKey(repoKey).
@@ -477,7 +466,7 @@ func RunPublish(c *components.Context) error {
 		SetVersion(c.GetStringFlagValue("version")).
 		SetSigningKey(c.GetStringFlagValue("signing-key")).
 		SetKeyAlias(c.GetStringFlagValue("key-alias")).
-		SetQuiet(common.IsQuiet(c))
+		SetQuiet(quiet)
 
 	return cmd.Run()
 }

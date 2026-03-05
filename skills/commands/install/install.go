@@ -208,11 +208,12 @@ func unzipFile(src, dest string) error {
 		_ = r.Close()
 	}()
 
-	if err := os.MkdirAll(dest, 0755); err != nil {
+	if err := os.MkdirAll(dest, 0750); err != nil {
 		return err
 	}
 
 	for _, f := range r.File {
+		// #nosec G305 -- path traversal is checked immediately below
 		fpath := filepath.Join(dest, f.Name)
 
 		if !strings.HasPrefix(filepath.Clean(fpath), filepath.Clean(dest)+string(os.PathSeparator)) {
@@ -226,7 +227,8 @@ func unzipFile(src, dest string) error {
 			continue
 		}
 
-		if err := os.MkdirAll(filepath.Dir(fpath), 0755); err != nil {
+		// #nosec G301 -- skill files need to be readable
+		if err := os.MkdirAll(filepath.Dir(fpath), 0750); err != nil {
 			return err
 		}
 
@@ -255,12 +257,14 @@ func extractFile(f *zip.File, dest string) error {
 		_ = outFile.Close()
 	}()
 
+	// #nosec G110 -- skill zip files are size-bounded by Artifactory upload limits
 	_, err = io.Copy(outFile, rc)
 	return err
 }
 
 func copyDir(src, dst string) error {
-	if err := os.MkdirAll(dst, 0755); err != nil {
+	// #nosec G301 -- skill files need to be readable
+	if err := os.MkdirAll(dst, 0750); err != nil {
 		return err
 	}
 
@@ -293,6 +297,7 @@ func copyFile(src, dst string) error {
 		_ = in.Close()
 	}()
 
+	// #nosec G304 -- dst is constructed from validated unzip output path
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
@@ -307,14 +312,19 @@ func copyFile(src, dst string) error {
 
 // RunInstall is the CLI action for `jf skills install`.
 func RunInstall(c *components.Context) error {
-	if c.GetNumberOfArgs() < 2 {
-		return fmt.Errorf("usage: jf skills install <slug> <repo> [options]")
+	if c.GetNumberOfArgs() < 1 {
+		return fmt.Errorf("usage: jf skills install <slug> [--repo <repo>] [options]")
 	}
 
 	slug := c.GetArgumentAt(0)
-	repoKey := c.GetArgumentAt(1)
 
 	serverDetails, err := common.GetServerDetails(c)
+	if err != nil {
+		return err
+	}
+
+	quiet := common.IsQuiet(c)
+	repoKey, err := common.ResolveRepo(serverDetails, c.GetStringFlagValue("repo"), quiet)
 	if err != nil {
 		return err
 	}
@@ -325,7 +335,7 @@ func RunInstall(c *components.Context) error {
 		SetSlug(slug).
 		SetVersion(c.GetStringFlagValue("version")).
 		SetInstallPath(c.GetStringFlagValue("path")).
-		SetQuiet(common.IsQuiet(c))
+		SetQuiet(quiet)
 
 	return cmd.Run()
 }

@@ -61,6 +61,50 @@ func TestParseSkillMeta_FileNotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestStripQuotes(t *testing.T) {
+	assert.Equal(t, "1.0.0", stripQuotes(`"1.0.0"`))
+	assert.Equal(t, "1.0.0", stripQuotes(`'1.0.0'`))
+	assert.Equal(t, "no-quotes", stripQuotes("no-quotes"))
+	assert.Equal(t, "", stripQuotes(`""`))
+	assert.Equal(t, "", stripQuotes(`''`))
+	assert.Equal(t, "a", stripQuotes("a"))
+	assert.Equal(t, `"mismatched'`, stripQuotes(`"mismatched'`))
+}
+
+func TestParseSkillMeta_QuotedVersion(t *testing.T) {
+	dir := t.TempDir()
+	skillMD := `---
+name: quoted-skill
+description: "A skill with quoted values"
+version: "2.3.4"
+---
+
+# Quoted Skill
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillMD), 0644))
+
+	meta, err := ParseSkillMeta(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "quoted-skill", meta.Name)
+	assert.Equal(t, "A skill with quoted values", meta.Description)
+	assert.Equal(t, "2.3.4", meta.Version)
+}
+
+func TestParseSkillMeta_SingleQuotedVersion(t *testing.T) {
+	dir := t.TempDir()
+	skillMD := `---
+name: single-quoted-skill
+version: '1.5.0'
+---
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillMD), 0644))
+
+	meta, err := ParseSkillMeta(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "single-quoted-skill", meta.Name)
+	assert.Equal(t, "1.5.0", meta.Version)
+}
+
 func TestValidateSlug(t *testing.T) {
 	assert.NoError(t, ValidateSlug("my-skill"))
 	assert.NoError(t, ValidateSlug("skill123"))
@@ -118,7 +162,7 @@ func TestZipSkillFolder(t *testing.T) {
 
 	zipPath, err := zipSkillFolder(dir, "test", "1.0.0")
 	require.NoError(t, err)
-	defer os.Remove(zipPath)
+	defer func() { _ = os.Remove(zipPath) }()
 
 	info, err := os.Stat(zipPath)
 	require.NoError(t, err)
@@ -135,12 +179,6 @@ func TestComputeSHA256(t *testing.T) {
 	assert.Len(t, hash, 64)
 	// SHA256 of "hello world"
 	assert.Equal(t, "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9", hash)
-}
-
-func TestEscapePropertyValue(t *testing.T) {
-	assert.Equal(t, "simple", escapePropertyValue("simple"))
-	assert.Equal(t, `a\;b`, escapePropertyValue("a;b"))
-	assert.Equal(t, `x\=y`, escapePropertyValue("x=y"))
 }
 
 func TestShouldExclude(t *testing.T) {

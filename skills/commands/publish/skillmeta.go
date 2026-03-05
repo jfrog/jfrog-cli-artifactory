@@ -19,6 +19,7 @@ type SkillMeta struct {
 // ParseSkillMeta reads a SKILL.md file and extracts YAML frontmatter metadata.
 func ParseSkillMeta(skillDir string) (*SkillMeta, error) {
 	skillMDPath := filepath.Join(skillDir, "SKILL.md")
+	// #nosec G304 -- path is constructed from user-provided skill directory argument
 	data, err := os.ReadFile(skillMDPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read SKILL.md at %s: %w", skillMDPath, err)
@@ -62,7 +63,7 @@ func parseFrontmatter(content string) (*SkillMeta, error) {
 			continue
 		}
 		key := strings.TrimSpace(line[:colonIdx])
-		value := strings.TrimSpace(line[colonIdx+1:])
+		value := stripQuotes(strings.TrimSpace(line[colonIdx+1:]))
 
 		switch key {
 		case "name":
@@ -75,6 +76,15 @@ func parseFrontmatter(content string) (*SkillMeta, error) {
 	}
 
 	return meta, nil
+}
+
+func stripQuotes(s string) string {
+	if len(s) >= 2 {
+		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
+			return s[1 : len(s)-1]
+		}
+	}
+	return s
 }
 
 // ValidateSlug checks that a skill slug matches the required pattern.

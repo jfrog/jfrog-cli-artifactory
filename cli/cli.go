@@ -35,7 +35,9 @@ func GetJfrogCliArtifactoryApp() components.App {
 	})
 	app.Subcommands = append(app.Subcommands, components.Namespace{
 		Name:        "skills",
+		Aliases:     []string{"skill"},
 		Description: "Skills commands.",
+		Hidden:      true,
 		Commands:    skillsCLI.GetCommands(),
 		Category:    "Command Namespaces",
 	})

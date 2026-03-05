@@ -500,13 +500,16 @@ const (
 	// Skills commands keys
 	SkillsPublish = "skills-publish"
 	SkillsInstall = "skills-install"
+	SkillsSearch  = "skills-search"
 
 	// Skills-specific flags
-	version     = "version"
-	installPath = "path"
-	signingKey  = "signing-key"
-	keyAlias    = "key-alias"
-	skillsQuiet = "skills-" + quiet
+	version      = "version"
+	installPath  = "path"
+	signingKey   = "signing-key"
+	keyAlias     = "key-alias"
+	skillsQuiet  = "skills-" + quiet
+	propSearch   = "prop"
+	skillsFormat = "skills-" + Format
 )
 
 var commandFlags = map[string][]string{
@@ -832,10 +835,13 @@ var commandFlags = map[string][]string{
 		Format, OrderBy, FilterBy, OrderAsc, Limit, Offset, Includes, Project,
 	},
 	SkillsPublish: {
-		url, user, password, accessToken, serverId, version, signingKey, keyAlias, skillsQuiet,
+		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, skillsQuiet,
 	},
 	SkillsInstall: {
-		url, user, password, accessToken, serverId, version, installPath, skillsQuiet,
+		url, user, password, accessToken, serverId, repo, version, installPath, skillsQuiet,
+	},
+	SkillsSearch: {
+		url, user, password, accessToken, serverId, repo, skillsFormat, propSearch,
 	},
 }
 
@@ -1143,7 +1149,9 @@ var flagsMap = map[string]components.Flag{
 	installPath: components.NewStringFlag(installPath, "Custom install path for the skill. Default: current directory.", components.SetMandatoryFalse()),
 	signingKey:  components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
 	keyAlias:    components.NewStringFlag(keyAlias, "Alias for the signing key. Overrides EVD_KEY_ALIAS env var.", components.SetMandatoryFalse()),
-	skillsQuiet: components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
+	skillsQuiet:  components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
+	skillsFormat: components.NewStringFlag(Format, "Output format: \"table\" (default) or \"json\".", components.SetMandatoryFalse()),
+	propSearch:   components.NewBoolFlag(propSearch, "Use Artifactory property search (skill.name) instead of Skills API search.", components.WithBoolDefaultValueFalse()),
 }
 
 func GetCommandFlags(cmdKey string) []components.Flag {
