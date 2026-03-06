@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/jfrog/build-info-go/entities"
@@ -210,7 +211,7 @@ func (c *ConanCommand) processBuildInfo(uploadOutput string) error {
 
 	log.Info(fmt.Sprintf("Processing Conan upload with build info: %s/%s", buildName, buildNumber))
 
-	processor := NewUploadProcessor(c.workingDir, c.buildConfiguration, c.serverDetails)
+	processor := NewUploadProcessor(c.workingDir, c.buildConfiguration, c.serverDetails, c.buildConanFlexConfig())
 	if err := processor.Process(uploadOutput); err != nil {
 		log.Warn("Failed to process Conan upload: " + err.Error())
 	}
@@ -228,10 +229,7 @@ func (c *ConanCommand) collectAndSaveBuildInfo() error {
 
 	log.Info(fmt.Sprintf("Collecting build info for Conan project: %s/%s", buildName, buildNumber))
 
-	// Create FlexPack collector
-	conanConfig := conanflex.ConanConfig{
-		WorkingDirectory: c.workingDir,
-	}
+	conanConfig := c.buildConanFlexConfig()
 
 	collector, err := conanflex.NewConanFlexPack(conanConfig)
 	if err != nil {
@@ -301,6 +299,86 @@ func (c *ConanCommand) CommandName() string {
 // ServerDetails returns the server configuration.
 func (c *ConanCommand) ServerDetails() (*config.ServerDetails, error) {
 	return c.serverDetails, nil
+}
+
+// buildConanFlexConfig builds a ConanConfig with recipe path and name/version overrides
+// extracted from the command arguments. This ensures build info collection finds the
+// conanfile even when the recipe is not in the current working directory.
+func (c *ConanCommand) buildConanFlexConfig() conanflex.ConanConfig {
+	recipePath := extractRecipePathFromArgs(c.workingDir, c.args)
+	overrides := extractReferenceOverridesFromArgs(c.args)
+	return conanflex.ConanConfig{
+		WorkingDirectory:       c.workingDir,
+		RecipeFilePath:         recipePath,
+		ProjectNameOverride:    overrides.name,
+		ProjectVersionOverride: overrides.version,
+		UserOverride:           overrides.user,
+		ChannelOverride:        overrides.channel,
+		ConanArgs:              c.args,
+	}
+}
+
+// extractRecipePathFromArgs finds the recipe path from the Conan command arguments.
+// Returns "" if no recipe path is found (callers fall back to WorkingDirectory).
+func extractRecipePathFromArgs(workingDir string, args []string) string {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		// Skip Conan package references like "pkg/1.0@user/channel"
+		if strings.Contains(arg, "@") {
+			continue
+		}
+
+		candidate := arg
+		if !filepath.IsAbs(candidate) {
+			candidate = filepath.Join(workingDir, candidate)
+		}
+		absPath, err := filepath.Abs(candidate)
+		if err != nil {
+			continue
+		}
+
+		info, err := os.Stat(absPath)
+		if err != nil {
+			continue
+		}
+		if info.IsDir() {
+			return absPath
+		}
+		return filepath.Dir(absPath)
+	}
+	return ""
+}
+
+type referenceOverrides struct {
+	name, version, user, channel string
+}
+
+// extractReferenceOverridesFromArgs parses --name, --version, --user, and --channel
+// from Conan command arguments. Supports both --flag=value and --flag value forms.
+func extractReferenceOverridesFromArgs(args []string) referenceOverrides {
+	var o referenceOverrides
+	for i, arg := range args {
+		o.name = extractFlagValue(arg, i, args, "--name", o.name)
+		o.version = extractFlagValue(arg, i, args, "--version", o.version)
+		o.user = extractFlagValue(arg, i, args, "--user", o.user)
+		o.channel = extractFlagValue(arg, i, args, "--channel", o.channel)
+	}
+	return o
+}
+
+// extractFlagValue checks if arg matches the given flag (either --flag=value or --flag value form)
+// and returns the extracted value, or the current value if no match.
+func extractFlagValue(arg string, idx int, args []string, flag, current string) string {
+	prefix := flag + "="
+	if strings.HasPrefix(arg, prefix) {
+		return strings.TrimPrefix(arg, prefix)
+	}
+	if arg == flag && idx+1 < len(args) {
+		return args[idx+1]
+	}
+	return current
 }
 
 // saveBuildInfoLocally saves the build info for later publishing with 'jf rt bp'.

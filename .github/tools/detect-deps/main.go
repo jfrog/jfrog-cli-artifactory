@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -126,9 +127,8 @@ func detectDependency(name, modulePath string, replaces map[string]Replace, curr
 			repo := parts
 			ref := replace.New.Version
 
-			// Handle version format like "v1.2.3-0.20240101-abc123"
-			// The ref might be a pseudo-version containing a commit hash
 			if ref != "" {
+				ref = resolveGitRef(repo, ref)
 				fmt.Printf("Found replace directive: %s => %s @ %s\n", name, repo, ref)
 				return &DependencyInfo{
 					Name:       name,
@@ -156,6 +156,50 @@ func detectDependency(name, modulePath string, replaces map[string]Replace, curr
 
 	fmt.Printf("No matching branch for %s, will use default (master)\n", name)
 	return nil
+}
+
+var pseudoVersionPattern = regexp.MustCompile(`^v\d+\.\d+\.\d+-(?:0\.)?(\d{14})-([0-9a-f]{12})$`)
+
+// resolveGitRef extracts the commit hash from a Go pseudo-version and resolves
+// it to a full 40-char SHA via the GitHub API (required by actions/checkout).
+// Returns the ref as-is if it's a regular version tag.
+func resolveGitRef(repo, ref string) string {
+	m := pseudoVersionPattern.FindStringSubmatch(ref)
+	if m == nil {
+		return ref
+	}
+	shortHash := m[2]
+
+	fullSHA, err := resolveFullSHA(repo, shortHash)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not resolve short hash '%s' to full SHA for %s: %v. Using short hash.\n", shortHash, repo, err)
+		return shortHash
+	}
+	fmt.Printf("Resolved pseudo-version %s to full SHA %s\n", ref, fullSHA)
+	return fullSHA
+}
+
+// resolveFullSHA uses the GitHub API to resolve an abbreviated commit hash to
+// the full 40-character SHA.
+func resolveFullSHA(repo, shortHash string) (string, error) {
+	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/commits/%s", repo, shortHash)
+	resp, err := http.Get(apiURL) // #nosec G107 -- URL constructed from validated repo name
+	if err != nil {
+		return "", fmt.Errorf("API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("API returned status %d", resp.StatusCode)
+	}
+
+	var commit struct {
+		SHA string `json:"sha"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&commit); err != nil {
+		return "", fmt.Errorf("failed to parse API response: %w", err)
+	}
+	return commit.SHA, nil
 }
 
 // isValidGitRef validates that a string is a valid git reference name
