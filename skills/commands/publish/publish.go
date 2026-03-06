@@ -274,6 +274,9 @@ func isPrebuiltZip(skillDir, slug, version string) bool {
 }
 
 func zipSkillFolder(skillDir, slug, version string) (string, error) {
+	if strings.Contains(version, "..") || strings.ContainsAny(version, "/\\") {
+		return "", fmt.Errorf("invalid version '%s': contains path traversal characters", version)
+	}
 	tmpDir, err := os.MkdirTemp("", "skill-publish-*")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp dir: %w", err)
