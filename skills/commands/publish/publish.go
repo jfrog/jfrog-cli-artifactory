@@ -197,6 +197,9 @@ func (pc *PublishCommand) resolveMissingVersion(slug string) (string, error) {
 	if newVersion == "" {
 		return "", fmt.Errorf("no version provided, aborting")
 	}
+	if strings.Contains(newVersion, "..") || strings.ContainsAny(newVersion, "/\\") {
+		return "", fmt.Errorf("invalid version '%s': contains path traversal characters", newVersion)
+	}
 	return newVersion, nil
 }
 
@@ -239,6 +242,9 @@ func (pc *PublishCommand) resolveVersionCollision(slug, version string) (string,
 		if newVersion == "" {
 			return "", fmt.Errorf("no version provided, aborting")
 		}
+		if strings.Contains(newVersion, "..") || strings.ContainsAny(newVersion, "/\\") {
+			return "", fmt.Errorf("invalid version '%s': contains path traversal characters", newVersion)
+		}
 		if err := ValidateVersion(newVersion); err != nil {
 			return "", err
 		}
@@ -249,7 +255,10 @@ func (pc *PublishCommand) resolveVersionCollision(slug, version string) (string,
 }
 
 func (pc *PublishCommand) resolveZip(slug, version string) (string, error) {
-	prebuilt := filepath.Join(pc.skillDir, "zip", fmt.Sprintf("%s_%s.zip", slug, version))
+	if strings.Contains(version, "..") || strings.ContainsAny(version, "/\\") {
+		return "", fmt.Errorf("invalid version '%s': contains path traversal characters", version)
+	}
+	prebuilt := filepath.Clean(filepath.Join(pc.skillDir, "zip", fmt.Sprintf("%s_%s.zip", slug, version)))
 	if _, err := os.Stat(prebuilt); err == nil {
 		log.Info("Using pre-built zip:", prebuilt)
 		return prebuilt, nil
@@ -270,8 +279,7 @@ func zipSkillFolder(skillDir, slug, version string) (string, error) {
 		return "", fmt.Errorf("failed to create temp dir: %w", err)
 	}
 
-	zipPath := filepath.Join(tmpDir, fmt.Sprintf("%s-%s.zip", slug, version))
-	// #nosec G304 -- path is constructed from controlled temp directory and user-provided slug
+	zipPath := filepath.Clean(filepath.Join(tmpDir, fmt.Sprintf("%s-%s.zip", slug, version)))
 	zipFile, err := os.Create(zipPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to create zip file: %w", err)
@@ -354,8 +362,11 @@ func shouldExclude(relPath string, info os.FileInfo) bool {
 }
 
 func computeSHA256(path string) (string, error) {
-	// #nosec G304 -- Path is the zip we just created
-	f, err := os.Open(path)
+	if strings.Contains(path, "..") {
+		return "", fmt.Errorf("invalid path: contains traversal sequence")
+	}
+	cleanPath := filepath.Clean(path)
+	f, err := os.Open(cleanPath)
 	if err != nil {
 		return "", err
 	}
