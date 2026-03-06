@@ -3,6 +3,8 @@ package conan
 import (
 	"testing"
 
+	"github.com/jfrog/build-info-go/entities"
+	specutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -212,4 +214,118 @@ func TestNewBuildPropertySetter(t *testing.T) {
 	assert.Equal(t, buildNumber, setter.buildNumber)
 	assert.Equal(t, projectKey, setter.projectKey)
 	assert.Equal(t, targetRepo, setter.targetRepo)
+}
+func TestBuildPropertySetter_ConvertToResultItems(t *testing.T) {
+	tests := []struct {
+		name      string
+		artifacts []entities.Artifact
+		expected  []specutils.ResultItem
+	}{
+		{
+			name: "Filename matches and is removed from path",
+			artifacts: []entities.Artifact{
+				{
+					Name: "conaninfo.txt",
+					Path: "folder/subfolder/conaninfo.txt",
+					Checksum: entities.Checksum{
+						Sha1:   "abc123",
+						Md5:    "def456",
+						Sha256: "ghi789",
+					},
+				},
+			},
+			expected: []specutils.ResultItem{
+				{
+					Repo:        "conan-local",
+					Path:        "folder/subfolder",
+					Name:        "conaninfo.txt",
+					Actual_Sha1: "abc123",
+					Actual_Md5:  "def456",
+					Sha256:      "ghi789",
+				},
+			},
+		},
+		{
+			name: "Filename does not match path - path unchanged",
+			artifacts: []entities.Artifact{
+				{
+					Name: "conanfile.py",
+					Path: "folder/subfolder",
+					Checksum: entities.Checksum{
+						Sha1:   "aaa111",
+						Md5:    "bbb222",
+						Sha256: "ccc333",
+					},
+				},
+			},
+			expected: []specutils.ResultItem{
+				{
+					Repo:        "conan-local",
+					Path:        "folder/subfolder",
+					Name:        "conanfile.py",
+					Actual_Sha1: "aaa111",
+					Actual_Md5:  "bbb222",
+					Sha256:      "ccc333",
+				},
+			},
+		},
+		{
+			name: "Multiple artifacts with mixed matching",
+			artifacts: []entities.Artifact{
+				{
+					Name: "package.tgz",
+					Path: "myrepo/package.tgz",
+					Checksum: entities.Checksum{
+						Sha1:   "sha1val",
+						Md5:    "md5val",
+						Sha256: "sha256val",
+					},
+				},
+				{
+					Name: "metadata.json",
+					Path: "config/folder",
+					Checksum: entities.Checksum{
+						Sha1:   "sha1val2",
+						Md5:    "md5val2",
+						Sha256: "sha256val2",
+					},
+				},
+			},
+			expected: []specutils.ResultItem{
+				{
+					Repo:        "conan-local",
+					Path:        "myrepo",
+					Name:        "package.tgz",
+					Actual_Sha1: "sha1val",
+					Actual_Md5:  "md5val",
+					Sha256:      "sha256val",
+				},
+				{
+					Repo:        "conan-local",
+					Path:        "config/folder",
+					Name:        "metadata.json",
+					Actual_Sha1: "sha1val2",
+					Actual_Md5:  "md5val2",
+					Sha256:      "sha256val2",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setter := NewBuildPropertySetter(nil, "conan-local", "test", "1", "")
+			result := setter.convertToResultItems(tt.artifacts)
+
+			assert.Equal(t, len(tt.expected), len(result))
+			for i, item := range result {
+				assert.Equal(t, tt.expected[i].Repo, item.Repo)
+				assert.Equal(t, tt.expected[i].Path, item.Path)
+				assert.Equal(t, tt.expected[i].Name, item.Name)
+				assert.Equal(t, tt.expected[i].Actual_Sha1, item.Actual_Sha1)
+				assert.Equal(t, tt.expected[i].Actual_Md5, item.Actual_Md5)
+				assert.Equal(t, tt.expected[i].Sha256, item.Sha256)
+			}
+		})
+	}
 }

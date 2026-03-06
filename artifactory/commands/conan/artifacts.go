@@ -2,6 +2,7 @@ package conan
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -237,9 +238,14 @@ func (bps *BuildPropertySetter) SetProperties(artifacts []entities.Artifact) err
 func (bps *BuildPropertySetter) convertToResultItems(artifacts []entities.Artifact) []specutils.ResultItem {
 	var items []specutils.ResultItem
 	for _, artifact := range artifacts {
+		// ensure the filename is not duplicated in the path (e.g., path: "folder/conaninfo.txt", name: "conaninfo.txt")
+		path := artifact.Path
+		if strings.HasSuffix(artifact.Path, artifact.Name) {
+			path = filepath.Dir(artifact.Path)
+		}
 		items = append(items, specutils.ResultItem{
 			Repo:        bps.targetRepo,
-			Path:        artifact.Path,
+			Path:        path,
 			Name:        artifact.Name,
 			Actual_Sha1: artifact.Sha1,
 			Actual_Md5:  artifact.Md5,
