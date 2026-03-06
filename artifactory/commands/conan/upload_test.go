@@ -114,6 +114,87 @@ Upload completed in 3s
 	}
 }
 
+func TestUploadProcessor_ParseUploadedArtifactPaths(t *testing.T) {
+	tests := []struct {
+		name     string
+		output   string
+		expected []string
+	}{
+		{
+			name: "Conan 2.x upload summary with recipe and package revision",
+			output: `
+======== Uploading to remote conan-local ========
+
+-------- Upload summary --------
+conan-local
+  multideps/1.0.0
+    revisions
+      797d134a8590a1bfa06d846768443f48 (Uploaded)
+        packages
+          594ed0eb2e9dfcc60607438924c35871514e6c2a
+            revisions
+              ca858ea14c32f931e49241df0b52bec9 (Uploaded)
+`,
+			expected: []string{
+				"_/multideps/1.0.0/_/797d134a8590a1bfa06d846768443f48/export",
+				"_/multideps/1.0.0/_/797d134a8590a1bfa06d846768443f48/package/594ed0eb2e9dfcc60607438924c35871514e6c2a/ca858ea14c32f931e49241df0b52bec9",
+			},
+		},
+		{
+			name: "includes skipped artifacts that already exist in server",
+			output: `
+-------- Upload summary --------
+conan-local
+  zlib/1.2.13
+    revisions
+      11111111111111111111111111111111 (Skipped, already in server)
+        packages
+          aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+            revisions
+              22222222222222222222222222222222 (Skipped, package is up to date)
+`,
+			expected: []string{
+				"_/zlib/1.2.13/_/11111111111111111111111111111111/export",
+				"_/zlib/1.2.13/_/11111111111111111111111111111111/package/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/22222222222222222222222222222222",
+			},
+		},
+		{
+			name: "Conan 1.x upload summary with user and channel",
+			output: `
+-------- Upload summary --------
+conan-local
+  boost/1.82.0@myuser/stable
+    revisions
+      33333333333333333333333333333333 (Uploaded)
+        packages
+          bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            revisions
+              44444444444444444444444444444444 (Uploaded)
+`,
+			expected: []string{
+				"myuser/boost/1.82.0/stable/33333333333333333333333333333333/export",
+				"myuser/boost/1.82.0/stable/33333333333333333333333333333333/package/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/44444444444444444444444444444444",
+			},
+		},
+		{
+			name: "no upload section returns no paths",
+			output: `
+Checking server for existing packages
+No changes detected
+`,
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			processor := &UploadProcessor{}
+			result := processor.parseUploadedArtifactPaths(tt.output)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestNewUploadProcessor(t *testing.T) {
 	workingDir := "/test/path"
 
@@ -123,4 +204,52 @@ func TestNewUploadProcessor(t *testing.T) {
 	assert.Equal(t, workingDir, processor.workingDir)
 	assert.Nil(t, processor.buildConfiguration)
 	assert.Nil(t, processor.serverDetails)
+}
+
+func TestResolveDefaultDeploymentRepo(t *testing.T) {
+	tests := []struct {
+		name         string
+		repoName     string
+		repoDetails  *conanRepositoryDetails
+		expectedRepo string
+	}{
+		{
+			name:         "nil repo details falls back to original repo",
+			repoName:     "conan",
+			repoDetails:  nil,
+			expectedRepo: "conan",
+		},
+		{
+			name:     "non-virtual repo keeps original repo",
+			repoName: "conan-snapshot-local",
+			repoDetails: &conanRepositoryDetails{
+				RepoType: "local",
+			},
+			expectedRepo: "conan-snapshot-local",
+		},
+		{
+			name:     "virtual repo without default deployment keeps original repo",
+			repoName: "conan",
+			repoDetails: &conanRepositoryDetails{
+				RepoType: "virtual",
+			},
+			expectedRepo: "conan",
+		},
+		{
+			name:     "virtual repo resolves to default deployment repo",
+			repoName: "conan",
+			repoDetails: &conanRepositoryDetails{
+				RepoType:              "virtual",
+				DefaultDeploymentRepo: "conan-snapshot-local",
+			},
+			expectedRepo: "conan-snapshot-local",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolved := resolveDefaultDeploymentRepo(tt.repoName, tt.repoDetails)
+			assert.Equal(t, tt.expectedRepo, resolved)
+		})
+	}
 }
