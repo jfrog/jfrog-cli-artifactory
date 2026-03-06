@@ -7,6 +7,7 @@ import (
 
 	"github.com/jfrog/build-info-go/entities"
 	conanflex "github.com/jfrog/build-info-go/flexpack/conan"
+	artifactoryUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -21,6 +22,12 @@ type UploadProcessor struct {
 	workingDir         string
 	buildConfiguration *buildUtils.BuildConfiguration
 	serverDetails      *config.ServerDetails
+}
+
+type conanRepositoryDetails struct {
+	Key                   string `json:"key"`
+	RepoType              string `json:"rclass"`
+	DefaultDeploymentRepo string `json:"defaultDeploymentRepo"`
 }
 
 // NewUploadProcessor creates a new upload processor.
@@ -106,7 +113,41 @@ func (up *UploadProcessor) getTargetRepository(uploadOutput string) (string, err
 		return "", fmt.Errorf("could not extract repository name from URL: %s", remoteURL)
 	}
 
-	return repoName, nil
+	return up.resolveDeploymentRepository(repoName), nil
+}
+
+// resolveDeploymentRepository maps a virtual repository to its default deployment repository.
+// If repository details cannot be resolved, returns the original repository.
+func (up *UploadProcessor) resolveDeploymentRepository(repoName string) string {
+	if up.serverDetails == nil || repoName == "" {
+		return repoName
+	}
+
+	servicesManager, err := artifactoryUtils.CreateServiceManager(up.serverDetails, -1, 0, false)
+	if err != nil {
+		log.Debug(fmt.Sprintf("Failed to create service manager for repository resolution: %v", err))
+		return repoName
+	}
+
+	repoDetails := &conanRepositoryDetails{}
+	if err := servicesManager.GetRepository(repoName, repoDetails); err != nil {
+		log.Debug(fmt.Sprintf("Failed to get repository details for '%s': %v", repoName, err))
+		return repoName
+	}
+
+	resolvedRepo := resolveDefaultDeploymentRepo(repoName, repoDetails)
+	if resolvedRepo != repoName {
+		log.Debug(fmt.Sprintf("Repository '%s' is virtual. Using default deployment repository '%s'", repoName, resolvedRepo))
+	}
+	return resolvedRepo
+}
+
+// resolveDefaultDeploymentRepo returns the default deployment repository when the input repository is virtual.
+func resolveDefaultDeploymentRepo(repoName string, repoDetails *conanRepositoryDetails) string {
+	if repoDetails == nil || repoDetails.RepoType != "virtual" || repoDetails.DefaultDeploymentRepo == "" {
+		return repoName
+	}
+	return repoDetails.DefaultDeploymentRepo
 }
 
 // parseUploadedArtifactPaths extracts the specific paths that were uploaded from conan upload output.

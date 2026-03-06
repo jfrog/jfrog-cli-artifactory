@@ -238,8 +238,8 @@ func (bps *BuildPropertySetter) convertToResultItems(artifacts []entities.Artifa
 	var items []specutils.ResultItem
 	for _, artifact := range artifacts {
 		items = append(items, specutils.ResultItem{
-			Repo:        bps.targetRepo,
 			Path:        artifact.Path,
+			Repo:        bps.getArtifactRepo(artifact),
 			Name:        artifact.Name,
 			Actual_Sha1: artifact.Sha1,
 			Actual_Md5:  artifact.Md5,
@@ -247,6 +247,13 @@ func (bps *BuildPropertySetter) convertToResultItems(artifacts []entities.Artifa
 		})
 	}
 	return items
+}
+
+func (bps *BuildPropertySetter) getArtifactRepo(artifact entities.Artifact) string {
+	if artifact.OriginalDeploymentRepo != "" {
+		return artifact.OriginalDeploymentRepo
+	}
+	return bps.targetRepo
 }
 
 // writeItemsToFile writes result items to a temp file for batch processing.
