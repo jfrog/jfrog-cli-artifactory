@@ -1,0 +1,43 @@
+package pnpm
+
+import (
+	"github.com/jfrog/jfrog-cli-core/v2/common/build"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+)
+
+type CommonArgs struct {
+	repo               string
+	buildConfiguration *build.BuildConfiguration
+	pnpmArgs           []string
+	serverDetails      *config.ServerDetails
+	useNative          bool
+}
+
+func (ca *CommonArgs) SetServerDetails(serverDetails *config.ServerDetails) *CommonArgs {
+	ca.serverDetails = serverDetails
+	return ca
+}
+
+func (ca *CommonArgs) SetPnpmArgs(pnpmArgs []string) *CommonArgs {
+	ca.pnpmArgs = pnpmArgs
+	return ca
+}
+
+func (ca *CommonArgs) SetBuildConfiguration(buildConfiguration *build.BuildConfiguration) *CommonArgs {
+	ca.buildConfiguration = buildConfiguration
+	return ca
+}
+
+func (ca *CommonArgs) SetRepo(repo string) *CommonArgs {
+	ca.repo = repo
+	return ca
+}
+
+func (ca *CommonArgs) UseNative() bool {
+	return ca.useNative
+}
+
+func (ca *CommonArgs) SetUseNative(useNpmRc bool) *CommonArgs {
+	ca.useNative = useNpmRc
+	return ca
+}
