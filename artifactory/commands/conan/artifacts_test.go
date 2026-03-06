@@ -246,7 +246,6 @@ func TestConvertToResultItems_NoPathDuplication(t *testing.T) {
 	}
 
 	items := setter.convertToResultItems(artifacts)
-
 	assert.Len(t, items, 3)
 
 	// Verify Path contains only the directory, not the filename
@@ -264,5 +263,41 @@ func TestConvertToResultItems_NoPathDuplication(t *testing.T) {
 		relPath := item.GetItemRelativePath()
 		assert.NotContains(t, relPath, item.Name+"/"+item.Name,
 			"Path should not contain duplicated filename: %s", relPath)
+	}
+}
+
+func TestBuildPropertySetter_ConvertToResultItems_UsesArtifactRepo(t *testing.T) {
+	setter := &BuildPropertySetter{
+		targetRepo: "conan-virtual",
+	}
+
+	artifacts := []entities.Artifact{
+		{
+			Path:                   "anders/pkg/1.0.0/test/rev/export",
+			Name:                   "conanfile.py",
+			OriginalDeploymentRepo: "conan-snapshot-local",
+			Checksum: entities.Checksum{
+				Sha1:   "sha1-1",
+				Md5:    "md5-1",
+				Sha256: "sha256-1",
+			},
+		},
+		{
+			Path: "anders/pkg/1.0.0/test/rev/export",
+			Name: "conanmanifest.txt",
+			Checksum: entities.Checksum{
+				Sha1:   "sha1-2",
+				Md5:    "md5-2",
+				Sha256: "sha256-2",
+			},
+		},
+	}
+
+	items := setter.convertToResultItems(artifacts)
+	if assert.Len(t, items, 2) {
+		assert.Equal(t, "conan-snapshot-local", items[0].Repo)
+		assert.Equal(t, "conan-virtual", items[1].Repo)
+		assert.Equal(t, artifacts[0].Path, items[0].Path)
+		assert.Equal(t, artifacts[1].Path, items[1].Path)
 	}
 }
