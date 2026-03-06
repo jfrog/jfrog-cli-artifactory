@@ -240,6 +240,11 @@ func unzipFile(src, dest string) error {
 }
 
 func extractFile(f *zip.File, dest string) error {
+	// Reject paths containing traversal sequences as defense-in-depth
+	if strings.Contains(dest, "..") {
+		return fmt.Errorf("illegal file path: %s", dest)
+	}
+
 	rc, err := f.Open()
 	if err != nil {
 		return err
@@ -248,8 +253,9 @@ func extractFile(f *zip.File, dest string) error {
 		_ = rc.Close()
 	}()
 
-	// #nosec G304 -- dest is validated above to be under the extraction directory
-	outFile, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+	cleanDest := filepath.Clean(dest)
+	// #nosec G304 -- dest is validated in unzipFile and above to be under the extraction directory
+	outFile, err := os.OpenFile(cleanDest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
 	if err != nil {
 		return err
 	}

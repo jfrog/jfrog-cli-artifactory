@@ -225,6 +225,42 @@ func TestValidateSlug(t *testing.T) {
 	assert.Error(t, ValidateSlug(""))
 }
 
+func TestValidateVersion(t *testing.T) {
+	tests := []struct {
+		version string
+		wantErr bool
+	}{
+		{"1.0.0", false},
+		{"0.1.0", false},
+		{"2.3.4-beta", false},
+		{"1.0.0-rc.1", false},
+		{"1.0.0+build.123", false},
+		{"v1.0.0", false},
+
+		{"", true},
+		{"../etc/passwd", true},
+		{"1.0.0/../../etc", true},
+		{"1.0.0\\..\\etc", true},
+		{"..", true},
+		{"valid..version", true},
+		{"has space", true},
+		{"has\x00null", true},
+		{"/leading-slash", true},
+		{"-leading-hyphen", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.version, func(t *testing.T) {
+			err := ValidateVersion(tt.version)
+			if tt.wantErr {
+				assert.Error(t, err, "expected error for version %q", tt.version)
+			} else {
+				assert.NoError(t, err, "expected no error for version %q", tt.version)
+			}
+		})
+	}
+}
+
 func TestGeneratePredicateFile(t *testing.T) {
 	dir := t.TempDir()
 	path, err := GeneratePredicateFile(dir, "test-skill", "1.0.0")

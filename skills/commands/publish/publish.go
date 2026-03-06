@@ -109,6 +109,10 @@ func (pc *PublishCommand) Run() error {
 		}
 	}
 
+	if err := ValidateVersion(version); err != nil {
+		return err
+	}
+
 	version, err = pc.resolveVersionCollision(slug, version)
 	if err != nil {
 		return err
@@ -234,6 +238,9 @@ func (pc *PublishCommand) resolveVersionCollision(slug, version string) (string,
 		newVersion := strings.TrimSpace(newInput)
 		if newVersion == "" {
 			return "", fmt.Errorf("no version provided, aborting")
+		}
+		if err := ValidateVersion(newVersion); err != nil {
+			return "", err
 		}
 		return pc.resolveVersionCollision(slug, newVersion)
 	default:
