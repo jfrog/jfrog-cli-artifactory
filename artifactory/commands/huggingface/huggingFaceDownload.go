@@ -122,6 +122,7 @@ func (hfd *HuggingFaceDownload) CollectDependenciesForBuildInfo() error {
 		})
 	}
 	ctx.BuildInfo.Modules[0].Dependencies = dependencies
+	removeDuplicateDependencies(ctx.BuildInfo)
 	return SaveBuildInfo(ctx)
 }
 
@@ -182,6 +183,12 @@ func (hfd *HuggingFaceDownload) CommandName() string {
 // NewHuggingFaceDownload creates a new instance of HFDownloadCmd
 func NewHuggingFaceDownload() *HuggingFaceDownload {
 	return &HuggingFaceDownload{}
+}
+
+// SetCommandName sets the command name for the download command
+func (hfd *HuggingFaceDownload) SetCommandName(commandName string) *HuggingFaceDownload {
+	hfd.name = commandName
+	return hfd
 }
 
 // SetRepoId sets the repository ID for the download command
