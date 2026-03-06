@@ -496,6 +496,20 @@ const (
 	SourceTypeBuilds         = "source-type-builds"
 	Draft                    = "draft"
 	AddSources               = "add"
+
+	// Skills commands keys
+	SkillsPublish = "skills-publish"
+	SkillsInstall = "skills-install"
+	SkillsSearch  = "skills-search"
+
+	// Skills-specific flags
+	version      = "version"
+	installPath  = "path"
+	signingKey   = "signing-key"
+	keyAlias     = "key-alias"
+	skillsQuiet  = "skills-" + quiet
+	propSearch   = "prop"
+	skillsFormat = "skills-" + Format
 )
 
 var commandFlags = map[string][]string{
@@ -820,6 +834,15 @@ var commandFlags = map[string][]string{
 	ReleaseBundleSearch: {
 		Format, OrderBy, FilterBy, OrderAsc, Limit, Offset, Includes, Project,
 	},
+	SkillsPublish: {
+		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, skillsQuiet,
+	},
+	SkillsInstall: {
+		url, user, password, accessToken, serverId, repo, version, installPath, skillsQuiet,
+	},
+	SkillsSearch: {
+		url, user, password, accessToken, serverId, repo, skillsFormat, propSearch,
+	},
 }
 
 var flagsMap = map[string]components.Flag{
@@ -1119,6 +1142,16 @@ var flagsMap = map[string]components.Flag{
 	SourceTypeBuilds:         components.NewStringFlag(SourceTypeBuilds, "List of semicolon-separated(;) builds in the form of 'name=buildName1, id=runID1, include-deps=true; name=buildName2, id=runID2' to be included in the new bundle.", components.SetMandatoryFalse()),
 	Draft:                    components.NewBoolFlag(Draft, "Set to true to create the release bundle as a draft. A draft release bundle can be updated and finalized later.", components.WithBoolDefaultValueFalse()),
 	AddSources:               components.NewBoolFlag(AddSources, "Add sources to an existing draft release bundle.", components.WithBoolDefaultValueFalse()),
+
+	// Skills-specific flags
+	repo:        components.NewStringFlag(repo, "Skills repository key in Artifactory.", components.SetMandatoryFalse()),
+	version:     components.NewStringFlag(version, "Skill version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
+	installPath: components.NewStringFlag(installPath, "Custom install path for the skill. Default: current directory.", components.SetMandatoryFalse()),
+	signingKey:  components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
+	keyAlias:    components.NewStringFlag(keyAlias, "Alias for the signing key. Overrides EVD_KEY_ALIAS env var.", components.SetMandatoryFalse()),
+	skillsQuiet:  components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
+	skillsFormat: components.NewStringFlag(Format, "Output format: \"table\" (default) or \"json\".", components.SetMandatoryFalse()),
+	propSearch:   components.NewBoolFlag(propSearch, "Use Artifactory property search (skill.name) instead of Skills API search.", components.WithBoolDefaultValueFalse()),
 }
 
 func GetCommandFlags(cmdKey string) []components.Flag {
