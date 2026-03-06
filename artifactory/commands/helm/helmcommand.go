@@ -194,7 +194,7 @@ func (hc *HelmCommand) collectBuildInfoIfNeeded() error {
 		log.Debug("Skipping build info for ", hc.cmdName)
 		return nil
 	}
-	log.Info("Collecting build info for executed helm ", hc.cmdName, "command")
+	log.Info("Collecting build info for executed helm", hc.cmdName, "command")
 	buildName, err := hc.buildConfiguration.GetBuildName()
 	if err != nil {
 		return errorutils.CheckError(err)
