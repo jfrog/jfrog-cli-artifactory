@@ -123,6 +123,7 @@ func (hfu *HuggingFaceUpload) CollectArtifactsForBuildInfo() error {
 		})
 	}
 	ctx.BuildInfo.Modules[0].Artifacts = artifacts
+	removeDuplicateArtifacts(ctx.BuildInfo)
 	return SaveBuildInfo(ctx)
 }
 
@@ -195,6 +196,12 @@ func (hfu *HuggingFaceUpload) CommandName() string {
 // NewHuggingFaceUpload creates a new instance of HFUploadCmd
 func NewHuggingFaceUpload() *HuggingFaceUpload {
 	return &HuggingFaceUpload{}
+}
+
+// SetCommandName sets the command name for the upload command
+func (hfu *HuggingFaceUpload) SetCommandName(commandName string) *HuggingFaceUpload {
+	hfu.name = commandName
+	return hfu
 }
 
 // SetFolderPath sets the folder path to upload for the upload command

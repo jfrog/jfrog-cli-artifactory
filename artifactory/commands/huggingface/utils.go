@@ -194,7 +194,7 @@ func GetBuildInfoContext(buildConfig *buildUtils.BuildConfiguration, commandName
 	if !isCollectBuildInfo {
 		return nil, nil
 	}
-	log.Info("Collecting build info for executed huggingface ", commandName, " command")
+	log.Info("Collecting build info for executed huggingface", commandName, "command")
 	buildName, err := buildConfig.GetBuildName()
 	if err != nil {
 		return nil, errorutils.CheckError(err)
@@ -229,4 +229,50 @@ func SaveBuildInfo(ctx *BuildInfoContext) error {
 	}
 	log.Info("Build info saved locally.")
 	return nil
+}
+
+func removeDuplicateDependencies(buildInfo *entities.BuildInfo) {
+	if buildInfo == nil {
+		return
+	}
+	for moduleIdx, module := range buildInfo.Modules {
+		dependenciesMap := make(map[string]entities.Dependency)
+		var dependencies []entities.Dependency
+		for _, dependency := range module.Dependencies {
+			sha256 := dependency.Sha256
+			if sha256 == "" {
+				log.Debug("Missing Sha256 for dependency: ", dependency.Id, "so, skipping it from adding into build info.")
+			}
+			_, exist := dependenciesMap[sha256]
+			if sha256 != "" && !exist {
+				dependenciesMap[sha256] = dependency
+				dependencies = append(dependencies, dependency)
+			}
+		}
+		module.Dependencies = dependencies
+		buildInfo.Modules[moduleIdx] = module
+	}
+}
+
+func removeDuplicateArtifacts(buildInfo *entities.BuildInfo) {
+	if buildInfo == nil {
+		return
+	}
+	for moduleIdx, module := range buildInfo.Modules {
+		artifactsMap := make(map[string]entities.Artifact)
+		var artifacts []entities.Artifact
+		for _, artifact := range module.Artifacts {
+			sha256 := artifact.Sha256
+			if sha256 == "" {
+				log.Debug("Missing Sha256 for artifact: ", artifact.Name, "so, skipping it from adding into build info.")
+			}
+			_, exist := artifactsMap[sha256]
+			if sha256 != "" && !exist {
+				artifactsMap[sha256] = artifact
+				artifacts = append(artifacts, artifact)
+			}
+		}
+		module.Artifacts = artifacts
+		buildInfo.Modules[moduleIdx] = module
+	}
 }

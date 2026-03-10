@@ -126,9 +126,8 @@ func detectDependency(name, modulePath string, replaces map[string]Replace, curr
 			repo := parts
 			ref := replace.New.Version
 
-			// Handle version format like "v1.2.3-0.20240101-abc123"
-			// The ref might be a pseudo-version containing a commit hash
 			if ref != "" {
+				ref = extractCommitFromPseudoVersion(ref)
 				fmt.Printf("Found replace directive: %s => %s @ %s\n", name, repo, ref)
 				return &DependencyInfo{
 					Name:       name,
@@ -156,6 +155,20 @@ func detectDependency(name, modulePath string, replaces map[string]Replace, curr
 
 	fmt.Printf("No matching branch for %s, will use default (master)\n", name)
 	return nil
+}
+
+// pseudoVersionPattern matches Go module pseudo-versions and captures the commit hash.
+// Format: vX.Y.Z-0.YYYYMMDDHHMMSS-COMMITHASH or vX.Y.Z-pre.0.YYYYMMDDHHMMSS-COMMITHASH
+var pseudoVersionPattern = regexp.MustCompile(`-(\d{14})-([a-f0-9]{12})$`)
+
+// extractCommitFromPseudoVersion returns the 12-char commit hash from a Go pseudo-version,
+// or the original string if it is not a pseudo-version.
+func extractCommitFromPseudoVersion(version string) string {
+	matches := pseudoVersionPattern.FindStringSubmatch(version)
+	if len(matches) == 3 {
+		return matches[2]
+	}
+	return version
 }
 
 // isValidGitRef validates that a string is a valid git reference name
