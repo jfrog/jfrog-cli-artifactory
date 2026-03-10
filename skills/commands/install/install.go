@@ -101,11 +101,15 @@ func (ic *InstallCommand) Run() error {
 
 	if err := ic.verifyEvidence(); err != nil {
 		if ic.quiet || common.IsCI() {
-			return fmt.Errorf("evidence verification failed and running in non-interactive mode: %w", err)
-		}
-		log.Warn("Evidence verification failed:", err.Error())
-		if !coreutils.AskYesNo("The skill is unattested. Continue with installation?", false) {
-			return fmt.Errorf("installation aborted by user")
+			if common.ShouldFailOnMissingEvidence() {
+				return fmt.Errorf("evidence verification failed for skill '%s': %s. Set JFROG_SKILLS_DISABLE_QUIET_FAILURE=true to proceed without evidence", ic.slug, err.Error())
+			}
+			log.Warn(fmt.Sprintf("Evidence verification failed for skill '%s': %s. Proceeding with installation.", ic.slug, err.Error()))
+		} else {
+			log.Warn("Evidence verification failed:", err.Error())
+			if !coreutils.AskYesNo("The skill is unattested. Continue with installation?", false) {
+				return fmt.Errorf("installation aborted by user")
+			}
 		}
 	}
 
