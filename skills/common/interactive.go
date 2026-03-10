@@ -2,6 +2,7 @@ package common
 
 import (
 	"os"
+	"strings"
 
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 )
@@ -18,4 +19,12 @@ func IsQuiet(c *components.Context) bool {
 func IsCI() bool {
 	ci := os.Getenv("CI")
 	return ci == "true" || ci == "1"
+}
+
+// ShouldFailOnMissingEvidence returns true when quiet/CI mode should fail
+// on missing evidence. Default is to fail; set JFROG_SKILLS_DISABLE_QUIET_FAILURE=true
+// to override and allow installation without evidence.
+func ShouldFailOnMissingEvidence() bool {
+	v := os.Getenv("JFROG_SKILLS_DISABLE_QUIET_FAILURE")
+	return !strings.EqualFold(v, "true") && v != "1"
 }

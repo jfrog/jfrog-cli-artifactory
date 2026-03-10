@@ -24,6 +24,9 @@ type ContainerCommandBase struct {
 }
 
 func (ccb *ContainerCommandBase) ImageTag() string {
+	if ccb.image == nil {
+		return ""
+	}
 	return ccb.image.Name()
 }
 
@@ -48,6 +51,9 @@ func (ccb *ContainerCommandBase) GetRepo() (string, error) {
 		return ccb.repo, nil
 	}
 
+	if ccb.image == nil {
+		return "", errorutils.CheckErrorf("container image not initialized")
+	}
 	serviceManager, err := utils.CreateServiceManager(ccb.serverDetails, -1, 0, false)
 	if err != nil {
 		return "", err
