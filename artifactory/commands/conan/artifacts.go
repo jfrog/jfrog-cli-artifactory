@@ -2,6 +2,7 @@ package conan
 
 import (
 	"fmt"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -237,9 +238,10 @@ func (bps *BuildPropertySetter) SetProperties(artifacts []entities.Artifact) err
 func (bps *BuildPropertySetter) convertToResultItems(artifacts []entities.Artifact) []specutils.ResultItem {
 	var items []specutils.ResultItem
 	for _, artifact := range artifacts {
+		dirPath := path.Dir(artifact.Path)
 		items = append(items, specutils.ResultItem{
 			Repo:        bps.targetRepo,
-			Path:        artifact.Path,
+			Path:        dirPath,
 			Name:        artifact.Name,
 			Actual_Sha1: artifact.Sha1,
 			Actual_Md5:  artifact.Md5,
