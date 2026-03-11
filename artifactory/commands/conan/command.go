@@ -1,6 +1,7 @@
 package conan
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -163,23 +164,29 @@ func isArtifactoryConanRemote(url string) bool {
 }
 
 // runUploadCommand handles the upload command with build info collection.
-// Upload requires special handling because:
-// 1. We need to capture the output to determine which artifacts were uploaded
-// 2. We need to collect artifacts from Artifactory and set build properties
+// When build info is configured, adds --format=json --out-file=<tempfile> to
+// capture structured upload data while streaming output to the user's terminal.
 func (c *ConanCommand) runUploadCommand() error {
 	log.Info(fmt.Sprintf("Running Conan %s", c.commandName))
 
-	// Execute conan upload and capture output
-	output, err := c.executeAndCaptureOutput()
-	if err != nil {
-		fmt.Print(string(output))
+	var jsonOutputFile string
+	if c.buildConfiguration != nil && !hasFormatFlag(c.args) {
+		tmpFile, err := os.CreateTemp("", "conan-upload-*.json")
+		if err != nil {
+			return fmt.Errorf("create temp file for upload output: %w", err)
+		}
+		tmpFile.Close()
+		jsonOutputFile = tmpFile.Name()
+		defer os.Remove(jsonOutputFile)
+		c.args = append(c.args, "--format=json", "--out-file="+jsonOutputFile)
+	}
+
+	if err := gofrogcmd.RunCmd(c); err != nil {
 		return fmt.Errorf("conan %s failed: %w", c.commandName, err)
 	}
-	fmt.Print(string(output))
 
-	// Process upload for build info if build configuration is provided
-	if c.buildConfiguration != nil {
-		return c.processBuildInfo(string(output))
+	if c.buildConfiguration != nil && jsonOutputFile != "" {
+		return c.processBuildInfoFromJSON(jsonOutputFile)
 	}
 
 	return nil
@@ -201,22 +208,46 @@ func (c *ConanCommand) runConanCommand() error {
 	return nil
 }
 
-// processBuildInfo processes build info after a successful upload.
-func (c *ConanCommand) processBuildInfo(uploadOutput string) error {
+// processBuildInfoFromJSON reads the structured JSON output file from conan upload
+// and processes it for build info collection.
+func (c *ConanCommand) processBuildInfoFromJSON(jsonFile string) error {
 	buildName, buildNumber, _ := c.getBuildNameAndNumber()
 	if buildName == "" || buildNumber == "" {
-		return nil // No build info configured, skip silently
+		return nil
 	}
 
 	log.Info(fmt.Sprintf("Processing Conan upload with build info: %s/%s", buildName, buildNumber))
 
+	data, err := os.ReadFile(jsonFile)
+	if err != nil {
+		log.Warn(fmt.Sprintf("Could not read upload output file: %v", err))
+		return nil
+	}
+
+	var uploadOutput ConanUploadOutput
+	if err := json.Unmarshal(data, &uploadOutput); err != nil {
+		log.Warn(fmt.Sprintf("Could not parse upload JSON output: %v", err))
+		return nil
+	}
+
 	processor := NewUploadProcessor(c.workingDir, c.buildConfiguration, c.serverDetails)
-	if err := processor.Process(uploadOutput); err != nil {
+	if err := processor.ProcessJSON(uploadOutput); err != nil {
 		log.Warn("Failed to process Conan upload: " + err.Error())
 	}
 
 	log.Info(fmt.Sprintf("Conan build info collected. Use 'jf rt bp %s %s' to publish it.", buildName, buildNumber))
 	return nil
+}
+
+// hasFormatFlag checks if the user already specified --format or -f in their args.
+func hasFormatFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "--format" || arg == "-f" ||
+			strings.HasPrefix(arg, "--format=") || strings.HasPrefix(arg, "-f=") {
+			return true
+		}
+	}
+	return false
 }
 
 // collectAndSaveBuildInfo collects dependencies and saves build info locally.
@@ -264,12 +295,6 @@ func (c *ConanCommand) getBuildNameAndNumber() (string, string, error) {
 	}
 
 	return buildName, buildNumber, nil
-}
-
-// executeAndCaptureOutput runs the command and returns the combined output.
-func (c *ConanCommand) executeAndCaptureOutput() ([]byte, error) {
-	cmd := c.GetCmd()
-	return cmd.CombinedOutput()
 }
 
 // GetCmd returns the exec.Cmd for the Conan command.
