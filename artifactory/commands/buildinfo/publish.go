@@ -34,6 +34,7 @@ type BuildPublishCommand struct {
 	summary            *clientutils.Sha256Summary
 	collectGitInfo     bool
 	collectEnv         bool
+	depExcludeScopes   []string
 	BuildAddGitCommand
 }
 
@@ -103,6 +104,11 @@ func (bpc *BuildPublishCommand) SetCollectEnv(collectEnv bool) *BuildPublishComm
 	return bpc
 }
 
+func (bpc *BuildPublishCommand) SetDepExcludeScopes(scopes []string) *BuildPublishCommand {
+	bpc.depExcludeScopes = scopes
+	return bpc
+}
+
 func (bpc *BuildPublishCommand) ServerDetails() (*config.ServerDetails, error) {
 	return bpc.serverDetails, nil
 }
@@ -168,6 +174,7 @@ func (bpc *BuildPublishCommand) Run() error {
 	if errorutils.CheckError(err) != nil {
 		return err
 	}
+	bpc.excludeDependenciesByScope(buildInfo)
 	if bpc.buildConfiguration.IsLoadedFromConfigFile() {
 		buildInfo.Number, err = bpc.getNextBuildNumber(buildInfo.Name, servicesManager)
 		if errorutils.CheckError(err) != nil {
@@ -362,6 +369,41 @@ func (bpc *BuildPublishCommand) setCIVcsPropsOnArtifacts(
 	// Set properties on all artifacts in a single batch call
 	setPropsOnArtifacts(servicesManager, artifactPaths, props)
 	log.Debug("CI VCS: Property setting completed")
+}
+
+func (bpc *BuildPublishCommand) excludeDependenciesByScope(buildInfo *buildinfo.BuildInfo) {
+	if len(bpc.depExcludeScopes) == 0 {
+		return
+	}
+	excludeSet := make(map[string]bool, len(bpc.depExcludeScopes))
+	for _, s := range bpc.depExcludeScopes {
+		excludeSet[strings.ToLower(s)] = true
+	}
+	totalExcluded := 0
+	for i := range buildInfo.Modules {
+		original := buildInfo.Modules[i].Dependencies
+		filtered := make([]buildinfo.Dependency, 0, len(original))
+		for _, dep := range original {
+			if hasScopeMatch(dep.Scopes, excludeSet) {
+				totalExcluded++
+			} else {
+				filtered = append(filtered, dep)
+			}
+		}
+		buildInfo.Modules[i].Dependencies = filtered
+	}
+	if totalExcluded > 0 {
+		log.Info(fmt.Sprintf("Excluded %d dependencies based on scope filter.", totalExcluded))
+	}
+}
+
+func hasScopeMatch(scopes []string, excludeSet map[string]bool) bool {
+	for _, scope := range scopes {
+		if excludeSet[strings.ToLower(scope)] {
+			return true
+		}
+	}
+	return false
 }
 
 func recordCommandSummary(buildInfo *buildinfo.BuildInfo, buildLink string) (err error) {
