@@ -983,7 +983,7 @@ var flagsMap = map[string]components.Flag{
 	collectGitInfo:    components.NewBoolFlag(collectGitInfo, "Set to true to collect Git revision and URL from the local .git directory and adds it to the build-info.", components.WithBoolDefaultValueFalse()),
 	dotGitPath:        components.NewStringFlag(dotGitPath, "Path to the .git directory. If not provided, the .git directory will be searched in the current working directory or its parent directories. Only respected when collect-git-info is enabled.", components.SetMandatoryFalse()),
 	gitConfigFilePath: components.NewStringFlag(gitConfigFilePath, "Path to the git configuration file. Only respected when collect-git-info is enabled.", components.SetMandatoryFalse()),
-	depExclude:        components.NewStringFlag(depExclude, "List of semicolon-separated(;) dependency scopes to exclude from the published build info. Case insensitive. For example: \"test;provided\".", components.SetMandatoryFalse()),
+	depExclude:        components.NewStringFlag(depExclude, "List of semicolon-separated(;) dependency scopes to exclude from the published build info. Relevant for Package managers with supported dependency scopes (e.g. Maven, NPM). For example: \"test;provided\".", components.SetMandatoryFalse()),
 
 	// Build Add Dependencies specific commands flags
 	badRecursive: components.NewBoolFlag(Recursive, "[Default: true] Set to false if you do not wish to collect artifacts in sub-folders to be added to the build info.", components.WithBoolDefaultValueFalse()),
