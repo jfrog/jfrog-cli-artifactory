@@ -176,9 +176,15 @@ func (c *ConanCommand) runUploadCommand() error {
 		if err != nil {
 			return fmt.Errorf("create temp file for upload output: %w", err)
 		}
-		tmpFile.Close()
+		if err := tmpFile.Close(); err != nil {
+			return fmt.Errorf("close temp file: %w", err)
+		}
 		jsonOutputFile = tmpFile.Name()
-		defer os.Remove(jsonOutputFile)
+		defer func() {
+			if removeErr := os.Remove(jsonOutputFile); removeErr != nil {
+				log.Debug(fmt.Sprintf("Failed to remove temp file %s: %v", jsonOutputFile, removeErr))
+			}
+		}()
 		c.args = append(c.args, "--format=json", "--out-file="+jsonOutputFile)
 	}
 
@@ -221,19 +227,17 @@ func (c *ConanCommand) processBuildInfoFromJSON(jsonFile string) error {
 
 	data, err := os.ReadFile(jsonFile)
 	if err != nil {
-		log.Warn(fmt.Sprintf("Could not read upload output file: %v", err))
-		return nil
+		return fmt.Errorf("could not read upload output file: %w", err)
 	}
 
 	var uploadOutput ConanUploadOutput
 	if err := json.Unmarshal(data, &uploadOutput); err != nil {
-		log.Warn(fmt.Sprintf("Could not parse upload JSON output: %v", err))
-		return nil
+		return fmt.Errorf("could not parse upload JSON output: %w", err)
 	}
 
 	processor := NewUploadProcessor(c.workingDir, c.buildConfiguration, c.serverDetails)
 	if err := processor.ProcessJSON(uploadOutput); err != nil {
-		log.Warn("Failed to process Conan upload: " + err.Error())
+		return fmt.Errorf("failed to process Conan upload: %w", err)
 	}
 
 	log.Info(fmt.Sprintf("Conan build info collected. Use 'jf rt bp %s %s' to publish it.", buildName, buildNumber))
