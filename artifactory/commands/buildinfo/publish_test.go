@@ -508,7 +508,7 @@ func TestExcludeDependenciesByScope(t *testing.T) {
 }
 
 func TestHasScopeMatch(t *testing.T) {
-	excludeSet := map[string]bool{"test": true, "provided": true}
+	excludeSet := map[string]struct{}{"test": {}, "provided": {}}
 
 	tests := []struct {
 		name     string
@@ -525,7 +525,7 @@ func TestHasScopeMatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.expected, hasScopeMatch(tt.scopes, excludeSet))
+			require.Equal(t, tt.expected, matchesExcludeScope(tt.scopes, excludeSet))
 		})
 	}
 }

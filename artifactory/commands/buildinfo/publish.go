@@ -375,16 +375,16 @@ func (bpc *BuildPublishCommand) excludeDependenciesByScope(buildInfo *buildinfo.
 	if len(bpc.depExcludeScopes) == 0 {
 		return
 	}
-	excludeSet := make(map[string]bool, len(bpc.depExcludeScopes))
+	excludeSet := make(map[string]struct{}, len(bpc.depExcludeScopes))
 	for _, s := range bpc.depExcludeScopes {
-		excludeSet[strings.ToLower(s)] = true
+		excludeSet[strings.ToLower(s)] = struct{}{}
 	}
 	totalExcluded := 0
 	for i := range buildInfo.Modules {
 		original := buildInfo.Modules[i].Dependencies
 		filtered := make([]buildinfo.Dependency, 0, len(original))
 		for _, dep := range original {
-			if hasScopeMatch(dep.Scopes, excludeSet) {
+			if matchesExcludeScope(dep.Scopes, excludeSet) {
 				totalExcluded++
 			} else {
 				filtered = append(filtered, dep)
@@ -397,9 +397,9 @@ func (bpc *BuildPublishCommand) excludeDependenciesByScope(buildInfo *buildinfo.
 	}
 }
 
-func hasScopeMatch(scopes []string, excludeSet map[string]bool) bool {
+func matchesExcludeScope(scopes []string, excludeSet map[string]struct{}) bool {
 	for _, scope := range scopes {
-		if excludeSet[strings.ToLower(scope)] {
+		if _, found := excludeSet[strings.ToLower(scope)]; found {
 			return true
 		}
 	}

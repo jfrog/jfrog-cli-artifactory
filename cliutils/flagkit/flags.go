@@ -273,7 +273,7 @@ const (
 	collectGitInfo     = "collect-git-info"
 	dotGitPath         = "dot-git-path"
 	gitConfigFilePath  = "git-config-file-path"
-	depExclude         = "dep-exclude"
+	depExclude         = "dep-exclude-scopes"
 
 	// Unique build-add-dependencies flags
 	badPrefix    = "bad-"
