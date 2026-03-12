@@ -159,7 +159,7 @@ func detectDependency(name, modulePath string, replaces map[string]Replace, curr
 
 // pseudoVersionPattern matches Go module pseudo-versions and captures the commit hash.
 // Format: vX.Y.Z-0.YYYYMMDDHHMMSS-COMMITHASH or vX.Y.Z-pre.0.YYYYMMDDHHMMSS-COMMITHASH
-var pseudoVersionPattern = regexp.MustCompile(`-(\d{14})-([a-f0-9]{12})$`)
+var pseudoVersionPattern = regexp.MustCompile(`-(?:\d+\.)?(\d{14})-([a-f0-9]{12})$`)
 
 // extractCommitFromPseudoVersion returns the 12-char commit hash from a Go pseudo-version,
 // or the original string if it is not a pseudo-version.
