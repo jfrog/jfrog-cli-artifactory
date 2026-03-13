@@ -68,6 +68,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	buildinfocmd "github.com/jfrog/jfrog-client-go/artifactory/buildinfo"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
+	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -1834,8 +1835,14 @@ func getSourcePattern(c *components.Context) string {
 	}
 
 	if isRbv2 {
+		// Resolve Artifactory details once here so buildSourceForRbv2 can reuse them
+		// without a redundant CreateArtifactoryDetailsByFlags round-trip.
+		rtDetails, rtErr := common.CreateArtifactoryDetailsByFlags(c)
+		if rtErr != nil {
+			log.Debug("Could not resolve Artifactory details for RBV2 repo probe, using standard path:", rtErr.Error())
+		}
 		// RB2 will be downloaded like a regular artifact, path: projectKey-release-bundles-v2/rbName/rbVersion
-		source = buildSourceForRbv2(c)
+		source = buildSourceForRbv2(c, rtDetails)
 	} else {
 		source = strings.TrimPrefix(c.GetArgumentAt(0), "/")
 	}
@@ -1843,7 +1850,7 @@ func getSourcePattern(c *components.Context) string {
 	return source
 }
 
-func buildSourceForRbv2(c *components.Context) string {
+func buildSourceForRbv2(c *components.Context, rtDetails *config.ServerDetails) string {
 	bundleNameAndVersion := c.GetStringFlagValue("bundle")
 	projectKey := c.GetStringFlagValue("project")
 
@@ -1855,9 +1862,7 @@ func buildSourceForRbv2(c *components.Context) string {
 	// When RBV2 ATW (All-The-Way) is enabled in Distribution, bundles are stored in
 	// release-bundles-v2-jfds instead of release-bundles-v2. Probe the standard repo
 	// and fall back to the ATW repo if no artifacts are found there.
-	rtDetails, err := common.CreateArtifactoryDetailsByFlags(c)
-	if err != nil {
-		log.Debug("Could not resolve Artifactory details for RBV2 repo probe, using standard path:", err.Error())
+	if rtDetails == nil {
 		return standardSource
 	}
 
@@ -1899,7 +1904,9 @@ func rbv2SourceHasArtifacts(rtDetails *config.ServerDetails, sourcePath string) 
 	readers, callbackFunc, err := utils.SearchFiles(servicesManager, probeSpec)
 	defer func() {
 		if callbackFunc != nil {
-			_ = callbackFunc()
+			if cleanupErr := callbackFunc(); cleanupErr != nil {
+				log.Debug("Failed to clean up RBV2 probe search results:", cleanupErr.Error())
+			}
 		}
 	}()
 	if err != nil {
@@ -1910,9 +1917,17 @@ func rbv2SourceHasArtifacts(rtDetails *config.ServerDetails, sourcePath string) 
 		if reader == nil {
 			continue
 		}
-		var result map[string]interface{}
+		var result servicesUtils.ResultItem
 		if reader.NextRecord(&result) == nil {
 			return true, nil
+		}
+	}
+
+	for _, reader := range readers {
+		if reader != nil {
+			if readerErr := reader.GetError(); readerErr != nil {
+				return false, readerErr
+			}
 		}
 	}
 
