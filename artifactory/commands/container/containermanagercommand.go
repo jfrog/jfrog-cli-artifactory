@@ -3,6 +3,7 @@ package container
 import (
 	container "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
 // General utils for docker/podman commands
@@ -51,6 +52,9 @@ func (cm *ContainerCommand) PerformLogin(serverDetails *config.ServerDetails, co
 		if cm.LoginRegistry() != "" {
 			imageRegistry = cm.LoginRegistry()
 		} else {
+			if cm.image == nil {
+				return errorutils.CheckErrorf("container image not initialized; verify that the JFrog CLI is configured with a valid server URL using 'jf config'")
+			}
 			var err error
 			imageRegistry, err = cm.image.GetRegistry()
 			if err != nil {
