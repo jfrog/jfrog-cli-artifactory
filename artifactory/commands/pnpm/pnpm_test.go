@@ -483,61 +483,32 @@ func TestValidatePnpmPrerequisites(t *testing.T) {
 	assert.NoError(t, err, "pnpm and Node.js should meet minimum version requirements in CI")
 }
 
-// TestPnpmVersionValidation verifies the pnpm version comparison logic.
+// TestPnpmVersionValidation verifies the pnpm 10 version range check logic.
 func TestPnpmVersionValidation(t *testing.T) {
-	// Versions below minimum should fail (Compare returns > 0 when arg > receiver)
+	// pnpm 9.x should be below minimum
 	belowPnpm := version.NewVersion("9.15.9")
 	assert.Greater(t, belowPnpm.Compare(minSupportedPnpmVersion), 0, "pnpm 9.x should be below minimum")
 
-	abovePnpm := version.NewVersion("10.32.1")
-	assert.LessOrEqual(t, abovePnpm.Compare(minSupportedPnpmVersion), 0, "pnpm 10.32.1 should meet minimum")
+	// pnpm 10.x should be within supported range
+	pnpm10 := version.NewVersion("10.32.1")
+	assert.LessOrEqual(t, pnpm10.Compare(minSupportedPnpmVersion), 0, "pnpm 10.32.1 should meet minimum")
+	assert.Greater(t, pnpm10.Compare(minUnsupportedPnpmVersion), 0, "pnpm 10.32.1 should be below max")
 
+	// pnpm 11.x should be rejected (above max)
+	pnpm11 := version.NewVersion("11.0.0")
+	assert.LessOrEqual(t, pnpm11.Compare(minUnsupportedPnpmVersion), 0, "pnpm 11.0.0 should be at or above max")
+
+	// Exact minimum should pass
 	exactPnpm := version.NewVersion(minSupportedPnpmVersion)
 	assert.Equal(t, 0, exactPnpm.Compare(minSupportedPnpmVersion), "exact minimum should pass")
 }
 
-// TestGetMinNodeVersionForPnpm verifies that the correct Node.js minimum is returned per pnpm major version.
-func TestGetMinNodeVersionForPnpm(t *testing.T) {
-	tests := []struct {
-		pnpmVersion     string
-		expectedMinNode string
-	}{
-		{"10.0.0", "18.12.0"},
-		{"10.32.1", "18.12.0"},
-		{"11.0.0", "22.13.0"},
-		{"11.0.0-alpha.14", "22.13.0"},
-		// Unknown future version should fall back to the highest known requirement
-		{"12.0.0", "22.13.0"},
-	}
-	for _, tt := range tests {
-		t.Run("pnpm_"+tt.pnpmVersion, func(t *testing.T) {
-			pnpmVer := version.NewVersion(tt.pnpmVersion)
-			minNode := getMinNodeVersionForPnpm(pnpmVer)
-			assert.Equal(t, tt.expectedMinNode, minNode)
-		})
-	}
-}
-
-// TestNodeVersionValidationPerPnpmMajor verifies Node.js version checks are pnpm-version-aware.
-func TestNodeVersionValidationPerPnpmMajor(t *testing.T) {
-	// pnpm 10 requires Node >= 18.12.0
-	minNode10 := getMinNodeVersionForPnpm(version.NewVersion("10.32.1"))
-	assert.LessOrEqual(t, version.NewVersion("20.20.1").Compare(minNode10), 0, "Node 20.x should be valid for pnpm 10")
-	assert.Greater(t, version.NewVersion("16.14.0").Compare(minNode10), 0, "Node 16.x should be rejected for pnpm 10")
-
-	// pnpm 11 requires Node >= 22.13.0
-	minNode11 := getMinNodeVersionForPnpm(version.NewVersion("11.0.0"))
-	assert.LessOrEqual(t, version.NewVersion("22.14.0").Compare(minNode11), 0, "Node 22.14 should be valid for pnpm 11")
-	assert.Greater(t, version.NewVersion("20.20.1").Compare(minNode11), 0, "Node 20.x should be rejected for pnpm 11")
-	assert.Greater(t, version.NewVersion("18.12.0").Compare(minNode11), 0, "Node 18.x should be rejected for pnpm 11")
-}
-
-// TestParseMajorVersion verifies major version extraction from semver strings.
-func TestParseMajorVersion(t *testing.T) {
-	assert.Equal(t, 10, parseMajorVersion("10.32.1"))
-	assert.Equal(t, 11, parseMajorVersion("11.0.0-alpha.14"))
-	assert.Equal(t, 0, parseMajorVersion(""))
-	assert.Equal(t, 9, parseMajorVersion("9.15.9"))
+// TestNodeVersionValidation verifies Node.js version checks for pnpm 10.
+func TestNodeVersionValidation(t *testing.T) {
+	assert.LessOrEqual(t, version.NewVersion("20.20.1").Compare(minRequiredNodeVersion), 0, "Node 20.x should be valid")
+	assert.LessOrEqual(t, version.NewVersion("18.12.0").Compare(minRequiredNodeVersion), 0, "Node 18.12.0 should be valid")
+	assert.Greater(t, version.NewVersion("16.14.0").Compare(minRequiredNodeVersion), 0, "Node 16.x should be rejected")
+	assert.Greater(t, version.NewVersion("18.11.0").Compare(minRequiredNodeVersion), 0, "Node 18.11.0 should be rejected")
 }
 
 // TestInstallBuildInfoGracefulDegradation verifies that collectAndSaveBuildInfo returns an error

@@ -17,13 +17,9 @@ import (
 
 const (
 	minSupportedPnpmVersion = "10.0.0"
+	minUnsupportedPnpmVersion = "11.0.0"
+	minRequiredNodeVersion  = "18.12.0"
 )
-
-// pnpmNodeRequirements maps pnpm major versions to their minimum required Node.js version.
-var pnpmNodeRequirements = map[int]string{
-	10: "18.12.0",
-	11: "22.13.0",
-}
 
 // pnpmCommand is the common interface for pnpm subcommands (install, publish).
 type pnpmCommand interface {
@@ -83,7 +79,8 @@ func NewCommand(cmdName string, args []string, buildConfig *buildUtils.BuildConf
 	return cmd, nil
 }
 
-// validatePnpmPrerequisites checks that pnpm and Node.js meet the minimum version requirements.
+// validatePnpmPrerequisites checks that pnpm and Node.js meet the version requirements.
+// Currently only pnpm 10.x is supported.
 func validatePnpmPrerequisites() error {
 	pnpmVer, err := getPnpmVersion()
 	if err != nil {
@@ -93,51 +90,22 @@ func validatePnpmPrerequisites() error {
 		return errorutils.CheckErrorf(
 			"JFrog CLI pnpm commands require pnpm version %s or higher. Current version: %s", minSupportedPnpmVersion, pnpmVer.GetVersion())
 	}
+	if pnpmVer.Compare(minUnsupportedPnpmVersion) <= 0 {
+		return errorutils.CheckErrorf(
+			"JFrog CLI pnpm commands currently support pnpm 10.x only. Current version: %s", pnpmVer.GetVersion())
+	}
 	log.Debug("pnpm version:", pnpmVer.GetVersion())
 
 	nodeVer, err := getNodeJSVersion()
 	if err != nil {
 		return err
 	}
-
-	// Determine the required Node.js version based on the pnpm major version.
-	minNodeVersion := getMinNodeVersionForPnpm(pnpmVer)
-	if nodeVer.Compare(minNodeVersion) > 0 {
+	if nodeVer.Compare(minRequiredNodeVersion) > 0 {
 		return errorutils.CheckErrorf(
-			"pnpm %s requires Node.js version %s or higher. Current version: %s", pnpmVer.GetVersion(), minNodeVersion, nodeVer.GetVersion())
+			"pnpm 10 requires Node.js version %s or higher. Current version: %s", minRequiredNodeVersion, nodeVer.GetVersion())
 	}
 	log.Debug("Node.js version:", nodeVer.GetVersion())
 	return nil
-}
-
-// getMinNodeVersionForPnpm returns the minimum Node.js version required for the given pnpm version.
-// It looks up the pnpm major version in pnpmNodeRequirements and falls back to the highest known requirement.
-func getMinNodeVersionForPnpm(pnpmVer *version.Version) string {
-	pnpmMajor := parseMajorVersion(pnpmVer.GetVersion())
-	if minNode, ok := pnpmNodeRequirements[pnpmMajor]; ok {
-		return minNode
-	}
-	// For unknown future versions, use the highest known requirement as a safe default.
-	highest := ""
-	for _, v := range pnpmNodeRequirements {
-		if highest == "" || version.NewVersion(highest).Compare(v) > 0 {
-			highest = v
-		}
-	}
-	return highest
-}
-
-// parseMajorVersion extracts the major version number from a semver string.
-func parseMajorVersion(ver string) int {
-	parts := strings.SplitN(ver, ".", 2)
-	if len(parts) == 0 {
-		return 0
-	}
-	major := 0
-	if _, err := fmt.Sscanf(parts[0], "%d", &major); err != nil {
-		return 0
-	}
-	return major
 }
 
 // getPnpmVersion returns the installed pnpm version.
