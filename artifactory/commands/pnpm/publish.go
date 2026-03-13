@@ -154,11 +154,13 @@ func (ppc *PnpmPublishCommand) collectSinglePublishBuildInfo(stdout []byte) erro
 	}
 
 	checksumResults := computeChecksums(packages)
-	if err = ppc.saveBuildArtifacts(packages, checksumResults); err != nil {
+	publishRepos := getPublishConfigRepos(ppc.workingDirectory, []publishedPackage{*published})
+	fallbackRepos := getRegistryRepos(ppc.workingDirectory)
+	if err = ppc.saveBuildArtifacts(packages, checksumResults, []publishedPackage{*published}, publishRepos, fallbackRepos); err != nil {
 		return err
 	}
 
-	ppc.tagBuildProperties([]publishedPackage{*published})
+	ppc.tagBuildProperties([]publishedPackage{*published}, publishRepos, fallbackRepos)
 	log.Info("pnpm publish finished successfully. 1 package published with build info.")
 	return nil
 }
@@ -230,11 +232,13 @@ func (ppc *PnpmPublishCommand) collectWorkspacePublishBuildInfo(addedSummaryFlag
 	checksumResults := computeChecksums(packages)
 	log.Debug(fmt.Sprintf("Checksums computed for %d/%d package(s).", len(checksumResults), len(packages)))
 
-	if err = ppc.saveBuildArtifacts(packages, checksumResults); err != nil {
+	publishRepos := getPublishConfigRepos(ppc.workingDirectory, published)
+	fallbackRepos := getRegistryRepos(ppc.workingDirectory)
+	if err = ppc.saveBuildArtifacts(packages, checksumResults, published, publishRepos, fallbackRepos); err != nil {
 		return err
 	}
 
-	ppc.tagBuildProperties(published)
+	ppc.tagBuildProperties(published, publishRepos, fallbackRepos)
 	log.Info(fmt.Sprintf("pnpm publish finished successfully. %d package(s) published with build info.", len(packages)))
 	return nil
 }
@@ -473,13 +477,19 @@ func computeChecksums(packages []pnpmPackResult) map[string]entities.Checksum {
 	return results
 }
 
-func (ppc *PnpmPublishCommand) saveBuildArtifacts(packages []pnpmPackResult, checksumResults map[string]entities.Checksum) error {
+func (ppc *PnpmPublishCommand) saveBuildArtifacts(packages []pnpmPackResult, checksumResults map[string]entities.Checksum, published []publishedPackage, publishRepos map[string]string, fallbackRepos registryMap) error {
 	pnpmBuild, err := newBuild(ppc.buildConfiguration)
 	if err != nil {
 		return err
 	}
 
 	customModule := ppc.buildConfiguration.GetModule()
+
+	// Build lookup from package name to published package for deploy path computation
+	publishedMap := make(map[string]publishedPackage)
+	for _, pub := range published {
+		publishedMap[pub.Name] = pub
+	}
 
 	for _, pkg := range packages {
 		cs, ok := checksumResults[pkg.Filename]
@@ -488,10 +498,21 @@ func (ppc *PnpmPublishCommand) saveBuildArtifacts(packages []pnpmPackResult, che
 			continue
 		}
 
+		// Compute the Artifactory deploy path and target repo using the normalized
+		// version from the published package (registry normalizes versions like v1.0.0 → 1.0.0).
+		var artifactPath, artifactRepo string
+		if pub, found := publishedMap[pkg.Name]; found {
+			deployDir, deployName := buildPnpmDeployPath(pub.Name, pub.Version)
+			artifactPath = deployDir + "/" + deployName
+			artifactRepo = resolvePublishRepo(pub.Name, publishRepos, fallbackRepos)
+		}
+
 		artifact := entities.Artifact{
-			Name: filepath.Base(pkg.Filename),
-			Type: "tgz",
-			Checksum: cs,
+			Name:                   filepath.Base(pkg.Filename),
+			Type:                   "tgz",
+			Path:                   artifactPath,
+			OriginalDeploymentRepo: artifactRepo,
+			Checksum:               cs,
 		}
 
 		moduleID := formatModuleId(pkg.Name, pkg.Version)
@@ -513,7 +534,7 @@ func (ppc *PnpmPublishCommand) saveBuildArtifacts(packages []pnpmPackResult, che
 // tagBuildProperties sets build.name, build.number, build.timestamp on published
 // artifacts in Artifactory. Constructs the artifact path directly from the package
 // name/version and registry config, avoiding a SearchFiles API call.
-func (ppc *PnpmPublishCommand) tagBuildProperties(published []publishedPackage) {
+func (ppc *PnpmPublishCommand) tagBuildProperties(published []publishedPackage, publishRepos map[string]string, fallbackRepos registryMap) {
 	if ppc.serverDetails == nil {
 		log.Debug("No server details configured. Skipping build property tagging.")
 		return
@@ -533,9 +554,6 @@ func (ppc *PnpmPublishCommand) tagBuildProperties(published []publishedPackage) 
 		log.Debug("No build properties to set. Skipping.")
 		return
 	}
-
-	publishRepos := getPublishConfigRepos(ppc.workingDirectory, published)
-	fallbackRepos := getRegistryRepos(ppc.workingDirectory)
 
 	var items []specutils.ResultItem
 	for _, pkg := range published {
