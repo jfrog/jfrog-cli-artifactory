@@ -235,7 +235,7 @@ func (c *ConanCommand) processBuildInfoFromJSON(jsonFile string) error {
 		return fmt.Errorf("could not parse upload JSON output: %w", err)
 	}
 
-	processor := NewUploadProcessor(c.workingDir, c.buildConfiguration, c.serverDetails)
+	processor := NewUploadProcessor(c.workingDir, c.buildConfiguration, c.serverDetails, c.buildConanFlexConfig())
 	if err := processor.ProcessJSON(uploadOutput); err != nil {
 		return fmt.Errorf("failed to process Conan upload: %w", err)
 	}
