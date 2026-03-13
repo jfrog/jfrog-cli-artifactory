@@ -3,6 +3,7 @@ package conan
 import (
 	"testing"
 
+	"github.com/jfrog/build-info-go/entities"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -212,4 +213,56 @@ func TestNewBuildPropertySetter(t *testing.T) {
 	assert.Equal(t, buildNumber, setter.buildNumber)
 	assert.Equal(t, projectKey, setter.projectKey)
 	assert.Equal(t, targetRepo, setter.targetRepo)
+}
+
+func TestConvertToResultItems_NoPathDuplication(t *testing.T) {
+	setter := &BuildPropertySetter{targetRepo: "401004-conan"}
+
+	artifacts := []entities.Artifact{
+		{
+			Name: "conanfile.py",
+			Path: "_/democconan/1.0.1000/_/72c46d08de471b9f67d565d90163d5c1/export/conanfile.py",
+			Checksum: entities.Checksum{
+				Sha1: "abc123",
+				Md5:  "def456",
+			},
+		},
+		{
+			Name: "conanmanifest.txt",
+			Path: "_/democconan/1.0.1000/_/72c46d08de471b9f67d565d90163d5c1/export/conanmanifest.txt",
+			Checksum: entities.Checksum{
+				Sha1: "ghi789",
+				Md5:  "jkl012",
+			},
+		},
+		{
+			Name: "conan_package.tgz",
+			Path: "_/democconan/1.0.1000/_/72c46d08de471b9f67d565d90163d5c1/package/da39a3ee5e6b4b0d3255bfef95601890afd80709/0ba8627bd47edc3a501e8f0eb9a79e5e/conan_package.tgz",
+			Checksum: entities.Checksum{
+				Sha1: "mno345",
+				Md5:  "pqr678",
+			},
+		},
+	}
+
+	items := setter.convertToResultItems(artifacts)
+
+	assert.Len(t, items, 3)
+
+	// Verify Path contains only the directory, not the filename
+	assert.Equal(t, "_/democconan/1.0.1000/_/72c46d08de471b9f67d565d90163d5c1/export", items[0].Path)
+	assert.Equal(t, "conanfile.py", items[0].Name)
+
+	assert.Equal(t, "_/democconan/1.0.1000/_/72c46d08de471b9f67d565d90163d5c1/export", items[1].Path)
+	assert.Equal(t, "conanmanifest.txt", items[1].Name)
+
+	assert.Equal(t, "_/democconan/1.0.1000/_/72c46d08de471b9f67d565d90163d5c1/package/da39a3ee5e6b4b0d3255bfef95601890afd80709/0ba8627bd47edc3a501e8f0eb9a79e5e", items[2].Path)
+	assert.Equal(t, "conan_package.tgz", items[2].Name)
+
+	// Verify GetItemRelativePath produces a correct URL (no duplicated filename)
+	for _, item := range items {
+		relPath := item.GetItemRelativePath()
+		assert.NotContains(t, relPath, item.Name+"/"+item.Name,
+			"Path should not contain duplicated filename: %s", relPath)
+	}
 }
