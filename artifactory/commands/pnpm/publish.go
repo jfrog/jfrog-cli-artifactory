@@ -1,6 +1,7 @@
 package pnpm
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -87,9 +88,84 @@ func (ppc *PnpmPublishCommand) Run() (err error) {
 	return ppc.publishWithBuildInfo(flags)
 }
 
-// publishWithBuildInfo runs native pnpm publish with --report-summary,
-// then packs only the published packages to compute checksums for build info.
+// publishWithBuildInfo publishes packages and collects build info.
+//
+// Two strategies are used depending on the publish mode:
+//
+//   - Single-project publish: pnpm delegates to npm, so --report-summary is not
+//     supported. Instead, --json is added which makes npm output a JSON object to
+//     stdout containing name, version, shasum, integrity, and filename.
+//
+//   - Workspace publish (-r): pnpm handles the publish natively and supports
+//     --report-summary, which writes a pnpm-publish-summary.json file listing
+//     all published packages. --json is NOT supported in this mode.
 func (ppc *PnpmPublishCommand) publishWithBuildInfo(flags publishFlags) error {
+	if flags.isRecursive {
+		return ppc.publishWorkspaceWithBuildInfo(flags)
+	}
+	return ppc.publishSingleWithBuildInfo(flags)
+}
+
+// publishSingleWithBuildInfo handles single-project publish using --json to
+// capture the published package info from npm's stdout output.
+func (ppc *PnpmPublishCommand) publishSingleWithBuildInfo(flags publishFlags) error {
+	if !flags.userProvidedJson {
+		flags.publishArgs = append(flags.publishArgs, "--json")
+	}
+
+	stdout, err := ppc.runPnpmPublishCaptured(flags)
+	if err != nil {
+		return err
+	}
+
+	if err := ppc.collectSinglePublishBuildInfo(stdout); err != nil {
+		log.Warn("pnpm publish completed successfully, but build info collection failed:", err.Error())
+	}
+	return nil
+}
+
+func (ppc *PnpmPublishCommand) collectSinglePublishBuildInfo(stdout []byte) error {
+	published, err := parseNpmPublishJson(stdout)
+	if err != nil {
+		return err
+	}
+	if published == nil {
+		log.Info("No package was published. Skipping build info collection.")
+		return nil
+	}
+
+	packDir, err := os.MkdirTemp("", "jfrog-pnpm-pack-")
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	defer func() {
+		if removeErr := os.RemoveAll(packDir); removeErr != nil {
+			log.Debug("Failed to cleanup pack directory:", removeErr.Error())
+		}
+	}()
+
+	packages, err := ppc.packPublishedPackages(packDir, []publishedPackage{*published})
+	if err != nil {
+		return err
+	}
+	if len(packages) == 0 {
+		log.Warn("Could not pack the published package. Skipping build info.")
+		return nil
+	}
+
+	checksumResults := computeChecksums(packages)
+	if err = ppc.saveBuildArtifacts(packages, checksumResults); err != nil {
+		return err
+	}
+
+	ppc.tagBuildProperties([]publishedPackage{*published})
+	log.Info("pnpm publish finished successfully. 1 package published with build info.")
+	return nil
+}
+
+// publishWorkspaceWithBuildInfo handles workspace (-r) publish using --report-summary
+// to get the list of published packages from pnpm-publish-summary.json.
+func (ppc *PnpmPublishCommand) publishWorkspaceWithBuildInfo(flags publishFlags) error {
 	addedSummaryFlag := false
 	if !flags.userProvidedSummary {
 		flags.publishArgs = append(flags.publishArgs, "--report-summary")
@@ -100,6 +176,13 @@ func (ppc *PnpmPublishCommand) publishWithBuildInfo(flags publishFlags) error {
 		return err
 	}
 
+	if err := ppc.collectWorkspacePublishBuildInfo(addedSummaryFlag); err != nil {
+		log.Warn("pnpm publish completed successfully, but build info collection failed:", err.Error())
+	}
+	return nil
+}
+
+func (ppc *PnpmPublishCommand) collectWorkspacePublishBuildInfo(addedSummaryFlag bool) error {
 	summaryPath := filepath.Join(ppc.workingDirectory, publishSummaryFile)
 	published, err := readPublishSummary(summaryPath)
 	if err != nil {
@@ -121,9 +204,7 @@ func (ppc *PnpmPublishCommand) publishWithBuildInfo(flags publishFlags) error {
 	if err != nil {
 		return errorutils.CheckError(err)
 	}
-	log.Debug("Created temporary pack directory:", packDir)
 	defer func() {
-		log.Debug("Cleaning up pack directory:", packDir)
 		if removeErr := os.RemoveAll(packDir); removeErr != nil {
 			log.Debug("Failed to cleanup pack directory:", removeErr.Error())
 		}
@@ -154,7 +235,6 @@ func (ppc *PnpmPublishCommand) publishWithBuildInfo(flags publishFlags) error {
 	}
 
 	ppc.tagBuildProperties(published)
-
 	log.Info(fmt.Sprintf("pnpm publish finished successfully. %d package(s) published with build info.", len(packages)))
 	return nil
 }
@@ -196,14 +276,15 @@ func prepareSummaryForPacking(summaryPath string, addedSummaryFlag bool, tempDir
 }
 
 type publishFlags struct {
-	publishArgs          []string
-	filterArgs           []string
-	isRecursive          bool
-	isDryRun             bool
-	userProvidedSummary  bool
+	publishArgs         []string
+	filterArgs          []string
+	isRecursive         bool
+	isDryRun            bool
+	userProvidedSummary bool
+	userProvidedJson    bool
 }
 
-// extractPublishFlags separates -r/--recursive, --filter, --dry-run, and --report-summary from publish args.
+// extractPublishFlags separates -r/--recursive, --filter, --dry-run, --report-summary, and --json from publish args.
 func extractPublishFlags(args []string) publishFlags {
 	var flags publishFlags
 	for i := 0; i < len(args); i++ {
@@ -222,6 +303,9 @@ func extractPublishFlags(args []string) publishFlags {
 		case arg == "--report-summary":
 			flags.userProvidedSummary = true
 			flags.publishArgs = append(flags.publishArgs, arg)
+		case arg == "--json":
+			flags.userProvidedJson = true
+			flags.publishArgs = append(flags.publishArgs, arg)
 		default:
 			flags.publishArgs = append(flags.publishArgs, arg)
 		}
@@ -229,7 +313,7 @@ func extractPublishFlags(args []string) publishFlags {
 	return flags
 }
 
-// runPnpmPublishNative runs pnpm publish as a native passthrough.
+// runPnpmPublishNative runs pnpm publish as a native passthrough (stdout/stderr go to terminal).
 func (ppc *PnpmPublishCommand) runPnpmPublishNative(flags publishFlags) error {
 	args := []string{"publish"}
 	if flags.isRecursive {
@@ -244,6 +328,51 @@ func (ppc *PnpmPublishCommand) runPnpmPublishNative(flags publishFlags) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return errorutils.CheckError(cmd.Run())
+}
+
+// runPnpmPublishCaptured runs pnpm publish and captures stdout (used for --json output).
+// Stderr still goes to the terminal so the user can see warnings/errors.
+func (ppc *PnpmPublishCommand) runPnpmPublishCaptured(flags publishFlags) ([]byte, error) {
+	args := []string{"publish"}
+	args = append(args, flags.filterArgs...)
+	args = append(args, flags.publishArgs...)
+	log.Debug("Running command: pnpm", strings.Join(args, " "))
+	cmd := exec.Command("pnpm", args...)
+	cmd.Dir = ppc.workingDirectory
+	cmd.Stdin = os.Stdin
+	var stdoutBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return nil, errorutils.CheckError(err)
+	}
+	return stdoutBuf.Bytes(), nil
+}
+
+// npmPublishJsonOutput represents the JSON output from `pnpm publish --json`
+// (which delegates to npm). Contains the published package details.
+type npmPublishJsonOutput struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Version  string `json:"version"`
+	Filename string `json:"filename"`
+}
+
+// parseNpmPublishJson parses the JSON output from `pnpm publish --json`.
+func parseNpmPublishJson(data []byte) (*publishedPackage, error) {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	var out npmPublishJsonOutput
+	if err := json.Unmarshal([]byte(trimmed), &out); err != nil {
+		return nil, errorutils.CheckErrorf("parsing pnpm publish --json output: %s", err.Error())
+	}
+	if out.Name == "" {
+		return nil, nil
+	}
+	return &publishedPackage{Name: out.Name, Version: out.Version}, nil
 }
 
 type publishSummary struct {
@@ -365,7 +494,10 @@ func (ppc *PnpmPublishCommand) saveBuildArtifacts(packages []pnpmPackResult, che
 			Checksum: cs,
 		}
 
-		moduleID := pkg.Name
+		moduleID := formatModuleId(pkg.Name, pkg.Version)
+		if moduleID == "" {
+			moduleID = pkg.Name
+		}
 		if customModule != "" && len(packages) == 1 {
 			moduleID = customModule
 		}
@@ -407,10 +539,7 @@ func (ppc *PnpmPublishCommand) tagBuildProperties(published []publishedPackage) 
 
 	var items []specutils.ResultItem
 	for _, pkg := range published {
-		repo := publishRepos[pkg.Name]
-		if repo == "" {
-			repo = resolveRepoFromRegistry(pkg.Name, fallbackRepos)
-		}
+		repo := resolvePublishRepo(pkg.Name, publishRepos, fallbackRepos)
 		if repo == "" {
 			log.Debug(fmt.Sprintf("Could not determine target repo for '%s'. Skipping property tagging for this package.", pkg.Name))
 			continue

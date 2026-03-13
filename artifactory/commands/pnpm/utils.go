@@ -3,13 +3,27 @@ package pnpm
 import (
 	"fmt"
 	"net/url"
+	"os/exec"
 	"strings"
 
 	"github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/gofrog/version"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
+
+const (
+	minSupportedPnpmVersion = "10.0.0"
+)
+
+// pnpmNodeRequirements maps pnpm major versions to their minimum required Node.js version.
+var pnpmNodeRequirements = map[int]string{
+	10: "18.12.0",
+	11: "22.13.0",
+}
 
 // pnpmCommand is the common interface for pnpm subcommands (install, publish).
 type pnpmCommand interface {
@@ -53,6 +67,9 @@ func (a *pnpmPublishAdapter) SetServerDetails(sd *config.ServerDetails) pnpmComm
 
 // NewCommand creates a pnpm command by subcommand name with common fields set.
 func NewCommand(cmdName string, args []string, buildConfig *buildUtils.BuildConfiguration, serverDetails *config.ServerDetails) (commands.Command, error) {
+	if err := validatePnpmPrerequisites(); err != nil {
+		return nil, err
+	}
 	var cmd pnpmCommand
 	switch cmdName {
 	case "install", "i":
@@ -64,6 +81,82 @@ func NewCommand(cmdName string, args []string, buildConfig *buildUtils.BuildConf
 	}
 	cmd.SetArgs(args).SetBuildConfiguration(buildConfig).SetServerDetails(serverDetails)
 	return cmd, nil
+}
+
+// validatePnpmPrerequisites checks that pnpm and Node.js meet the minimum version requirements.
+func validatePnpmPrerequisites() error {
+	pnpmVer, err := getPnpmVersion()
+	if err != nil {
+		return err
+	}
+	if pnpmVer.Compare(minSupportedPnpmVersion) > 0 {
+		return errorutils.CheckErrorf(
+			"JFrog CLI pnpm commands require pnpm version %s or higher. Current version: %s", minSupportedPnpmVersion, pnpmVer.GetVersion())
+	}
+	log.Debug("pnpm version:", pnpmVer.GetVersion())
+
+	nodeVer, err := getNodeJSVersion()
+	if err != nil {
+		return err
+	}
+
+	// Determine the required Node.js version based on the pnpm major version.
+	minNodeVersion := getMinNodeVersionForPnpm(pnpmVer)
+	if nodeVer.Compare(minNodeVersion) > 0 {
+		return errorutils.CheckErrorf(
+			"pnpm %s requires Node.js version %s or higher. Current version: %s", pnpmVer.GetVersion(), minNodeVersion, nodeVer.GetVersion())
+	}
+	log.Debug("Node.js version:", nodeVer.GetVersion())
+	return nil
+}
+
+// getMinNodeVersionForPnpm returns the minimum Node.js version required for the given pnpm version.
+// It looks up the pnpm major version in pnpmNodeRequirements and falls back to the highest known requirement.
+func getMinNodeVersionForPnpm(pnpmVer *version.Version) string {
+	pnpmMajor := parseMajorVersion(pnpmVer.GetVersion())
+	if minNode, ok := pnpmNodeRequirements[pnpmMajor]; ok {
+		return minNode
+	}
+	// For unknown future versions, use the highest known requirement as a safe default.
+	highest := ""
+	for _, v := range pnpmNodeRequirements {
+		if highest == "" || version.NewVersion(highest).Compare(v) > 0 {
+			highest = v
+		}
+	}
+	return highest
+}
+
+// parseMajorVersion extracts the major version number from a semver string.
+func parseMajorVersion(ver string) int {
+	parts := strings.SplitN(ver, ".", 2)
+	if len(parts) == 0 {
+		return 0
+	}
+	major := 0
+	if _, err := fmt.Sscanf(parts[0], "%d", &major); err != nil {
+		return 0
+	}
+	return major
+}
+
+// getPnpmVersion returns the installed pnpm version.
+func getPnpmVersion() (*version.Version, error) {
+	output, err := exec.Command("pnpm", "--version").Output()
+	if err != nil {
+		return nil, errorutils.CheckErrorf("failed to determine pnpm version. Ensure pnpm is installed: %w", err)
+	}
+	return version.NewVersion(strings.TrimSpace(string(output))), nil
+}
+
+// getNodeJSVersion returns the installed Node.js version.
+func getNodeJSVersion() (*version.Version, error) {
+	output, err := exec.Command("node", "--version").Output()
+	if err != nil {
+		return nil, errorutils.CheckErrorf("failed to determine Node.js version. Ensure Node.js is installed: %w", err)
+	}
+	// node --version returns "vX.Y.Z", strip the leading "v"
+	return version.NewVersion(strings.TrimPrefix(strings.TrimSpace(string(output)), "v")), nil
 }
 
 type moduleInfo struct {

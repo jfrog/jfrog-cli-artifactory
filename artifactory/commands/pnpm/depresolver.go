@@ -39,8 +39,28 @@ func parsePnpmLsProjects(projects []pnpmLsProject) []*moduleInfo {
 	return modules
 }
 
+// formatModuleId produces a module ID consistent with npm's BuildInfoModuleId:
+//   - unscoped: name:version  (e.g. "lodash:4.17.21")
+//   - scoped:   scope:name:version  (e.g. "jscope:pkg:1.0.0")
+//
+// Leading "v" or "=" prefixes on the version are stripped.
+func formatModuleId(name, version string) string {
+	if name == "" || version == "" {
+		return name
+	}
+	version = strings.TrimPrefix(version, "v")
+	version = strings.TrimPrefix(version, "=")
+	if strings.HasPrefix(name, "@") {
+		parts := strings.SplitN(name, "/", 2)
+		if len(parts) == 2 {
+			return strings.TrimPrefix(parts[0], "@") + ":" + parts[1] + ":" + version
+		}
+	}
+	return name + ":" + version
+}
+
 func parseSingleProject(proj pnpmLsProject) *moduleInfo {
-	moduleID := proj.Name
+	moduleID := formatModuleId(proj.Name, proj.Version)
 	if moduleID == "" {
 		moduleID = "pnpm-project"
 	}

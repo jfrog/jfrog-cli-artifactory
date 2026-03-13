@@ -73,7 +73,8 @@ func (pic *PnpmInstallCommand) Run() error {
 
 	if pic.collectBuildInfo {
 		if err = pic.collectAndSaveBuildInfo(); err != nil {
-			return err
+			log.Warn("pnpm install completed successfully, but build info collection failed:", err.Error())
+			return nil
 		}
 	}
 
@@ -158,11 +159,16 @@ func saveBuildInfo(modules []*moduleInfo, buildConfiguration *buildUtils.BuildCo
 		return errorutils.CheckError(err)
 	}
 
+	customModule := buildConfiguration.GetModule()
 	totalDeps := 0
 	for _, mod := range modules {
-		log.Debug(fmt.Sprintf("Saving module '%s' with %d dependencies.", mod.id, len(mod.dependencies)))
+		moduleID := mod.id
+		if customModule != "" && len(modules) == 1 {
+			moduleID = customModule
+		}
+		log.Debug(fmt.Sprintf("Saving module '%s' with %d dependencies.", moduleID, len(mod.dependencies)))
 		partial := &entities.Partial{
-			ModuleId:     mod.id,
+			ModuleId:     moduleID,
 			ModuleType:   entities.Npm,
 			Dependencies: mod.dependencies,
 		}

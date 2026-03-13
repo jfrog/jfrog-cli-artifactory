@@ -32,6 +32,15 @@ func groupByRepo(deps []parsedDep, workingDir string) map[string][]parsedDep {
 	return groups
 }
 
+// resolvePublishRepo determines the target Artifactory repo for a published package.
+// Priority: publishConfig.registry (from package.json) > pnpm config (scoped/default registry).
+func resolvePublishRepo(pkgName string, publishRepos map[string]string, fallback registryMap) string {
+	if repo := publishRepos[pkgName]; repo != "" {
+		return repo
+	}
+	return resolveRepoFromRegistry(pkgName, fallback)
+}
+
 // resolveRepoFromRegistry finds the repo name for a dependency by matching its scope
 // against registries from pnpm config. Falls back to the default registry.
 func resolveRepoFromRegistry(depName string, registryRepos registryMap) string {
