@@ -273,7 +273,7 @@ const (
 	collectGitInfo     = "collect-git-info"
 	dotGitPath         = "dot-git-path"
 	gitConfigFilePath  = "git-config-file-path"
-	depExclude         = "dep-exclude"
+	depExclude         = "dep-exclude-scopes"
 
 	// Unique build-add-dependencies flags
 	badPrefix    = "bad-"
@@ -983,7 +983,7 @@ var flagsMap = map[string]components.Flag{
 	collectGitInfo:    components.NewBoolFlag(collectGitInfo, "Set to true to collect Git revision and URL from the local .git directory and adds it to the build-info.", components.WithBoolDefaultValueFalse()),
 	dotGitPath:        components.NewStringFlag(dotGitPath, "Path to the .git directory. If not provided, the .git directory will be searched in the current working directory or its parent directories. Only respected when collect-git-info is enabled.", components.SetMandatoryFalse()),
 	gitConfigFilePath: components.NewStringFlag(gitConfigFilePath, "Path to the git configuration file. Only respected when collect-git-info is enabled.", components.SetMandatoryFalse()),
-	depExclude:        components.NewStringFlag(depExclude, "List of semicolon-separated(;) dependency scopes to exclude from the published build info. Case insensitive. For example: \"test;provided\".", components.SetMandatoryFalse()),
+	depExclude:        components.NewStringFlag(depExclude, "List of semicolon-separated(;) dependency scopes to exclude from the published build info. Relevant for Package managers with supported dependency scopes (e.g. Maven, NPM). For example: \"test;provided\".", components.SetMandatoryFalse()),
 
 	// Build Add Dependencies specific commands flags
 	badRecursive: components.NewBoolFlag(Recursive, "[Default: true] Set to false if you do not wish to collect artifacts in sub-folders to be added to the build info.", components.WithBoolDefaultValueFalse()),
@@ -1146,11 +1146,11 @@ var flagsMap = map[string]components.Flag{
 	AddSources:               components.NewBoolFlag(AddSources, "Add sources to an existing draft release bundle.", components.WithBoolDefaultValueFalse()),
 
 	// Skills-specific flags
-	repo:        components.NewStringFlag(repo, "Skills repository key in Artifactory.", components.SetMandatoryFalse()),
-	version:     components.NewStringFlag(version, "Skill version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
-	installPath: components.NewStringFlag(installPath, "Custom install path for the skill. Default: current directory.", components.SetMandatoryFalse()),
-	signingKey:  components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
-	keyAlias:    components.NewStringFlag(keyAlias, "Alias for the signing key. Overrides EVD_KEY_ALIAS env var.", components.SetMandatoryFalse()),
+	repo:         components.NewStringFlag(repo, "Skills repository key in Artifactory.", components.SetMandatoryFalse()),
+	version:      components.NewStringFlag(version, "Skill version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
+	installPath:  components.NewStringFlag(installPath, "Custom install path for the skill. Default: current directory.", components.SetMandatoryFalse()),
+	signingKey:   components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
+	keyAlias:     components.NewStringFlag(keyAlias, "Alias for the signing key. Overrides EVD_KEY_ALIAS env var.", components.SetMandatoryFalse()),
 	skillsQuiet:  components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
 	skillsFormat: components.NewStringFlag(Format, "Output format: \"table\" (default) or \"json\".", components.SetMandatoryFalse()),
 	propSearch:   components.NewBoolFlag(propSearch, "Use Artifactory property search (skill.name) instead of Skills API search.", components.WithBoolDefaultValueFalse()),
