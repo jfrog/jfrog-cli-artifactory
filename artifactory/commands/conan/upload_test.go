@@ -223,3 +223,49 @@ func TestHasFormatFlag(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractOutFilePath(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		expected string
+	}{
+		{
+			name:     "No out-file flag",
+			args:     []string{"pkg/1.0", "-r", "remote", "--format=json"},
+			expected: "",
+		},
+		{
+			name:     "Equals form",
+			args:     []string{"pkg/1.0", "--out-file=/tmp/output.json", "-r", "remote"},
+			expected: "/tmp/output.json",
+		},
+		{
+			name:     "Space-separated form",
+			args:     []string{"pkg/1.0", "--out-file", "/tmp/output.json", "-r", "remote"},
+			expected: "/tmp/output.json",
+		},
+		{
+			name:     "Out-file as last arg (equals)",
+			args:     []string{"pkg/1.0", "-r", "remote", "--out-file=build-output.json"},
+			expected: "build-output.json",
+		},
+		{
+			name:     "Out-file as last arg (space-separated, no value)",
+			args:     []string{"pkg/1.0", "--out-file"},
+			expected: "",
+		},
+		{
+			name:     "Empty args",
+			args:     []string{},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractOutFilePath(tt.args)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

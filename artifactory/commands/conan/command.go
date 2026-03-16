@@ -165,38 +165,43 @@ func isArtifactoryConanRemote(url string) bool {
 }
 
 // runUploadCommand handles the upload command with build info collection.
-// When build info is configured, adds --format=json --out-file=<tempfile> to
-// capture structured upload data while streaming output to the user's terminal.
+// When build info is configured, it obtains structured JSON output from Conan in one of two ways:
+//  1. If the user already specified --out-file, the command runs normally and the JSON is read from that file.
+//  2. Otherwise, --format=json is added and stdout (containing JSON) is captured via RunCmdOutput.
 func (c *ConanCommand) runUploadCommand() error {
 	log.Info(fmt.Sprintf("Running Conan %s", c.commandName))
 
-	var jsonOutputFile string
-	if c.buildConfiguration != nil && !hasFormatFlag(c.args) {
-		tmpFile, err := os.CreateTemp("", "conan-upload-*.json")
-		if err != nil {
-			return fmt.Errorf("create temp file for upload output: %w", err)
+	if c.buildConfiguration == nil {
+		if err := gofrogcmd.RunCmd(c); err != nil {
+			return fmt.Errorf("conan %s failed: %w", c.commandName, err)
 		}
-		if err := tmpFile.Close(); err != nil {
-			return fmt.Errorf("close temp file: %w", err)
-		}
-		jsonOutputFile = tmpFile.Name()
-		defer func() {
-			if removeErr := os.Remove(jsonOutputFile); removeErr != nil {
-				log.Debug(fmt.Sprintf("Failed to remove temp file %s: %v", jsonOutputFile, removeErr))
-			}
-		}()
-		c.args = append(c.args, "--format=json", "--out-file="+jsonOutputFile)
+		return nil
 	}
 
-	if err := gofrogcmd.RunCmd(c); err != nil {
+	// Check if the user already provided --out-file
+	if outFile := extractOutFilePath(c.args); outFile != "" {
+		if !hasFormatFlag(c.args) {
+			c.args = append(c.args, "--format=json")
+		}
+		if err := gofrogcmd.RunCmd(c); err != nil {
+			return fmt.Errorf("conan %s failed: %w", c.commandName, err)
+		}
+		data, err := os.ReadFile(outFile)
+		if err != nil {
+			return fmt.Errorf("could not read upload output file %s: %w", outFile, err)
+		}
+		return c.processBuildInfoFromJSON(string(data))
+	}
+
+	// No --out-file: add --format=json and capture stdout
+	if !hasFormatFlag(c.args) {
+		c.args = append(c.args, "--format=json")
+	}
+	jsonOutput, err := gofrogcmd.RunCmdOutput(c)
+	if err != nil {
 		return fmt.Errorf("conan %s failed: %w", c.commandName, err)
 	}
-
-	if c.buildConfiguration != nil && jsonOutputFile != "" {
-		return c.processBuildInfoFromJSON(jsonOutputFile)
-	}
-
-	return nil
+	return c.processBuildInfoFromJSON(jsonOutput)
 }
 
 // runConanCommand runs non-upload Conan commands.
@@ -215,9 +220,9 @@ func (c *ConanCommand) runConanCommand() error {
 	return nil
 }
 
-// processBuildInfoFromJSON reads the structured JSON output file from conan upload
+// processBuildInfoFromJSON parses the JSON string captured from conan upload stdout
 // and processes it for build info collection.
-func (c *ConanCommand) processBuildInfoFromJSON(jsonFile string) error {
+func (c *ConanCommand) processBuildInfoFromJSON(jsonData string) error {
 	buildName, buildNumber, _ := c.getBuildNameAndNumber()
 	if buildName == "" || buildNumber == "" {
 		return nil
@@ -225,13 +230,8 @@ func (c *ConanCommand) processBuildInfoFromJSON(jsonFile string) error {
 
 	log.Info(fmt.Sprintf("Processing Conan upload with build info: %s/%s", buildName, buildNumber))
 
-	data, err := os.ReadFile(jsonFile)
-	if err != nil {
-		return fmt.Errorf("could not read upload output file: %w", err)
-	}
-
 	var uploadOutput ConanUploadOutput
-	if err := json.Unmarshal(data, &uploadOutput); err != nil {
+	if err := json.Unmarshal([]byte(jsonData), &uploadOutput); err != nil {
 		return fmt.Errorf("could not parse upload JSON output: %w", err)
 	}
 
@@ -253,6 +253,19 @@ func hasFormatFlag(args []string) bool {
 		}
 	}
 	return false
+}
+
+// extractOutFilePath returns the file path from --out-file if specified in args
+func extractOutFilePath(args []string) string {
+	for i, arg := range args {
+		if strings.HasPrefix(arg, "--out-file=") {
+			return strings.TrimPrefix(arg, "--out-file=")
+		}
+		if arg == "--out-file" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
 }
 
 // collectAndSaveBuildInfo collects dependencies and saves build info locally.
