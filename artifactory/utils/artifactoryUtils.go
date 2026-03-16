@@ -124,9 +124,10 @@ func getDebFlag(c *components.Context) (deb string, err error) {
 
 // GetDependenciesFromLatestBuild fetches all dependencies from the latest build info
 // stored in Artifactory for the given build name. Returns a map keyed by dependency ID (name:version).
-func GetDependenciesFromLatestBuild(servicesManager artifactory.ArtifactoryServicesManager, buildName string) (map[string]*entities.Dependency, error) {
+// projectKey should match the project used when publishing the build (e.g. from buildConfig.GetProject()).
+func GetDependenciesFromLatestBuild(servicesManager artifactory.ArtifactoryServicesManager, buildName, projectKey string) (map[string]*entities.Dependency, error) {
 	buildDependencies := make(map[string]*entities.Dependency)
-	previousBuild, found, err := servicesManager.GetBuildInfo(services.BuildInfoParams{BuildName: buildName, BuildNumber: servicesUtils.LatestBuildNumberKey})
+	previousBuild, found, err := servicesManager.GetBuildInfo(services.BuildInfoParams{BuildName: buildName, BuildNumber: servicesUtils.LatestBuildNumberKey, ProjectKey: projectKey})
 	if err != nil || !found {
 		return buildDependencies, err
 	}
@@ -136,8 +137,9 @@ func GetDependenciesFromLatestBuild(servicesManager artifactory.ArtifactoryServi
 				Id:   dep.Id,
 				Type: dep.Type,
 				Checksum: entities.Checksum{
-					Md5:  dep.Md5,
-					Sha1: dep.Sha1,
+					Md5:    dep.Md5,
+					Sha1:   dep.Sha1,
+					Sha256: dep.Sha256,
 				},
 			}
 		}

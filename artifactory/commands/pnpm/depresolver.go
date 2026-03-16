@@ -106,16 +106,17 @@ func walkSingleDep(name string, info pnpmLsDependency, scope, parentID string, d
 	if existing, ok := depMap[key]; ok {
 		addRequestedBy(existing, requestedByPath)
 		addScope(existing, scope)
-	} else {
-		dep := &depInfo{
-			name:        name,
-			version:     info.Version,
-			resolvedURL: info.Resolved,
-			scopes:      []string{scope},
-			requestedBy: [][]string{requestedByPath},
-		}
-		depMap[key] = dep
+		return // already walked children for this dep
 	}
+
+	dep := &depInfo{
+		name:        name,
+		version:     info.Version,
+		resolvedURL: info.Resolved,
+		scopes:      []string{scope},
+		requestedBy: [][]string{requestedByPath},
+	}
+	depMap[key] = dep
 
 	for childName, childInfo := range info.Dependencies {
 		walkSingleDep(childName, childInfo, "transitive", name+"@"+info.Version, depMap)

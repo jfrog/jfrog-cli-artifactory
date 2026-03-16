@@ -34,7 +34,8 @@ func fetchChecksums(deps []parsedDep, serverDetails *config.ServerDetails, build
 		return nil, err
 	}
 	log.Debug("Loading checksums from previous build:", buildName)
-	previousBuildDeps, err := artUtils.GetDependenciesFromLatestBuild(servicesManager, buildName)
+	projectKey := buildConfig.GetProject()
+	previousBuildDeps, err := artUtils.GetDependenciesFromLatestBuild(servicesManager, buildName, projectKey)
 	if err != nil {
 		log.Debug("Could not load previous build dependencies:", err.Error())
 	} else {
