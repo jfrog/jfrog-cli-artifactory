@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -76,18 +78,37 @@ func (sc *SearchCommand) runSkillsAPISearch() error {
 		log.Debug(fmt.Sprintf("Discovered %d skills repositories: %v", len(repos), repos))
 	}
 
+	// Fan out searches across all repos concurrently, bounded to 10 parallel calls.
+	type repoItems struct {
+		repo  string
+		items []services.SkillSearchResult
+	}
+	repoResults := make([]repoItems, len(repos))
+	sem := make(chan struct{}, 10)
+	var wg sync.WaitGroup
+	for i, repo := range repos {
+		wg.Add(1)
+		go func(idx int, r string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			items, err := common.SearchSkills(sc.serverDetails, r, sc.query, 50)
+			if err != nil {
+				log.Debug(fmt.Sprintf("Search failed for repo '%s': %s", r, err.Error()))
+				return
+			}
+			repoResults[idx] = repoItems{repo: r, items: items}
+		}(i, repo)
+	}
+	wg.Wait()
+
 	var results []searchResult
-	for _, repo := range repos {
-		items, err := common.SearchSkills(sc.serverDetails, repo, sc.query, 50)
-		if err != nil {
-			log.Debug(fmt.Sprintf("Search failed for repo '%s': %s", repo, err.Error()))
-			continue
-		}
-		for _, item := range items {
+	for _, rr := range repoResults {
+		for _, item := range rr.items {
 			results = append(results, searchResult{
 				Name:        item.Name,
 				Version:     item.Version,
-				Repository:  repo,
+				Repository:  rr.repo,
 				Description: item.Description,
 			})
 		}
@@ -102,23 +123,33 @@ func (sc *SearchCommand) runPropSearch() error {
 		return fmt.Errorf("property search failed: %w", err)
 	}
 
-	var results []searchResult
-	for _, pr := range propResults {
-		desc := ""
-		repoPath := fmt.Sprintf("%s/%s/%s/%s-%s.zip", pr.Repo, pr.Name, pr.Version, pr.Name, pr.Version)
-		d, err := common.GetSkillDescription(sc.serverDetails, repoPath)
-		if err != nil {
-			log.Debug(fmt.Sprintf("Could not fetch description for %s: %s", repoPath, err.Error()))
-		} else {
-			desc = d
-		}
-		results = append(results, searchResult{
-			Name:        pr.Name,
-			Version:     pr.Version,
-			Repository:  pr.Repo,
-			Description: desc,
-		})
+	// Fan out description fetches concurrently, bounded to 10 parallel calls.
+	results := make([]searchResult, len(propResults))
+	sem := make(chan struct{}, 10)
+	var wg sync.WaitGroup
+	for i, pr := range propResults {
+		wg.Add(1)
+		go func(idx int, p services.SkillPropertySearchResult) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			desc := ""
+			repoPath := fmt.Sprintf("%s/%s/%s/%s-%s.zip", p.Repo, p.Name, p.Version, p.Name, p.Version)
+			d, descErr := common.GetSkillDescription(sc.serverDetails, repoPath)
+			if descErr != nil {
+				log.Debug(fmt.Sprintf("Could not fetch description for %s: %s", repoPath, descErr.Error()))
+			} else {
+				desc = d
+			}
+			results[idx] = searchResult{
+				Name:        p.Name,
+				Version:     p.Version,
+				Repository:  p.Repo,
+				Description: desc,
+			}
+		}(i, pr)
 	}
+	wg.Wait()
 
 	return sc.printResults(results)
 }

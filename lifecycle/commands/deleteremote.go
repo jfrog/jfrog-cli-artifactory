@@ -132,7 +132,7 @@ func (rbd *ReleaseBundleRemoteDeleteCommand) confirmDelete() (bool, error) {
 	if rbd.distributionRulesEmpty() {
 		message += "from all edges?"
 	} else {
-		var distributionRulesBodies []distribution.DistributionRulesBody
+		distributionRulesBodies := make([]distribution.DistributionRulesBody, 0, len(rbd.distributionRules.DistributionRules))
 		for _, rule := range rbd.distributionRules.DistributionRules {
 			distributionRulesBodies = append(distributionRulesBodies, distribution.DistributionRulesBody{
 				SiteName:     rule.SiteName,
@@ -152,15 +152,15 @@ func (rbd *ReleaseBundleRemoteDeleteCommand) confirmDelete() (bool, error) {
 	return coreutils.AskYesNo(message+"\n"+avoidConfirmationMsg, false), nil
 }
 
-func (rbd *ReleaseBundleRemoteDeleteCommand) getAggregatedDistRules() (aggregatedRules []*distribution.DistributionCommonParams) {
+func (rbd *ReleaseBundleRemoteDeleteCommand) getAggregatedDistRules() []*distribution.DistributionCommonParams {
 	if rbd.distributionRulesEmpty() {
-		aggregatedRules = append(aggregatedRules, &distribution.DistributionCommonParams{SiteName: "*"})
-	} else {
-		for _, rules := range rbd.distributionRules.DistributionRules {
-			aggregatedRules = append(aggregatedRules, rules.ToDistributionCommonParams())
-		}
+		return []*distribution.DistributionCommonParams{{SiteName: "*"}}
 	}
-	return
+	aggregatedRules := make([]*distribution.DistributionCommonParams, 0, len(rbd.distributionRules.DistributionRules))
+	for _, rules := range rbd.distributionRules.DistributionRules {
+		aggregatedRules = append(aggregatedRules, rules.ToDistributionCommonParams())
+	}
+	return aggregatedRules
 }
 
 func (rbd *ReleaseBundleRemoteDeleteCommand) IsNewReleaseBundleApiSupported(artifactoryServiceManager artifactory.ArtifactoryServicesManager) bool {

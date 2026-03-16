@@ -171,14 +171,15 @@ func extractNextGradleBlock(content, keyword string, startIndex int) (string, in
 // Covers: url = "..."  ,  url "..."  ,  url = uri("...")  ,  url.set(uri("..."))  ,  maven { url = ... }
 func findUrlsInGradleScript(content []byte, isKts bool) [][][]byte {
 	contentStr := string(content)
-	var combinedRepos string
+	var builder strings.Builder
 
 	collectRepos := func(parentKeyword string) {
 		blocks := extractAllGradleBlocks(contentStr, parentKeyword)
 		for _, block := range blocks {
 			repoBlocks := extractAllGradleBlocks(block, blockRepositories)
 			for _, repoBlock := range repoBlocks {
-				combinedRepos += repoBlock + "\n"
+				builder.WriteString(repoBlock)
+				builder.WriteString("\n")
 			}
 		}
 	}
@@ -189,7 +190,7 @@ func findUrlsInGradleScript(content []byte, isKts bool) [][][]byte {
 	// 3. Extract from dependencyResolutionManagement blocks (Gradle 7.0+)
 	collectRepos(blockDepResManagement)
 
-	if combinedRepos == "" {
+	if builder.Len() == 0 {
 		return nil
 	}
 	var re *regexp.Regexp
@@ -198,7 +199,7 @@ func findUrlsInGradleScript(content []byte, isKts bool) [][][]byte {
 	} else {
 		re = urlGroovyRe
 	}
-	return re.FindAllSubmatch([]byte(combinedRepos), -1)
+	return re.FindAllSubmatch([]byte(builder.String()), -1)
 }
 
 func collectAppliedScripts(content []byte, isKts bool, props map[string]string, currentScriptPath string) []string {

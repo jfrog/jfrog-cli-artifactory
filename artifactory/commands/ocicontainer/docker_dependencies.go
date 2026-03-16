@@ -26,16 +26,24 @@ func NewDockerDependenciesBuilder(dockerImages []DockerImage, serviceManager art
 	}
 }
 
+// maxDockerConcurrency limits the number of parallel image dependency lookups to
+// avoid exhausting file descriptors or connection pools when many images are involved.
+const maxDockerConcurrency = 20
+
 // getDependencies collects dependencies for all base images in parallel
 func (ddp *DockerDependenciesBuilder) getDependencies() ([]buildinfo.Dependency, error) {
+	n := len(ddp.dockerImages)
 	var wg sync.WaitGroup
-	errChan := make(chan error, len(ddp.dockerImages))
-	dependencyResultChan := make(chan []utils.ResultItem, len(ddp.dockerImages))
+	errChan := make(chan error, n)
+	dependencyResultChan := make(chan []utils.ResultItem, n)
+	sem := make(chan struct{}, maxDockerConcurrency)
 
 	for _, baseImage := range ddp.dockerImages {
 		wg.Add(1)
 		go func(img DockerImage) {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			resultItems, err := ddp.collectDetailsForBaseImage(img)
 			if err != nil {
 				errChan <- err
@@ -49,7 +57,7 @@ func (ddp *DockerDependenciesBuilder) getDependencies() ([]buildinfo.Dependency,
 	close(errChan)
 	close(dependencyResultChan)
 
-	var errorList []error
+	errorList := make([]error, 0, len(errChan))
 	for err := range errChan {
 		errorList = append(errorList, err)
 	}
@@ -58,7 +66,7 @@ func (ddp *DockerDependenciesBuilder) getDependencies() ([]buildinfo.Dependency,
 		return []buildinfo.Dependency{}, fmt.Errorf("errors occurred during build info collection: %v", errors.Join(errorList...))
 	}
 
-	var allDependencyResultItems []utils.ResultItem
+	allDependencyResultItems := make([]utils.ResultItem, 0, n)
 	for resultItems := range dependencyResultChan {
 		allDependencyResultItems = append(allDependencyResultItems, resultItems...)
 	}

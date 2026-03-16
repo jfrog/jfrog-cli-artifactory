@@ -294,7 +294,7 @@ func (nc *NpmCommand) isNpmVersionSupportsScopedAuthEnv() bool {
 }
 
 func (nc *NpmCommand) prepareConfigData(data []byte) ([]byte, error) {
-	var filteredConf []string
+	var builder strings.Builder
 	configString := string(data) + "\n" + nc.npmAuth
 	scanner := bufio.NewScanner(strings.NewReader(configString))
 	for scanner.Scan() {
@@ -307,16 +307,20 @@ func (nc *NpmCommand) prepareConfigData(data []byte) ([]byte, error) {
 			return nil, errorutils.CheckError(err)
 		}
 		if filteredLine != "" {
-			filteredConf = append(filteredConf, filteredLine)
+			builder.WriteString(filteredLine)
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, errorutils.CheckError(err)
 	}
 
-	filteredConf = append(filteredConf, "json = ", strconv.FormatBool(nc.jsonOutput), "\n")
-	filteredConf = append(filteredConf, "registry = ", nc.registry, "\n")
-	return []byte(strings.Join(filteredConf, "")), nil
+	builder.WriteString("json = ")
+	builder.WriteString(strconv.FormatBool(nc.jsonOutput))
+	builder.WriteString("\n")
+	builder.WriteString("registry = ")
+	builder.WriteString(nc.registry)
+	builder.WriteString("\n")
+	return []byte(builder.String()), nil
 }
 
 func (nc *NpmCommand) CreateTempNpmrc() error {
