@@ -608,11 +608,7 @@ func (ppc *PnpmPublishCommand) tagBuildProperties(published []publishedPackage, 
 //	unscoped: <name>/-/<name>-<version>.tgz
 //	scoped:   @scope/<name>/-/@scope/<name>-<version>.tgz
 func buildPnpmDeployPath(packageName, version string) (path, name string) {
-	tarball := fmt.Sprintf("%s-%s.tgz", packageName, version)
-	if strings.HasPrefix(packageName, "@") {
-		return packageName + "/-", tarball
-	}
-	return packageName + "/-", tarball
+	return packageName + "/-", fmt.Sprintf("%s-%s.tgz", packageName, version)
 }
 
 // publishing in pnpm can be overridden per package by setting publishConfig.registry in package.json.
