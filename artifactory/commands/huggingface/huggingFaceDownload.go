@@ -44,10 +44,17 @@ func (hfd *HuggingFaceDownload) Run() error {
 	if err != nil {
 		return err
 	}
-	scriptDir, err := getHuggingFaceScriptPath("huggingface_download.py")
+	scriptDir, err := extractPythonScripts()
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
+	defer func(path string) {
+		removeErr := os.RemoveAll(path)
+		if removeErr != nil {
+			log.Error(removeErr)
+			return
+		}
+	}(scriptDir)
 	args := map[string]interface{}{
 		"repo_id": hfd.repoId,
 	}
@@ -137,15 +144,19 @@ func (hfd *HuggingFaceDownload) GetDependencies() ([]entities.Dependency, error)
 		return nil, err
 	}
 	repoTypePath := hfd.repoType + "s"
-	revisionPattern := hfd.revision
-	if !HasTimestamp(hfd.revision) {
-		revisionPattern = hfd.revision + "_*"
+	latestRevision, err := FindLatestRevision(serviceManager, repoKey, repoTypePath, hfd.repoId, hfd.revision)
+	if err != nil {
+		return nil, err
 	}
-	aqlQuery := fmt.Sprintf(`items.find({"repo":"%s","path":{"$match":"%s/%s/%s/*"}}).include("repo","path","name","actual_sha1","actual_md5","sha256","type").sort({"$desc":["path"]})`,
+	if latestRevision == "" {
+		log.Warn("No latest revision found for ", hfd.repoId)
+		return nil, nil
+	}
+	aqlQuery := fmt.Sprintf(`items.find({"repo":"%s","path":{"$match":"%s/%s/%s/*"}}).include("repo","path","name","actual_sha1","actual_md5","sha256","type")`,
 		repoKey,
 		repoTypePath,
 		hfd.repoId,
-		revisionPattern,
+		latestRevision,
 	)
 	results, err := utils.ExecuteAqlQuery(serviceManager, aqlQuery)
 	if err != nil {
