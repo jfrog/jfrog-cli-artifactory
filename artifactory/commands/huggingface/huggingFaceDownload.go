@@ -49,9 +49,9 @@ func (hfd *HuggingFaceDownload) Run() error {
 		return err
 	}
 	defer func(path string) {
-		err = os.RemoveAll(path)
-		if err != nil {
-			log.Error(err)
+		removeErr := os.RemoveAll(path)
+		if removeErr != nil {
+			log.Error(removeErr)
 			return
 		}
 	}(scriptDir)
@@ -149,6 +149,7 @@ func (hfd *HuggingFaceDownload) GetDependencies() ([]entities.Dependency, error)
 		return nil, err
 	}
 	if latestRevision == "" {
+		log.Warn("No latest revision found for ", hfd.repoId)
 		return nil, nil
 	}
 	aqlQuery := fmt.Sprintf(`items.find({"repo":"%s","path":{"$match":"%s/%s/%s/*"}}).include("repo","path","name","actual_sha1","actual_md5","sha256","type")`,

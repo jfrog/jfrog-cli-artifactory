@@ -19,8 +19,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-const DATASET = "dataset"
-
 // HuggingFaceUpload represents a command to upload models or datasets to HuggingFace Hub
 type HuggingFaceUpload struct {
 	name               string
@@ -49,9 +47,9 @@ func (hfu *HuggingFaceUpload) Run() error {
 		return err
 	}
 	defer func(path string) {
-		err = os.RemoveAll(path)
-		if err != nil {
-			log.Error(err)
+		removeErr := os.RemoveAll(path)
+		if removeErr != nil {
+			log.Error(removeErr)
 			return
 		}
 	}(scriptDir)
