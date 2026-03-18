@@ -3,7 +3,6 @@ package conan
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/jfrog/build-info-go/entities"
 	conanflex "github.com/jfrog/build-info-go/flexpack/conan"
@@ -13,9 +12,55 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-// UploadProcessor processes Conan upload output and collects build info.
-// It parses the upload output to:
-// 1. Extract which artifacts were uploaded (to avoid collecting all revisions)
+// ConanUploadOutput represents the JSON output of 'conan upload --format=json'.
+// The structure is a Conan PackageList keyed by remote name:
+//
+//	{
+//	  "remote-name": {
+//	    "pkg/1.0": {
+//	      "revisions": {
+//	        "recipe_rev_hash": {
+//	          "timestamp": 1667396813.987,
+//	          "packages": {
+//	            "package_id_hash": {
+//	              "revisions": {
+//	                "pkg_rev_hash": {}
+//	              }
+//	            }
+//	          }
+//	        }
+//	      }
+//	    }
+//	  }
+//	}
+type ConanUploadOutput map[string]map[string]ConanUploadRecipe
+
+// ConanUploadRecipe represents a recipe entry in the upload output.
+type ConanUploadRecipe struct {
+	Revisions map[string]ConanUploadRecipeRevision `json:"revisions"`
+}
+
+// ConanUploadRecipeRevision represents a recipe revision with its packages.
+type ConanUploadRecipeRevision struct {
+	Timestamp float64                            `json:"timestamp"`
+	Packages  map[string]ConanUploadPackageEntry `json:"packages"`
+}
+
+// ConanUploadPackageEntry represents a binary package entry.
+type ConanUploadPackageEntry struct {
+	Revisions map[string]interface{} `json:"revisions"`
+	Info      *ConanUploadPackageInfo `json:"info"`
+}
+
+// ConanUploadPackageInfo contains package metadata like settings and options.
+type ConanUploadPackageInfo struct {
+	Settings map[string]string `json:"settings"`
+	Options  map[string]string `json:"options"`
+}
+
+// UploadProcessor processes structured Conan upload output and collects build info.
+// It uses the JSON PackageList from 'conan upload --format=json' to:
+// 1. Determine which artifacts were uploaded (avoiding collection of all revisions)
 // 2. Collect dependencies from the local project
 // 3. Set build properties on uploaded artifacts
 type UploadProcessor struct {
@@ -41,29 +86,31 @@ func NewUploadProcessor(workingDir string, buildConfig *buildUtils.BuildConfigur
 	}
 }
 
-// Process processes the upload output and collects build info.
-func (up *UploadProcessor) Process(uploadOutput string) error {
-	// Parse uploaded artifacts from output - only collect what was actually uploaded
-	uploadedPaths := up.parseUploadedArtifactPaths(uploadOutput)
-	log.Debug(fmt.Sprintf("Found %d uploaded artifact paths", len(uploadedPaths)))
-
-	// Parse package reference from upload output
-	packageRef := up.parsePackageReference(uploadOutput)
-	if packageRef == "" {
-		log.Debug("No package reference found in upload output")
+// ProcessJSON processes the structured JSON upload output and collects build info.
+func (up *UploadProcessor) ProcessJSON(uploadOutput ConanUploadOutput) error {
+	remoteName, packages := up.extractUploadInfo(uploadOutput)
+	if remoteName == "" || len(packages) == 0 {
+		log.Debug("No upload data found in JSON output")
 		return nil
 	}
-	log.Debug(fmt.Sprintf("Processing upload for package: %s", packageRef))
 
-	// Collect dependencies using FlexPack
+	var packageRef string
+	for ref := range packages {
+		packageRef = ref
+		break
+	}
+	log.Debug(fmt.Sprintf("Processing upload for package: %s to remote: %s", packageRef, remoteName))
+
+	uploadedPaths := up.buildArtifactPathsFromJSON(packages)
+	log.Debug(fmt.Sprintf("Found %d uploaded artifact paths", len(uploadedPaths)))
+
 	buildInfo, err := up.collectDependencies()
 	if err != nil {
 		log.Warn(fmt.Sprintf("Failed to collect dependencies: %v", err))
 		buildInfo = up.createEmptyBuildInfo(packageRef)
 	}
 
-	// Get target repository from upload output
-	targetRepo, err := up.getTargetRepository(uploadOutput)
+	targetRepo, err := up.getTargetRepositoryFromRemote(remoteName)
 	if err != nil {
 		log.Warn(fmt.Sprintf("Could not determine target repository: %v", err))
 		log.Warn("Build info will be saved but artifacts may not be linked correctly")
@@ -71,7 +118,6 @@ func (up *UploadProcessor) Process(uploadOutput string) error {
 	}
 	log.Debug(fmt.Sprintf("Using Artifactory repository: %s", targetRepo))
 
-	// Collect artifacts from Artifactory - only for uploaded paths
 	if up.serverDetails != nil && len(uploadedPaths) > 0 {
 		artifacts, collectErr := up.collectUploadedArtifacts(uploadedPaths, targetRepo)
 		if collectErr != nil {
@@ -79,7 +125,6 @@ func (up *UploadProcessor) Process(uploadOutput string) error {
 		} else {
 			up.addArtifactsToModule(buildInfo, artifacts)
 
-			// Set build properties on artifacts
 			if len(artifacts) > 0 {
 				if err := up.setBuildProperties(artifacts, targetRepo); err != nil {
 					log.Warn(fmt.Sprintf("Failed to set build properties: %v", err))
@@ -91,15 +136,45 @@ func (up *UploadProcessor) Process(uploadOutput string) error {
 	return up.saveBuildInfo(buildInfo)
 }
 
-// getTargetRepository extracts the Conan remote from upload output and resolves it to Artifactory repo.
-// Returns error if remote cannot be determined or is not an Artifactory repository.
-func (up *UploadProcessor) getTargetRepository(uploadOutput string) (string, error) {
-	remoteName := extractRemoteNameFromOutput(uploadOutput)
-	if remoteName == "" {
-		return "", fmt.Errorf("could not extract remote name from upload output")
+// extractUploadInfo extracts the remote name and package map from the upload output.
+// Conan upload targets a single remote, so typically only one entry exists.
+// If multiple remotes are present, the first one with packages is used.
+func (up *UploadProcessor) extractUploadInfo(output ConanUploadOutput) (string, map[string]ConanUploadRecipe) {
+	if len(output) > 1 {
+		log.Debug(fmt.Sprintf("Upload output contains %d remotes, processing only the first with packages", len(output)))
 	}
+	for remoteName, packages := range output {
+		if len(packages) > 0 {
+			return remoteName, packages
+		}
+	}
+	return "", nil
+}
 
-	// Verify this is an Artifactory Conan remote
+// buildArtifactPathsFromJSON builds Artifactory paths from the structured upload JSON.
+// Paths follow Conan's Artifactory layout:
+//   - Recipe: _/{name}/{version}/_/{recipe_rev}/export
+//   - Package: _/{name}/{version}/_/{recipe_rev}/package/{pkg_id}/{pkg_rev}
+func (up *UploadProcessor) buildArtifactPathsFromJSON(packages map[string]ConanUploadRecipe) []string {
+	var paths []string
+	for pkgRef, recipe := range packages {
+		for recipeRev, revData := range recipe.Revisions {
+			recipePath := fmt.Sprintf("_/%s/_/%s/export", pkgRef, recipeRev)
+			paths = append(paths, recipePath)
+
+			for pkgID, pkgEntry := range revData.Packages {
+				for pkgRev := range pkgEntry.Revisions {
+					pkgPath := fmt.Sprintf("_/%s/_/%s/package/%s/%s", pkgRef, recipeRev, pkgID, pkgRev)
+					paths = append(paths, pkgPath)
+				}
+			}
+		}
+	}
+	return paths
+}
+
+// getTargetRepositoryFromRemote resolves a Conan remote name to an Artifactory repository name.
+func (up *UploadProcessor) getTargetRepositoryFromRemote(remoteName string) (string, error) {
 	remoteURL, err := getRemoteURL(remoteName)
 	if err != nil {
 		return "", fmt.Errorf("could not get URL for remote '%s': %w", remoteName, err)
@@ -109,7 +184,6 @@ func (up *UploadProcessor) getTargetRepository(uploadOutput string) (string, err
 		return "", fmt.Errorf("remote '%s' is not an Artifactory Conan repository (URL: %s)", remoteName, remoteURL)
 	}
 
-	// Get the Artifactory repository name from the URL
 	repoName := ExtractRepoName(remoteURL)
 	if repoName == "" {
 		return "", fmt.Errorf("could not extract repository name from URL: %s", remoteURL)
@@ -152,109 +226,6 @@ func resolveDefaultDeploymentRepo(repoName string, repoDetails *conanRepositoryD
 	return repoDetails.DefaultDeploymentRepo
 }
 
-// parseUploadedArtifactPaths extracts the specific paths that were uploaded from conan upload output.
-// Conan 2.x upload summary format:
-//
-//	Upload summary:
-//	  conan-local-testing-reshmi      <- Remote name
-//	    multideps/1.0.0               <- Package name/version
-//	      revisions
-//	        797d134a8590a1bfa06d846768443f48 (Uploaded)  <- Recipe revision
-//	          packages
-//	            594ed0eb2e9dfcc60607438924c35871514e6c2a  <- Package ID
-//	              revisions
-//	                ca858ea14c32f931e49241df0b52bec9 (Uploaded)  <- Package revision
-//
-// This method parses this structure and builds Artifactory paths like:
-//   - _/multideps/1.0.0/_/797d134.../export (for recipe)
-//   - _/multideps/1.0.0/_/797d134.../package/594ed0.../ca858ea... (for package)
-func (up *UploadProcessor) parseUploadedArtifactPaths(output string) []string {
-	var paths []string
-	lines := strings.Split(output, "\n")
-
-	// State tracking for hierarchical parsing
-	var currentPkg string       // Current package name/version (e.g., "multideps/1.0.0")
-	var currentRecipeRev string // Current recipe revision hash (MD5, 32 chars)
-	var currentPkgId string     // Current package ID (SHA1, 40 chars)
-	inUploadSection := false
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		// Start parsing after "Upload summary" or "Uploading to remote"
-		if strings.Contains(line, "Upload summary") || strings.Contains(line, "Uploading to remote") {
-			inUploadSection = true
-			continue
-		}
-
-		if !inUploadSection {
-			continue
-		}
-
-		// Skip empty lines and section markers
-		if trimmed == "" || trimmed == "revisions" || trimmed == "packages" {
-			continue
-		}
-
-		// Match package name/version line: "multideps/1.0.0"
-		// Must contain "/" but not be a path or special marker
-		if up.isPackageNameLine(trimmed) {
-			currentPkg = trimmed
-			currentRecipeRev = ""
-			currentPkgId = ""
-			continue
-		}
-
-		// Match recipe/package revision with (Uploaded) or (Skipped, already in server)
-		// Both cases mean the artifact is in Artifactory and should be part of build info
-		if strings.Contains(trimmed, "(Uploaded)") || strings.Contains(trimmed, "(Skipped") {
-			// Extract revision hash by removing status suffix
-			rev := trimmed
-			if idx := strings.Index(rev, " ("); idx != -1 {
-				rev = rev[:idx]
-			}
-			rev = strings.TrimSpace(rev)
-
-			if len(rev) == 32 {
-				if currentPkgId == "" {
-					// This is a recipe revision
-					currentRecipeRev = rev
-					if currentPkg != "" {
-						path := fmt.Sprintf("_/%s/_/%s/export", currentPkg, rev)
-						paths = append(paths, path)
-					}
-				} else if currentRecipeRev != "" {
-					// This is a package revision
-					if currentPkg != "" {
-						path := fmt.Sprintf("_/%s/_/%s/package/%s/%s", currentPkg, currentRecipeRev, currentPkgId, rev)
-						paths = append(paths, path)
-					}
-					currentPkgId = "" // Reset for next package
-				}
-			}
-			continue
-		}
-
-		// Match package ID line (SHA1, 40 chars, no spaces, no parentheses)
-		if len(trimmed) == 40 && !strings.Contains(trimmed, " ") && !strings.Contains(trimmed, "(") {
-			currentPkgId = trimmed
-		}
-	}
-
-	return paths
-}
-
-// isPackageNameLine checks if a line represents a package name/version.
-func (up *UploadProcessor) isPackageNameLine(line string) bool {
-	return strings.Contains(line, "/") &&
-		!strings.Contains(line, "#") &&
-		!strings.Contains(line, ":") &&
-		!strings.HasPrefix(line, "_") &&
-		!strings.Contains(line, "Uploading") &&
-		!strings.Contains(line, "Skipped") &&
-		!strings.Contains(line, "(")
-}
-
 // collectUploadedArtifacts collects only artifacts from specific paths that were uploaded.
 func (up *UploadProcessor) collectUploadedArtifacts(uploadedPaths []string, targetRepo string) ([]entities.Artifact, error) {
 	if up.serverDetails == nil {
@@ -275,63 +246,6 @@ func (up *UploadProcessor) collectUploadedArtifacts(uploadedPaths []string, targ
 
 	log.Info(fmt.Sprintf("Collected %d Conan artifacts", len(allArtifacts)))
 	return allArtifacts, nil
-}
-
-// parsePackageReference extracts package reference from upload output.
-func (up *UploadProcessor) parsePackageReference(output string) string {
-	lines := strings.Split(output, "\n")
-	inSummary := false
-	foundRemote := false
-
-	for _, line := range lines {
-		if strings.Contains(line, "Upload summary") {
-			inSummary = true
-			continue
-		}
-
-		if !inSummary {
-			continue
-		}
-
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "-") {
-			continue
-		}
-
-		// Skip remote name line
-		if !foundRemote {
-			foundRemote = true
-			continue
-		}
-
-		// Look for package reference pattern: name/version
-		if strings.Contains(trimmed, "/") && !strings.Contains(trimmed, ":") {
-			return trimmed
-		}
-	}
-
-	// Fallback: look for "Uploading recipe" pattern (older Conan output format)
-	return up.parseUploadingRecipePattern(lines)
-}
-
-// parseUploadingRecipePattern extracts package reference from "Uploading recipe" lines.
-// Example: "Uploading recipe 'simplelib/1.0.0#86deb56...'"
-func (up *UploadProcessor) parseUploadingRecipePattern(lines []string) string {
-	for _, line := range lines {
-		if strings.Contains(line, "Uploading recipe") {
-			start := strings.Index(line, "'")
-			end := strings.LastIndex(line, "'")
-			if start != -1 && end > start {
-				ref := line[start+1 : end]
-				// Remove revision if present (after #)
-				if hashIdx := strings.Index(ref, "#"); hashIdx != -1 {
-					ref = ref[:hashIdx]
-				}
-				return ref
-			}
-		}
-	}
-	return ""
 }
 
 // collectDependencies collects dependencies using FlexPack.
@@ -414,29 +328,4 @@ func (up *UploadProcessor) saveBuildInfo(buildInfo *entities.BuildInfo) error {
 
 	log.Info("Conan build info saved locally")
 	return nil
-}
-
-// extractRemoteNameFromOutput extracts the remote name from conan upload output.
-// Looks in the "Upload summary" section for the remote name.
-func extractRemoteNameFromOutput(output string) string {
-	lines := strings.Split(output, "\n")
-	inSummary := false
-
-	for _, line := range lines {
-		if strings.Contains(line, "Upload summary") {
-			inSummary = true
-			continue
-		}
-
-		if !inSummary {
-			continue
-		}
-
-		trimmed := strings.TrimSpace(line)
-		// First non-empty, non-dashed line after summary is the remote name
-		if trimmed != "" && !strings.HasPrefix(trimmed, "-") && !strings.Contains(trimmed, "/") {
-			return trimmed
-		}
-	}
-	return ""
 }
