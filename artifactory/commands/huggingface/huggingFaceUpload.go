@@ -147,7 +147,7 @@ func (hfu *HuggingFaceUpload) CollectArtifactsForBuildInfo(serviceManager artifa
 		Id:   moduleId,
 	}
 	module.Artifacts = artifacts
-	removeDuplicateDependencies(&module)
+	removeDuplicateArtifacts(&module)
 	ctx.BuildInfo.Modules = append(ctx.BuildInfo.Modules, module)
 	return SaveBuildInfo(ctx)
 }

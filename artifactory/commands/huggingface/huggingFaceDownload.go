@@ -138,7 +138,7 @@ func (hfd *HuggingFaceDownload) CollectDependenciesForBuildInfo(localPath string
 		moduleId = fmt.Sprintf("%s-%s", ctx.BuildName, ctx.BuildNumber)
 	}
 	module := entities.Module{
-		Type: entities.ModuleType(fmt.Sprintf("huggingfaceml")),
+		Type: entities.ModuleType("huggingfaceml"),
 		Id:   moduleId,
 	}
 	module.Dependencies = dependencies
