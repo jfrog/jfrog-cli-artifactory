@@ -40,7 +40,13 @@ var huggingfaceUploadScript []byte
 // timestampPattern matches ISO 8601 timestamp format: _YYYY-MM-DDTHH:MM:SS.sssZ
 var timestampPattern = regexp.MustCompile(`_\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`)
 
-const minPythonVersion = 3
+const (
+	minPythonVersion = 3
+	huggingfaceml    = "huggingfaceml"
+	remote           = "remote"
+	virtual          = "virtual"
+	upload           = "upload"
+)
 
 // PythonScriptTemplate is the base template for executing Python functions via importlib.
 // It accepts format arguments: module name, function name, JSON args, and success output expression.
@@ -152,10 +158,10 @@ func handleRepositoryResolution(serviceManager artifactory.ArtifactoryServicesMa
 		log.Error("Failed to get repository details, either repository doesn't exist or bad request")
 		return repoKey, err
 	}
-	if repoDetails.PackageType != "huggingfaceml" {
+	if repoDetails.PackageType != huggingfaceml {
 		return repoKey, errorutils.CheckErrorf("Given repository %s is not a huggingface's type repository", repoKey)
 	}
-	if repoDetails.Rclass == "virtual" {
+	if repoDetails.Rclass == virtual {
 		if repoDetails.DefaultDeploymentRepo == "" {
 			return repoKey, errorutils.CheckErrorf("No default deployment repo specified for virtual repo: %s", repoKey)
 		}
@@ -166,7 +172,7 @@ func handleRepositoryResolution(serviceManager artifactory.ArtifactoryServicesMa
 		}
 		return repoDetails.DefaultDeploymentRepo, nil
 	}
-	if repoDetails.Rclass == "remote" && command == "upload" {
+	if repoDetails.Rclass == remote && command == upload {
 		return repoKey, errorutils.CheckError(errors.New("upload cannot be performed on remote repository"))
 	}
 	return repoKey, nil
@@ -174,7 +180,7 @@ func handleRepositoryResolution(serviceManager artifactory.ArtifactoryServicesMa
 
 // GetRepoKeyFromHFEndpoint extracts the repository key from HF_ENDPOINT environment variable
 func GetRepoKeyFromHFEndpoint() (string, error) {
-	endpoint := os.Getenv("HF_ENDPOINT")
+	endpoint := os.Getenv(HF_ENDPOINT)
 	if endpoint == "" {
 		return "", errorutils.CheckErrorf("HF_ENDPOINT environment variable is not set")
 	}
