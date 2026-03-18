@@ -224,6 +224,57 @@ func TestHasFormatFlag(t *testing.T) {
 	}
 }
 
+func TestExtractFormatValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		expected string
+	}{
+		{
+			name:     "No format flag",
+			args:     []string{"pkg/1.0", "-r", "remote"},
+			expected: "",
+		},
+		{
+			name:     "Long form with equals (json)",
+			args:     []string{"pkg/1.0", "--format=json", "-r", "remote"},
+			expected: "json",
+		},
+		{
+			name:     "Long form space-separated (json)",
+			args:     []string{"pkg/1.0", "--format", "json", "-r", "remote"},
+			expected: "json",
+		},
+		{
+			name:     "Short form with equals",
+			args:     []string{"pkg/1.0", "-f=json", "-r", "remote"},
+			expected: "json",
+		},
+		{
+			name:     "Short form space-separated",
+			args:     []string{"pkg/1.0", "-f", "json", "-r", "remote"},
+			expected: "json",
+		},
+		{
+			name:     "Non-json format",
+			args:     []string{"pkg/1.0", "--format=text", "-r", "remote"},
+			expected: "text",
+		},
+		{
+			name:     "Empty args",
+			args:     []string{},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractFormatValue(tt.args)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestExtractOutFilePath(t *testing.T) {
 	tests := []struct {
 		name     string

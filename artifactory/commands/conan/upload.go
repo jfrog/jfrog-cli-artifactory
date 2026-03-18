@@ -130,8 +130,12 @@ func (up *UploadProcessor) ProcessJSON(uploadOutput ConanUploadOutput) error {
 }
 
 // extractUploadInfo extracts the remote name and package map from the upload output.
-// Returns the first remote with packages (typically there is only one).
+// Conan upload targets a single remote, so typically only one entry exists.
+// If multiple remotes are present, the first one with packages is used.
 func (up *UploadProcessor) extractUploadInfo(output ConanUploadOutput) (string, map[string]ConanUploadRecipe) {
+	if len(output) > 1 {
+		log.Debug(fmt.Sprintf("Upload output contains %d remotes, processing only the first with packages", len(output)))
+	}
 	for remoteName, packages := range output {
 		if len(packages) > 0 {
 			return remoteName, packages

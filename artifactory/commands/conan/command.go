@@ -178,9 +178,19 @@ func (c *ConanCommand) runUploadCommand() error {
 		return nil
 	}
 
-	// Check if the user already provided --out-file
+	// If the user specified a non-json format, we cannot collect build info from the output
+	if userFormat := extractFormatValue(c.args); userFormat != "" && userFormat != "json" {
+		log.Warn(fmt.Sprintf("Build info collection requires --format=json, but user specified --format=%s. Skipping artifact collection.", userFormat))
+		if err := gofrogcmd.RunCmd(c); err != nil {
+			return fmt.Errorf("conan %s failed: %w", c.commandName, err)
+		}
+		return nil
+	}
+
+	// Check if the user already provided --out-file (implies a Conan version that supports it)
 	if outFile := extractOutFilePath(c.args); outFile != "" {
 		if !hasFormatFlag(c.args) {
+			log.Debug("Adding --format=json to conan upload for build info collection")
 			c.args = append(c.args, "--format=json")
 		}
 		if err := gofrogcmd.RunCmd(c); err != nil {
@@ -195,6 +205,7 @@ func (c *ConanCommand) runUploadCommand() error {
 
 	// No --out-file: add --format=json and capture stdout
 	if !hasFormatFlag(c.args) {
+		log.Debug("Adding --format=json to conan upload for build info collection")
 		c.args = append(c.args, "--format=json")
 	}
 	jsonOutput, err := gofrogcmd.RunCmdOutput(c)
@@ -232,7 +243,11 @@ func (c *ConanCommand) processBuildInfoFromJSON(jsonData string) error {
 
 	var uploadOutput ConanUploadOutput
 	if err := json.Unmarshal([]byte(jsonData), &uploadOutput); err != nil {
-		return fmt.Errorf("could not parse upload JSON output: %w", err)
+		preview := jsonData
+		if len(preview) > 200 {
+			preview = preview[:200] + "..."
+		}
+		return fmt.Errorf("could not parse upload JSON output: %w\nJSON preview: %s", err, preview)
 	}
 
 	processor := NewUploadProcessor(c.workingDir, c.buildConfiguration, c.serverDetails, c.buildConanFlexConfig())
@@ -255,7 +270,23 @@ func hasFormatFlag(args []string) bool {
 	return false
 }
 
-// extractOutFilePath returns the file path from --out-file if specified in args
+// extractFormatValue returns the value of --format/-f if specified in args, or "" if absent.
+func extractFormatValue(args []string) string {
+	for i, arg := range args {
+		if strings.HasPrefix(arg, "--format=") {
+			return strings.TrimPrefix(arg, "--format=")
+		}
+		if strings.HasPrefix(arg, "-f=") {
+			return strings.TrimPrefix(arg, "-f=")
+		}
+		if (arg == "--format" || arg == "-f") && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+// extractOutFilePath returns the file path from --out-file if specified in args, or "" if absent.
 func extractOutFilePath(args []string) string {
 	for i, arg := range args {
 		if strings.HasPrefix(arg, "--out-file=") {
