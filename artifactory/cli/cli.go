@@ -68,7 +68,6 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	buildinfocmd "github.com/jfrog/jfrog-client-go/artifactory/buildinfo"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
-	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -82,7 +81,6 @@ const (
 	replicCategory       = "Replication"
 	otherCategory        = "Other"
 	releaseBundlesV2     = "release-bundles-v2"
-	releaseBundlesV2Jfds = "release-bundles-v2-jfds"
 )
 
 func GetCommands() []components.Command {
@@ -1836,14 +1834,8 @@ func getSourcePattern(c *components.Context) string {
 	}
 
 	if isRbv2 {
-		// Resolve Artifactory details once here so buildSourceForRbv2 can reuse them
-		// without a redundant CreateArtifactoryDetailsByFlags round-trip.
-		rtDetails, rtErr := common.CreateArtifactoryDetailsByFlags(c)
-		if rtErr != nil {
-			log.Debug("Could not resolve Artifactory details for RBV2 repo probe, using standard path:", rtErr.Error())
-		}
 		// RB2 will be downloaded like a regular artifact, path: projectKey-release-bundles-v2/rbName/rbVersion
-		source = buildSourceForRbv2(c, rtDetails)
+		source = buildSourceForRbv2(c)
 	} else {
 		source = strings.TrimPrefix(c.GetArgumentAt(0), "/")
 	}
@@ -1851,88 +1843,21 @@ func getSourcePattern(c *components.Context) string {
 	return source
 }
 
-func buildSourceForRbv2(c *components.Context, rtDetails *config.ServerDetails) string {
+func buildSourceForRbv2(c *components.Context) string {
 	bundleNameAndVersion := c.GetStringFlagValue("bundle")
 	projectKey := c.GetStringFlagValue("project")
+	source := projectKey
 
-	// Reset bundle flag so downstream download treats this as a normal artifact path.
+	// Reset bundle flag
 	c.SetStringFlagValue("bundle", "")
 
-	standardSource := buildRbv2SourcePath(projectKey, bundleNameAndVersion, releaseBundlesV2)
-
-	// When RBV2 ATW (All-The-Way) is enabled in Distribution, bundles are stored in
-	// release-bundles-v2-jfds instead of release-bundles-v2. Probe the standard repo
-	// and fall back to the ATW repo if no artifacts are found there.
-	if rtDetails == nil {
-		return standardSource
-	}
-
-	hasArtifacts, err := rbv2SourceHasArtifacts(rtDetails, standardSource)
-	if err != nil {
-		log.Debug("RBV2 repo probe failed, using standard path:", err.Error())
-		return standardSource
-	}
-
-	if !hasArtifacts {
-		// ATW mode: Distribution stores bundle artifacts under the -jfds suffixed repo.
-		jfdsSource := buildRbv2SourcePath(projectKey, bundleNameAndVersion, releaseBundlesV2Jfds)
-		log.Debug("Standard RBV2 repo has no artifacts, falling back to ATW repo:", jfdsSource)
-		return jfdsSource
-	}
-
-	return standardSource
-}
-
-// buildRbv2SourcePath constructs the Artifactory download source path for an RBV2 bundle.
-// repoSuffix must be either releaseBundlesV2 or releaseBundlesV2Jfds.
-func buildRbv2SourcePath(projectKey, bundleNameAndVersion, repoSuffix string) string {
+	// If projectKey is not empty, append "-" to it
 	if projectKey != "" {
-		return projectKey + "-" + repoSuffix + "/" + bundleNameAndVersion + "/"
+		source += "-"
 	}
-	return repoSuffix + "/" + bundleNameAndVersion + "/"
-}
-
-// rbv2SourceHasArtifacts checks whether any artifacts exist at the given Artifactory source
-// path. It is used to differentiate between standard RBV2 storage (release-bundles-v2) and
-// ATW storage (release-bundles-v2-jfds) when handling --bundle downloads.
-func rbv2SourceHasArtifacts(rtDetails *config.ServerDetails, sourcePath string) (bool, error) {
-	servicesManager, err := utils.CreateServiceManager(rtDetails, 3, 0, false)
-	if err != nil {
-		return false, err
-	}
-
-	probeSpec := spec.NewBuilder().Pattern(sourcePath).Recursive(true).Limit(1).BuildSpec()
-	readers, callbackFunc, err := utils.SearchFiles(servicesManager, probeSpec)
-	defer func() {
-		if callbackFunc != nil {
-			if cleanupErr := callbackFunc(); cleanupErr != nil {
-				log.Debug("Failed to clean up RBV2 probe search results:", cleanupErr.Error())
-			}
-		}
-	}()
-	if err != nil {
-		return false, err
-	}
-
-	for _, reader := range readers {
-		if reader == nil {
-			continue
-		}
-		var result servicesUtils.ResultItem
-		if reader.NextRecord(&result) == nil {
-			return true, nil
-		}
-	}
-
-	for _, reader := range readers {
-		if reader != nil {
-			if readerErr := reader.GetError(); readerErr != nil {
-				return false, readerErr
-			}
-		}
-	}
-
-	return false, nil
+	// Build RB path: projectKey-release-bundles-v2/rbName/rbVersion/
+	source += releaseBundlesV2 + "/" + bundleNameAndVersion + "/"
+	return source
 }
 
 func setTransitiveInDownloadSpec(downloadSpec *spec.SpecFiles) {

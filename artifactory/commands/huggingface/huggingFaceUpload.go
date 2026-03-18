@@ -42,10 +42,17 @@ func (hfu *HuggingFaceUpload) Run() error {
 	if err != nil {
 		return err
 	}
-	scriptDir, err := getHuggingFaceScriptPath("huggingface_upload.py")
+	scriptDir, err := extractPythonScripts()
 	if err != nil {
-		return errorutils.CheckError(err)
+		return err
 	}
+	defer func(path string) {
+		removeErr := os.RemoveAll(path)
+		if removeErr != nil {
+			log.Error(removeErr)
+			return
+		}
+	}(scriptDir)
 	args := map[string]interface{}{
 		"folder_path": hfu.folderPath,
 		"repo_id":     hfu.repoId,
@@ -61,7 +68,7 @@ func (hfu *HuggingFaceUpload) Run() error {
 		return errorutils.CheckErrorf("failed to marshal arguments to JSON: %w", err)
 	}
 	pythonCmd := BuildPythonUploadCmd(string(argsJSON))
-	log.Debug("Executing Python function to upload ", args["repo_type"], ": ", hfu.folderPath, " to ", hfu.repoId)
+	log.Debug("Executing Python function to upload", args["repo_type"], ":", hfu.folderPath, "to", hfu.repoId)
 	cmd := exec.Command(pythonPath, "-u", "-c", pythonCmd)
 	cmd.Dir = scriptDir
 	var stdoutBuf bytes.Buffer
@@ -138,15 +145,18 @@ func (hfu *HuggingFaceUpload) GetArtifacts(buildProperties string) ([]entities.A
 		return nil, err
 	}
 	repoTypePath := hfu.repoType + "s"
-	revisionPattern := hfu.revision
-	if !HasTimestamp(hfu.revision) {
-		revisionPattern = hfu.revision + "_*"
+	latestRevision, err := FindLatestRevision(serviceManager, repoKey, repoTypePath, hfu.repoId, hfu.revision)
+	if err != nil {
+		return nil, err
 	}
-	aqlQuery := fmt.Sprintf(`items.find({"repo":"%s","path":{"$match":"%s/%s/%s/*"}}).include("repo","path","name","actual_sha1","actual_md5","sha256","type").sort({"$desc":["path"]})`,
+	if latestRevision == "" {
+		return nil, nil
+	}
+	aqlQuery := fmt.Sprintf(`items.find({"repo":"%s","path":{"$match":"%s/%s/%s/*"}}).include("repo","path","name","actual_sha1","actual_md5","sha256","type")`,
 		repoKey,
 		repoTypePath,
 		hfu.repoId,
-		revisionPattern,
+		latestRevision,
 	)
 	results, err := utils.ExecuteAqlQuery(serviceManager, aqlQuery)
 	if err != nil {
@@ -155,7 +165,7 @@ func (hfu *HuggingFaceUpload) GetArtifacts(buildProperties string) ([]entities.A
 	if len(results) == 0 {
 		return nil, nil
 	}
-	latestCreatedDir := results[0].Path
+	latestCreatedDir := fmt.Sprintf("%s/%s/%s", repoTypePath, hfu.repoId, latestRevision)
 	var artifacts []entities.Artifact
 	for _, resultItem := range results {
 		artifacts = append(artifacts, entities.Artifact{
