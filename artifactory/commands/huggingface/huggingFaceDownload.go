@@ -7,13 +7,15 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 
 	"github.com/jfrog/build-info-go/entities"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	coreUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -33,6 +35,7 @@ type HuggingFaceDownload struct {
 	etagTimeout        int
 	serverDetails      *config.ServerDetails
 	buildConfiguration *buildUtils.BuildConfiguration
+	repo               string
 }
 
 // Run executes the download command to fetch a model or dataset from HuggingFace Hub
@@ -40,6 +43,15 @@ func (hfd *HuggingFaceDownload) Run() error {
 	if hfd.repoId == "" {
 		return errorutils.CheckErrorf("repo_id cannot be empty")
 	}
+	serviceManager, err := coreUtils.CreateServiceManager(hfd.serverDetails, -1, 0, false)
+	if err != nil {
+		return fmt.Errorf("failed to create services manager: %w", err)
+	}
+	repo, err := handleRepositoryResolution(serviceManager, hfd.serverDetails, "download")
+	if err != nil {
+		return err
+	}
+	hfd.repo = repo
 	pythonPath, err := GetPythonPath()
 	if err != nil {
 		return err
@@ -101,12 +113,12 @@ func (hfd *HuggingFaceDownload) Run() error {
 	}
 	log.Info(fmt.Sprintf("Downloaded successfully to: %s", result.ModelPath))
 	if hfd.buildConfiguration != nil {
-		return hfd.CollectDependenciesForBuildInfo()
+		return hfd.CollectDependenciesForBuildInfo(result.ModelPath)
 	}
 	return nil
 }
 
-func (hfd *HuggingFaceDownload) CollectDependenciesForBuildInfo() error {
+func (hfd *HuggingFaceDownload) CollectDependenciesForBuildInfo(localPath string) error {
 	ctx, err := GetBuildInfoContext(hfd.buildConfiguration, hfd.name)
 	if err != nil {
 		return err
@@ -114,69 +126,56 @@ func (hfd *HuggingFaceDownload) CollectDependenciesForBuildInfo() error {
 	if ctx == nil {
 		return nil
 	}
-	dependencies, err := hfd.GetDependencies()
+	dependencies, err := hfd.GetDependencies(localPath)
 	if err != nil {
 		return errorutils.CheckError(err)
 	}
 	if len(dependencies) == 0 {
 		return nil
 	}
-	// Add module and set dependencies before saving
-	if len(ctx.BuildInfo.Modules) == 0 {
-		ctx.BuildInfo.Modules = append(ctx.BuildInfo.Modules, entities.Module{
-			Type: entities.ModuleType(hfd.repoType),
-			Id:   hfd.repoId,
-		})
+	moduleId := hfd.buildConfiguration.GetModule()
+	if moduleId == "" {
+		moduleId = fmt.Sprintf("%s-%s", ctx.BuildName, ctx.BuildNumber)
 	}
-	ctx.BuildInfo.Modules[0].Dependencies = dependencies
-	removeDuplicateDependencies(ctx.BuildInfo)
+	module := entities.Module{
+		Type: entities.ModuleType(fmt.Sprintf("huggingfaceml")),
+		Id:   moduleId,
+	}
+	module.Dependencies = dependencies
+	removeDuplicateDependencies(&module)
+	ctx.BuildInfo.Modules = append(ctx.BuildInfo.Modules, module)
 	return SaveBuildInfo(ctx)
 }
 
-// GetDependencies returns HuggingFace model/dataset files in JFrog Artifactory
-func (hfd *HuggingFaceDownload) GetDependencies() ([]entities.Dependency, error) {
-	serviceManager, err := coreUtils.CreateServiceManager(hfd.serverDetails, -1, 0, false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create services manager: %w", err)
-	}
-	repoKey, err := GetRepoKeyFromHFEndpoint()
-	if err != nil {
-		return nil, err
-	}
-	repoTypePath := hfd.repoType + "s"
-	latestRevision, err := FindLatestRevision(serviceManager, repoKey, repoTypePath, hfd.repoId, hfd.revision)
-	if err != nil {
-		return nil, err
-	}
-	if latestRevision == "" {
-		log.Warn("No latest revision found for ", hfd.repoId)
-		return nil, nil
-	}
-	aqlQuery := fmt.Sprintf(`items.find({"repo":"%s","path":{"$match":"%s/%s/%s/*"}}).include("repo","path","name","actual_sha1","actual_md5","sha256","type")`,
-		repoKey,
-		repoTypePath,
-		hfd.repoId,
-		latestRevision,
-	)
-	results, err := utils.ExecuteAqlQuery(serviceManager, aqlQuery)
-	if err != nil {
-		return nil, fmt.Errorf("failed to search for HuggingFace artifacts: %w", err)
-	}
-	if len(results) == 0 {
-		return nil, nil
-	}
+// GetDependencies walks the local downloaded directory and computes checksums for each file.
+func (hfd *HuggingFaceDownload) GetDependencies(localPath string) ([]entities.Dependency, error) {
 	var dependencies []entities.Dependency
-	for _, resultItem := range results {
+	err := filepath.WalkDir(localPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		details, err := fileutils.GetFileDetails(path, true)
+		if err != nil {
+			return fmt.Errorf("failed to compute checksums for %s: %w", path, err)
+		}
+		fileName := d.Name()
 		dependencies = append(dependencies, entities.Dependency{
-			Id:         resultItem.Name,
-			Type:       resultItem.Type,
-			Repository: resultItem.Repo,
+			Id:         fileName,
+			Type:       strings.TrimPrefix(filepath.Ext(fileName), "."),
+			Repository: hfd.repo,
 			Checksum: entities.Checksum{
-				Sha1:   resultItem.Actual_Sha1,
-				Md5:    resultItem.Actual_Md5,
-				Sha256: resultItem.Sha256,
+				Md5:    details.Checksum.Md5,
+				Sha1:   details.Checksum.Sha1,
+				Sha256: details.Checksum.Sha256,
 			},
 		})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to walk downloaded directory %s: %w", localPath, err)
 	}
 	return dependencies, nil
 }

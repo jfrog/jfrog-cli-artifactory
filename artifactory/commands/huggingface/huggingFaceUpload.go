@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/jfrog/jfrog-client-go/artifactory"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jfrog/build-info-go/entities"
@@ -19,6 +22,9 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+const HF_ENDPOINT = "HF_ENDPOINT"
+const huggingfaceAPI = "api/huggingfaceml"
+
 // HuggingFaceUpload represents a command to upload models or datasets to HuggingFace Hub
 type HuggingFaceUpload struct {
 	name               string
@@ -28,6 +34,7 @@ type HuggingFaceUpload struct {
 	repoType           string
 	serverDetails      *config.ServerDetails
 	buildConfiguration *buildUtils.BuildConfiguration
+	repo               string
 }
 
 // Run executes the upload command to upload a model or dataset folder to HuggingFace Hub
@@ -38,6 +45,15 @@ func (hfu *HuggingFaceUpload) Run() error {
 	if hfu.repoId == "" {
 		return errorutils.CheckErrorf("repo_id cannot be empty")
 	}
+	serviceManager, err := coreUtils.CreateServiceManager(hfu.serverDetails, -1, 0, false)
+	if err != nil {
+		return fmt.Errorf("failed to create services manager: %w", err)
+	}
+	repo, err := handleRepositoryResolution(serviceManager, hfu.serverDetails, "upload")
+	if err != nil {
+		return err
+	}
+	hfu.repo = repo
 	pythonPath, err := GetPythonPath()
 	if err != nil {
 		return err
@@ -97,12 +113,12 @@ func (hfu *HuggingFaceUpload) Run() error {
 	}
 	log.Info(fmt.Sprintf("Uploaded successfully to: %s", hfu.repoId))
 	if hfu.buildConfiguration != nil {
-		return hfu.CollectArtifactsForBuildInfo()
+		return hfu.CollectArtifactsForBuildInfo(serviceManager)
 	}
 	return nil
 }
 
-func (hfu *HuggingFaceUpload) CollectArtifactsForBuildInfo() error {
+func (hfu *HuggingFaceUpload) CollectArtifactsForBuildInfo(serviceManager artifactory.ArtifactoryServicesManager) error {
 	ctx, err := GetBuildInfoContext(hfu.buildConfiguration, hfu.name)
 	if err != nil {
 		return err
@@ -115,37 +131,31 @@ func (hfu *HuggingFaceUpload) CollectArtifactsForBuildInfo() error {
 	if ctx.Project != "" {
 		buildProps += fmt.Sprintf(";build.project=%s", ctx.Project)
 	}
-	artifacts, err := hfu.GetArtifacts(buildProps)
+	artifacts, err := hfu.GetArtifacts(serviceManager, buildProps)
 	if err != nil {
 		return errorutils.CheckError(err)
 	}
 	if len(artifacts) == 0 {
 		return nil
 	}
-	// Add module and set artifacts before saving
-	if len(ctx.BuildInfo.Modules) == 0 {
-		ctx.BuildInfo.Modules = append(ctx.BuildInfo.Modules, entities.Module{
-			Type: entities.ModuleType(hfu.repoType),
-			Id:   hfu.repoId,
-		})
+	moduleId := hfu.buildConfiguration.GetModule()
+	if moduleId == "" {
+		moduleId = fmt.Sprintf("%s-%s", ctx.BuildName, ctx.BuildNumber)
 	}
-	ctx.BuildInfo.Modules[0].Artifacts = artifacts
-	removeDuplicateArtifacts(ctx.BuildInfo)
+	module := entities.Module{
+		Type: entities.ModuleType(fmt.Sprintf("huggingfaceml-%s", hfu.repoType)),
+		Id:   moduleId,
+	}
+	module.Artifacts = artifacts
+	removeDuplicateDependencies(&module)
+	ctx.BuildInfo.Modules = append(ctx.BuildInfo.Modules, module)
 	return SaveBuildInfo(ctx)
 }
 
 // GetArtifacts returns HuggingFace model/dataset files in JFrog Artifactory
-func (hfu *HuggingFaceUpload) GetArtifacts(buildProperties string) ([]entities.Artifact, error) {
-	serviceManager, err := coreUtils.CreateServiceManager(hfu.serverDetails, -1, 0, false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create services manager: %w", err)
-	}
-	repoKey, err := GetRepoKeyFromHFEndpoint()
-	if err != nil {
-		return nil, err
-	}
+func (hfu *HuggingFaceUpload) GetArtifacts(serviceManager artifactory.ArtifactoryServicesManager, buildProperties string) ([]entities.Artifact, error) {
 	repoTypePath := hfu.repoType + "s"
-	latestRevision, err := FindLatestRevision(serviceManager, repoKey, repoTypePath, hfu.repoId, hfu.revision)
+	latestRevision, err := FindLatestRevision(serviceManager, hfu.repo, repoTypePath, hfu.repoId, hfu.revision)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +163,7 @@ func (hfu *HuggingFaceUpload) GetArtifacts(buildProperties string) ([]entities.A
 		return nil, nil
 	}
 	aqlQuery := fmt.Sprintf(`items.find({"repo":"%s","path":{"$match":"%s/%s/%s/*"}}).include("repo","path","name","actual_sha1","actual_md5","sha256","type")`,
-		repoKey,
+		hfu.repo,
 		repoTypePath,
 		hfu.repoId,
 		latestRevision,
@@ -170,7 +180,7 @@ func (hfu *HuggingFaceUpload) GetArtifacts(buildProperties string) ([]entities.A
 	for _, resultItem := range results {
 		artifacts = append(artifacts, entities.Artifact{
 			Name: resultItem.Name,
-			Type: resultItem.Type,
+			Type: strings.TrimPrefix(filepath.Ext(resultItem.Name), "."),
 			Checksum: entities.Checksum{
 				Sha1:   resultItem.Actual_Sha1,
 				Md5:    resultItem.Actual_Md5,
@@ -179,7 +189,7 @@ func (hfu *HuggingFaceUpload) GetArtifacts(buildProperties string) ([]entities.A
 		})
 	}
 	// Create content reader for the folder to set build properties
-	reader, err := createContentReader(repoKey, latestCreatedDir, "", "folder")
+	reader, err := createContentReader(hfu.repo, latestCreatedDir, "", "folder")
 	if err != nil {
 		log.Warn("Failed to create content reader: ", err)
 		return artifacts, nil
@@ -247,5 +257,11 @@ func (hfu *HuggingFaceUpload) SetBuildConfiguration(buildConfiguration *buildUti
 // SetRepoType sets the repository type (model, dataset, or space) for the upload command
 func (hfu *HuggingFaceUpload) SetRepoType(repoType string) *HuggingFaceUpload {
 	hfu.repoType = repoType
+	return hfu
+}
+
+// SetRepo sets the actual repository to which upload will happen.
+func (hfu *HuggingFaceUpload) SetRepo(repo string) *HuggingFaceUpload {
+	hfu.repo = repo
 	return hfu
 }
