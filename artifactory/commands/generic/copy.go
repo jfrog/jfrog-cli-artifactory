@@ -40,7 +40,7 @@ func (cc *CopyCommand) Run() error {
 	}
 
 	var errorOccurred = false
-	var copyParamsArray []services.MoveCopyParams
+	copyParamsArray := make([]services.MoveCopyParams, 0, len(cc.spec.Files))
 	// Create CopyParams for all File-Spec groups.
 	for i := 0; i < len(cc.spec.Files); i++ {
 		copyParams, err := getCopyParams(cc.spec.Get(i))

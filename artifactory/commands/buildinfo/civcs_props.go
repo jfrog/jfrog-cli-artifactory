@@ -156,13 +156,11 @@ func setPropsOnArtifacts(servicesManager artifactory.ArtifactoryServicesManager,
 // buildSpecFromPaths creates a SpecFiles object from artifact paths for search-based resolution.
 // Each path becomes a separate file pattern in the spec.
 func buildSpecFromPaths(artifactPaths []string) *spec.SpecFiles {
-	specFiles := &spec.SpecFiles{}
-	for _, artifactPath := range artifactPaths {
-		specFiles.Files = append(specFiles.Files, spec.File{
-			Pattern: artifactPath,
-		})
+	files := make([]spec.File, len(artifactPaths))
+	for i, artifactPath := range artifactPaths {
+		files[i] = spec.File{Pattern: artifactPath}
 	}
-	return specFiles
+	return &spec.SpecFiles{Files: files}
 }
 
 // is404Error checks if the error indicates a 404 Not Found response.

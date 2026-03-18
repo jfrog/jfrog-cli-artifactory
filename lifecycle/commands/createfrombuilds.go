@@ -2,7 +2,9 @@ package commands
 
 import (
 	"encoding/json"
+	"sync"
 
+	rtServices "github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/lifecycle"
 	"github.com/jfrog/jfrog-client-go/lifecycle/services"
@@ -48,31 +50,49 @@ func (rbc *ReleaseBundleCreateCommand) getBuildSourceFromBuildsSpec() (buildsSou
 }
 
 func (rbc *ReleaseBundleCreateCommand) convertBuildsSpecToBuildsSource(builds CreateFromBuildsSpec) (services.CreateFromBuildsSource, error) {
-	buildsSource := services.CreateFromBuildsSource{}
-	for _, build := range builds.Builds {
-		buildSource := services.BuildSource{BuildName: build.Name, IncludeDependencies: build.IncludeDependencies}
-		buildNumber, err := rbc.getLatestBuildNumberIfEmpty(build.Name, build.Number, build.Project)
-		if err != nil {
-			return services.CreateFromBuildsSource{}, err
-		}
-		buildSource.BuildNumber = buildNumber
-		buildSource.BuildRepository = utils.GetBuildInfoRepositoryByProject(build.Project)
-		buildsSource.Builds = append(buildsSource.Builds, buildSource)
+	// Create the AQL service once and reuse across all lookups.
+	aqlService, err := getAqlService(rbc.serverDetails)
+	if err != nil {
+		return services.CreateFromBuildsSource{}, err
 	}
-	return buildsSource, nil
+
+	// Fan out build-number lookups in parallel; preserve order via indexed slice.
+	buildSources := make([]services.BuildSource, len(builds.Builds))
+	errs := make([]error, len(builds.Builds))
+	var wg sync.WaitGroup
+	for i, build := range builds.Builds {
+		wg.Add(1)
+		go func(idx int, b SourceBuildSpec) {
+			defer wg.Done()
+			buildNumber, lookupErr := rbc.getLatestBuildNumberIfEmpty(b.Name, b.Number, b.Project, aqlService)
+			if lookupErr != nil {
+				errs[idx] = lookupErr
+				return
+			}
+			buildSources[idx] = services.BuildSource{
+				BuildName:           b.Name,
+				BuildNumber:         buildNumber,
+				BuildRepository:     utils.GetBuildInfoRepositoryByProject(b.Project),
+				IncludeDependencies: b.IncludeDependencies,
+			}
+		}(i, build)
+	}
+	wg.Wait()
+
+	for _, e := range errs {
+		if e != nil {
+			return services.CreateFromBuildsSource{}, e
+		}
+	}
+	return services.CreateFromBuildsSource{Builds: buildSources}, nil
 }
 
-func (rbc *ReleaseBundleCreateCommand) getLatestBuildNumberIfEmpty(buildName, buildNumber, project string) (string, error) {
+func (rbc *ReleaseBundleCreateCommand) getLatestBuildNumberIfEmpty(buildName, buildNumber, project string, aqlService *rtServices.AqlService) (string, error) {
 	if buildNumber != "" {
 		return buildNumber, nil
 	}
 
-	aqlService, err := getAqlService(rbc.serverDetails)
-	if err != nil {
-		return "", err
-	}
-
-	buildNumber, err = utils.GetLatestBuildNumberFromArtifactory(buildName, project, aqlService)
+	buildNumber, err := utils.GetLatestBuildNumberFromArtifactory(buildName, project, aqlService)
 	if err != nil {
 		return "", err
 	}

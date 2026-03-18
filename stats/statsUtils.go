@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -155,11 +156,31 @@ func (sa *ArtifactoryStats) GetCommandList() map[string]StatsFunc {
 }
 
 func (sa *ArtifactoryStats) GetStats() error {
-	commandList := sa.GetCommandList()
-	allResultsMap := make(map[string]interface{}, 0)
-	for name, statsFunc := range commandList {
-		allResultsMap[name] = statsFunc()
+	// GetProjectsStats must run first: it writes sa.ProjectCount, which
+	// GetArtifactoryStats reads. Run it synchronously, then fan out the rest.
+	allResultsMap := make(map[string]interface{}, 4)
+	allResultsMap["project"] = sa.GetProjectsStats()
+
+	remaining := map[string]StatsFunc{
+		"rt":  sa.GetArtifactoryStats,
+		"jpd": sa.GetJPDsStats,
+		"rb":  sa.GetReleaseBundlesStats,
 	}
+
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for name, fn := range remaining {
+		wg.Add(1)
+		go func(n string, f StatsFunc) {
+			defer wg.Done()
+			result := f()
+			mu.Lock()
+			allResultsMap[n] = result
+			mu.Unlock()
+		}(name, fn)
+	}
+	wg.Wait()
+
 	return sa.PrintAllResults(allResultsMap)
 }
 
