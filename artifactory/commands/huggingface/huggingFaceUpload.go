@@ -140,7 +140,7 @@ func (hfu *HuggingFaceUpload) CollectArtifactsForBuildInfo(serviceManager artifa
 	}
 	moduleId := hfu.buildConfiguration.GetModule()
 	if moduleId == "" {
-		moduleId = fmt.Sprintf("%s-%s", ctx.BuildName, ctx.BuildNumber)
+		moduleId = fmt.Sprintf("%s-%s:%s", ctx.BuildName, ctx.BuildNumber, hfu.repoType)
 	}
 	module := entities.Module{
 		Type: entities.ModuleType(fmt.Sprintf("huggingfaceml-%s", hfu.repoType)),
