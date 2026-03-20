@@ -155,8 +155,8 @@ func handleRepositoryResolution(serviceManager artifactory.ArtifactoryServicesMa
 	repoDetails := HuggingFaceRepositoryDetails{}
 	err = serviceManager.GetRepository(repoKey, &repoDetails)
 	if err != nil {
-		log.Error("Failed to get repository details, either repository doesn't exist or bad request")
-		return repoKey, err
+		log.Error("Either repository doesn't exist or bad request")
+		return "", err
 	}
 	if repoDetails.PackageType != huggingfaceml {
 		return repoKey, errorutils.CheckErrorf("Given repository %s is not a huggingface's type repository", repoKey)

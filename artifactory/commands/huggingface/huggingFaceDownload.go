@@ -150,6 +150,9 @@ func (hfd *HuggingFaceDownload) CollectDependenciesForBuildInfo(localPath string
 // GetDependencies walks the local downloaded directory and computes checksums for each file.
 func (hfd *HuggingFaceDownload) GetDependencies(localPath string) ([]entities.Dependency, error) {
 	var dependencies []entities.Dependency
+	if _, err := os.Stat(localPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("downloaded path does not exist: %s", localPath)
+	}
 	err := filepath.WalkDir(localPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
