@@ -442,17 +442,39 @@ func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex string) {
 
 	subjectRepoPath := fmt.Sprintf("%s/%s/%s/%s-%s.zip", pc.repoKey, slug, version, slug, version)
 
-	err = common.CreateEvidence(pc.serverDetails, common.CreateEvidenceOpts{
-		SubjectRepoPath: subjectRepoPath,
-		SubjectSHA256:   sha256Hex,
-		PredicatePath:   predicatePath,
-		PredicateType:   predicateTypePublishAttestation,
-		MarkdownPath:    markdownPath,
-		KeyPath:         keyPath,
-		KeyAlias:        alias,
-	})
+	// Suppress the evidence library's internal error/warn logs during this call.
+	// On 403 (license issue), they are noise — we handle the error ourselves below.
+	if jfLogger, ok := log.GetLogger().(*log.JfrogLogger); ok {
+		prevLevel := jfLogger.GetLogLevel()
+		jfLogger.SetLogLevel(-1)
+		err = common.CreateEvidence(pc.serverDetails, common.CreateEvidenceOpts{
+			SubjectRepoPath: subjectRepoPath,
+			SubjectSHA256:   sha256Hex,
+			PredicatePath:   predicatePath,
+			PredicateType:   predicateTypePublishAttestation,
+			MarkdownPath:    markdownPath,
+			KeyPath:         keyPath,
+			KeyAlias:        alias,
+		})
+		jfLogger.SetLogLevel(prevLevel)
+	} else {
+		err = common.CreateEvidence(pc.serverDetails, common.CreateEvidenceOpts{
+			SubjectRepoPath: subjectRepoPath,
+			SubjectSHA256:   sha256Hex,
+			PredicatePath:   predicatePath,
+			PredicateType:   predicateTypePublishAttestation,
+			MarkdownPath:    markdownPath,
+			KeyPath:         keyPath,
+			KeyAlias:        alias,
+		})
+	}
 	if err != nil {
-		log.Warn("Evidence creation failed (skill upload succeeded):", err.Error())
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "Enterprise+") || strings.Contains(errMsg, "403 Forbidden") {
+			log.Info("Evidence not attached: your Artifactory license does not support evidence. Skill upload succeeded.")
+		} else {
+			log.Warn("Evidence creation failed (skill upload succeeded):", errMsg)
+		}
 		return
 	}
 

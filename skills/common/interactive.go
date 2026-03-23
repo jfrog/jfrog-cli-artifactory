@@ -12,13 +12,21 @@ func IsQuiet(c *components.Context) bool {
 	if c.GetBoolFlagValue("quiet") {
 		return true
 	}
-	return IsCI()
+	return IsNonInteractive()
 }
 
-// IsCI returns true when running in a CI environment.
-func IsCI() bool {
+// IsNonInteractive returns true when interactive prompts cannot be used safely.
+// go-prompt will panic if it tries to read from a non-terminal stdin.
+func IsNonInteractive() bool {
 	ci := os.Getenv("CI")
-	return ci == "true" || ci == "1"
+	if ci == "true" || ci == "1" {
+		return true
+	}
+	stat, err := os.Stdin.Stat()
+	if err != nil {
+		return true
+	}
+	return (stat.Mode() & os.ModeCharDevice) == 0
 }
 
 // ShouldFailOnMissingEvidence returns true when quiet/CI mode should fail
