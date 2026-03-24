@@ -120,16 +120,16 @@ func TestConstructArtifactPathWithFallback(t *testing.T) {
 
 func TestCivcsExtractArtifactPathsWithWarnings(t *testing.T) {
 	tests := []struct {
-		name             string
-		buildInfo        *buildinfo.BuildInfo
-		expectedPaths    int
-		expectedSkipped  int
+		name            string
+		buildInfo       *buildinfo.BuildInfo
+		expectedPaths   int
+		expectedSkipped int
 	}{
 		{
-			name:             "empty build info",
-			buildInfo:        &buildinfo.BuildInfo{},
-			expectedPaths:    0,
-			expectedSkipped:  0,
+			name:            "empty build info",
+			buildInfo:       &buildinfo.BuildInfo{},
+			expectedPaths:   0,
+			expectedSkipped: 0,
 		},
 		{
 			name: "build info with artifacts",

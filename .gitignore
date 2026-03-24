@@ -12,3 +12,4 @@
 
 # Go
 *_mock.go
+.env

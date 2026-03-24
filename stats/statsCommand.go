@@ -3,9 +3,10 @@ package stats
 const displayLimit = 5
 
 type Stats struct {
-	Format      string
-	AccessToken string // #nosec G117 -- public API field used by jfrog-cli
-	ServerId    string
+	Format string
+	// #nosec G117 -- public API field used by jfrog-cli
+	AccessToken  string
+	ServerId     string
 	DisplayLimit int
 }
 

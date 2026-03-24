@@ -469,16 +469,22 @@ func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex string) {
 		})
 	}
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "Enterprise+") || strings.Contains(errMsg, "403 Forbidden") {
-			log.Info("Evidence not attached: your Artifactory license does not support evidence. Skill upload succeeded.")
+		if isEvidenceLicenseError(err) {
+			log.Info("Evidence not attached: evidence requires an Enterprise+ license. Skill upload succeeded.")
 		} else {
-			log.Warn("Evidence creation failed (skill upload succeeded):", errMsg)
+			log.Warn("Evidence creation failed (skill upload succeeded):", err.Error())
 		}
 		return
 	}
 
 	log.Info("Evidence successfully attached.")
+}
+
+// isEvidenceLicenseError returns true when the error indicates the Artifactory
+// instance does not have the license required for evidence (E+).
+func isEvidenceLicenseError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "Enterprise+") || strings.Contains(msg, "403 Forbidden")
 }
 
 // RunPublish is the CLI action for `jf skills publish`.
