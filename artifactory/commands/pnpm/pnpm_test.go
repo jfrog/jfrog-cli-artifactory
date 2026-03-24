@@ -11,29 +11,29 @@ import (
 
 func TestResolveRepoFromRegistry(t *testing.T) {
 	tests := []struct {
-		depName      string
+		depName       string
 		registryRepos registryMap
-		want         string
+		want          string
 	}{
 		{
-			depName:      "@scope/pkg",
+			depName:       "@scope/pkg",
 			registryRepos: registryMap{defaultRepo: "npm-default", scoped: map[string]string{"@scope": "npm-scoped"}},
-			want:         "npm-scoped",
+			want:          "npm-scoped",
 		},
 		{
-			depName:      "@scope/pkg",
+			depName:       "@scope/pkg",
 			registryRepos: registryMap{defaultRepo: "npm-default", scoped: map[string]string{}},
-			want:         "npm-default",
+			want:          "npm-default",
 		},
 		{
-			depName:      "unscoped-pkg",
+			depName:       "unscoped-pkg",
 			registryRepos: registryMap{defaultRepo: "npm-default", scoped: map[string]string{"@scope": "npm-scoped"}},
-			want:         "npm-default",
+			want:          "npm-default",
 		},
 		{
-			depName:      "@scopeOnly",
+			depName:       "@scopeOnly",
 			registryRepos: registryMap{defaultRepo: "npm-default", scoped: map[string]string{}},
-			want:         "npm-default",
+			want:          "npm-default",
 		},
 	}
 	for _, tt := range tests {
@@ -65,9 +65,9 @@ func TestExtractRepoFromRegistryURL(t *testing.T) {
 
 func TestBuildTarballPartsFromName(t *testing.T) {
 	tests := []struct {
-		name    string
-		version string
-		wantDir string
+		name     string
+		version  string
+		wantDir  string
 		wantFile string
 	}{
 		{"pkg", "1.0.0", "pkg/-", "pkg-1.0.0.tgz"},
@@ -84,10 +84,10 @@ func TestBuildTarballPartsFromName(t *testing.T) {
 
 func TestParseTarballURL(t *testing.T) {
 	tests := []struct {
-		url        string
-		wantDir    string
-		wantFile   string
-		wantErr    bool
+		url      string
+		wantDir  string
+		wantFile string
+		wantErr  bool
 	}{
 		{
 			url:      "https://artifactory.example.com/artifactory/api/npm/npm-repo/pkg/-/pkg-1.0.0.tgz",
@@ -189,9 +189,9 @@ func TestParsePackOutput(t *testing.T) {
 
 func TestBuildPnpmDeployPath(t *testing.T) {
 	tests := []struct {
-		name    string
-		pkg     string
-		version string
+		name     string
+		pkg      string
+		version  string
 		wantPath string
 		wantName string
 	}{
@@ -256,7 +256,7 @@ func TestParseSingleProjectEmptyName(t *testing.T) {
 	}
 	mod := parseSingleProject(proj)
 	assert.NotNil(t, mod)
-	assert.Equal(t, "pnpm-project", mod.id)
+	assert.Equal(t, defaultModuleId, mod.id)
 }
 
 func TestAddRequestedBy(t *testing.T) {
@@ -327,10 +327,10 @@ func TestResolvePublishRepoPriority(t *testing.T) {
 		scoped:      map[string]string{"@scope": "npm-scoped"},
 	}
 	tests := []struct {
-		name        string
-		pkgName     string
+		name         string
+		pkgName      string
 		publishRepos map[string]string
-		want        string
+		want         string
 	}{
 		{"publishConfig wins", "pkg1", map[string]string{"pkg1": "npm-publish-local"}, "npm-publish-local"},
 		{"fallback to scoped", "@scope/pkg", map[string]string{}, "npm-scoped"},
@@ -532,7 +532,8 @@ func TestPublishBuildInfoGracefulDegradation(t *testing.T) {
 	cmd := &PnpmPublishCommand{
 		workingDirectory: t.TempDir(),
 	}
-	err := cmd.collectSinglePublishBuildInfo([]byte("{invalid json"))
+	err := cmd.
+		collectSinglePublishBuildInfo([]byte("{invalid json"))
 	assert.Error(t, err, "collectSinglePublishBuildInfo should fail with invalid JSON")
 	assert.Contains(t, err.Error(), "parsing pnpm publish --json output")
 }

@@ -16,67 +16,24 @@ import (
 )
 
 const (
-	minSupportedPnpmVersion = "10.0.0"
-	minUnsupportedPnpmVersion = "11.0.0"
-	minRequiredNodeVersion  = "18.12.0"
+	minSupportedPnpmVersion     = "10.0.0"
+	firstUnsupportedPnpmVersion = "11.0.0" // exclusive upper bound: 10.x only
+	minRequiredNodeVersion      = "18.12.0"
 )
-
-// pnpmCommand is the common interface for pnpm subcommands (install, publish).
-type pnpmCommand interface {
-	commands.Command
-	SetArgs([]string) pnpmCommand
-	SetBuildConfiguration(*buildUtils.BuildConfiguration) pnpmCommand
-	SetServerDetails(*config.ServerDetails) pnpmCommand
-}
-
-// pnpmInstallAdapter wraps PnpmInstallCommand to satisfy pnpmCommand.
-type pnpmInstallAdapter struct{ *PnpmInstallCommand }
-
-func (a *pnpmInstallAdapter) SetArgs(args []string) pnpmCommand {
-	a.PnpmInstallCommand.SetArgs(args)
-	return a
-}
-func (a *pnpmInstallAdapter) SetBuildConfiguration(bc *buildUtils.BuildConfiguration) pnpmCommand {
-	a.PnpmInstallCommand.SetBuildConfiguration(bc)
-	return a
-}
-func (a *pnpmInstallAdapter) SetServerDetails(sd *config.ServerDetails) pnpmCommand {
-	a.PnpmInstallCommand.SetServerDetails(sd)
-	return a
-}
-
-// pnpmPublishAdapter wraps PnpmPublishCommand to satisfy pnpmCommand.
-type pnpmPublishAdapter struct{ *PnpmPublishCommand }
-
-func (a *pnpmPublishAdapter) SetArgs(args []string) pnpmCommand {
-	a.PnpmPublishCommand.SetArgs(args)
-	return a
-}
-func (a *pnpmPublishAdapter) SetBuildConfiguration(bc *buildUtils.BuildConfiguration) pnpmCommand {
-	a.PnpmPublishCommand.SetBuildConfiguration(bc)
-	return a
-}
-func (a *pnpmPublishAdapter) SetServerDetails(sd *config.ServerDetails) pnpmCommand {
-	a.PnpmPublishCommand.SetServerDetails(sd)
-	return a
-}
 
 // NewCommand creates a pnpm command by subcommand name with common fields set.
 func NewCommand(cmdName string, args []string, buildConfig *buildUtils.BuildConfiguration, serverDetails *config.ServerDetails) (commands.Command, error) {
 	if err := validatePnpmPrerequisites(); err != nil {
 		return nil, err
 	}
-	var cmd pnpmCommand
 	switch cmdName {
 	case "install", "i":
-		cmd = &pnpmInstallAdapter{NewPnpmInstallCommand()}
+		return NewPnpmInstallCommand().SetArgs(args).SetBuildConfiguration(buildConfig).SetServerDetails(serverDetails), nil
 	case "publish", "p":
-		cmd = &pnpmPublishAdapter{NewPnpmPublishCommand()}
+		return NewPnpmPublishCommand().SetArgs(args).SetBuildConfiguration(buildConfig).SetServerDetails(serverDetails), nil
 	default:
 		return nil, fmt.Errorf("unsupported pnpm command: %s", cmdName)
 	}
-	cmd.SetArgs(args).SetBuildConfiguration(buildConfig).SetServerDetails(serverDetails)
-	return cmd, nil
 }
 
 // validatePnpmPrerequisites checks that pnpm and Node.js meet the version requirements.
@@ -90,7 +47,7 @@ func validatePnpmPrerequisites() error {
 		return errorutils.CheckErrorf(
 			"JFrog CLI pnpm commands require pnpm version %s or higher. Current version: %s", minSupportedPnpmVersion, pnpmVer.GetVersion())
 	}
-	if pnpmVer.Compare(minUnsupportedPnpmVersion) <= 0 {
+	if pnpmVer.Compare(firstUnsupportedPnpmVersion) <= 0 {
 		return errorutils.CheckErrorf(
 			"JFrog CLI pnpm commands currently support pnpm 10.x only. Current version: %s", pnpmVer.GetVersion())
 	}

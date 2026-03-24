@@ -2,11 +2,14 @@ package pnpm
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
+
+const defaultModuleId = "pnpm-project"
 
 type pnpmLsProject struct {
 	Name            string                       `json:"name"`
@@ -62,7 +65,7 @@ func formatModuleId(name, version string) string {
 func parseSingleProject(proj pnpmLsProject) *moduleInfo {
 	moduleID := formatModuleId(proj.Name, proj.Version)
 	if moduleID == "" {
-		moduleID = "pnpm-project"
+		moduleID = defaultModuleId
 	}
 
 	depMap := make(map[string]*depInfo)
@@ -78,10 +81,14 @@ func parseSingleProject(proj pnpmLsProject) *moduleInfo {
 	mod := &moduleInfo{id: moduleID}
 	for _, dep := range depMap {
 		mod.rawDeps = append(mod.rawDeps, *dep)
+		scopes := dep.scopes
+		if registryScope := getRegistryScope(dep.name); registryScope != "" {
+			scopes = append(scopes, registryScope)
+		}
 		mod.dependencies = append(mod.dependencies, entities.Dependency{
 			Id:          dep.name + ":" + dep.version,
 			Type:        "tgz",
-			Scopes:      dep.scopes,
+			Scopes:      scopes,
 			RequestedBy: dep.requestedBy,
 		})
 	}
@@ -119,36 +126,36 @@ func walkSingleDep(name string, info pnpmLsDependency, scope, parentID string, d
 	depMap[key] = dep
 
 	for childName, childInfo := range info.Dependencies {
-		walkSingleDep(childName, childInfo, "transitive", name+"@"+info.Version, depMap)
+		walkSingleDep(childName, childInfo, "transitive", name+":"+info.Version, depMap)
 	}
 }
 
 func addRequestedBy(dep *depInfo, path []string) {
 	for _, existing := range dep.requestedBy {
-		if slicesEqual(existing, path) {
+		if slices.Equal(existing, path) {
 			return
 		}
 	}
 	dep.requestedBy = append(dep.requestedBy, path)
 }
 
-func addScope(dep *depInfo, scope string) {
-	for _, s := range dep.scopes {
-		if s == scope {
-			return
+func getRegistryScope(name string) string {
+	if strings.HasPrefix(name, "@") {
+		parts := strings.Split(name, "/")
+		if len(parts) > 2 {
+			return parts[0]
 		}
 	}
-	dep.scopes = append(dep.scopes, scope)
+	return ""
 }
 
-func slicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
+func addScope(dep *depInfo, scope string) {
+	current := dep.scopes[0]
+	if current == "prod" {
+		return
 	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
+	if scope == "prod" || (scope == "dev" && current == "transitive") {
+		dep.scopes = []string{scope}
 	}
-	return true
 }
+

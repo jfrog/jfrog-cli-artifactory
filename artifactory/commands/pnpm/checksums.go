@@ -65,7 +65,7 @@ func fetchChecksums(deps []parsedDep, serverDetails *config.ServerDetails, build
 		}
 		log.Debug(fmt.Sprintf("Fetching checksums via AQL for %d dependencies: %v", len(uncachedIDs), uncachedIDs))
 	}
-	log.Info(fmt.Sprintf("Checksum resolution: %d cached, %d require AQL lookup.", len(cachedIDs), len(uncachedDeps)))
+	log.Info(fmt.Sprintf("Checksum resolution: %d cached, resolving checksums for %d dependencies from artifactory.", len(cachedIDs), len(uncachedDeps)))
 
 	if len(uncachedDeps) == 0 {
 		log.Debug("All dependencies resolved from previous build cache. No AQL queries needed.")

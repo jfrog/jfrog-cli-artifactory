@@ -18,6 +18,35 @@ type registryMap struct {
 	scoped      map[string]string // @scope -> repo name
 }
 
+// resolveDeploymentRepo resolves a virtual repository to its default deployment
+// repository. For local/remote repos, returns the repo as-is. This is needed
+// because SetProps must target the actual local repo where artifacts land, not
+// the virtual repo that aggregates them.
+func resolveDeploymentRepo(repo string, servicesManager artifactory.ArtifactoryServicesManager) string {
+	if repo == "" {
+		return ""
+	}
+	// VirtualRepositoryBaseParams includes DefaultDeploymentRepo and embeds
+	// RepositoryBaseParams (which has Rclass). GetRepository unmarshals the
+	// full JSON response, so fields not present for non-virtual repos remain zero-valued.
+	repoDetails := &services.VirtualRepositoryBaseParams{}
+	if err := servicesManager.GetRepository(repo, repoDetails); err != nil {
+		log.Debug(fmt.Sprintf("Could not determine type for repo '%s', using as-is: %s", repo, err.Error()))
+		return repo
+	}
+	if repoDetails.Rclass == services.VirtualRepositoryRepoType {
+		if repoDetails.DefaultDeploymentRepo == "" {
+			log.Warn(fmt.Sprintf("Virtual repository '%s' has no default deployment repository configured. "+
+				"Build properties cannot be set. Configure a default deployment repository in Artifactory, "+
+				"or publish directly to a local repository.", repo))
+			return ""
+		}
+		log.Info(fmt.Sprintf("Resolved virtual repository '%s' to default deployment repository '%s'.", repo, repoDetails.DefaultDeploymentRepo))
+		return repoDetails.DefaultDeploymentRepo
+	}
+	return repo
+}
+
 func groupByRepo(deps []parsedDep, workingDir string) map[string][]parsedDep {
 	registryRepos := getRegistryRepos(workingDir)
 	groups := make(map[string][]parsedDep)

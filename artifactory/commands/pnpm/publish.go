@@ -1,7 +1,6 @@
 package pnpm
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -153,16 +152,7 @@ func (ppc *PnpmPublishCommand) collectSinglePublishBuildInfo(stdout []byte) erro
 		return nil
 	}
 
-	checksumResults := computeChecksums(packages)
-	publishRepos := getPublishConfigRepos(ppc.workingDirectory, []publishedPackage{*published})
-	fallbackRepos := getRegistryRepos(ppc.workingDirectory)
-	if err = ppc.saveBuildArtifacts(packages, checksumResults, []publishedPackage{*published}, publishRepos, fallbackRepos); err != nil {
-		return err
-	}
-
-	ppc.tagBuildProperties([]publishedPackage{*published}, publishRepos, fallbackRepos)
-	log.Info("pnpm publish finished successfully. 1 package published with build info.")
-	return nil
+	return ppc.finalizePublishBuildInfo(packages, []publishedPackage{*published})
 }
 
 // publishWorkspaceWithBuildInfo handles workspace (-r) publish using --report-summary
@@ -229,18 +219,7 @@ func (ppc *PnpmPublishCommand) collectWorkspacePublishBuildInfo(addedSummaryFlag
 		return nil
 	}
 
-	checksumResults := computeChecksums(packages)
-	log.Debug(fmt.Sprintf("Checksums computed for %d/%d package(s).", len(checksumResults), len(packages)))
-
-	publishRepos := getPublishConfigRepos(ppc.workingDirectory, published)
-	fallbackRepos := getRegistryRepos(ppc.workingDirectory)
-	if err = ppc.saveBuildArtifacts(packages, checksumResults, published, publishRepos, fallbackRepos); err != nil {
-		return err
-	}
-
-	ppc.tagBuildProperties(published, publishRepos, fallbackRepos)
-	log.Info(fmt.Sprintf("pnpm publish finished successfully. %d package(s) published with build info.", len(packages)))
-	return nil
+	return ppc.finalizePublishBuildInfo(packages, published)
 }
 
 // prepareSummaryForPacking ensures pnpm-publish-summary.json is not included in packed tarballs.
@@ -328,10 +307,11 @@ func (ppc *PnpmPublishCommand) runPnpmPublishNative(flags publishFlags) error {
 	log.Debug("Running command: pnpm", strings.Join(args, " "))
 	cmd := exec.Command("pnpm", args...)
 	cmd.Dir = ppc.workingDirectory
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return errorutils.CheckError(cmd.Run())
+	output, err := cmd.Output()
+	if err != nil {
+		return errorutils.CheckErrorf("pnpm publish failed:\n%s\n%s", output, err.Error())
+	}
+	return nil
 }
 
 // runPnpmPublishCaptured runs pnpm publish and captures stdout (used for --json output).
@@ -343,14 +323,11 @@ func (ppc *PnpmPublishCommand) runPnpmPublishCaptured(flags publishFlags) ([]byt
 	log.Debug("Running command: pnpm", strings.Join(args, " "))
 	cmd := exec.Command("pnpm", args...)
 	cmd.Dir = ppc.workingDirectory
-	cmd.Stdin = os.Stdin
-	var stdoutBuf bytes.Buffer
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return nil, errorutils.CheckError(err)
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, errorutils.CheckErrorf("pnpm publish failed:\n%s\n%s", output, err.Error())
 	}
-	return stdoutBuf.Bytes(), nil
+	return output, nil
 }
 
 // npmPublishJsonOutput represents the JSON output from `pnpm publish --json`
@@ -531,6 +508,64 @@ func (ppc *PnpmPublishCommand) saveBuildArtifacts(packages []pnpmPackResult, che
 	return nil
 }
 
+// finalizePublishBuildInfo is the shared tail of both collectSinglePublishBuildInfo and
+// collectWorkspacePublishBuildInfo. It computes checksums, resolves repos (including
+// virtual → default deployment), saves build artifacts, and tags build properties.
+func (ppc *PnpmPublishCommand) finalizePublishBuildInfo(packages []pnpmPackResult, published []publishedPackage) error {
+	checksumResults := computeChecksums(packages)
+	log.Debug(fmt.Sprintf("Checksums computed for %d/%d package(s).", len(checksumResults), len(packages)))
+
+	publishRepos := getPublishConfigRepos(ppc.workingDirectory, published)
+	fallbackRepos := getRegistryRepos(ppc.workingDirectory)
+	ppc.resolveVirtualRepos(publishRepos, &fallbackRepos)
+	if err := ppc.saveBuildArtifacts(packages, checksumResults, published, publishRepos, fallbackRepos); err != nil {
+		return err
+	}
+
+	ppc.tagBuildProperties(published, publishRepos, fallbackRepos)
+	log.Info(fmt.Sprintf("pnpm publish finished successfully. %d package(s) published with build info.", len(packages)))
+	return nil
+}
+
+// resolveVirtualRepos resolves any virtual repositories in publishRepos and fallbackRepos
+// to their default deployment repositories. This must be called before saveBuildArtifacts
+// and tagBuildProperties so that both use the actual local repo where artifacts land.
+func (ppc *PnpmPublishCommand) resolveVirtualRepos(publishRepos map[string]string, fallbackRepos *registryMap) {
+	if ppc.serverDetails == nil {
+		return
+	}
+	servicesManager, err := artCoreUtils.CreateServiceManager(ppc.serverDetails, -1, 0, false)
+	if err != nil {
+		log.Debug("Could not create service manager for virtual repo resolution:", err.Error())
+		return
+	}
+
+	// Resolve all unique repos once, caching results.
+	resolved := make(map[string]string)
+	resolve := func(repo string) string {
+		if repo == "" {
+			return ""
+		}
+		if r, ok := resolved[repo]; ok {
+			return r
+		}
+		r := resolveDeploymentRepo(repo, servicesManager)
+		resolved[repo] = r
+		return r
+	}
+
+	// Resolve per-package publish config repos.
+	for pkg, repo := range publishRepos {
+		publishRepos[pkg] = resolve(repo)
+	}
+
+	// Resolve fallback registry repos.
+	fallbackRepos.defaultRepo = resolve(fallbackRepos.defaultRepo)
+	for scope, repo := range fallbackRepos.scoped {
+		fallbackRepos.scoped[scope] = resolve(repo)
+	}
+}
+
 // tagBuildProperties sets build.name, build.number, build.timestamp on published
 // artifacts in Artifactory. Constructs the artifact path directly from the package
 // name/version and registry config, avoiding a SearchFiles API call.
@@ -611,9 +646,16 @@ func buildPnpmDeployPath(packageName, version string) (path, name string) {
 	return packageName + "/-", fmt.Sprintf("%s-%s.tgz", packageName, version)
 }
 
-// publishing in pnpm can be overridden per package by setting publishConfig.registry in package.json.
+// packageJSON is a minimal representation of a package.json for reading publishConfig.
+type packageJSON struct {
+	Name          string `json:"name"`
+	PublishConfig struct {
+		Registry string `json:"registry"`
+	} `json:"publishConfig"`
+}
+
 // getPublishConfigRepos reads publishConfig.registry from each published package's
-// package.json via a single pnpm exec call with filters.
+// package.json by resolving workspace paths via pnpm ls.
 // Returns a map of package name -> Artifactory repo name.
 func getPublishConfigRepos(workingDir string, published []publishedPackage) map[string]string {
 	result := make(map[string]string)
@@ -621,41 +663,63 @@ func getPublishConfigRepos(workingDir string, published []publishedPackage) map[
 		return result
 	}
 
-	args := []string{"--include-workspace-root"}
-	for _, pkg := range published {
-		args = append(args, "--filter", pkg.Name)
-	}
-	// Node 10+ compatible; outputs {"pkgName":"registryUrl"} per package
-	script := `var p=require("./package.json");var r={};if(p.publishConfig&&p.publishConfig.registry){r[p.name]=p.publishConfig.registry}console.log(JSON.stringify(r))`
-	args = append(args, "exec", "--", "node", "-e", script)
-
-	log.Debug("Running command: pnpm", strings.Join(args, " "))
-	cmd := exec.Command("pnpm", args...)
-	cmd.Dir = workingDir
-	out, err := cmd.Output()
-	if err != nil {
-		log.Debug("Could not read publishConfig from workspace packages:", err.Error())
-		return result
-	}
-
-	// pnpm exec runs the script per filtered package; each outputs a JSON object.
-	// json.Unmarshal into an existing map merges keys, so we accumulate all entries.
-	rawRepos := make(map[string]string)
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" && line[0] == '{' {
-			if err := json.Unmarshal([]byte(line), &rawRepos); err != nil {
-				log.Debug("Could not parse publishConfig output:", line)
-			}
-		}
-	}
-	for name, registry := range rawRepos {
-		if repo := extractRepoFromRegistryURL(registry); repo != "" {
+	packageDirs := resolveWorkspacePackagePaths(workingDir, published)
+	for _, dir := range packageDirs {
+		name, repo := readPublishConfigRepo(dir)
+		if name != "" && repo != "" {
 			result[name] = repo
 			log.Debug(fmt.Sprintf("Publish repo for '%s': %s (from publishConfig.registry)", name, repo))
 		}
 	}
 	return result
+}
+
+// readPublishConfigRepo reads package.json from the given directory and extracts
+// the Artifactory repo name from publishConfig.registry.
+func readPublishConfigRepo(packageDir string) (name, repo string) {
+	data, err := os.ReadFile(filepath.Join(packageDir, "package.json"))
+	if err != nil {
+		return "", ""
+	}
+	var pkg packageJSON
+	if err = json.Unmarshal(data, &pkg); err != nil {
+		return "", ""
+	}
+	return pkg.Name, extractRepoFromRegistryURL(pkg.PublishConfig.Registry)
+}
+
+// resolveWorkspacePackagePaths returns the filesystem paths of published packages
+// by running a shallow pnpm ls to map package names to directories.
+func resolveWorkspacePackagePaths(workingDir string, published []publishedPackage) []string {
+	publishedNames := make(map[string]bool, len(published))
+	for _, pkg := range published {
+		publishedNames[pkg.Name] = true
+	}
+
+	cmd := exec.Command("pnpm", "ls", "-r", "--depth", "0", "--json")
+	cmd.Dir = workingDir
+	out, err := cmd.Output()
+	if err != nil {
+		log.Debug("Could not run pnpm ls for workspace paths, falling back to workingDir:", err.Error())
+		return []string{workingDir}
+	}
+
+	var projects []pnpmLsProject
+	if err = json.Unmarshal(out, &projects); err != nil {
+		log.Debug("Could not parse pnpm ls output for workspace paths:", err.Error())
+		return []string{workingDir}
+	}
+
+	var dirs []string
+	for _, proj := range projects {
+		if publishedNames[proj.Name] {
+			dirs = append(dirs, proj.Path)
+		}
+	}
+	if len(dirs) == 0 {
+		return []string{workingDir}
+	}
+	return dirs
 }
 
 func computeFileChecksums(filePath string) (entities.Checksum, error) {

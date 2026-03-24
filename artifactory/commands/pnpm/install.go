@@ -21,7 +21,6 @@ type PnpmInstallCommand struct {
 	pnpmArgs           []string
 	workingDirectory   string
 	buildConfiguration *buildUtils.BuildConfiguration
-	collectBuildInfo   bool
 	serverDetails      *config.ServerDetails
 }
 
@@ -61,17 +60,17 @@ func (pic *PnpmInstallCommand) Run() error {
 	}
 	log.Debug("Working directory set to:", pic.workingDirectory)
 
-	pic.collectBuildInfo, err = pic.buildConfiguration.IsCollectBuildInfo()
+	collectBuildInfo, err := pic.buildConfiguration.IsCollectBuildInfo()
 	if err != nil {
 		return err
 	}
-	log.Debug("Collect build info:", pic.collectBuildInfo)
+	log.Debug("Collect build info:", collectBuildInfo)
 
 	if err = pic.runPnpmInstall(); err != nil {
 		return err
 	}
 
-	if pic.collectBuildInfo {
+	if collectBuildInfo {
 		if err = pic.collectAndSaveBuildInfo(); err != nil {
 			log.Warn("pnpm install completed successfully, but build info collection failed:", err.Error())
 			return nil
