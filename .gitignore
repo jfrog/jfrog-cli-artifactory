@@ -12,3 +12,8 @@
 
 # Go
 *_mock.go
+
+# Gradle
+.gradle
+**/testdata/**/.gradle
+**/testdata/**/bin
