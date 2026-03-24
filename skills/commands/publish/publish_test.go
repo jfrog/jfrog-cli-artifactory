@@ -368,7 +368,7 @@ func TestIsEvidenceLicenseError(t *testing.T) {
 		{
 			name:         "403 Forbidden only",
 			errMsg:       "server response: 403 Forbidden",
-			isLicenseErr: true,
+			isLicenseErr: false,
 		},
 		{
 			name:         "network error",

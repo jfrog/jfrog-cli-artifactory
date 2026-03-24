@@ -483,8 +483,7 @@ func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex string) {
 // isEvidenceLicenseError returns true when the error indicates the Artifactory
 // instance does not have the license required for evidence (E+).
 func isEvidenceLicenseError(err error) bool {
-	msg := err.Error()
-	return strings.Contains(msg, "Enterprise+") || strings.Contains(msg, "403 Forbidden")
+	return strings.Contains(err.Error(), "Enterprise+")
 }
 
 // RunPublish is the CLI action for `jf skills publish`.

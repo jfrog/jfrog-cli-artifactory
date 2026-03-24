@@ -2,9 +2,11 @@ package common
 
 import (
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 // IsQuiet returns true when interactive prompts should be skipped (CI or --quiet).
@@ -18,14 +20,20 @@ func IsQuiet(c *components.Context) bool {
 // IsNonInteractive returns true when interactive prompts cannot be used safely.
 // go-prompt will panic if it tries to read from a non-terminal stdin.
 func IsNonInteractive() bool {
-	ci := os.Getenv("CI")
-	if ci == "true" || ci == "1" {
-		return true
+	if ciEnv := os.Getenv("CI"); ciEnv != "" {
+		ci, err := strconv.ParseBool(ciEnv)
+		if err != nil {
+			log.Warn("Failed to parse CI environment variable", ciEnv, "as bool, assuming non-CI:", err.Error())
+		}
+		if ci {
+			return true
+		}
 	}
 	stat, err := os.Stdin.Stat()
 	if err != nil {
 		return true
 	}
+	// If ModeCharDevice is NOT set, stdin is piped or redirected (non-interactive).
 	return (stat.Mode() & os.ModeCharDevice) == 0
 }
 
