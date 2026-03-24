@@ -307,15 +307,16 @@ func (ppc *PnpmPublishCommand) runPnpmPublishNative(flags publishFlags) error {
 	log.Debug("Running command: pnpm", strings.Join(args, " "))
 	cmd := exec.Command("pnpm", args...)
 	cmd.Dir = ppc.workingDirectory
-	output, err := cmd.Output()
-	if err != nil {
-		return errorutils.CheckErrorf("pnpm publish failed:\n%s\n%s", output, err.Error())
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return errorutils.CheckErrorf("pnpm publish failed: %s\n", err.Error())
 	}
 	return nil
 }
 
 // runPnpmPublishCaptured runs pnpm publish and captures stdout (used for --json output).
-// Stderr still goes to the terminal so the user can see warnings/errors.
+// Stderr goes to the terminal so the user can see pnpm logs.
 func (ppc *PnpmPublishCommand) runPnpmPublishCaptured(flags publishFlags) ([]byte, error) {
 	args := []string{"publish"}
 	args = append(args, flags.filterArgs...)
@@ -323,9 +324,10 @@ func (ppc *PnpmPublishCommand) runPnpmPublishCaptured(flags publishFlags) ([]byt
 	log.Debug("Running command: pnpm", strings.Join(args, " "))
 	cmd := exec.Command("pnpm", args...)
 	cmd.Dir = ppc.workingDirectory
+	cmd.Stderr = os.Stderr
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, errorutils.CheckErrorf("pnpm publish failed:\n%s\n%s", output, err.Error())
+		return nil, errorutils.CheckErrorf("pnpm publish failed: %s", err.Error())
 	}
 	return output, nil
 }
@@ -398,6 +400,7 @@ func (ppc *PnpmPublishCommand) packPublishedPackages(destDir string, published [
 	log.Debug("Running command: pnpm", strings.Join(args, " "))
 	cmd := exec.Command("pnpm", args...)
 	cmd.Dir = ppc.workingDirectory
+	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, errorutils.CheckErrorf("pnpm pack failed: %s", err.Error())
