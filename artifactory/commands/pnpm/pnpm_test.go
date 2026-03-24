@@ -1,6 +1,7 @@
 package pnpm
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/jfrog/build-info-go/entities"
@@ -121,11 +122,11 @@ func TestParseTarballURL(t *testing.T) {
 }
 
 func TestSlicesEqual(t *testing.T) {
-	assert.True(t, slicesEqual([]string{"a", "b"}, []string{"a", "b"}))
-	assert.False(t, slicesEqual([]string{"a"}, []string{"a", "b"}))
-	assert.False(t, slicesEqual([]string{"a", "b"}, []string{"a", "c"}))
-	assert.True(t, slicesEqual(nil, nil))
-	assert.True(t, slicesEqual([]string{}, nil)) // both have len 0
+	assert.True(t, slices.Equal([]string{"a", "b"}, []string{"a", "b"}))
+	assert.False(t, slices.Equal([]string{"a"}, []string{"a", "b"}))
+	assert.False(t, slices.Equal([]string{"a", "b"}, []string{"a", "c"}))
+	assert.True(t, slices.Equal([]string(nil), []string(nil)))
+	assert.True(t, slices.Equal([]string{}, []string(nil)))
 }
 
 func TestExtractPublishFlags(t *testing.T) {
@@ -268,11 +269,18 @@ func TestAddRequestedBy(t *testing.T) {
 }
 
 func TestAddScope(t *testing.T) {
-	dep := &depInfo{name: "pkg", version: "1.0.0", scopes: []string{"prod"}}
-	addScope(dep, "prod")
-	assert.Len(t, dep.scopes, 1) // duplicate not added
+	dep := &depInfo{name: "pkg", version: "1.0.0", scopes: []string{"transitive"}}
+	addScope(dep, "transitive")
+	assert.Equal(t, []string{"transitive"}, dep.scopes, "no change for same scope")
+
 	addScope(dep, "dev")
-	assert.Len(t, dep.scopes, 2)
+	assert.Equal(t, []string{"dev"}, dep.scopes, "dev wins over transitive")
+
+	addScope(dep, "prod")
+	assert.Equal(t, []string{"prod"}, dep.scopes, "prod wins over dev")
+
+	addScope(dep, "dev")
+	assert.Equal(t, []string{"prod"}, dep.scopes, "prod not downgraded to dev")
 }
 
 func TestBuildBatchAQLQuery(t *testing.T) {
@@ -492,11 +500,11 @@ func TestPnpmVersionValidation(t *testing.T) {
 	// pnpm 10.x should be within supported range
 	pnpm10 := version.NewVersion("10.32.1")
 	assert.LessOrEqual(t, pnpm10.Compare(minSupportedPnpmVersion), 0, "pnpm 10.32.1 should meet minimum")
-	assert.Greater(t, pnpm10.Compare(minUnsupportedPnpmVersion), 0, "pnpm 10.32.1 should be below max")
+	assert.Greater(t, pnpm10.Compare(firstUnsupportedPnpmVersion), 0, "pnpm 10.32.1 should be below max")
 
 	// pnpm 11.x should be rejected (above max)
 	pnpm11 := version.NewVersion("11.0.0")
-	assert.LessOrEqual(t, pnpm11.Compare(minUnsupportedPnpmVersion), 0, "pnpm 11.0.0 should be at or above max")
+	assert.LessOrEqual(t, pnpm11.Compare(firstUnsupportedPnpmVersion), 0, "pnpm 11.0.0 should be at or above max")
 
 	// Exact minimum should pass
 	exactPnpm := version.NewVersion(minSupportedPnpmVersion)
@@ -518,7 +526,6 @@ func TestInstallBuildInfoGracefulDegradation(t *testing.T) {
 	cmd := &PnpmInstallCommand{
 		workingDirectory: t.TempDir(),
 		serverDetails:    nil,
-		collectBuildInfo: true,
 	}
 	err := cmd.collectAndSaveBuildInfo()
 	assert.Error(t, err, "collectAndSaveBuildInfo should fail with nil server details")
