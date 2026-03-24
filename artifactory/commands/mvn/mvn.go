@@ -119,7 +119,7 @@ func (mc *MvnCommand) init() (vConfig *viper.Viper, err error) {
 
 	// Warn if deployer is configured but Maven goal does not trigger deployment
 	if vConfig.IsSet("deployer") && !mc.IsXrayScan() && mc.deploymentDisabled {
-		log.Warn("Deployer repository is configured but Maven goal does not trigger deployment. Only 'install' and 'deploy' goals will deploy artifacts to Artifactory.")
+		log.Warn("Deployer repository is configured but Maven goal does not trigger deployment. Only 'install' and 'deploy' goals (including deploy:deploy-file) will deploy artifacts to Artifactory.")
 	}
 
 	if mc.shouldCreateBuildArtifactsFile() {
@@ -142,8 +142,14 @@ func (mc *MvnCommand) init() (vConfig *viper.Viper, err error) {
 // These are the only goals that should trigger artifact deployment to Artifactory.
 func (mc *MvnCommand) isDeploymentRequested() bool {
 	for _, goal := range mc.goals {
-		// Allow deployment for both "install" and "deploy" goals
+		// Allow deployment for install/deploy goals and their plugin variants
+		// Examples: install, deploy, deploy:deploy-file, install:install-file
+		// Exclude help goals: deploy:help, install:help
 		if goal == "install" || goal == "deploy" {
+			return true
+		}
+		if (strings.HasPrefix(goal, "deploy:") || strings.HasPrefix(goal, "install:")) && 
+		   !strings.HasSuffix(goal, ":help") {
 			return true
 		}
 	}

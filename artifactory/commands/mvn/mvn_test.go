@@ -13,6 +13,83 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestIsDeploymentRequested(t *testing.T) {
+	tests := []struct {
+		name     string
+		goals    []string
+		expected bool
+	}{
+		{
+			name:     "install goal",
+			goals:    []string{"install"},
+			expected: true,
+		},
+		{
+			name:     "deploy goal",
+			goals:    []string{"deploy"},
+			expected: true,
+		},
+		{
+			name:     "deploy:deploy-file goal",
+			goals:    []string{"deploy:deploy-file"},
+			expected: true,
+		},
+		{
+			name:     "deploy:deploy goal",
+			goals:    []string{"deploy:deploy"},
+			expected: true,
+		},
+		{
+			name:     "install:install-file goal",
+			goals:    []string{"install:install-file"},
+			expected: true,
+		},
+		{
+			name:     "package goal",
+			goals:    []string{"package"},
+			expected: false,
+		},
+		{
+			name:     "verify goal",
+			goals:    []string{"verify"},
+			expected: false,
+		},
+		{
+			name:     "clean install goals",
+			goals:    []string{"clean", "install"},
+			expected: true,
+		},
+		{
+			name:     "clean deploy:deploy-file goals",
+			goals:    []string{"clean", "deploy:deploy-file"},
+			expected: true,
+		},
+		{
+			name:     "compile test goals",
+			goals:    []string{"compile", "test"},
+			expected: false,
+		},
+		{
+			name:     "deploy:help goal",
+			goals:    []string{"deploy:help"},
+			expected: false,
+		},
+		{
+			name:     "install:help goal",
+			goals:    []string{"install:help"},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mc := &MvnCommand{goals: tt.goals}
+			result := mc.isDeploymentRequested()
+			assert.Equal(t, tt.expected, result, "Expected isDeploymentRequested() to return %v for goals %v", tt.expected, tt.goals)
+		})
+	}
+}
+
 func TestUpdateBuildInfoArtifactsWithTargetRepo(t *testing.T) {
 	vConfig := viper.New()
 	vConfig.Set(build.DeployerPrefix+build.SnapshotRepo, "snapshots")
