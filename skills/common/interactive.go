@@ -36,3 +36,11 @@ func ShouldFailOnMissingEvidence() bool {
 	v := os.Getenv("JFROG_SKILLS_DISABLE_QUIET_FAILURE")
 	return !strings.EqualFold(v, "true") && v != "1"
 }
+
+// ShouldFailOnMissingEvidence returns true when quiet/CI mode should fail
+// on missing evidence. Default is to fail; set JFROG_SKILLS_DISABLE_QUIET_FAILURE=true
+// to override and allow installation without evidence.
+func ShouldFailOnMissingEvidence() bool {
+	v := os.Getenv("JFROG_SKILLS_DISABLE_QUIET_FAILURE")
+	return !strings.EqualFold(v, "true") && v != "1"
+}

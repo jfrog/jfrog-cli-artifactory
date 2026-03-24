@@ -1,10 +1,12 @@
 package conan
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/jfrog/build-info-go/entities"
@@ -163,26 +165,45 @@ func isArtifactoryConanRemote(url string) bool {
 }
 
 // runUploadCommand handles the upload command with build info collection.
-// Upload requires special handling because:
-// 1. We need to capture the output to determine which artifacts were uploaded
-// 2. We need to collect artifacts from Artifactory and set build properties
+// When build info is configured, it obtains structured JSON output from Conan in one of two ways:
+//  1. If the user already specified --out-file, the command runs normally and the JSON is read from that file.
+//  2. Otherwise, --format=json is added and stdout (containing JSON) is captured via RunCmdOutput.
 func (c *ConanCommand) runUploadCommand() error {
 	log.Info(fmt.Sprintf("Running Conan %s", c.commandName))
 
-	// Execute conan upload and capture output
-	output, err := c.executeAndCaptureOutput()
+	if c.buildConfiguration == nil {
+		if err := gofrogcmd.RunCmd(c); err != nil {
+			return fmt.Errorf("conan %s failed: %w", c.commandName, err)
+		}
+		return nil
+	}
+
+	// Check if the user already provided --out-file (implies a Conan version that supports it)
+	if outFile := extractOutFilePath(c.args); outFile != "" {
+		if !hasFormatFlag(c.args) {
+			log.Debug("Adding --format=json to conan upload for build info collection")
+			c.args = append(c.args, "--format=json")
+		}
+		if err := gofrogcmd.RunCmd(c); err != nil {
+			return fmt.Errorf("conan %s failed: %w", c.commandName, err)
+		}
+		data, err := os.ReadFile(outFile)
+		if err != nil {
+			return fmt.Errorf("could not read upload output file %s: %w", outFile, err)
+		}
+		return c.processBuildInfoFromJSON(string(data))
+	}
+
+	// No --out-file: add --format=json and capture stdout
+	if !hasFormatFlag(c.args) {
+		log.Debug("Adding --format=json to conan upload for build info collection")
+		c.args = append(c.args, "--format=json")
+	}
+	jsonOutput, err := gofrogcmd.RunCmdOutput(c)
 	if err != nil {
-		fmt.Print(string(output))
 		return fmt.Errorf("conan %s failed: %w", c.commandName, err)
 	}
-	fmt.Print(string(output))
-
-	// Process upload for build info if build configuration is provided
-	if c.buildConfiguration != nil {
-		return c.processBuildInfo(string(output))
-	}
-
-	return nil
+	return c.processBuildInfoFromJSON(jsonOutput)
 }
 
 // runConanCommand runs non-upload Conan commands.
@@ -201,22 +222,56 @@ func (c *ConanCommand) runConanCommand() error {
 	return nil
 }
 
-// processBuildInfo processes build info after a successful upload.
-func (c *ConanCommand) processBuildInfo(uploadOutput string) error {
+// processBuildInfoFromJSON parses the JSON string captured from conan upload stdout
+// and processes it for build info collection.
+func (c *ConanCommand) processBuildInfoFromJSON(jsonData string) error {
 	buildName, buildNumber, _ := c.getBuildNameAndNumber()
 	if buildName == "" || buildNumber == "" {
-		return nil // No build info configured, skip silently
+		return nil
 	}
 
 	log.Info(fmt.Sprintf("Processing Conan upload with build info: %s/%s", buildName, buildNumber))
 
-	processor := NewUploadProcessor(c.workingDir, c.buildConfiguration, c.serverDetails)
-	if err := processor.Process(uploadOutput); err != nil {
-		log.Warn("Failed to process Conan upload: " + err.Error())
+	var uploadOutput ConanUploadOutput
+	if err := json.Unmarshal([]byte(jsonData), &uploadOutput); err != nil {
+		preview := jsonData
+		if len(preview) > 200 {
+			preview = preview[:200] + "..."
+		}
+		return fmt.Errorf("could not parse upload JSON output: %w\nJSON preview: %s", err, preview)
+	}
+
+	processor := NewUploadProcessor(c.workingDir, c.buildConfiguration, c.serverDetails, c.buildConanFlexConfig())
+	if err := processor.ProcessJSON(uploadOutput); err != nil {
+		return fmt.Errorf("failed to process Conan upload: %w", err)
 	}
 
 	log.Info(fmt.Sprintf("Conan build info collected. Use 'jf rt bp %s %s' to publish it.", buildName, buildNumber))
 	return nil
+}
+
+// hasFormatFlag checks if the user already specified --format or -f in their args.
+func hasFormatFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "--format" || arg == "-f" ||
+			strings.HasPrefix(arg, "--format=") || strings.HasPrefix(arg, "-f=") {
+			return true
+		}
+	}
+	return false
+}
+
+// extractOutFilePath returns the file path from --out-file if specified in args, or "" if absent.
+func extractOutFilePath(args []string) string {
+	for i, arg := range args {
+		if strings.HasPrefix(arg, "--out-file=") {
+			return strings.TrimPrefix(arg, "--out-file=")
+		}
+		if arg == "--out-file" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
 }
 
 // collectAndSaveBuildInfo collects dependencies and saves build info locally.
@@ -228,10 +283,7 @@ func (c *ConanCommand) collectAndSaveBuildInfo() error {
 
 	log.Info(fmt.Sprintf("Collecting build info for Conan project: %s/%s", buildName, buildNumber))
 
-	// Create FlexPack collector
-	conanConfig := conanflex.ConanConfig{
-		WorkingDirectory: c.workingDir,
-	}
+	conanConfig := c.buildConanFlexConfig()
 
 	collector, err := conanflex.NewConanFlexPack(conanConfig)
 	if err != nil {
@@ -266,12 +318,6 @@ func (c *ConanCommand) getBuildNameAndNumber() (string, string, error) {
 	return buildName, buildNumber, nil
 }
 
-// executeAndCaptureOutput runs the command and returns the combined output.
-func (c *ConanCommand) executeAndCaptureOutput() ([]byte, error) {
-	cmd := c.GetCmd()
-	return cmd.CombinedOutput()
-}
-
 // GetCmd returns the exec.Cmd for the Conan command.
 func (c *ConanCommand) GetCmd() *exec.Cmd {
 	args := append([]string{c.commandName}, c.args...)
@@ -301,6 +347,85 @@ func (c *ConanCommand) CommandName() string {
 // ServerDetails returns the server configuration.
 func (c *ConanCommand) ServerDetails() (*config.ServerDetails, error) {
 	return c.serverDetails, nil
+}
+
+// buildConanFlexConfig builds a ConanConfig with recipe path and name/version overrides
+// extracted from the command arguments. This ensures build info collection finds the
+// conanfile even when the recipe is not in the current working directory.
+func (c *ConanCommand) buildConanFlexConfig() conanflex.ConanConfig {
+	recipePath := extractRecipePathFromArgs(c.workingDir, c.args)
+	overrides := extractReferenceOverridesFromArgs(c.args)
+	return conanflex.ConanConfig{
+		WorkingDirectory:       c.workingDir,
+		RecipeFilePath:         recipePath,
+		ProjectNameOverride:    overrides.name,
+		ProjectVersionOverride: overrides.version,
+		UserOverride:           overrides.user,
+		ChannelOverride:        overrides.channel,
+		ConanArgs:              c.args,
+	}
+}
+
+// extractRecipePathFromArgs finds the recipe path from the Conan command arguments.
+// Returns "" if no recipe path is found (callers fall back to WorkingDirectory).
+func extractRecipePathFromArgs(workingDir string, args []string) string {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		if strings.Contains(arg, "@") {
+			continue
+		}
+
+		candidate := arg
+		if !filepath.IsAbs(candidate) {
+			candidate = filepath.Join(workingDir, candidate)
+		}
+		absPath, err := filepath.Abs(candidate)
+		if err != nil {
+			continue
+		}
+
+		info, err := os.Stat(absPath)
+		if err != nil {
+			continue
+		}
+		if info.IsDir() {
+			return absPath
+		}
+		return filepath.Dir(absPath)
+	}
+	return ""
+}
+
+type referenceOverrides struct {
+	name, version, user, channel string
+}
+
+// extractReferenceOverridesFromArgs parses --name, --version, --user, and --channel
+// from Conan command arguments. Supports both --flag=value and --flag value forms.
+func extractReferenceOverridesFromArgs(args []string) referenceOverrides {
+	var o referenceOverrides
+	for i, arg := range args {
+		o.name = extractFlagValue(arg, i, args, "--name", o.name)
+		o.version = extractFlagValue(arg, i, args, "--version", o.version)
+		o.user = extractFlagValue(arg, i, args, "--user", o.user)
+		o.channel = extractFlagValue(arg, i, args, "--channel", o.channel)
+	}
+	return o
+}
+
+// extractFlagValue checks if arg matches the given flag (either --flag=value or --flag value form)
+// and returns the extracted value, or the current value if no match.
+func extractFlagValue(arg string, idx int, args []string, flag, current string) string {
+	prefix := flag + "="
+	if strings.HasPrefix(arg, prefix) {
+		return strings.TrimPrefix(arg, prefix)
+	}
+	if arg == flag && idx+1 < len(args) && !strings.HasPrefix(args[idx+1], "-") {
+		return args[idx+1]
+	}
+	return current
 }
 
 // saveBuildInfoLocally saves the build info for later publishing with 'jf rt bp'.

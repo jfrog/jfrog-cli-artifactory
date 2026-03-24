@@ -127,7 +127,25 @@ func detectDependency(name, modulePath string, replaces map[string]Replace, curr
 			ref := replace.New.Version
 
 			if ref != "" {
+				// Prefer the current branch if it exists on the forked repo,
+				if branchExists(repo, currentBranch) {
+					fmt.Printf("Found replace directive: %s => %s, branch '%s' exists, using it\n", name, repo, currentBranch)
+					return &DependencyInfo{
+						Name:       name,
+						ModulePath: modulePath,
+						Repo:       repo,
+						Ref:        currentBranch,
+					}
+				}
+				// Extract the short commit hash from pseudo-version, then
+				// resolve it to a full 40-char SHA so actions/checkout can fetch it
 				ref = extractCommitFromPseudoVersion(ref)
+				fullSHA := resolveFullSHA(repo, ref)
+				if fullSHA == "" {
+					fmt.Fprintf(os.Stderr, "Error: could not resolve commit %s to full SHA in %s\n", ref, repo)
+					os.Exit(1)
+				}
+				ref = fullSHA
 				fmt.Printf("Found replace directive: %s => %s @ %s\n", name, repo, ref)
 				return &DependencyInfo{
 					Name:       name,
@@ -159,7 +177,7 @@ func detectDependency(name, modulePath string, replaces map[string]Replace, curr
 
 // pseudoVersionPattern matches Go module pseudo-versions and captures the commit hash.
 // Format: vX.Y.Z-0.YYYYMMDDHHMMSS-COMMITHASH or vX.Y.Z-pre.0.YYYYMMDDHHMMSS-COMMITHASH
-var pseudoVersionPattern = regexp.MustCompile(`-(\d{14})-([a-f0-9]{12})$`)
+var pseudoVersionPattern = regexp.MustCompile(`-(?:\d+\.)?(\d{14})-([a-f0-9]{12})$`)
 
 // extractCommitFromPseudoVersion returns the 12-char commit hash from a Go pseudo-version,
 // or the original string if it is not a pseudo-version.
@@ -169,6 +187,30 @@ func extractCommitFromPseudoVersion(version string) string {
 		return matches[2]
 	}
 	return version
+}
+
+// resolveFullSHA resolves a short commit hash to a full 40-char SHA using the GitHub API.
+// Returns empty string if resolution fails
+func resolveFullSHA(repo, shortHash string) string {
+	if len(shortHash) < 7 || len(shortHash) >= 40 {
+		return ""
+	}
+	if !validGitRefPattern.MatchString(repo) || !validGitRefPattern.MatchString(shortHash) {
+		return ""
+	}
+	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/commits/%s", repo, shortHash)
+	cmd := exec.Command("curl", "-sf", "-H", "Accept: application/vnd.github.v3.sha", apiURL) // #nosec G204 -- inputs validated
+	out, err := cmd.Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not resolve full SHA for %s in %s: %v\n", shortHash, repo, err)
+		return ""
+	}
+	sha := strings.TrimSpace(string(out))
+	if len(sha) == 40 {
+		fmt.Printf("Resolved short hash %s to full SHA %s\n", shortHash, sha)
+		return sha
+	}
+	return ""
 }
 
 // isValidGitRef validates that a string is a valid git reference name

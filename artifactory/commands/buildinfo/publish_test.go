@@ -17,6 +17,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 type mockServicesManager struct {
@@ -140,6 +141,7 @@ func TestPrintBuildInfoLink(t *testing.T) {
 			nil,
 			false,
 			false,
+			nil,
 			BuildAddGitCommand{},
 		}
 		buildPubComService, err := buildPubConf.getBuildInfoUiUrl(linkTypes[i].majorVersion, linkTypes[i].buildTime)
@@ -376,6 +378,154 @@ func TestBuildCIVcsPropsString(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := civcs.BuildCIVcsPropsString(tt.info)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestExcludeDependenciesByScope(t *testing.T) {
+	tests := []struct {
+		name             string
+		depExcludeScopes []string
+		modules          []buildinfo.Module
+		expectedDeps     [][]string
+	}{
+		{
+			name:             "no scopes specified - all deps retained",
+			depExcludeScopes: nil,
+			modules: []buildinfo.Module{
+				{Dependencies: []buildinfo.Dependency{
+					{Id: "dep1", Scopes: []string{"compile"}},
+					{Id: "dep2", Scopes: []string{"test"}},
+				}},
+			},
+			expectedDeps: [][]string{{"dep1", "dep2"}},
+		},
+		{
+			name:             "single scope exclusion",
+			depExcludeScopes: []string{"test"},
+			modules: []buildinfo.Module{
+				{Dependencies: []buildinfo.Dependency{
+					{Id: "dep1", Scopes: []string{"compile"}},
+					{Id: "dep2", Scopes: []string{"test"}},
+					{Id: "dep3", Scopes: []string{"runtime"}},
+				}},
+			},
+			expectedDeps: [][]string{{"dep1", "dep3"}},
+		},
+		{
+			name:             "multiple scope exclusion",
+			depExcludeScopes: []string{"test", "provided"},
+			modules: []buildinfo.Module{
+				{Dependencies: []buildinfo.Dependency{
+					{Id: "dep1", Scopes: []string{"compile"}},
+					{Id: "dep2", Scopes: []string{"test"}},
+					{Id: "dep3", Scopes: []string{"provided"}},
+					{Id: "dep4", Scopes: []string{"runtime"}},
+				}},
+			},
+			expectedDeps: [][]string{{"dep1", "dep4"}},
+		},
+		{
+			name:             "case insensitive matching",
+			depExcludeScopes: []string{"Test"},
+			modules: []buildinfo.Module{
+				{Dependencies: []buildinfo.Dependency{
+					{Id: "dep1", Scopes: []string{"test"}},
+					{Id: "dep2", Scopes: []string{"TEST"}},
+					{Id: "dep3", Scopes: []string{"Test"}},
+					{Id: "dep4", Scopes: []string{"compile"}},
+				}},
+			},
+			expectedDeps: [][]string{{"dep4"}},
+		},
+		{
+			name:             "dependency with multiple scopes - excluded if any match",
+			depExcludeScopes: []string{"test"},
+			modules: []buildinfo.Module{
+				{Dependencies: []buildinfo.Dependency{
+					{Id: "dep1", Scopes: []string{"compile", "test"}},
+					{Id: "dep2", Scopes: []string{"compile", "runtime"}},
+				}},
+			},
+			expectedDeps: [][]string{{"dep2"}},
+		},
+		{
+			name:             "dependencies with no scopes - never excluded",
+			depExcludeScopes: []string{"test"},
+			modules: []buildinfo.Module{
+				{Dependencies: []buildinfo.Dependency{
+					{Id: "dep1", Scopes: nil},
+					{Id: "dep2", Scopes: []string{}},
+					{Id: "dep3", Scopes: []string{"test"}},
+				}},
+			},
+			expectedDeps: [][]string{{"dep1", "dep2"}},
+		},
+		{
+			name:             "multiple modules",
+			depExcludeScopes: []string{"test"},
+			modules: []buildinfo.Module{
+				{Dependencies: []buildinfo.Dependency{
+					{Id: "mod1-dep1", Scopes: []string{"compile"}},
+					{Id: "mod1-dep2", Scopes: []string{"test"}},
+				}},
+				{Dependencies: []buildinfo.Dependency{
+					{Id: "mod2-dep1", Scopes: []string{"test"}},
+					{Id: "mod2-dep2", Scopes: []string{"runtime"}},
+				}},
+			},
+			expectedDeps: [][]string{{"mod1-dep1"}, {"mod2-dep2"}},
+		},
+		{
+			name:             "all dependencies excluded",
+			depExcludeScopes: []string{"test"},
+			modules: []buildinfo.Module{
+				{Dependencies: []buildinfo.Dependency{
+					{Id: "dep1", Scopes: []string{"test"}},
+					{Id: "dep2", Scopes: []string{"test"}},
+				}},
+			},
+			expectedDeps: [][]string{{}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bi := &buildinfo.BuildInfo{Modules: tt.modules}
+			bpc := NewBuildPublishCommand().SetDepExcludeScopes(tt.depExcludeScopes)
+			bpc.excludeDependenciesByScope(bi)
+
+			require.Equal(t, len(tt.expectedDeps), len(bi.Modules))
+			for i, expectedIds := range tt.expectedDeps {
+				actualIds := make([]string, len(bi.Modules[i].Dependencies))
+				for j, dep := range bi.Modules[i].Dependencies {
+					actualIds[j] = dep.Id
+				}
+				require.Equal(t, expectedIds, actualIds)
+			}
+		})
+	}
+}
+
+func TestHasScopeMatch(t *testing.T) {
+	excludeSet := map[string]struct{}{"test": {}, "provided": {}}
+
+	tests := []struct {
+		name     string
+		scopes   []string
+		expected bool
+	}{
+		{name: "matching scope", scopes: []string{"test"}, expected: true},
+		{name: "no matching scope", scopes: []string{"compile"}, expected: false},
+		{name: "case insensitive match", scopes: []string{"TEST"}, expected: true},
+		{name: "nil scopes", scopes: nil, expected: false},
+		{name: "empty scopes", scopes: []string{}, expected: false},
+		{name: "multiple scopes with match", scopes: []string{"compile", "provided"}, expected: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, matchesExcludeScope(tt.scopes, excludeSet))
 		})
 	}
 }
