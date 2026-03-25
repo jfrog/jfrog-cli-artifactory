@@ -133,8 +133,9 @@ func saveMavenFlexPackBuildInfo(buildInfo *entities.BuildInfo) error {
 func wasDeployCommand() bool {
 	args := os.Args
 	for _, arg := range args {
-		// Match standalone "deploy" goal or plugin notation "maven-deploy-plugin:deploy"
-		if arg == "deploy" || strings.HasSuffix(arg, ":deploy") {
+		// Match standalone "deploy" goal or any deploy plugin goal
+		// Examples: deploy, deploy:deploy, deploy:deploy-file, maven-deploy-plugin:deploy
+		if arg == "deploy" || strings.HasPrefix(arg, "deploy:") || strings.HasSuffix(arg, ":deploy") {
 			return true
 		}
 	}
