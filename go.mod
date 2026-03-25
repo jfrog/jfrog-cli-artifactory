@@ -10,8 +10,8 @@ require (
 	github.com/jfrog/build-info-go v1.13.1-0.20260313042712-238e6dca3dce
 	github.com/jfrog/gofrog v1.7.6
 	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260106204841-744f3f71817b
-	github.com/jfrog/jfrog-cli-evidence v0.8.3-0.20260202100913-d9ee9476845a
-	github.com/jfrog/jfrog-client-go v1.55.1-0.20260305132144-f99feaed3f18
+	github.com/jfrog/jfrog-cli-evidence v0.8.3-0.20260323115208-2bc1feb3ee9c
+	github.com/jfrog/jfrog-client-go v1.55.1-0.20260319105834-2953fed40f60
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1

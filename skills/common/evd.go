@@ -36,7 +36,7 @@ func CreateEvidence(serverDetails *config.ServerDetails, opts CreateEvidenceOpts
 		opts.KeyAlias,
 		opts.SubjectRepoPath,
 		opts.SubjectSHA256,
-		"", "", "",
+		"", "", "", "", "", "",
 	)
 	return cmd.Run()
 }
