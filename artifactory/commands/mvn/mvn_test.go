@@ -19,6 +19,7 @@ func TestIsDeploymentRequested(t *testing.T) {
 		goals    []string
 		expected bool
 	}{
+		// Standard Maven phases
 		{
 			name:     "install goal",
 			goals:    []string{"install"},
@@ -29,6 +30,7 @@ func TestIsDeploymentRequested(t *testing.T) {
 			goals:    []string{"deploy"},
 			expected: true,
 		},
+		// Plugin prefix format (plugin:goal)
 		{
 			name:     "deploy:deploy-file goal",
 			goals:    []string{"deploy:deploy-file"},
@@ -44,6 +46,35 @@ func TestIsDeploymentRequested(t *testing.T) {
 			goals:    []string{"install:install-file"},
 			expected: true,
 		},
+		// Full plugin name format (maven-plugin:goal)
+		{
+			name:     "maven-deploy-plugin:deploy goal",
+			goals:    []string{"maven-deploy-plugin:deploy"},
+			expected: true,
+		},
+		{
+			name:     "maven-install-plugin:install goal",
+			goals:    []string{"maven-install-plugin:install"},
+			expected: true,
+		},
+		// Fully qualified plugin with version
+		{
+			name:     "org.apache.maven.plugins:maven-deploy-plugin:3.1.4:deploy goal",
+			goals:    []string{"org.apache.maven.plugins:maven-deploy-plugin:3.1.4:deploy"},
+			expected: true,
+		},
+		// Container deployment plugins
+		{
+			name:     "wildfly:deploy goal",
+			goals:    []string{"wildfly:deploy"},
+			expected: true,
+		},
+		{
+			name:     "tomcat7:deploy goal",
+			goals:    []string{"tomcat7:deploy"},
+			expected: true,
+		},
+		// Non-deployment goals
 		{
 			name:     "package goal",
 			goals:    []string{"package"},
@@ -54,6 +85,22 @@ func TestIsDeploymentRequested(t *testing.T) {
 			goals:    []string{"verify"},
 			expected: false,
 		},
+		{
+			name:     "clean goal",
+			goals:    []string{"clean"},
+			expected: false,
+		},
+		{
+			name:     "compile goal",
+			goals:    []string{"compile"},
+			expected: false,
+		},
+		{
+			name:     "test goal",
+			goals:    []string{"test"},
+			expected: false,
+		},
+		// Multiple goals
 		{
 			name:     "clean install goals",
 			goals:    []string{"clean", "install"},
@@ -69,6 +116,7 @@ func TestIsDeploymentRequested(t *testing.T) {
 			goals:    []string{"compile", "test"},
 			expected: false,
 		},
+		// Help goals (should be excluded)
 		{
 			name:     "deploy:help goal",
 			goals:    []string{"deploy:help"},
@@ -77,6 +125,32 @@ func TestIsDeploymentRequested(t *testing.T) {
 		{
 			name:     "install:help goal",
 			goals:    []string{"install:help"},
+			expected: false,
+		},
+		{
+			name:     "maven-deploy-plugin:help goal",
+			goals:    []string{"maven-deploy-plugin:help"},
+			expected: false,
+		},
+		{
+			name:     "help goal",
+			goals:    []string{"help"},
+			expected: false,
+		},
+		// Edge case: uninstall goals (should NOT trigger deployment)
+		{
+			name:     "sling:uninstall goal",
+			goals:    []string{"sling:uninstall"},
+			expected: false,
+		},
+		{
+			name:     "osgi:uninstall goal",
+			goals:    []string{"osgi:uninstall"},
+			expected: false,
+		},
+		{
+			name:     "felix:reinstall goal",
+			goals:    []string{"felix:reinstall"},
 			expected: false,
 		},
 	}

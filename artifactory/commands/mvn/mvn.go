@@ -142,14 +142,24 @@ func (mc *MvnCommand) init() (vConfig *viper.Viper, err error) {
 // These are the only goals that should trigger artifact deployment to Artifactory.
 func (mc *MvnCommand) isDeploymentRequested() bool {
 	for _, goal := range mc.goals {
-		// Allow deployment for install/deploy goals and their plugin variants
-		// Examples: install, deploy, deploy:deploy-file, install:install-file
-		// Exclude help goals: deploy:help, install:help
+		// Exclude help goals (e.g., deploy:help, maven-deploy-plugin:help)
+		if strings.HasSuffix(goal, ":help") || goal == "help" {
+			continue
+		}
+		
+		// Exact match for standard Maven phases (most common case)
 		if goal == "install" || goal == "deploy" {
 			return true
 		}
-		if (strings.HasPrefix(goal, "deploy:") || strings.HasPrefix(goal, "install:")) && 
-		   !strings.HasSuffix(goal, ":help") {
+		
+		// Prefix match for plugin:goal format (e.g., deploy:deploy-file, install:install-file)
+		if strings.HasPrefix(goal, "deploy:") || strings.HasPrefix(goal, "install:") {
+			return true
+		}
+		
+		// Suffix match for full plugin name format (e.g., maven-deploy-plugin:deploy, maven-install-plugin:install)
+		// Note: Using suffix instead of Contains() to avoid false positives like "uninstall", "reinstall"
+		if strings.HasSuffix(goal, ":deploy") || strings.HasSuffix(goal, ":install") {
 			return true
 		}
 	}
