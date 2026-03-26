@@ -243,7 +243,7 @@ func (bps *BuildPropertySetter) convertToResultItems(artifacts []entities.Artifa
 			artifactPath = path.Dir(artifact.Path)
 		}
 		items = append(items, specutils.ResultItem{
-			Repo:        bps.targetRepo,
+			Repo:        bps.getArtifactRepo(artifact),
 			Path:        artifactPath,
 			Name:        artifact.Name,
 			Actual_Sha1: artifact.Sha1,
@@ -252,6 +252,13 @@ func (bps *BuildPropertySetter) convertToResultItems(artifacts []entities.Artifa
 		})
 	}
 	return items
+}
+
+func (bps *BuildPropertySetter) getArtifactRepo(artifact entities.Artifact) string {
+	if artifact.OriginalDeploymentRepo != "" {
+		return artifact.OriginalDeploymentRepo
+	}
+	return bps.targetRepo
 }
 
 // writeItemsToFile writes result items to a temp file for batch processing.
