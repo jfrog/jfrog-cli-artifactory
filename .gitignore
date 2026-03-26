@@ -13,3 +13,6 @@
 # Go
 *_mock.go
 .env
+
+.gradle
+**/gradle*/**/bin
