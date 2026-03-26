@@ -3,7 +3,9 @@ package cli
 import (
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,6 +23,14 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+type HuggingFaceRepositoryDetails struct {
+	Key                   string   `json:"key"`
+	Rclass                string   `json:"rclass"`
+	PackageType           string   `json:"packageType"`
+	DefaultDeploymentRepo string   `json:"defaultDeploymentRepo"`
+	Repositories          []string `json:"repositories"`
+}
+
 //go:embed huggingface_download.py
 var huggingfaceDownloadScript []byte
 
@@ -30,7 +40,13 @@ var huggingfaceUploadScript []byte
 // timestampPattern matches ISO 8601 timestamp format: _YYYY-MM-DDTHH:MM:SS.sssZ
 var timestampPattern = regexp.MustCompile(`_\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`)
 
-const minPythonVersion = 3
+const (
+	minPythonVersion = 3
+	huggingfaceml    = "huggingfaceml"
+	remote           = "remote"
+	virtual          = "virtual"
+	upload           = "upload"
+)
 
 // PythonScriptTemplate is the base template for executing Python functions via importlib.
 // It accepts format arguments: module name, function name, JSON args, and success output expression.
@@ -121,7 +137,7 @@ func verifyPythonVersion(pythonPath string) error {
 	if majorVersion < minPythonVersion {
 		return errorutils.CheckErrorf("Python version %d found, but version %d or higher is required", majorVersion, minPythonVersion)
 	}
-	log.Debug("Python version ", majorVersion, " verified (minimum required: ", minPythonVersion, ")")
+	log.Debug("Python version", majorVersion, "verified (minimum required:", minPythonVersion, ")")
 	return nil
 }
 
@@ -131,9 +147,40 @@ func HasTimestamp(revision string) bool {
 	return timestampPattern.MatchString(revision)
 }
 
+func handleRepositoryResolution(serviceManager artifactory.ArtifactoryServicesManager, serverDetails *config.ServerDetails, command string) (string, error) {
+	repoKey, err := GetRepoKeyFromHFEndpoint()
+	if err != nil {
+		return repoKey, err
+	}
+	repoDetails := HuggingFaceRepositoryDetails{}
+	err = serviceManager.GetRepository(repoKey, &repoDetails)
+	if err != nil {
+		log.Error("Either repository doesn't exist or bad request")
+		return "", err
+	}
+	if repoDetails.PackageType != huggingfaceml {
+		return repoKey, errorutils.CheckErrorf("Given repository %s is not a huggingface's type repository", repoKey)
+	}
+	if repoDetails.Rclass == virtual {
+		if repoDetails.DefaultDeploymentRepo == "" {
+			return repoKey, errorutils.CheckErrorf("No default deployment repo specified for virtual repo: %s", repoKey)
+		}
+		hfEndpoint := serverDetails.GetArtifactoryUrl() + huggingfaceAPI + "/" + repoDetails.DefaultDeploymentRepo
+		err = os.Setenv(HF_ENDPOINT, hfEndpoint)
+		if err != nil {
+			return repoKey, err
+		}
+		return repoDetails.DefaultDeploymentRepo, nil
+	}
+	if repoDetails.Rclass == remote && command == upload {
+		return repoKey, errorutils.CheckError(errors.New("upload cannot be performed on remote repository"))
+	}
+	return repoKey, nil
+}
+
 // GetRepoKeyFromHFEndpoint extracts the repository key from HF_ENDPOINT environment variable
 func GetRepoKeyFromHFEndpoint() (string, error) {
-	endpoint := os.Getenv("HF_ENDPOINT")
+	endpoint := os.Getenv(HF_ENDPOINT)
 	if endpoint == "" {
 		return "", errorutils.CheckErrorf("HF_ENDPOINT environment variable is not set")
 	}
@@ -265,48 +312,36 @@ func FindLatestRevision(serviceManager artifactory.ArtifactoryServicesManager, r
 	return results[0].Name, nil
 }
 
-func removeDuplicateDependencies(buildInfo *entities.BuildInfo) {
-	if buildInfo == nil {
-		return
-	}
-	for moduleIdx, module := range buildInfo.Modules {
-		dependenciesMap := make(map[string]entities.Dependency)
-		var dependencies []entities.Dependency
-		for _, dependency := range module.Dependencies {
-			sha256 := dependency.Sha256
-			if sha256 == "" {
-				log.Debug("Missing Sha256 for dependency: ", dependency.Id, "so, skipping it from adding into build info.")
-			}
-			_, exist := dependenciesMap[sha256]
-			if sha256 != "" && !exist {
-				dependenciesMap[sha256] = dependency
-				dependencies = append(dependencies, dependency)
-			}
+func removeDuplicateDependencies(module *entities.Module) {
+	dependenciesMap := make(map[string]entities.Dependency)
+	var dependencies []entities.Dependency
+	for _, dependency := range module.Dependencies {
+		sha256 := dependency.Sha256
+		if sha256 == "" {
+			log.Debug("Missing Sha256 for dependency: ", dependency.Id, "so, skipping it from adding into build info.")
 		}
-		module.Dependencies = dependencies
-		buildInfo.Modules[moduleIdx] = module
+		_, exist := dependenciesMap[sha256]
+		if sha256 != "" && !exist {
+			dependenciesMap[sha256] = dependency
+			dependencies = append(dependencies, dependency)
+		}
 	}
+	module.Dependencies = dependencies
 }
 
-func removeDuplicateArtifacts(buildInfo *entities.BuildInfo) {
-	if buildInfo == nil {
-		return
-	}
-	for moduleIdx, module := range buildInfo.Modules {
-		artifactsMap := make(map[string]entities.Artifact)
-		var artifacts []entities.Artifact
-		for _, artifact := range module.Artifacts {
-			sha256 := artifact.Sha256
-			if sha256 == "" {
-				log.Debug("Missing Sha256 for artifact: ", artifact.Name, "so, skipping it from adding into build info.")
-			}
-			_, exist := artifactsMap[sha256]
-			if sha256 != "" && !exist {
-				artifactsMap[sha256] = artifact
-				artifacts = append(artifacts, artifact)
-			}
+func removeDuplicateArtifacts(module *entities.Module) {
+	artifactsMap := make(map[string]entities.Artifact)
+	var artifacts []entities.Artifact
+	for _, artifact := range module.Artifacts {
+		sha256 := artifact.Sha256
+		if sha256 == "" {
+			log.Debug("Missing Sha256 for artifact: ", artifact.Name, "so, skipping it from adding into build info.")
 		}
-		module.Artifacts = artifacts
-		buildInfo.Modules[moduleIdx] = module
+		_, exist := artifactsMap[sha256]
+		if sha256 != "" && !exist {
+			artifactsMap[sha256] = artifact
+			artifacts = append(artifacts, artifact)
+		}
 	}
+	module.Artifacts = artifacts
 }

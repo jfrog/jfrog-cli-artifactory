@@ -11,12 +11,12 @@ import (
 
 // CI VCS property keys used by Maven/Gradle extractors
 const (
-	VcsProviderKey  = "vcs.provider"
-	VcsOrgKey       = "vcs.org"
-	VcsRepoKey      = "vcs.repo"
-	VcsUrlKey       = "vcs.url"
-	VcsRevisionKey  = "vcs.revision"
-	VcsBranchKey    = "vcs.branch"
+	VcsProviderKey = "vcs.provider"
+	VcsOrgKey      = "vcs.org"
+	VcsRepoKey     = "vcs.repo"
+	VcsUrlKey      = "vcs.url"
+	VcsRevisionKey = "vcs.revision"
+	VcsBranchKey   = "vcs.branch"
 
 	// CIVcsPropsDisabledEnvVar is the environment variable that disables CI VCS property collection.
 	// When set to "true", CI VCS properties will not be collected or set on artifacts.
