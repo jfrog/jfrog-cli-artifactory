@@ -1,10 +1,12 @@
 package publish
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -411,3 +413,185 @@ func (f fakeFileInfo) Mode() os.FileMode  { return 0 }
 func (f fakeFileInfo) ModTime() time.Time { return time.Time{} }
 func (f fakeFileInfo) IsDir() bool        { return f.dir }
 func (f fakeFileInfo) Sys() any           { return nil }
+
+// ── Deterministic zip tests ──
+
+func createSkillDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: test\n---"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.py"), []byte("print('hello')"), 0644))
+	sub := filepath.Join(dir, "utils")
+	require.NoError(t, os.MkdirAll(sub, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(sub, "helper.py"), []byte("pass"), 0644))
+	return dir
+}
+
+func zipAndHash(t *testing.T, dir string) string {
+	t.Helper()
+	zipPath, err := zipSkillFolder(dir, "test", "1.0.0")
+	require.NoError(t, err)
+	// Clean up both the zip file and its parent temp directory.
+	defer func() { _ = os.RemoveAll(filepath.Dir(zipPath)) }()
+	hash, err := computeSHA256(zipPath)
+	require.NoError(t, err)
+	return hash
+}
+
+func TestZipDeterministic_SameContentSameHash(t *testing.T) {
+	dir := createSkillDir(t)
+	hash1 := zipAndHash(t, dir)
+	hash2 := zipAndHash(t, dir)
+	assert.Equal(t, hash1, hash2, "zipping the same directory twice should produce identical checksums")
+}
+
+func TestZipDeterministic_ContentChangeDifferentHash(t *testing.T) {
+	dir := createSkillDir(t)
+	hash1 := zipAndHash(t, dir)
+
+	// Change file content
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.py"), []byte("print('changed')"), 0644))
+	hash2 := zipAndHash(t, dir)
+
+	assert.NotEqual(t, hash1, hash2, "different content should produce different checksums")
+}
+
+func TestZipDeterministic_AllEntriesShareMaxMtime(t *testing.T) {
+	dir := createSkillDir(t)
+
+	// Set different mtimes on files
+	past := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	newest := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, os.Chtimes(filepath.Join(dir, "SKILL.md"), past, past))
+	require.NoError(t, os.Chtimes(filepath.Join(dir, "main.py"), newest, newest))
+	require.NoError(t, os.Chtimes(filepath.Join(dir, "utils", "helper.py"), past, past))
+
+	zipPath, err := zipSkillFolder(dir, "test", "1.0.0")
+	require.NoError(t, err)
+	defer func() { _ = os.Remove(zipPath) }()
+
+	r, err := zip.OpenReader(zipPath)
+	require.NoError(t, err)
+	defer func() { _ = r.Close() }()
+
+	for _, f := range r.File {
+		assert.Equal(t, newest.Unix(), f.Modified.Unix(),
+			"entry %s should have max mtime, got %v", f.Name, f.Modified)
+	}
+}
+
+func TestZipDeterministic_ExtraFieldConsistent(t *testing.T) {
+	dir := createSkillDir(t)
+
+	// Zip twice and verify the Extra fields are identical across runs.
+	// Go's zip writer adds a UT (Unix Timestamp) extra field via CreateHeader;
+	// since our timestamps are uniform (max mtime), the extra bytes are deterministic.
+	zipPath1, err := zipSkillFolder(dir, "test", "1.0.0")
+	require.NoError(t, err)
+	defer func() { _ = os.Remove(zipPath1) }()
+	zipPath2, err := zipSkillFolder(dir, "test", "1.0.0")
+	require.NoError(t, err)
+	defer func() { _ = os.Remove(zipPath2) }()
+
+	r1, err := zip.OpenReader(zipPath1)
+	require.NoError(t, err)
+	defer func() { _ = r1.Close() }()
+	r2, err := zip.OpenReader(zipPath2)
+	require.NoError(t, err)
+	defer func() { _ = r2.Close() }()
+
+	require.Equal(t, len(r1.File), len(r2.File))
+	for i := range r1.File {
+		assert.Equal(t, r1.File[i].Extra, r2.File[i].Extra,
+			"Extra field for %s should be identical across runs", r1.File[i].Name)
+	}
+}
+
+func TestZipDeterministic_PermissionsPreserved(t *testing.T) {
+	dir := createSkillDir(t)
+
+	// Make main.py executable
+	require.NoError(t, os.Chmod(filepath.Join(dir, "main.py"), 0755))
+
+	zipPath, err := zipSkillFolder(dir, "test", "1.0.0")
+	require.NoError(t, err)
+	defer func() { _ = os.Remove(zipPath) }()
+
+	r, err := zip.OpenReader(zipPath)
+	require.NoError(t, err)
+	defer func() { _ = r.Close() }()
+
+	for _, f := range r.File {
+		if f.Name == "main.py" {
+			assert.Equal(t, os.FileMode(0755), f.Mode().Perm(),
+				"main.py should preserve 0755 permission")
+		}
+	}
+}
+
+func TestZipDeterministic_PermissionChangeDifferentHash(t *testing.T) {
+	dir := createSkillDir(t)
+	hash1 := zipAndHash(t, dir)
+
+	// Change permission without changing content
+	require.NoError(t, os.Chmod(filepath.Join(dir, "main.py"), 0755))
+	hash2 := zipAndHash(t, dir)
+
+	assert.NotEqual(t, hash1, hash2, "permission change should produce different checksum")
+}
+
+func TestZipDeterministic_FilesSorted(t *testing.T) {
+	dir := createSkillDir(t)
+	// Add files that sort differently than filesystem order
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "zzz.py"), []byte("last"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "aaa.py"), []byte("first"), 0644))
+
+	zipPath, err := zipSkillFolder(dir, "test", "1.0.0")
+	require.NoError(t, err)
+	defer func() { _ = os.Remove(zipPath) }()
+
+	r, err := zip.OpenReader(zipPath)
+	require.NoError(t, err)
+	defer func() { _ = r.Close() }()
+
+	var names []string
+	for _, f := range r.File {
+		names = append(names, f.Name)
+	}
+	assert.True(t, sort.StringsAreSorted(names), "zip entries should be sorted, got: %v", names)
+}
+
+func TestCollectFiles_ExcludesCorrectly(t *testing.T) {
+	dir := createSkillDir(t)
+	// Add excluded files
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "cached.pyc"), []byte("x"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".DS_Store"), []byte("x"), 0644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "__pycache__"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "__pycache__", "mod.pyc"), []byte("x"), 0644))
+
+	files, _, err := collectFiles(dir)
+	require.NoError(t, err)
+
+	var names []string
+	for _, f := range files {
+		names = append(names, f.relPath)
+		assert.NotContains(t, f.relPath, ".pyc", "should exclude .pyc files")
+		assert.NotContains(t, f.relPath, ".DS_Store", "should exclude .DS_Store")
+		assert.NotContains(t, f.relPath, "__pycache__", "should exclude __pycache__")
+	}
+	assert.Contains(t, names, "SKILL.md")
+	assert.Contains(t, names, "main.py")
+}
+
+func TestCollectFiles_Sorted(t *testing.T) {
+	dir := createSkillDir(t)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "zzz.py"), []byte("z"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "aaa.py"), []byte("a"), 0644))
+
+	files, _, err := collectFiles(dir)
+	require.NoError(t, err)
+	for i := 1; i < len(files); i++ {
+		assert.True(t, files[i-1].relPath < files[i].relPath,
+			"files should be sorted: %s should come before %s", files[i-1].relPath, files[i].relPath)
+	}
+}
