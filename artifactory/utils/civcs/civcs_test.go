@@ -34,12 +34,12 @@ func TestGetCIVcsPropsString(t *testing.T) {
 		{
 			name: "GitHub Actions with all fields",
 			envVars: map[string]string{
-				"CI":                        "true",
-				"GITHUB_ACTIONS":            "true",
-				"GITHUB_WORKFLOW":           "test",
-				"GITHUB_RUN_ID":             "123",
-				"GITHUB_REPOSITORY_OWNER":   "myorg",
-				"GITHUB_REPOSITORY":         "myorg/myrepo",
+				"CI":                      "true",
+				"GITHUB_ACTIONS":          "true",
+				"GITHUB_WORKFLOW":         "test",
+				"GITHUB_RUN_ID":           "123",
+				"GITHUB_REPOSITORY_OWNER": "myorg",
+				"GITHUB_REPOSITORY":       "myorg/myrepo",
 			},
 			expected: "vcs.provider=github;vcs.org=myorg;vcs.repo=myrepo",
 		},

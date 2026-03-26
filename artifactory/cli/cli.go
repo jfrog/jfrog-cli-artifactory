@@ -75,12 +75,12 @@ import (
 )
 
 const (
-	filesCategory        = "Files Management"
-	buildCategory        = "Build Info"
-	repoCategory         = "Repository Management"
-	replicCategory       = "Replication"
-	otherCategory        = "Other"
-	releaseBundlesV2     = "release-bundles-v2"
+	filesCategory    = "Files Management"
+	buildCategory    = "Build Info"
+	repoCategory     = "Repository Management"
+	replicCategory   = "Replication"
+	otherCategory    = "Other"
+	releaseBundlesV2 = "release-bundles-v2"
 )
 
 func GetCommands() []components.Command {

@@ -100,7 +100,7 @@ func (ic *InstallCommand) Run() error {
 	}
 
 	if err := ic.verifyEvidence(); err != nil {
-		if ic.quiet || common.IsCI() {
+		if ic.quiet || common.IsNonInteractive() {
 			if common.ShouldFailOnMissingEvidence() {
 				return fmt.Errorf("evidence verification failed for skill '%s': %s. Set JFROG_SKILLS_DISABLE_QUIET_FAILURE=true to proceed without evidence", ic.slug, err.Error())
 			}
@@ -141,7 +141,7 @@ func (ic *InstallCommand) resolveVersion() (string, error) {
 			return common.LatestVersion(versionStrs)
 		}
 
-		if ic.quiet || common.IsCI() {
+		if ic.quiet || common.IsNonInteractive() {
 			return "", fmt.Errorf("--version is required in non-interactive mode (use semver or \"latest\")")
 		}
 

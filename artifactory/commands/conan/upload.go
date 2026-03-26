@@ -47,7 +47,7 @@ type ConanUploadRecipeRevision struct {
 
 // ConanUploadPackageEntry represents a binary package entry.
 type ConanUploadPackageEntry struct {
-	Revisions map[string]interface{} `json:"revisions"`
+	Revisions map[string]interface{}  `json:"revisions"`
 	Info      *ConanUploadPackageInfo `json:"info"`
 }
 

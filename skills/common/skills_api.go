@@ -94,7 +94,7 @@ func ResolveRepo(serverDetails *config.ServerDetails, flagValue string, quiet bo
 		return repos[0], nil
 	}
 
-	if quiet || IsCI() {
+	if quiet || IsNonInteractive() {
 		return "", fmt.Errorf("multiple skills repositories found (%s); specify --repo or set JFROG_SKILLS_REPO", strings.Join(repos, ", "))
 	}
 
