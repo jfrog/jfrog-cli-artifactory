@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
+	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/delete"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/install"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/publish"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/search"
@@ -31,6 +32,13 @@ func GetCommands() []components.Command {
 			Arguments:   getSearchArguments(),
 			Action:      search.RunSearch,
 		},
+		{
+			Name:        "delete",
+			Flags:       flagkit.GetCommandFlags(flagkit.SkillsDelete),
+			Description: "Delete a specific skill version from Artifactory.",
+			Arguments:   getDeleteArguments(),
+			Action:      delete.RunDelete,
+		},
 	}
 }
 
@@ -57,6 +65,15 @@ func getInstallArguments() []components.Argument {
 		{
 			Name:        "slug",
 			Description: "Skill name/slug to install.",
+		},
+	}
+}
+
+func getDeleteArguments() []components.Argument {
+	return []components.Argument{
+		{
+			Name:        "slug",
+			Description: "Skill name/slug to delete.",
 		},
 	}
 }

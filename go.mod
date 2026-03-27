@@ -208,6 +208,8 @@ require (
 
 // replace github.com/ktrysmt/go-bitbucket => github.com/ktrysmt/go-bitbucket v0.9.80
 
+replace github.com/jfrog/jfrog-client-go => github.com/bhanurp/jfrog-client-go v1.49.1-0.20260327135057-6d53be2dff3f
+
 // replace github.com/jfrog/jfrog-client-go => ../jfrog-client-go
 
 // replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251026182600-8a8c0428f538

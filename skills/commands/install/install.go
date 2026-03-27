@@ -71,8 +71,6 @@ func (ic *InstallCommand) CommandName() string {
 }
 
 func (ic *InstallCommand) Run() error {
-	common.WarnIfXrayDisabled(ic.serverDetails, ic.repoKey)
-
 	version, err := ic.resolveVersion()
 	if err != nil {
 		return err
@@ -126,6 +124,9 @@ func (ic *InstallCommand) resolveVersion() (string, error) {
 	if ic.version == "latest" || ic.version == "" {
 		versions, err := common.ListVersions(ic.serverDetails, ic.repoKey, ic.slug)
 		if err != nil {
+			if strings.Contains(err.Error(), "404 Not Found") {
+				return "", fmt.Errorf("skill '%s' not found in repository '%s'", ic.slug, ic.repoKey)
+			}
 			if ic.version == "" {
 				return "", fmt.Errorf("failed to list versions (provide --version explicitly): %w", err)
 			}
