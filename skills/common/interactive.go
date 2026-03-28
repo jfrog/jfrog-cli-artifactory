@@ -3,10 +3,15 @@ package common
 import (
 	"os"
 	"strconv"
-	"strings"
 
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	"github.com/jfrog/jfrog-client-go/utils/log"
+)
+
+const (
+	// envCI is the standard CI environment variable set by most CI systems.
+	envCI = "CI"
+	// envDisableQuietFailure controls whether quiet/CI mode fails on missing evidence.
+	envDisableQuietFailure = "JFROG_SKILLS_DISABLE_QUIET_FAILURE"
 )
 
 // IsQuiet returns true when interactive prompts should be skipped (CI or --quiet).
@@ -20,14 +25,8 @@ func IsQuiet(c *components.Context) bool {
 // IsNonInteractive returns true when interactive prompts cannot be used safely.
 // go-prompt will panic if it tries to read from a non-terminal stdin.
 func IsNonInteractive() bool {
-	if ciEnv := os.Getenv("CI"); ciEnv != "" {
-		ci, err := strconv.ParseBool(ciEnv)
-		if err != nil {
-			log.Warn("Failed to parse CI environment variable", ciEnv, "as bool, assuming non-CI:", err.Error())
-		}
-		if ci {
-			return true
-		}
+	if envBool(envCI) {
+		return true
 	}
 	stat, err := os.Stdin.Stat()
 	if err != nil {
@@ -41,6 +40,12 @@ func IsNonInteractive() bool {
 // on missing evidence. Default is to fail; set JFROG_SKILLS_DISABLE_QUIET_FAILURE=true
 // to override and allow installation without evidence.
 func ShouldFailOnMissingEvidence() bool {
-	v := os.Getenv("JFROG_SKILLS_DISABLE_QUIET_FAILURE")
-	return !strings.EqualFold(v, "true") && v != "1"
+	return !envBool(envDisableQuietFailure)
+}
+
+// envBool returns true if the named environment variable is set to a truthy value
+// ("true", "TRUE", "1", "t", "T", "yes", "YES", etc.) as defined by strconv.ParseBool.
+func envBool(key string) bool {
+	v, err := strconv.ParseBool(os.Getenv(key))
+	return err == nil && v
 }
