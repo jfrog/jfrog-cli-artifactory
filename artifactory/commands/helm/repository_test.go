@@ -15,7 +15,7 @@ func TestExtractRepositoryNameFromURL(t *testing.T) {
 		{
 			name:         "OCI URL with artifactory",
 			repository:   "oci://example.com/artifactory/my-repo",
-			expectedRepo: "artifactory", // Function returns first path segment
+			expectedRepo: "artifactory",
 		},
 		{
 			name:         "OCI URL without artifactory",
@@ -37,11 +37,83 @@ func TestExtractRepositoryNameFromURL(t *testing.T) {
 			repository:   "",
 			expectedRepo: "",
 		},
+		// Subdomain Docker access method
+		{
+			name:         "OCI subdomain - SaaS style",
+			repository:   "oci://demo-helm-local.jfrog.io",
+			expectedRepo: "demo-helm-local",
+		},
+		{
+			name:         "OCI subdomain - on-prem multi-label domain",
+			repository:   "oci://abadoc-helmoci-dev-idesuite.hlb.helaba.de",
+			expectedRepo: "abadoc-helmoci-dev-idesuite",
+		},
+		{
+			name:         "OCI subdomain with port",
+			repository:   "oci://my-helm-repo.registry.example.com:8443",
+			expectedRepo: "my-helm-repo",
+		},
+		{
+			name:         "HTTPS subdomain - no path",
+			repository:   "https://helm-local.artifactory.example.com",
+			expectedRepo: "helm-local",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := extractRepositoryNameFromURL(tt.repository)
+			assert.Equal(t, tt.expectedRepo, result)
+		})
+	}
+}
+
+func TestExtractRepositoryFromHostSubdomain(t *testing.T) {
+	tests := []struct {
+		name         string
+		host         string
+		expectedRepo string
+	}{
+		{
+			name:         "Three-label hostname",
+			host:         "demo-helm-local.jfrog.io",
+			expectedRepo: "demo-helm-local",
+		},
+		{
+			name:         "Four-label hostname",
+			host:         "abadoc-helmoci-dev-idesuite.hlb.helaba.de",
+			expectedRepo: "abadoc-helmoci-dev-idesuite",
+		},
+		{
+			name:         "Hostname with port",
+			host:         "my-repo.registry.com:8443",
+			expectedRepo: "my-repo",
+		},
+		{
+			name:         "Two-label hostname",
+			host:         "example.com",
+			expectedRepo: "example",
+		},
+		{
+			name:         "Single-label hostname",
+			host:         "localhost",
+			expectedRepo: "",
+		},
+		{
+			name:         "Single-label hostname with port",
+			host:         "localhost:8080",
+			expectedRepo: "",
+		},
+		{
+			name:         "Empty string",
+			host:         "",
+			expectedRepo: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractRepositoryFromHostSubdomain(tt.host)
 			assert.Equal(t, tt.expectedRepo, result)
 		})
 	}

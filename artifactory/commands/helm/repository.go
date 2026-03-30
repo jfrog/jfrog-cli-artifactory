@@ -11,7 +11,9 @@ const (
 	schemeSecure = "http"
 )
 
-// extractRepositoryNameFromURL extracts the repository name from an OCI or HTTPS URL
+// extractRepositoryNameFromURL extracts the repository name from an OCI or HTTPS URL.
+// Supports both path-based access (oci://registry.com/repo-name) and
+// subdomain access (oci://repo-name.registry.com) methods
 func extractRepositoryNameFromURL(repositoryURL string) string {
 	if repositoryURL == "" {
 		return ""
@@ -30,6 +32,24 @@ func extractRepositoryNameFromURL(repositoryURL string) string {
 		}
 	} else if len(parts) > 1 && parts[1] != "" {
 		return parts[1]
+	}
+	// No path segments found — try subdomain Docker access method where the
+	// repository name is encoded as the first hostname label:
+	// oci://demo-helm-local.jfrog.io  →  repo = "demo-helm-local"
+	return extractRepositoryFromHostSubdomain(parts[0])
+}
+
+// extractRepositoryFromHostSubdomain extracts the repository name from the
+// first label of a hostname used with Artifactory's subdomain Docker access method.
+// For example, "demo-helm-local.jfrog.io" returns "demo-helm-local".
+// Returns empty string if the hostname does not contain a subdomain.
+func extractRepositoryFromHostSubdomain(host string) string {
+	if idx := strings.LastIndex(host, ":"); idx != -1 {
+		host = host[:idx]
+	}
+	labels := strings.SplitN(host, ".", 2)
+	if len(labels) >= 2 && labels[0] != "" && labels[1] != "" {
+		return labels[0]
 	}
 	return ""
 }

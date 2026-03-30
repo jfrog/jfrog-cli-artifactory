@@ -17,3 +17,7 @@
 .gradle
 **/testdata/**/.gradle
 **/testdata/**/bin
+.env
+
+.gradle
+**/gradle*/**/bin

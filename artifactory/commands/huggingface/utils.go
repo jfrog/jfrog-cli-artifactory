@@ -1,17 +1,20 @@
 package cli
 
 import (
+	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
@@ -20,10 +23,30 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+type HuggingFaceRepositoryDetails struct {
+	Key                   string   `json:"key"`
+	Rclass                string   `json:"rclass"`
+	PackageType           string   `json:"packageType"`
+	DefaultDeploymentRepo string   `json:"defaultDeploymentRepo"`
+	Repositories          []string `json:"repositories"`
+}
+
+//go:embed huggingface_download.py
+var huggingfaceDownloadScript []byte
+
+//go:embed huggingface_upload.py
+var huggingfaceUploadScript []byte
+
 // timestampPattern matches ISO 8601 timestamp format: _YYYY-MM-DDTHH:MM:SS.sssZ
 var timestampPattern = regexp.MustCompile(`_\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`)
 
-const minPythonVersion = 3
+const (
+	minPythonVersion = 3
+	huggingfaceml    = "huggingfaceml"
+	remote           = "remote"
+	virtual          = "virtual"
+	upload           = "upload"
+)
 
 // PythonScriptTemplate is the base template for executing Python functions via importlib.
 // It accepts format arguments: module name, function name, JSON args, and success output expression.
@@ -58,18 +81,24 @@ func BuildPythonDownloadCmd(argsJSON string) string {
 	return fmt.Sprintf(PythonScriptTemplate, "huggingface_download", "download", successBlock)
 }
 
-// getHuggingFaceScriptPath returns the absolute path to the directory containing Python scripts
-func getHuggingFaceScriptPath(scriptName string) (string, error) {
-	_, filename, _, ok := runtime.Caller(1)
-	if !ok {
-		return "", errorutils.CheckErrorf("failed to get current file path")
+// extractPythonScripts writes the embedded Python scripts to a temporary directory
+// and returns its path. The caller is responsible for removing the directory when done.
+func extractPythonScripts() (string, error) {
+	tmpDir, err := os.MkdirTemp("", "jf-hf-*")
+	if err != nil {
+		return "", errorutils.CheckErrorf("failed to create temp directory for Python scripts: %w", err)
 	}
-	scriptDir := filepath.Dir(filename)
-	scriptPath := filepath.Join(scriptDir, scriptName)
-	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
-		return "", errorutils.CheckErrorf("Python script not found: %s in directory: %s", scriptName, scriptDir)
+	scripts := map[string][]byte{
+		"huggingface_download.py": huggingfaceDownloadScript,
+		"huggingface_upload.py":   huggingfaceUploadScript,
 	}
-	return scriptDir, nil
+	for name, data := range scripts {
+		if err := os.WriteFile(filepath.Join(tmpDir, name), data, 0600); err != nil {
+			_ = os.RemoveAll(tmpDir)
+			return "", errorutils.CheckErrorf("failed to write embedded script %s: %w", name, err)
+		}
+	}
+	return tmpDir, nil
 }
 
 // GetPythonPath finds a valid Python 3+ interpreter in PATH.
@@ -108,7 +137,7 @@ func verifyPythonVersion(pythonPath string) error {
 	if majorVersion < minPythonVersion {
 		return errorutils.CheckErrorf("Python version %d found, but version %d or higher is required", majorVersion, minPythonVersion)
 	}
-	log.Debug("Python version ", majorVersion, " verified (minimum required: ", minPythonVersion, ")")
+	log.Debug("Python version", majorVersion, "verified (minimum required:", minPythonVersion, ")")
 	return nil
 }
 
@@ -118,9 +147,40 @@ func HasTimestamp(revision string) bool {
 	return timestampPattern.MatchString(revision)
 }
 
+func handleRepositoryResolution(serviceManager artifactory.ArtifactoryServicesManager, serverDetails *config.ServerDetails, command string) (string, error) {
+	repoKey, err := GetRepoKeyFromHFEndpoint()
+	if err != nil {
+		return repoKey, err
+	}
+	repoDetails := HuggingFaceRepositoryDetails{}
+	err = serviceManager.GetRepository(repoKey, &repoDetails)
+	if err != nil {
+		log.Error("Either repository doesn't exist or bad request")
+		return "", err
+	}
+	if repoDetails.PackageType != huggingfaceml {
+		return repoKey, errorutils.CheckErrorf("Given repository %s is not a huggingface's type repository", repoKey)
+	}
+	if repoDetails.Rclass == virtual {
+		if repoDetails.DefaultDeploymentRepo == "" {
+			return repoKey, errorutils.CheckErrorf("No default deployment repo specified for virtual repo: %s", repoKey)
+		}
+		hfEndpoint := serverDetails.GetArtifactoryUrl() + huggingfaceAPI + "/" + repoDetails.DefaultDeploymentRepo
+		err = os.Setenv(HF_ENDPOINT, hfEndpoint)
+		if err != nil {
+			return repoKey, err
+		}
+		return repoDetails.DefaultDeploymentRepo, nil
+	}
+	if repoDetails.Rclass == remote && command == upload {
+		return repoKey, errorutils.CheckError(errors.New("upload cannot be performed on remote repository"))
+	}
+	return repoKey, nil
+}
+
 // GetRepoKeyFromHFEndpoint extracts the repository key from HF_ENDPOINT environment variable
 func GetRepoKeyFromHFEndpoint() (string, error) {
-	endpoint := os.Getenv("HF_ENDPOINT")
+	endpoint := os.Getenv(HF_ENDPOINT)
 	if endpoint == "" {
 		return "", errorutils.CheckErrorf("HF_ENDPOINT environment variable is not set")
 	}
@@ -231,48 +291,57 @@ func SaveBuildInfo(ctx *BuildInfoContext) error {
 	return nil
 }
 
-func removeDuplicateDependencies(buildInfo *entities.BuildInfo) {
-	if buildInfo == nil {
-		return
+// FindLatestRevision queries Artifactory for the most recent timestamped revision folder
+// If revision already contains a timestamp it is returned as-is.
+func FindLatestRevision(serviceManager artifactory.ArtifactoryServicesManager, repoKey, repoTypePath, repoId, revision string) (string, error) {
+	if HasTimestamp(revision) {
+		return revision, nil
 	}
-	for moduleIdx, module := range buildInfo.Modules {
-		dependenciesMap := make(map[string]entities.Dependency)
-		var dependencies []entities.Dependency
-		for _, dependency := range module.Dependencies {
-			sha256 := dependency.Sha256
-			if sha256 == "" {
-				log.Debug("Missing Sha256 for dependency: ", dependency.Id, "so, skipping it from adding into build info.")
-			}
-			_, exist := dependenciesMap[sha256]
-			if sha256 != "" && !exist {
-				dependenciesMap[sha256] = dependency
-				dependencies = append(dependencies, dependency)
-			}
-		}
-		module.Dependencies = dependencies
-		buildInfo.Modules[moduleIdx] = module
+	namePattern := revision + "_*"
+	aqlQuery := fmt.Sprintf(
+		`items.find({"repo":"%s","type":"folder","path":"%s/%s","name":{"$match":"%s"}}).include("name").sort({"$desc":["name"]}).limit(1)`,
+		repoKey, repoTypePath, repoId, namePattern,
+	)
+	results, err := utils.ExecuteAqlQuery(serviceManager, aqlQuery)
+	if err != nil {
+		return "", fmt.Errorf("failed to find latest revision folder: %w", err)
 	}
+	if len(results) == 0 {
+		return "", nil
+	}
+	return results[0].Name, nil
 }
 
-func removeDuplicateArtifacts(buildInfo *entities.BuildInfo) {
-	if buildInfo == nil {
-		return
-	}
-	for moduleIdx, module := range buildInfo.Modules {
-		artifactsMap := make(map[string]entities.Artifact)
-		var artifacts []entities.Artifact
-		for _, artifact := range module.Artifacts {
-			sha256 := artifact.Sha256
-			if sha256 == "" {
-				log.Debug("Missing Sha256 for artifact: ", artifact.Name, "so, skipping it from adding into build info.")
-			}
-			_, exist := artifactsMap[sha256]
-			if sha256 != "" && !exist {
-				artifactsMap[sha256] = artifact
-				artifacts = append(artifacts, artifact)
-			}
+func removeDuplicateDependencies(module *entities.Module) {
+	dependenciesMap := make(map[string]entities.Dependency)
+	var dependencies []entities.Dependency
+	for _, dependency := range module.Dependencies {
+		sha256 := dependency.Sha256
+		if sha256 == "" {
+			log.Debug("Missing Sha256 for dependency: ", dependency.Id, "so, skipping it from adding into build info.")
 		}
-		module.Artifacts = artifacts
-		buildInfo.Modules[moduleIdx] = module
+		_, exist := dependenciesMap[sha256]
+		if sha256 != "" && !exist {
+			dependenciesMap[sha256] = dependency
+			dependencies = append(dependencies, dependency)
+		}
 	}
+	module.Dependencies = dependencies
+}
+
+func removeDuplicateArtifacts(module *entities.Module) {
+	artifactsMap := make(map[string]entities.Artifact)
+	var artifacts []entities.Artifact
+	for _, artifact := range module.Artifacts {
+		sha256 := artifact.Sha256
+		if sha256 == "" {
+			log.Debug("Missing Sha256 for artifact: ", artifact.Name, "so, skipping it from adding into build info.")
+		}
+		_, exist := artifactsMap[sha256]
+		if sha256 != "" && !exist {
+			artifactsMap[sha256] = artifact
+			artifacts = append(artifacts, artifact)
+		}
+	}
+	module.Artifacts = artifacts
 }

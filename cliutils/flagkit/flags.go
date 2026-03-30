@@ -1150,11 +1150,11 @@ var flagsMap = map[string]components.Flag{
 	AddSources:               components.NewBoolFlag(AddSources, "Add sources to an existing draft release bundle.", components.WithBoolDefaultValueFalse()),
 
 	// Skills-specific flags
-	repo:        components.NewStringFlag(repo, "Skills repository key in Artifactory.", components.SetMandatoryFalse()),
-	version:     components.NewStringFlag(version, "Skill version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
-	installPath: components.NewStringFlag(installPath, "Custom install path for the skill. Default: current directory.", components.SetMandatoryFalse()),
-	signingKey:  components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
-	keyAlias:    components.NewStringFlag(keyAlias, "Alias for the signing key. Overrides EVD_KEY_ALIAS env var.", components.SetMandatoryFalse()),
+	repo:         components.NewStringFlag(repo, "Skills repository key in Artifactory.", components.SetMandatoryFalse()),
+	version:      components.NewStringFlag(version, "Skill version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
+	installPath:  components.NewStringFlag(installPath, "Custom install path for the skill. Default: current directory.", components.SetMandatoryFalse()),
+	signingKey:   components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
+	keyAlias:     components.NewStringFlag(keyAlias, "Alias for the signing key. Overrides EVD_KEY_ALIAS env var.", components.SetMandatoryFalse()),
 	skillsQuiet:  components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
 	skillsFormat: components.NewStringFlag(Format, "Output format: \"table\" (default) or \"json\".", components.SetMandatoryFalse()),
 	propSearch:   components.NewBoolFlag(propSearch, "Use Artifactory property search (skill.name) instead of Skills API search.", components.WithBoolDefaultValueFalse()),
