@@ -29,7 +29,7 @@ func NewCommand(cmdName string, args []string, buildConfig *buildUtils.BuildConf
 	switch cmdName {
 	case "install", "i":
 		return NewPnpmInstallCommand().SetArgs(args).SetBuildConfiguration(buildConfig).SetServerDetails(serverDetails), nil
-	case "publish", "p":
+	case "publish":
 		return NewPnpmPublishCommand().SetArgs(args).SetBuildConfiguration(buildConfig).SetServerDetails(serverDetails), nil
 	default:
 		return nil, fmt.Errorf("unsupported pnpm command: %s", cmdName)

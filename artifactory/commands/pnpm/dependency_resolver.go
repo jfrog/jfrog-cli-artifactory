@@ -142,7 +142,7 @@ func addRequestedBy(dep *depInfo, path []string) {
 func getRegistryScope(name string) string {
 	if strings.HasPrefix(name, "@") {
 		parts := strings.Split(name, "/")
-		if len(parts) > 2 {
+		if len(parts) >= 2 {
 			return parts[0]
 		}
 	}
@@ -150,6 +150,10 @@ func getRegistryScope(name string) string {
 }
 
 func addScope(dep *depInfo, scope string) {
+	if len(dep.scopes) == 0 {
+		dep.scopes = []string{scope}
+		return
+	}
 	current := dep.scopes[0]
 	if current == "prod" {
 		return

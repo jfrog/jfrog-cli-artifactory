@@ -1,7 +1,6 @@
 package pnpm
 
 import (
-	"slices"
 	"testing"
 
 	"github.com/jfrog/build-info-go/entities"
@@ -121,13 +120,6 @@ func TestParseTarballURL(t *testing.T) {
 	}
 }
 
-func TestSlicesEqual(t *testing.T) {
-	assert.True(t, slices.Equal([]string{"a", "b"}, []string{"a", "b"}))
-	assert.False(t, slices.Equal([]string{"a"}, []string{"a", "b"}))
-	assert.False(t, slices.Equal([]string{"a", "b"}, []string{"a", "c"}))
-	assert.True(t, slices.Equal([]string(nil), []string(nil)))
-	assert.True(t, slices.Equal([]string{}, []string(nil)))
-}
 
 func TestExtractPublishFlags(t *testing.T) {
 	tests := []struct {
@@ -266,6 +258,23 @@ func TestAddRequestedBy(t *testing.T) {
 	assert.Len(t, dep.requestedBy, 1) // duplicate not added
 	addRequestedBy(dep, []string{"other"})
 	assert.Len(t, dep.requestedBy, 2)
+}
+
+func TestGetRegistryScope(t *testing.T) {
+	tests := []struct {
+		name string
+		want string
+	}{
+		{"@scope/pkg", "@scope"},
+		{"@babel/core", "@babel"},
+		{"lodash", ""},
+		{"@scopeOnly", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, getRegistryScope(tt.name))
+		})
+	}
 }
 
 func TestAddScope(t *testing.T) {
@@ -407,9 +416,9 @@ func TestNewCommandUnsupported(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, cmd)
 
-	cmd, err = NewCommand("p", nil, nil, nil)
-	assert.NoError(t, err)
-	assert.NotNil(t, cmd)
+	_, err = NewCommand("p", nil, nil, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported pnpm command")
 }
 
 // TestParsePnpmLsProjectsEmpty verifies handling of empty/minimal pnpm ls output (RTECO-903).
