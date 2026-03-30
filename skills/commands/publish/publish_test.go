@@ -2,6 +2,7 @@ package publish
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -344,6 +345,57 @@ func TestShouldExclude(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			info := fakeFileInfo{name: filepath.Base(tt.relPath), dir: tt.isDir}
 			assert.Equal(t, tt.exclude, shouldExclude(tt.relPath, info))
+		})
+	}
+}
+
+func TestIsEvidenceLicenseError(t *testing.T) {
+	tests := []struct {
+		name         string
+		errMsg       string
+		isLicenseErr bool
+	}{
+		{
+			name:         "403 Forbidden with Enterprise+ message",
+			errMsg:       `upload failed for subject 'repo/skill/1.0.0/skill-1.0.0.zip': server response: 403 Forbidden\n{"errors":[{"message":"evidence deployment requires an Enterprise+ license"}]}`,
+			isLicenseErr: true,
+		},
+		{
+			name:         "Enterprise+ only",
+			errMsg:       "evidence deployment requires an Enterprise+ license",
+			isLicenseErr: true,
+		},
+		{
+			name:         "403 Forbidden only",
+			errMsg:       "server response: 403 Forbidden",
+			isLicenseErr: false,
+		},
+		{
+			name:         "network error",
+			errMsg:       "connection refused",
+			isLicenseErr: false,
+		},
+		{
+			name:         "401 unauthorized",
+			errMsg:       "server response: 401 Unauthorized",
+			isLicenseErr: false,
+		},
+		{
+			name:         "generic 403 without Forbidden",
+			errMsg:       "got status 403",
+			isLicenseErr: false,
+		},
+		{
+			name:         "signing key error",
+			errMsg:       "failed to read signing key: no such file",
+			isLicenseErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := fmt.Errorf("%s", tt.errMsg)
+			assert.Equal(t, tt.isLicenseErr, isEvidenceLicenseError(err), "for error: %s", tt.errMsg)
 		})
 	}
 }
