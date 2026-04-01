@@ -120,7 +120,6 @@ func TestParseTarballURL(t *testing.T) {
 	}
 }
 
-
 func TestExtractPublishFlags(t *testing.T) {
 	tests := []struct {
 		name       string

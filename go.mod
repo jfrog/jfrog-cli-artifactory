@@ -11,7 +11,7 @@ require (
 	github.com/jfrog/gofrog v1.7.6
 	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260106204841-744f3f71817b
 	github.com/jfrog/jfrog-cli-evidence v0.9.0
-	github.com/jfrog/jfrog-client-go v1.55.1-0.20260319105834-2953fed40f60
+	github.com/jfrog/jfrog-client-go v1.55.1-0.20260401053506-cd363617ec8f
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
@@ -203,9 +203,3 @@ require (
 // replace github.com/gfleury/go-bitbucket-v1 => github.com/gfleury/go-bitbucket-v1 v0.0.0-20230825095122-9bc1711434ab
 
 // replace github.com/ktrysmt/go-bitbucket => github.com/ktrysmt/go-bitbucket v0.9.80
-
-replace github.com/jfrog/jfrog-client-go => github.com/bhanurp/jfrog-client-go v1.49.1-0.20260327135057-6d53be2dff3f
-
-// replace github.com/jfrog/jfrog-client-go => ../jfrog-client-go
-
-replace github.com/jfrog/jfrog-cli-core/v2 => ../jfrog-cli-core

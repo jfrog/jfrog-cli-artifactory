@@ -12,19 +12,19 @@ import (
 const defaultModuleId = "pnpm-project"
 
 type pnpmLsProject struct {
-	Name            string                       `json:"name"`
-	Version         string                       `json:"version"`
-	Path            string                       `json:"path"`
-	Dependencies    map[string]pnpmLsDependency  `json:"dependencies"`
-	DevDependencies map[string]pnpmLsDependency  `json:"devDependencies"`
+	Name            string                      `json:"name"`
+	Version         string                      `json:"version"`
+	Path            string                      `json:"path"`
+	Dependencies    map[string]pnpmLsDependency `json:"dependencies"`
+	DevDependencies map[string]pnpmLsDependency `json:"devDependencies"`
 }
 
 type pnpmLsDependency struct {
-	From         string                       `json:"from"`
-	Version      string                       `json:"version"`
-	Resolved     string                       `json:"resolved"`
-	Path         string                       `json:"path"`
-	Dependencies map[string]pnpmLsDependency  `json:"dependencies"`
+	From         string                      `json:"from"`
+	Version      string                      `json:"version"`
+	Resolved     string                      `json:"resolved"`
+	Path         string                      `json:"path"`
+	Dependencies map[string]pnpmLsDependency `json:"dependencies"`
 }
 
 func parsePnpmLsProjects(projects []pnpmLsProject) []*moduleInfo {
@@ -162,4 +162,3 @@ func addScope(dep *depInfo, scope string) {
 		dep.scopes = []string{scope}
 	}
 }
-
