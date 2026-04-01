@@ -208,4 +208,4 @@ replace github.com/jfrog/jfrog-client-go => github.com/bhanurp/jfrog-client-go v
 
 // replace github.com/jfrog/jfrog-client-go => ../jfrog-client-go
 
-// replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20251026182600-8a8c0428f538
+replace github.com/jfrog/jfrog-cli-core/v2 => ../jfrog-cli-core

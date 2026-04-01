@@ -171,12 +171,15 @@ func (ic *InstallCommand) downloadZip(tmpDir string) (string, error) {
 	downloadParams.Target = tmpDir + "/"
 	downloadParams.Flat = true
 
-	_, totalFailed, err := serviceManager.DownloadFiles(downloadParams)
+	totalDownloaded, totalFailed, err := serviceManager.DownloadFiles(downloadParams)
 	if err != nil {
 		return "", err
 	}
 	if totalFailed > 0 {
 		return "", fmt.Errorf("download failed for %s", pattern)
+	}
+	if totalDownloaded == 0 {
+		return "", fmt.Errorf("skill '%s' version '%s' not found in repository '%s'", ic.slug, ic.version, ic.repoKey)
 	}
 
 	zipName := fmt.Sprintf("%s-%s.zip", ic.slug, ic.version)

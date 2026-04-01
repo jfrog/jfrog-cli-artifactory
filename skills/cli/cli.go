@@ -14,7 +14,7 @@ func GetCommands() []components.Command {
 		{
 			Name:        "publish",
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsPublish),
-			Description: "Publish a skill to Artifactory. Signs and attaches evidence if a signing key is provided.",
+			Description: "Publish a skill to Artifactory. Signs and attaches evidence if a signing key is provided. Runs Xray security scan after upload (use --skip-scan or JFROG_CLI_SKIP_SKILLS_SCAN=true to bypass). Scan timeout is configurable via JFROG_CLI_SKILLS_SCAN_TIMEOUT (default: 5m, e.g. 2m, 30s).",
 			Arguments:   getPublishArguments(),
 			Action:      publish.RunPublish,
 		},
