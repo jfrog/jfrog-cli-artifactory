@@ -12,6 +12,7 @@ import (
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
 
+	artCliUtils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	artutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-client-go/artifactory"
@@ -262,16 +263,7 @@ func downloadLayer(searchResult utils.ResultItem, result interface{}, serviceMan
 }
 
 func writeLayersToFile(layers []utils.ResultItem) (filePath string, err error) {
-	writer, err := content.NewContentWriter("results", true, false)
-	if err != nil {
-		return
-	}
-	defer ioutils.Close(writer, &err)
-	for _, layer := range layers {
-		writer.Write(layer)
-	}
-	filePath = writer.GetFilePath()
-	return
+	return artCliUtils.WriteResultItemsToFile(layers)
 }
 
 // Return - manifest artifacts as buildinfo.Artifact struct.
