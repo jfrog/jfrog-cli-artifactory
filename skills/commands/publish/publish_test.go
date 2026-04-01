@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -510,17 +511,30 @@ func TestZipDeterministic_ExtraFieldConsistent(t *testing.T) {
 func TestZipDeterministic_PermissionsPreserved(t *testing.T) {
 	dir := createSkillDir(t)
 
-	// Make main.py executable
-	require.NoError(t, os.Chmod(filepath.Join(dir, "main.py"), 0755))
+	if runtime.GOOS == "windows" {
+		// Windows normalizes all files to 0644 since it doesn't support Unix permissions.
+		zipPath, err := zipSkillFolder(dir, "test", "1.0.0")
+		require.NoError(t, err)
+		defer func() { _ = os.Remove(zipPath) }()
+		r, err := zip.OpenReader(zipPath)
+		require.NoError(t, err)
+		defer func() { _ = r.Close() }()
+		for _, f := range r.File {
+			if f.Name == "main.py" {
+				assert.Equal(t, os.FileMode(0644), f.Mode().Perm(),
+					"main.py should have default 0644 on Windows")
+			}
+		}
+		return
+	}
 
+	require.NoError(t, os.Chmod(filepath.Join(dir, "main.py"), 0755))
 	zipPath, err := zipSkillFolder(dir, "test", "1.0.0")
 	require.NoError(t, err)
 	defer func() { _ = os.Remove(zipPath) }()
-
 	r, err := zip.OpenReader(zipPath)
 	require.NoError(t, err)
 	defer func() { _ = r.Close() }()
-
 	for _, f := range r.File {
 		if f.Name == "main.py" {
 			assert.Equal(t, os.FileMode(0755), f.Mode().Perm(),
@@ -530,13 +544,20 @@ func TestZipDeterministic_PermissionsPreserved(t *testing.T) {
 }
 
 func TestZipDeterministic_PermissionChangeDifferentHash(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// On Windows, chmod is a no-op so hashes stay the same.
+		dir := createSkillDir(t)
+		hash1 := zipAndHash(t, dir)
+		_ = os.Chmod(filepath.Join(dir, "main.py"), 0755)
+		hash2 := zipAndHash(t, dir)
+		assert.Equal(t, hash1, hash2, "on Windows, chmod is a no-op so hashes should match")
+		return
+	}
+
 	dir := createSkillDir(t)
 	hash1 := zipAndHash(t, dir)
-
-	// Change permission without changing content
 	require.NoError(t, os.Chmod(filepath.Join(dir, "main.py"), 0755))
 	hash2 := zipAndHash(t, dir)
-
 	assert.NotEqual(t, hash1, hash2, "permission change should produce different checksum")
 }
 

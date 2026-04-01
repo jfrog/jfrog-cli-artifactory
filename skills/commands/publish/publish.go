@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -176,6 +177,7 @@ func (pc *PublishCommand) Run() error {
 		Version:             version,
 		SkipScan:            pc.skipScan,
 		AutoDeleteOnFailure: pc.autoDeleteOnFailure,
+		Quiet:               pc.quiet,
 	}); err != nil {
 		return err
 	}
@@ -359,7 +361,7 @@ func addFileToZip(w *zip.Writer, skillDir string, sf skillFile, uniformTime time
 		Modified: uniformTime,
 	}
 	header.SetModTime(uniformTime) //nolint:staticcheck // sets legacy MS-DOS ModifiedDate/ModifiedTime fields
-	header.SetMode(sf.mode)
+	header.SetMode(normalizeFileMode(sf.mode))
 	header.Extra = nil
 
 	writer, err := w.CreateHeader(header)
@@ -378,6 +380,16 @@ func addFileToZip(w *zip.Writer, skillDir string, sf skillFile, uniformTime time
 
 	_, err = io.Copy(writer, file)
 	return err
+}
+
+// normalizeFileMode returns a consistent Unix file mode for zip entry headers.
+// On Windows, os.Stat returns 0666 for all files (no execute bit support), so
+// we default to 0644 for regular files. On Unix, the real mode is preserved.
+func normalizeFileMode(mode os.FileMode) os.FileMode {
+	if runtime.GOOS == "windows" {
+		return 0644
+	}
+	return mode
 }
 
 func zipSkillFolder(skillDir, slug, version string) (zipPath string, err error) {

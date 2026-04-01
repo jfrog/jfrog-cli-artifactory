@@ -31,6 +31,7 @@ type XrayGateParams struct {
 	Version             string
 	SkipScan            bool
 	AutoDeleteOnFailure bool
+	Quiet               bool
 }
 
 // CheckXrayGate calls the Artifactory Skills Xray gate endpoint after publish.
@@ -84,17 +85,22 @@ func pollUntilDone(sm artifactory.ArtifactoryServicesManager, params XrayGatePar
 	pollCount := 0
 	startTime := time.Now()
 
-	// Use a spinner for interactive terminals, debug logs for CI/non-interactive.
+	// Use a spinner only for interactive terminals that are not in quiet mode.
+	// NewBarsMng() redirects logs to a file, so we must not call it in quiet/CI mode.
 	useSpinner := false
-	mng, shouldInit, _ := progressbar.NewBarsMng()
+	var mng *progressbar.ProgressBarMng
 	var spinner interface{ Abort(bool) }
-	if shouldInit && mng != nil {
-		useSpinner = true
-		mng.GetBarsWg().Add(1)
-		spinner = mng.NewUpdatableHeadlineBarWithSpinner(func() string {
-			elapsed := time.Since(startTime).Truncate(time.Second)
-			return fmt.Sprintf(" Scanning for malicious content... (%s elapsed, %d polls)", elapsed, pollCount)
-		})
+	if !params.Quiet && !IsNonInteractive() {
+		var shouldInit bool
+		mng, shouldInit, _ = progressbar.NewBarsMng()
+		if shouldInit && mng != nil {
+			useSpinner = true
+			mng.GetBarsWg().Add(1)
+			spinner = mng.NewUpdatableHeadlineBarWithSpinner(func() string {
+				elapsed := time.Since(startTime).Truncate(time.Second)
+				return fmt.Sprintf(" Scanning for malicious content... (%s elapsed, %d polls)", elapsed, pollCount)
+			})
+		}
 	}
 
 	stopSpinner := func() {
