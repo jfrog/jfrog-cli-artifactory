@@ -89,6 +89,9 @@ func (ic *InstallCommand) Run() error {
 
 	zipPath, err := ic.downloadZip(tmpDir)
 	if err != nil {
+		if strings.Contains(err.Error(), "403") {
+			return ic.diagnoseDownloadForbidden(err)
+		}
 		return fmt.Errorf("download failed: %w", err)
 	}
 
@@ -185,6 +188,25 @@ func (ic *InstallCommand) downloadZip(tmpDir string) (string, error) {
 	zipName := fmt.Sprintf("%s-%s.zip", ic.slug, ic.version)
 	zipPath := filepath.Join(tmpDir, zipName)
 	return zipPath, nil
+}
+
+// diagnoseDownloadForbidden checks the Xray status API when a download returns 403.
+// If the artifact is blocked by Xray, it returns a specific error message.
+// Otherwise, it returns the original error.
+func (ic *InstallCommand) diagnoseDownloadForbidden(originalErr error) error {
+	artifactPath := fmt.Sprintf("%s/%s/%s-%s.zip", ic.slug, ic.version, ic.slug, ic.version)
+	sm, err := utils.CreateServiceManager(ic.serverDetails, 3, 0, false)
+	if err != nil {
+		return fmt.Errorf("download blocked (403): %w", originalErr)
+	}
+	resp, err := sm.GetSkillXrayStatus(ic.repoKey, artifactPath)
+	if err != nil {
+		return fmt.Errorf("download blocked (403): %w", originalErr)
+	}
+	if resp.Status == services.SkillXrayStatusBlocked {
+		return fmt.Errorf("skill '%s' v%s is blocked by Xray security scan. The artifact has security or license violations and cannot be downloaded", ic.slug, ic.version)
+	}
+	return fmt.Errorf("download failed: %w", originalErr)
 }
 
 func (ic *InstallCommand) verifyEvidence() error {
