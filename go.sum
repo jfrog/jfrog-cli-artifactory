@@ -388,8 +388,6 @@ github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260106204841-744f3f71817b h1:gGGm
 github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260106204841-744f3f71817b/go.mod h1:+Hnaikp/xCSPD/q7txxRy4Zc0wzjW/usrCSf+6uONSQ=
 github.com/jfrog/jfrog-cli-evidence v0.9.0 h1:i9DhkQUxSZkhpp5oGR+N+SVAaqWDiUylbJcoDhM91uQ=
 github.com/jfrog/jfrog-cli-evidence v0.9.0/go.mod h1:R9faPfyQESBmKrdZCmHvlpmYSHmffswjNnFeT3RMq8I=
-github.com/jfrog/jfrog-client-go v1.55.1-0.20260401053506-cd363617ec8f h1:zooemucdHsJcRfGhKkyStpOZvJ3ErOTOkOIQULVKOgw=
-github.com/jfrog/jfrog-client-go v1.55.1-0.20260401053506-cd363617ec8f/go.mod h1:sCE06+GngPoyrGO0c+vmhgMoVSP83UMNiZnIuNPzU8U=
 github.com/jmespath/go-jmespath v0.4.1-0.20220621161143-b0104c826a24 h1:liMMTbpW34dhU4az1GN0pTPADwNmvoRSeoZ6PItiqnY=
 github.com/jmespath/go-jmespath v0.4.1-0.20220621161143-b0104c826a24/go.mod h1:T8mJZnbsbmF+m6zOOFylbeCJqk5+pHWvzYPziyZiYoo=
 github.com/kevinburke/ssh_config v1.6.0 h1:J1FBfmuVosPHf5GRdltRLhPJtJpTlMdKTBjRgTaQBFY=
@@ -500,6 +498,8 @@ github.com/redis/go-redis/extra/redisotel/v9 v9.0.5 h1:EfpWLLCyXw8PSM2/XNJLjI3Pb
 github.com/redis/go-redis/extra/redisotel/v9 v9.0.5/go.mod h1:WZjPDy7VNzn77AAfnAfVjZNvfJTYfPetfZk5yoSTLaQ=
 github.com/redis/go-redis/v9 v9.18.0 h1:pMkxYPkEbMPwRdenAzUNyFNrDgHx9U+DrBabWNfSRQs=
 github.com/redis/go-redis/v9 v9.18.0/go.mod h1:k3ufPphLU5YXwNTUcCRXGxUoF1fqxnhFQmscfkCoDA0=
+github.com/reshmifrog/jfrog-client-go v1.52.1-0.20260330041950-e22db0130263 h1:KGsvHb99jPwj1VWWJD2FgjD41F6w+HD3LSBEAUkql1U=
+github.com/reshmifrog/jfrog-client-go v1.52.1-0.20260330041950-e22db0130263/go.mod h1:sCE06+GngPoyrGO0c+vmhgMoVSP83UMNiZnIuNPzU8U=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
 github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=

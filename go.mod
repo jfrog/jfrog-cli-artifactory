@@ -198,6 +198,8 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
+replace github.com/jfrog/jfrog-client-go => github.com/reshmifrog/jfrog-client-go v1.52.1-0.20260330041950-e22db0130263
+
 // replace github.com/jfrog/build-info-go => github.com/reshmifrog/build-info-go v1.10.11-0.20260303032831-71878c7210bf
 
 // replace github.com/gfleury/go-bitbucket-v1 => github.com/gfleury/go-bitbucket-v1 v0.0.0-20230825095122-9bc1711434ab
