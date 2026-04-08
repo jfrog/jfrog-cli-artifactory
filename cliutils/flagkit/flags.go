@@ -62,6 +62,7 @@ const (
 	NpmInstallCi           = "npm-install-ci"
 	NpmPublish             = "npm-publish"
 	PnpmConfig             = "pnpm-config"
+	Pnpm                   = "pnpm"
 	YarnConfig             = "yarn-config"
 	Yarn                   = "yarn"
 	NugetConfig            = "nuget-config"
@@ -273,6 +274,7 @@ const (
 	collectGitInfo     = "collect-git-info"
 	dotGitPath         = "dot-git-path"
 	gitConfigFilePath  = "git-config-file-path"
+	depExclude         = "dep-exclude-scopes"
 
 	// Unique build-add-dependencies flags
 	badPrefix    = "bad-"
@@ -496,6 +498,23 @@ const (
 	SourceTypeBuilds         = "source-type-builds"
 	Draft                    = "draft"
 	AddSources               = "add"
+
+	// Skills commands keys
+	SkillsPublish = "skills-publish"
+	SkillsInstall = "skills-install"
+	SkillsSearch  = "skills-search"
+	SkillsDelete  = "skills-delete"
+
+	// Skills-specific flags
+	version             = "version"
+	installPath         = "path"
+	signingKey          = "signing-key"
+	keyAlias            = "key-alias"
+	skillsQuiet         = "skills-" + quiet
+	propSearch          = "prop"
+	skillsFormat        = "skills-" + Format
+	skipScan            = "skip-scan"
+	autoDeleteOnFailure = "auto-delete-on-failure"
 )
 
 var commandFlags = map[string][]string{
@@ -620,7 +639,7 @@ var commandFlags = map[string][]string{
 	},
 	BuildPublish: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, buildUrl, bpDryRun,
-		envInclude, envExclude, InsecureTls, Project, bpDetailedSummary, bpOverwrite, collectEnv, collectGitInfo, gitConfigFilePath, dotGitPath,
+		envInclude, envExclude, InsecureTls, Project, bpDetailedSummary, bpOverwrite, collectEnv, collectGitInfo, gitConfigFilePath, dotGitPath, depExclude,
 	},
 	BuildAppend: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, buildUrl, bpDryRun,
@@ -712,6 +731,9 @@ var commandFlags = map[string][]string{
 	},
 	PnpmConfig: {
 		global, serverIdResolve, repoResolve,
+	},
+	Pnpm: {
+		BuildName, BuildNumber, module, Project,
 	},
 	YarnConfig: {
 		global, serverIdResolve, repoResolve,
@@ -819,6 +841,18 @@ var commandFlags = map[string][]string{
 	},
 	ReleaseBundleSearch: {
 		Format, OrderBy, FilterBy, OrderAsc, Limit, Offset, Includes, Project,
+	},
+	SkillsPublish: {
+		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, skillsQuiet, skipScan, autoDeleteOnFailure,
+	},
+	SkillsInstall: {
+		url, user, password, accessToken, serverId, repo, version, installPath, skillsQuiet,
+	},
+	SkillsDelete: {
+		url, user, password, accessToken, serverId, repo, version, dryRun,
+	},
+	SkillsSearch: {
+		url, user, password, accessToken, serverId, repo, skillsFormat, propSearch,
 	},
 }
 
@@ -959,6 +993,7 @@ var flagsMap = map[string]components.Flag{
 	collectGitInfo:    components.NewBoolFlag(collectGitInfo, "Set to true to collect Git revision and URL from the local .git directory and adds it to the build-info.", components.WithBoolDefaultValueFalse()),
 	dotGitPath:        components.NewStringFlag(dotGitPath, "Path to the .git directory. If not provided, the .git directory will be searched in the current working directory or its parent directories. Only respected when collect-git-info is enabled.", components.SetMandatoryFalse()),
 	gitConfigFilePath: components.NewStringFlag(gitConfigFilePath, "Path to the git configuration file. Only respected when collect-git-info is enabled.", components.SetMandatoryFalse()),
+	depExclude:        components.NewStringFlag(depExclude, "List of semicolon-separated(;) dependency scopes to exclude from the published build info. Relevant for Package managers with supported dependency scopes (e.g. Maven, NPM). For example: \"test;provided\".", components.SetMandatoryFalse()),
 
 	// Build Add Dependencies specific commands flags
 	badRecursive: components.NewBoolFlag(Recursive, "[Default: true] Set to false if you do not wish to collect artifacts in sub-folders to be added to the build info.", components.WithBoolDefaultValueFalse()),
@@ -1119,6 +1154,18 @@ var flagsMap = map[string]components.Flag{
 	SourceTypeBuilds:         components.NewStringFlag(SourceTypeBuilds, "List of semicolon-separated(;) builds in the form of 'name=buildName1, id=runID1, include-deps=true; name=buildName2, id=runID2' to be included in the new bundle.", components.SetMandatoryFalse()),
 	Draft:                    components.NewBoolFlag(Draft, "Set to true to create the release bundle as a draft. A draft release bundle can be updated and finalized later.", components.WithBoolDefaultValueFalse()),
 	AddSources:               components.NewBoolFlag(AddSources, "Add sources to an existing draft release bundle.", components.WithBoolDefaultValueFalse()),
+
+	// Skills-specific flags
+	repo:                components.NewStringFlag(repo, "Skills repository key in Artifactory.", components.SetMandatoryFalse()),
+	version:             components.NewStringFlag(version, "Skill version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
+	installPath:         components.NewStringFlag(installPath, "Custom install path for the skill. Default: current directory.", components.SetMandatoryFalse()),
+	signingKey:          components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
+	keyAlias:            components.NewStringFlag(keyAlias, "Alias for the signing key. Overrides EVD_KEY_ALIAS env var.", components.SetMandatoryFalse()),
+	skillsQuiet:         components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
+	skillsFormat:        components.NewStringFlag(Format, "Output format: \"table\" (default) or \"json\".", components.SetMandatoryFalse()),
+	propSearch:          components.NewBoolFlag(propSearch, "Use Artifactory property search (skill.name) instead of Skills API search.", components.WithBoolDefaultValueFalse()),
+	skipScan:            components.NewBoolFlag(skipScan, "Skip Xray security scan after publish. Can also be set via JFROG_CLI_SKIP_SKILLS_SCAN=true.", components.WithBoolDefaultValueFalse()),
+	autoDeleteOnFailure: components.NewBoolFlag(autoDeleteOnFailure, "Automatically delete the artifact if Xray scan identifies it as malicious.", components.WithBoolDefaultValueFalse()),
 }
 
 func GetCommandFlags(cmdKey string) []components.Flag {

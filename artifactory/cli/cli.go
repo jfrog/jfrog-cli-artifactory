@@ -1256,6 +1256,7 @@ func buildPublishCmd(c *components.Context) error {
 	buildPublishCmd.SetCollectGitInfo(c.GetBoolFlagValue("collect-git-info"))
 	buildPublishCmd.SetDotGitPath(c.GetStringFlagValue("dot-git-path"))
 	buildPublishCmd.SetConfigFilePath(c.GetStringFlagValue("git-config-file-path"))
+	buildPublishCmd.SetDepExcludeScopes(c.GetStringsArrFlagValue("dep-exclude-scopes"))
 
 	err = commands.Exec(buildPublishCmd)
 	if buildPublishCmd.IsDetailedSummary() {

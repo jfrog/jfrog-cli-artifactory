@@ -124,6 +124,34 @@ func TestInitNewConfig(t *testing.T) {
 </configuration>`, string(buf[:n]))
 }
 
+func TestInitNewConfigNoCredentials(t *testing.T) {
+	tmpDir, err := fileutils.CreateTempDir()
+	assert.NoError(t, err)
+	defer func() {
+		assert.NoError(t, fileutils.RemoveTempDir(tmpDir))
+	}()
+	repoName := "test-repo"
+	server := &config.ServerDetails{
+		ArtifactoryUrl: "https://server.com/artifactory",
+	}
+	configFile, err := InitNewConfig(tmpDir, repoName, server, false, false)
+	assert.NoError(t, err)
+	f, err := os.Open(filepath.Clean(configFile.Name())) // #nosec G703 -- test file path
+	assert.NoError(t, err)
+	defer func() {
+		assert.NoError(t, f.Close())
+	}()
+	buf := make([]byte, 1024)
+	n, err := f.Read(buf)
+	assert.NoError(t, err)
+	assert.Equal(t, `<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <add key="JFrogCli" value="https://server.com/artifactory/api/nuget/v3/test-repo/index.json" protocolVersion="3" allowInsecureConnections="false"/>
+  </packageSources>
+</configuration>`, string(buf[:n]))
+}
+
 func TestGetSourceDetails(t *testing.T) {
 	server := &config.ServerDetails{
 		ArtifactoryUrl: "https://server.com/artifactory",
