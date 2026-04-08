@@ -13,35 +13,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-type repoXrayConfig struct {
-	XrayIndex *bool `json:"xrayIndex,omitempty"`
-}
-
-// WarnIfXrayDisabled fetches the repository configuration and warns if
-// Xray indexing is not enabled, indicating security scanning is deactivated.
-// The check is skipped entirely when JFROG_CLI_DISABLE_SKILLS_SCAN is set
-// to "true" or "1".
-func WarnIfXrayDisabled(serverDetails *config.ServerDetails, repoKey string) {
-	if v := os.Getenv("JFROG_CLI_DISABLE_SKILLS_SCAN"); strings.EqualFold(v, "true") || v == "1" {
-		log.Debug("Xray index check skipped (JFROG_CLI_DISABLE_SKILLS_SCAN is set)")
-		return
-	}
-
-	sm, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
-	if err != nil {
-		log.Debug("Could not check repo xray config:", err.Error())
-		return
-	}
-	var cfg repoXrayConfig
-	if err := sm.GetRepository(repoKey, &cfg); err != nil {
-		log.Debug("Could not fetch repo details:", err.Error())
-		return
-	}
-	if cfg.XrayIndex == nil || !*cfg.XrayIndex {
-		log.Warn("Preview version - security scanning is deactivated")
-	}
-}
-
 func ListVersions(serverDetails *config.ServerDetails, repoKey, slug string) ([]services.SkillVersion, error) {
 	sm, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
 	if err != nil {
