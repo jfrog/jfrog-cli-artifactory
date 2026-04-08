@@ -8,14 +8,18 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jfrog/build-info-go/entities"
 	buildinfoflexpack "github.com/jfrog/build-info-go/flexpack"
+	ioutils "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	artifactoryUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-client-go/artifactory"
+	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/io/content"
 )
 
 func ShouldRunNative(configPath string) bool {
@@ -116,6 +120,59 @@ func getDebFlag(c *components.Context) (deb string, err error) {
 		return "", errors.New("the --deb option should be in the form of distribution/component/architecture")
 	}
 	return deb, nil
+}
+
+// GetDependenciesFromLatestBuild fetches all dependencies from the latest build info
+// stored in Artifactory for the given build name. Returns a map keyed by dependency ID (name:version).
+// projectKey should match the project used when publishing the build (e.g. from buildConfig.GetProject()).
+func GetDependenciesFromLatestBuild(servicesManager artifactory.ArtifactoryServicesManager, buildName, projectKey string) (map[string]*entities.Dependency, error) {
+	buildDependencies := make(map[string]*entities.Dependency)
+	previousBuild, found, err := servicesManager.GetBuildInfo(services.BuildInfoParams{BuildName: buildName, BuildNumber: servicesUtils.LatestBuildNumberKey, ProjectKey: projectKey})
+	if err != nil || !found {
+		return buildDependencies, err
+	}
+	for _, module := range previousBuild.BuildInfo.Modules {
+		for _, dep := range module.Dependencies {
+			buildDependencies[dep.Id] = &entities.Dependency{
+				Id:   dep.Id,
+				Type: dep.Type,
+				Checksum: entities.Checksum{
+					Md5:    dep.Md5,
+					Sha1:   dep.Sha1,
+					Sha256: dep.Sha256,
+				},
+			}
+		}
+	}
+	return buildDependencies, nil
+}
+
+// DependenciesToChecksumMap converts a dependency map to a checksum map,
+// keeping only entries with non-empty checksums.
+func DependenciesToChecksumMap(deps map[string]*entities.Dependency) map[string]entities.Checksum {
+	checksumMap := make(map[string]entities.Checksum, len(deps))
+	for id, dep := range deps {
+		if !dep.IsEmpty() {
+			checksumMap[id] = dep.Checksum
+		}
+	}
+	return checksumMap
+}
+
+// WriteResultItemsToFile writes ResultItem records to a temp file via ContentWriter
+// and returns the file path. Callers can create a ContentReader from this path
+// for use with SetProps or other batch operations.
+func WriteResultItemsToFile(items []servicesUtils.ResultItem) (filePath string, err error) {
+	writer, err := content.NewContentWriter("results", true, false)
+	if err != nil {
+		return
+	}
+	defer ioutils.Close(writer, &err)
+	for _, item := range items {
+		writer.Write(item)
+	}
+	filePath = writer.GetFilePath()
+	return
 }
 
 // ExecuteAqlQuery executes an AQL query and parses the JSON response

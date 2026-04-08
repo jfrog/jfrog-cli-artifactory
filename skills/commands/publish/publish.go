@@ -9,7 +9,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/jfrog/jfrog-cli-artifactory/skills/common"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -21,6 +24,10 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+// evidenceLicenseErrFragment is the substring in error messages that indicates
+// the Artifactory instance lacks the Enterprise+ license required for evidence.
+const evidenceLicenseErrFragment = "Enterprise+"
+
 var zipExcludes = map[string]bool{
 	".git":         true,
 	"__pycache__":  true,
@@ -29,13 +36,15 @@ var zipExcludes = map[string]bool{
 }
 
 type PublishCommand struct {
-	serverDetails *config.ServerDetails
-	repoKey       string
-	skillDir      string
-	version       string
-	signingKey    string
-	keyAlias      string
-	quiet         bool
+	serverDetails       *config.ServerDetails
+	repoKey             string
+	skillDir            string
+	version             string
+	signingKey          string
+	keyAlias            string
+	quiet               bool
+	skipScan            bool
+	autoDeleteOnFailure bool
 }
 
 func NewPublishCommand() *PublishCommand {
@@ -77,6 +86,16 @@ func (pc *PublishCommand) SetQuiet(quiet bool) *PublishCommand {
 	return pc
 }
 
+func (pc *PublishCommand) SetSkipScan(skip bool) *PublishCommand {
+	pc.skipScan = skip
+	return pc
+}
+
+func (pc *PublishCommand) SetAutoDeleteOnFailure(autoDelete bool) *PublishCommand {
+	pc.autoDeleteOnFailure = autoDelete
+	return pc
+}
+
 func (pc *PublishCommand) ServerDetails() (*config.ServerDetails, error) {
 	return pc.serverDetails, nil
 }
@@ -95,8 +114,6 @@ func (pc *PublishCommand) Run() error {
 	if err := ValidateSlug(slug); err != nil {
 		return err
 	}
-
-	common.WarnIfXrayDisabled(pc.serverDetails, pc.repoKey)
 
 	version := pc.version
 	if version == "" {
@@ -149,6 +166,21 @@ func (pc *PublishCommand) Run() error {
 
 	log.Info("Upload complete. Attaching evidence...")
 	pc.attachEvidence(slug, version, sha256Hex)
+
+	// Post-publish Xray scan gate check
+	artifactPath := fmt.Sprintf("%s/%s/%s-%s.zip", slug, version, slug, version)
+	if err := common.CheckXrayGate(common.XrayGateParams{
+		ServerDetails:       pc.serverDetails,
+		RepoKey:             pc.repoKey,
+		ArtifactPath:        artifactPath,
+		Slug:                slug,
+		Version:             version,
+		SkipScan:            pc.skipScan,
+		AutoDeleteOnFailure: pc.autoDeleteOnFailure,
+		Quiet:               pc.quiet,
+	}); err != nil {
+		return err
+	}
 
 	log.Info(fmt.Sprintf("Skill '%s' version '%s' published successfully.", slug, version))
 	return nil
@@ -273,16 +305,120 @@ func isPrebuiltZip(skillDir, slug, version string) bool {
 	return err == nil
 }
 
-func zipSkillFolder(skillDir, slug, version string) (string, error) {
+// zipEpoch is the earliest valid timestamp in ZIP format (MS-DOS epoch).
+// Used as a fallback when all file mtimes are zero.
+var zipEpoch = time.Date(1980, 1, 1, 0, 0, 0, 0, time.UTC)
+
+type skillFile struct {
+	relPath string
+	mode    os.FileMode
+}
+
+// collectFiles walks the skill directory and returns a sorted list of included
+// files with their permissions, plus the max mtime across all included files.
+// Sorting ensures deterministic zip output regardless of filesystem traversal order.
+// The max mtime is used as a uniform timestamp for all zip entries.
+func collectFiles(skillDir string) (files []skillFile, maxMtime time.Time, err error) {
+	err = filepath.Walk(skillDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		relPath, err := filepath.Rel(skillDir, path)
+		if err != nil {
+			return err
+		}
+		if shouldExclude(relPath, info) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !info.IsDir() {
+			files = append(files, skillFile{relPath: relPath, mode: info.Mode()})
+			if info.ModTime().After(maxMtime) {
+				maxMtime = info.ModTime()
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].relPath < files[j].relPath })
+	return
+}
+
+// addFileToZip writes a single file into the zip writer with a deterministic header.
+// Timestamps are set to uniformTime (for both modern and legacy MS-DOS fields),
+// Extra field is stripped to remove platform-specific metadata, and file permissions
+// are preserved from the mode captured during collection (no second os.Stat).
+func addFileToZip(w *zip.Writer, skillDir string, sf skillFile, uniformTime time.Time) error {
+	absPath := filepath.Join(skillDir, sf.relPath)
+
+	header := &zip.FileHeader{
+		Name:     sf.relPath,
+		Method:   zip.Deflate,
+		Modified: uniformTime,
+	}
+	header.SetModTime(uniformTime) //nolint:staticcheck // sets legacy MS-DOS ModifiedDate/ModifiedTime fields
+	header.SetMode(normalizeFileMode(sf.mode))
+	header.Extra = nil
+
+	writer, err := w.CreateHeader(header)
+	if err != nil {
+		return err
+	}
+
+	// #nosec G304 -- absPath is from user-provided skill directory joined with a walked relative path
+	file, err := os.Open(absPath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	_, err = io.Copy(writer, file)
+	return err
+}
+
+// normalizeFileMode returns a consistent Unix file mode for zip entry headers.
+// On Windows, os.Stat returns 0666 for all files (no execute bit support), so
+// we default to 0644 for regular files. On Unix, the real mode is preserved.
+func normalizeFileMode(mode os.FileMode) os.FileMode {
+	if runtime.GOOS == "windows" {
+		return 0644
+	}
+	return mode
+}
+
+func zipSkillFolder(skillDir, slug, version string) (zipPath string, err error) {
 	if strings.Contains(version, "..") || strings.ContainsAny(version, "/\\") {
 		return "", fmt.Errorf("invalid version '%s': contains path traversal characters", version)
 	}
+
+	// Collect and sort file paths for deterministic zip output.
+	// The max mtime is used as a uniform timestamp for all zip entries so that
+	// the zip is byte-identical when rebuilt with the same content and mtimes.
+	files, maxMtime, err := collectFiles(skillDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to collect skill files: %w", err)
+	}
+	if len(files) == 0 {
+		return "", fmt.Errorf("no files found in skill directory %s (all files may have been excluded)", skillDir)
+	}
+	// Guard against zero mtime (e.g. files with epoch timestamps) which produces
+	// invalid MS-DOS dates before the ZIP format's 1980-01-01 minimum.
+	if maxMtime.IsZero() {
+		maxMtime = zipEpoch
+	}
+
 	tmpDir, err := os.MkdirTemp("", "skill-publish-*")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp dir: %w", err)
 	}
 
-	zipPath := filepath.Clean(filepath.Join(tmpDir, fmt.Sprintf("%s-%s.zip", slug, version)))
+	zipPath = filepath.Clean(filepath.Join(tmpDir, fmt.Sprintf("%s-%s.zip", slug, version)))
 	zipFile, err := os.Create(zipPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to create zip file: %w", err)
@@ -293,60 +429,18 @@ func zipSkillFolder(skillDir, slug, version string) (string, error) {
 
 	w := zip.NewWriter(zipFile)
 	defer func() {
-		_ = w.Close()
+		if cerr := w.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("failed to finalize zip: %w", cerr)
+		}
 	}()
 
-	err = filepath.Walk(skillDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
+	for _, sf := range files {
+		if err = addFileToZip(w, skillDir, sf, maxMtime); err != nil {
+			return "", fmt.Errorf("failed to add %s to zip: %w", sf.relPath, err)
 		}
-
-		relPath, err := filepath.Rel(skillDir, path)
-		if err != nil {
-			return err
-		}
-
-		if shouldExclude(relPath, info) {
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		if info.IsDir() {
-			return nil
-		}
-
-		header, err := zip.FileInfoHeader(info)
-		if err != nil {
-			return err
-		}
-		header.Name = relPath
-		header.Method = zip.Deflate
-
-		writer, err := w.CreateHeader(header)
-		if err != nil {
-			return err
-		}
-
-		// #nosec G304,G122 -- path is from user-provided skill directory via filepath.Walk
-		file, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer func() {
-			_ = file.Close()
-		}()
-
-		_, err = io.Copy(writer, file)
-		return err
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("failed to zip skill folder: %w", err)
 	}
 
-	return zipPath, nil
+	return
 }
 
 func shouldExclude(relPath string, info os.FileInfo) bool {
@@ -442,32 +536,21 @@ func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex string) {
 
 	subjectRepoPath := fmt.Sprintf("%s/%s/%s/%s-%s.zip", pc.repoKey, slug, version, slug, version)
 
+	opts := common.CreateEvidenceOpts{
+		SubjectRepoPath: subjectRepoPath,
+		SubjectSHA256:   sha256Hex,
+		PredicatePath:   predicatePath,
+		PredicateType:   predicateTypePublishAttestation,
+		MarkdownPath:    markdownPath,
+		KeyPath:         keyPath,
+		KeyAlias:        alias,
+	}
+
 	// Suppress the evidence library's internal error/warn logs during this call.
 	// On 403 (license issue), they are noise — we handle the error ourselves below.
-	if jfLogger, ok := log.GetLogger().(*log.JfrogLogger); ok {
-		prevLevel := jfLogger.GetLogLevel()
-		jfLogger.SetLogLevel(-1)
-		err = common.CreateEvidence(pc.serverDetails, common.CreateEvidenceOpts{
-			SubjectRepoPath: subjectRepoPath,
-			SubjectSHA256:   sha256Hex,
-			PredicatePath:   predicatePath,
-			PredicateType:   predicateTypePublishAttestation,
-			MarkdownPath:    markdownPath,
-			KeyPath:         keyPath,
-			KeyAlias:        alias,
-		})
-		jfLogger.SetLogLevel(prevLevel)
-	} else {
-		err = common.CreateEvidence(pc.serverDetails, common.CreateEvidenceOpts{
-			SubjectRepoPath: subjectRepoPath,
-			SubjectSHA256:   sha256Hex,
-			PredicatePath:   predicatePath,
-			PredicateType:   predicateTypePublishAttestation,
-			MarkdownPath:    markdownPath,
-			KeyPath:         keyPath,
-			KeyAlias:        alias,
-		})
-	}
+	err = withSuppressedLogs(func() error {
+		return common.CreateEvidence(pc.serverDetails, opts)
+	})
 	if err != nil {
 		if isEvidenceLicenseError(err) {
 			log.Info("Evidence not attached: evidence requires an Enterprise+ license. Skill upload succeeded.")
@@ -480,10 +563,22 @@ func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex string) {
 	log.Info("Evidence successfully attached.")
 }
 
+// withSuppressedLogs temporarily mutes all log output while fn executes,
+// then restores the previous log level. Used to suppress noisy internal
+// library logs when we handle errors ourselves.
+func withSuppressedLogs(fn func() error) error {
+	if jfLogger, ok := log.GetLogger().(*log.JfrogLogger); ok {
+		prev := jfLogger.GetLogLevel()
+		jfLogger.SetLogLevel(-1)
+		defer jfLogger.SetLogLevel(prev)
+	}
+	return fn()
+}
+
 // isEvidenceLicenseError returns true when the error indicates the Artifactory
 // instance does not have the license required for evidence (E+).
 func isEvidenceLicenseError(err error) bool {
-	return strings.Contains(err.Error(), "Enterprise+")
+	return strings.Contains(err.Error(), evidenceLicenseErrFragment)
 }
 
 // RunPublish is the CLI action for `jf skills publish`.
@@ -521,7 +616,9 @@ func RunPublish(c *components.Context) error {
 		SetVersion(c.GetStringFlagValue("version")).
 		SetSigningKey(c.GetStringFlagValue("signing-key")).
 		SetKeyAlias(c.GetStringFlagValue("key-alias")).
-		SetQuiet(quiet)
+		SetQuiet(quiet).
+		SetSkipScan(c.GetBoolFlagValue("skip-scan")).
+		SetAutoDeleteOnFailure(c.GetBoolFlagValue("auto-delete-on-failure"))
 
 	return cmd.Run()
 }

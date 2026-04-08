@@ -29,6 +29,13 @@ Note that JFrog CLI does not restore dependencies during a 'dotnet test' command
 The initial error is:
 `
 	noRestoreFlag = "--no-restore"
+
+	configFileFormatNoCredentials = `<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <add key="` + SourceName + `" value="%s" protocolVersion="%s" allowInsecureConnections="%t"/>
+  </packageSources>
+</configuration>`
 )
 
 type DotnetCommand struct {
@@ -321,7 +328,11 @@ func addSourceToNugetTemplate(configFile *os.File, server *config.ServerDetails,
 	}
 
 	// Format the templates
-	_, err = fmt.Fprintf(configFile, dotnet.ConfigFileFormat, sourceUrl, protoVer, allowInsecureConnections, user, password)
+	if user == "" && password == "" {
+		_, err = fmt.Fprintf(configFile, configFileFormatNoCredentials, sourceUrl, protoVer, allowInsecureConnections)
+	} else {
+		_, err = fmt.Fprintf(configFile, dotnet.ConfigFileFormat, sourceUrl, protoVer, allowInsecureConnections, user, password)
+	}
 	return err
 }
 

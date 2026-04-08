@@ -62,6 +62,7 @@ const (
 	NpmInstallCi           = "npm-install-ci"
 	NpmPublish             = "npm-publish"
 	PnpmConfig             = "pnpm-config"
+	Pnpm                   = "pnpm"
 	YarnConfig             = "yarn-config"
 	Yarn                   = "yarn"
 	NugetConfig            = "nuget-config"
@@ -502,15 +503,18 @@ const (
 	SkillsPublish = "skills-publish"
 	SkillsInstall = "skills-install"
 	SkillsSearch  = "skills-search"
+	SkillsDelete  = "skills-delete"
 
 	// Skills-specific flags
-	version      = "version"
-	installPath  = "path"
-	signingKey   = "signing-key"
-	keyAlias     = "key-alias"
-	skillsQuiet  = "skills-" + quiet
-	propSearch   = "prop"
-	skillsFormat = "skills-" + Format
+	version             = "version"
+	installPath         = "path"
+	signingKey          = "signing-key"
+	keyAlias            = "key-alias"
+	skillsQuiet         = "skills-" + quiet
+	propSearch          = "prop"
+	skillsFormat        = "skills-" + Format
+	skipScan            = "skip-scan"
+	autoDeleteOnFailure = "auto-delete-on-failure"
 )
 
 var commandFlags = map[string][]string{
@@ -728,6 +732,9 @@ var commandFlags = map[string][]string{
 	PnpmConfig: {
 		global, serverIdResolve, repoResolve,
 	},
+	Pnpm: {
+		BuildName, BuildNumber, module, Project,
+	},
 	YarnConfig: {
 		global, serverIdResolve, repoResolve,
 	},
@@ -836,10 +843,13 @@ var commandFlags = map[string][]string{
 		Format, OrderBy, FilterBy, OrderAsc, Limit, Offset, Includes, Project,
 	},
 	SkillsPublish: {
-		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, skillsQuiet,
+		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, skillsQuiet, skipScan, autoDeleteOnFailure,
 	},
 	SkillsInstall: {
 		url, user, password, accessToken, serverId, repo, version, installPath, skillsQuiet,
+	},
+	SkillsDelete: {
+		url, user, password, accessToken, serverId, repo, version, dryRun,
 	},
 	SkillsSearch: {
 		url, user, password, accessToken, serverId, repo, skillsFormat, propSearch,
@@ -1146,14 +1156,16 @@ var flagsMap = map[string]components.Flag{
 	AddSources:               components.NewBoolFlag(AddSources, "Add sources to an existing draft release bundle.", components.WithBoolDefaultValueFalse()),
 
 	// Skills-specific flags
-	repo:         components.NewStringFlag(repo, "Skills repository key in Artifactory.", components.SetMandatoryFalse()),
-	version:      components.NewStringFlag(version, "Skill version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
-	installPath:  components.NewStringFlag(installPath, "Custom install path for the skill. Default: current directory.", components.SetMandatoryFalse()),
-	signingKey:   components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
-	keyAlias:     components.NewStringFlag(keyAlias, "Alias for the signing key. Overrides EVD_KEY_ALIAS env var.", components.SetMandatoryFalse()),
-	skillsQuiet:  components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
-	skillsFormat: components.NewStringFlag(Format, "Output format: \"table\" (default) or \"json\".", components.SetMandatoryFalse()),
-	propSearch:   components.NewBoolFlag(propSearch, "Use Artifactory property search (skill.name) instead of Skills API search.", components.WithBoolDefaultValueFalse()),
+	repo:                components.NewStringFlag(repo, "Skills repository key in Artifactory.", components.SetMandatoryFalse()),
+	version:             components.NewStringFlag(version, "Skill version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
+	installPath:         components.NewStringFlag(installPath, "Custom install path for the skill. Default: current directory.", components.SetMandatoryFalse()),
+	signingKey:          components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
+	keyAlias:            components.NewStringFlag(keyAlias, "Alias for the signing key. Overrides EVD_KEY_ALIAS env var.", components.SetMandatoryFalse()),
+	skillsQuiet:         components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
+	skillsFormat:        components.NewStringFlag(Format, "Output format: \"table\" (default) or \"json\".", components.SetMandatoryFalse()),
+	propSearch:          components.NewBoolFlag(propSearch, "Use Artifactory property search (skill.name) instead of Skills API search.", components.WithBoolDefaultValueFalse()),
+	skipScan:            components.NewBoolFlag(skipScan, "Skip Xray security scan after publish. Can also be set via JFROG_CLI_SKIP_SKILLS_SCAN=true.", components.WithBoolDefaultValueFalse()),
+	autoDeleteOnFailure: components.NewBoolFlag(autoDeleteOnFailure, "Automatically delete the artifact if Xray scan identifies it as malicious.", components.WithBoolDefaultValueFalse()),
 }
 
 func GetCommandFlags(cmdKey string) []components.Flag {

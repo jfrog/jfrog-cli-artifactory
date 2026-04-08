@@ -72,7 +72,7 @@ func (containerManager *containerManager) Id(image *Image) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		localImage, err := daemon.Image(ref)
+		localImage, err := daemon.Image(ref, daemon.WithUnbufferedOpener())
 		if err != nil {
 			return "", err
 		}

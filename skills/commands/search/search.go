@@ -153,7 +153,10 @@ func RunSearch(c *components.Context) error {
 		return fmt.Errorf("usage: jf skills search <query> [--repo <repo>] [--format json] [--prop]")
 	}
 
-	query := c.GetArgumentAt(0)
+	query := strings.TrimSpace(c.GetArgumentAt(0))
+	if query == "" {
+		return fmt.Errorf("search query cannot be empty. Usage: jf skills search <query>")
+	}
 
 	serverDetails, err := common.GetServerDetails(c)
 	if err != nil {
