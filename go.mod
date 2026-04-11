@@ -18,7 +18,7 @@ require (
 	golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90
 	golang.org/x/mod v0.34.0
 	gopkg.in/ini.v1 v1.67.1
-	helm.sh/helm/v3 v3.19.2
+	helm.sh/helm/v3 v3.20.2
 	oras.land/oras-go/v2 v2.6.0
 )
 
@@ -43,7 +43,7 @@ require (
 	github.com/chzyer/readline v1.5.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
-	github.com/containerd/containerd v1.7.29 // indirect
+	github.com/containerd/containerd v1.7.30 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
@@ -193,7 +193,7 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/client-go v0.34.0 // indirect
+	k8s.io/client-go v0.35.1 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
