@@ -121,9 +121,9 @@ func detectDependency(name, modulePath string, replaces map[string]Replace, curr
 		// Parse the replace target
 		newPath := replace.New.Path
 		if strings.HasPrefix(newPath, "github.com/") {
-			// Extract repo and version/ref
+			// Extract repo and version/ref, stripping Go module major version suffixes (e.g. /v2)
 			parts := strings.TrimPrefix(newPath, "github.com/")
-			repo := parts
+			repo := stripMajorVersionSuffix(parts)
 			ref := replace.New.Version
 
 			if ref != "" {
@@ -211,6 +211,15 @@ func resolveFullSHA(repo, shortHash string) string {
 		return sha
 	}
 	return ""
+}
+
+// majorVersionSuffix matches Go module major version suffixes like /v2, /v3, etc.
+var majorVersionSuffix = regexp.MustCompile(`/v\d+$`)
+
+// stripMajorVersionSuffix removes the Go module major version suffix (e.g. /v2)
+// from a repo path, since it's not part of the actual GitHub repository name.
+func stripMajorVersionSuffix(repoPath string) string {
+	return majorVersionSuffix.ReplaceAllString(repoPath, "")
 }
 
 // isValidGitRef validates that a string is a valid git reference name
