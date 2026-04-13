@@ -498,8 +498,8 @@ github.com/redis/go-redis/extra/redisotel/v9 v9.0.5 h1:EfpWLLCyXw8PSM2/XNJLjI3Pb
 github.com/redis/go-redis/extra/redisotel/v9 v9.0.5/go.mod h1:WZjPDy7VNzn77AAfnAfVjZNvfJTYfPetfZk5yoSTLaQ=
 github.com/redis/go-redis/v9 v9.18.0 h1:pMkxYPkEbMPwRdenAzUNyFNrDgHx9U+DrBabWNfSRQs=
 github.com/redis/go-redis/v9 v9.18.0/go.mod h1:k3ufPphLU5YXwNTUcCRXGxUoF1fqxnhFQmscfkCoDA0=
-github.com/reshmifrog/jfrog-cli-core/v2 v2.58.5-0.20260412122158-8266c74b588d h1:qZDBbj25QT3b1Ox/J1kWGrfO4+YvdM2CTKpSgSdZZeA=
-github.com/reshmifrog/jfrog-cli-core/v2 v2.58.5-0.20260412122158-8266c74b588d/go.mod h1:RLLUO+oGDq88e5DPtP/KK2sVgMF32OuoRdVMxSFfb30=
+github.com/reshmifrog/jfrog-cli-core/v2 v2.58.5-0.20260413084200-144c73906881 h1:KfOzEnU2njIb15edAXwRcDOkcibbhR0YP27cOSsvVvs=
+github.com/reshmifrog/jfrog-cli-core/v2 v2.58.5-0.20260413084200-144c73906881/go.mod h1:RLLUO+oGDq88e5DPtP/KK2sVgMF32OuoRdVMxSFfb30=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
 github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=
