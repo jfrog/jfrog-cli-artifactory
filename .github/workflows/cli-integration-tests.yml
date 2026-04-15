@@ -657,7 +657,7 @@ jobs:
 
       - name: Run Docker tests
         working-directory: jfrog-cli
-        run: go test -v -timeout 0 --test.docker
+        run: go test -v -timeout 0 --test.docker --jfrog.url=http://localhost:8082/
 
   Podman-Tests:
     name: Podman ubuntu

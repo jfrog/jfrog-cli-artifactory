@@ -13,6 +13,157 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestIsDeploymentRequested(t *testing.T) {
+	tests := []struct {
+		name     string
+		goals    []string
+		expected bool
+	}{
+		// Standard Maven phases
+		{
+			name:     "install goal",
+			goals:    []string{"install"},
+			expected: true,
+		},
+		{
+			name:     "deploy goal",
+			goals:    []string{"deploy"},
+			expected: true,
+		},
+		// Plugin prefix format (plugin:goal)
+		{
+			name:     "deploy:deploy-file goal",
+			goals:    []string{"deploy:deploy-file"},
+			expected: true,
+		},
+		{
+			name:     "deploy:deploy goal",
+			goals:    []string{"deploy:deploy"},
+			expected: true,
+		},
+		{
+			name:     "install:install-file goal",
+			goals:    []string{"install:install-file"},
+			expected: true,
+		},
+		// Full plugin name format (maven-plugin:goal)
+		{
+			name:     "maven-deploy-plugin:deploy goal",
+			goals:    []string{"maven-deploy-plugin:deploy"},
+			expected: true,
+		},
+		{
+			name:     "maven-install-plugin:install goal",
+			goals:    []string{"maven-install-plugin:install"},
+			expected: true,
+		},
+		// Fully qualified plugin with version
+		{
+			name:     "org.apache.maven.plugins:maven-deploy-plugin:3.1.4:deploy goal",
+			goals:    []string{"org.apache.maven.plugins:maven-deploy-plugin:3.1.4:deploy"},
+			expected: true,
+		},
+		// Container deployment plugins
+		{
+			name:     "wildfly:deploy goal",
+			goals:    []string{"wildfly:deploy"},
+			expected: true,
+		},
+		{
+			name:     "tomcat7:deploy goal",
+			goals:    []string{"tomcat7:deploy"},
+			expected: true,
+		},
+		// Non-deployment goals
+		{
+			name:     "package goal",
+			goals:    []string{"package"},
+			expected: false,
+		},
+		{
+			name:     "verify goal",
+			goals:    []string{"verify"},
+			expected: false,
+		},
+		{
+			name:     "clean goal",
+			goals:    []string{"clean"},
+			expected: false,
+		},
+		{
+			name:     "compile goal",
+			goals:    []string{"compile"},
+			expected: false,
+		},
+		{
+			name:     "test goal",
+			goals:    []string{"test"},
+			expected: false,
+		},
+		// Multiple goals
+		{
+			name:     "clean install goals",
+			goals:    []string{"clean", "install"},
+			expected: true,
+		},
+		{
+			name:     "clean deploy:deploy-file goals",
+			goals:    []string{"clean", "deploy:deploy-file"},
+			expected: true,
+		},
+		{
+			name:     "compile test goals",
+			goals:    []string{"compile", "test"},
+			expected: false,
+		},
+		// Help goals (should be excluded)
+		{
+			name:     "deploy:help goal",
+			goals:    []string{"deploy:help"},
+			expected: false,
+		},
+		{
+			name:     "install:help goal",
+			goals:    []string{"install:help"},
+			expected: false,
+		},
+		{
+			name:     "maven-deploy-plugin:help goal",
+			goals:    []string{"maven-deploy-plugin:help"},
+			expected: false,
+		},
+		{
+			name:     "help goal",
+			goals:    []string{"help"},
+			expected: false,
+		},
+		// Edge case: uninstall goals (should NOT trigger deployment)
+		{
+			name:     "sling:uninstall goal",
+			goals:    []string{"sling:uninstall"},
+			expected: false,
+		},
+		{
+			name:     "osgi:uninstall goal",
+			goals:    []string{"osgi:uninstall"},
+			expected: false,
+		},
+		{
+			name:     "felix:reinstall goal",
+			goals:    []string{"felix:reinstall"},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mc := &MvnCommand{goals: tt.goals}
+			result := mc.isDeploymentRequested()
+			assert.Equal(t, tt.expected, result, "Expected isDeploymentRequested() to return %v for goals %v", tt.expected, tt.goals)
+		})
+	}
+}
+
 func TestUpdateBuildInfoArtifactsWithTargetRepo(t *testing.T) {
 	vConfig := viper.New()
 	vConfig.Set(build.DeployerPrefix+build.SnapshotRepo, "snapshots")

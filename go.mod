@@ -9,7 +9,7 @@ require (
 	github.com/jedib0t/go-pretty/v6 v6.7.8
 	github.com/jfrog/build-info-go v1.13.1-0.20260313042712-238e6dca3dce
 	github.com/jfrog/gofrog v1.7.6
-	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260106204841-744f3f71817b
+	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260414083544-243b4d55328b
 	github.com/jfrog/jfrog-cli-evidence v0.9.0
 	github.com/jfrog/jfrog-client-go v1.55.1-0.20260401053506-cd363617ec8f
 	github.com/pkg/errors v0.9.1
@@ -68,7 +68,7 @@ require (
 	github.com/gfleury/go-bitbucket-v1 v0.0.0-20240917142304-df385efaac68 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-git/go-billy/v5 v5.8.0 // indirect
-	github.com/go-git/go-git/v5 v5.17.0 // indirect
+	github.com/go-git/go-git/v5 v5.17.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/analysis v0.25.0 // indirect
@@ -197,6 +197,8 @@ require (
 	k8s.io/klog/v2 v2.140.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+// replace github.com/jfrog/jfrog-cli-core/v2 => github.com/reshmifrog/jfrog-cli-core/v2 v2.58.5-0.20260414075418-fe058b1664b7
 
 // replace github.com/jfrog/build-info-go => github.com/reshmifrog/build-info-go v1.10.11-0.20260303032831-71878c7210bf
 
