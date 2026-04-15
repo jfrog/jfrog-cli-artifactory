@@ -15,14 +15,8 @@ type UvCommand struct {
 	PythonCommand
 }
 
-const uvTool pythonutils.PythonTool = "uv"
-
 func NewUvCommand() *UvCommand {
-	return &UvCommand{PythonCommand: *NewPythonCommand(uvTool)}
-}
-
-func (pc *UvCommand) Run() (err error) {
-	return pc.PythonCommand.Run()
+	return &UvCommand{PythonCommand: *NewPythonCommand(pythonutils.UV)}
 }
 
 func (pc *UvCommand) UpdateDepsChecksumInfoFunc(dependenciesMap map[string]entities.Dependency, srcPath string) error {
@@ -62,9 +56,7 @@ func (pc *UvCommand) ServerDetails() (*config.ServerDetails, error) {
 }
 
 func (pc *UvCommand) GetCmd() *exec.Cmd {
-	var cmd []string
-	cmd = append(cmd, string(pc.pythonTool))
-	cmd = append(cmd, pc.commandName)
+	cmd := []string{string(pythonutils.UV), pc.commandName}
 	cmd = append(cmd, pc.args...)
 	return exec.Command(cmd[0], cmd[1:]...)
 }
