@@ -119,7 +119,7 @@ func (mc *MvnCommand) init() (vConfig *viper.Viper, err error) {
 
 	// Warn if deployer is configured but Maven goal does not trigger deployment
 	if vConfig.IsSet("deployer") && !mc.IsXrayScan() && mc.deploymentDisabled {
-		log.Warn("Deployer repository is configured but Maven goal does not trigger deployment. Only 'install' and 'deploy' goals will deploy artifacts to Artifactory.")
+		log.Warn("Deployer repository is configured but Maven goal does not trigger deployment. Only 'install' and 'deploy' goals (including deploy:deploy-file) will deploy artifacts to Artifactory.")
 	}
 
 	if mc.shouldCreateBuildArtifactsFile() {
@@ -142,8 +142,24 @@ func (mc *MvnCommand) init() (vConfig *viper.Viper, err error) {
 // These are the only goals that should trigger artifact deployment to Artifactory.
 func (mc *MvnCommand) isDeploymentRequested() bool {
 	for _, goal := range mc.goals {
-		// Allow deployment for both "install" and "deploy" goals
+		// Exclude help goals (e.g., deploy:help, maven-deploy-plugin:help)
+		if strings.HasSuffix(goal, ":help") || goal == "help" {
+			continue
+		}
+		
+		// Exact match for standard Maven phases (most common case)
 		if goal == "install" || goal == "deploy" {
+			return true
+		}
+		
+		// Prefix match for plugin:goal format (e.g., deploy:deploy-file, install:install-file)
+		if strings.HasPrefix(goal, "deploy:") || strings.HasPrefix(goal, "install:") {
+			return true
+		}
+		
+		// Suffix match for full plugin name format (e.g., maven-deploy-plugin:deploy, maven-install-plugin:install)
+		// Note: Using suffix instead of Contains() to avoid false positives like "uninstall", "reinstall"
+		if strings.HasSuffix(goal, ":deploy") || strings.HasSuffix(goal, ":install") {
 			return true
 		}
 	}
