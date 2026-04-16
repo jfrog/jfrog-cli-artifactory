@@ -22,8 +22,10 @@ func TestValidateSupportedCommand(t *testing.T) {
 		{[]string{"npm", "info", "package-name"}, true},
 		{[]string{"npm", "whoami"}, true},
 		{[]string{"--version"}, true},
-		{[]string{"set", "version", "4.0.1"}, false},
+		{[]string{"set", "version", "4.0.1"}, true},
 		{[]string{"set", "version", "3.2.1"}, true},
+		// Yarn v5+ is not yet supported
+		{[]string{"set", "version", "5.0.0"}, false},
 	}
 
 	for _, testCase := range testCases {
