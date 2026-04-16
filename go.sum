@@ -498,8 +498,8 @@ github.com/redis/go-redis/extra/redisotel/v9 v9.0.5 h1:EfpWLLCyXw8PSM2/XNJLjI3Pb
 github.com/redis/go-redis/extra/redisotel/v9 v9.0.5/go.mod h1:WZjPDy7VNzn77AAfnAfVjZNvfJTYfPetfZk5yoSTLaQ=
 github.com/redis/go-redis/v9 v9.18.0 h1:pMkxYPkEbMPwRdenAzUNyFNrDgHx9U+DrBabWNfSRQs=
 github.com/redis/go-redis/v9 v9.18.0/go.mod h1:k3ufPphLU5YXwNTUcCRXGxUoF1fqxnhFQmscfkCoDA0=
-github.com/reshmifrog/jfrog-client-go v1.52.1-0.20260412222345-fd75f1bb2fc4 h1:5g4+HFhY49547g6OVb8xhipM8rlZHdbbFS08kt2MMxc=
-github.com/reshmifrog/jfrog-client-go v1.52.1-0.20260412222345-fd75f1bb2fc4/go.mod h1:sCE06+GngPoyrGO0c+vmhgMoVSP83UMNiZnIuNPzU8U=
+github.com/reshmifrog/jfrog-client-go v1.52.1-0.20260416080213-1b67032ca9ad h1:jeJm/+EO7qlkNJ/oCQ22kdSspZL/A2OQHWMn8b81px8=
+github.com/reshmifrog/jfrog-client-go v1.52.1-0.20260416080213-1b67032ca9ad/go.mod h1:sCE06+GngPoyrGO0c+vmhgMoVSP83UMNiZnIuNPzU8U=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
 github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=
