@@ -205,6 +205,21 @@ func TestResolveOCIPushArtifacts(t *testing.T) {
 			expectedCalls:   []pushSearchCall{{repo: "helm-repo", path: chartStoragePath}},
 		},
 		{
+			name:        "single-segment virtual host subpath falls back to host repo",
+			registryURL: "oci://helm-repo.art.com/team-a",
+			responses: map[pushSearchCall][]servicesUtils.ResultItem{
+				{repo: "team-a", path: chartStoragePath}:                nil,
+				{repo: "helm-repo", path: "team-a/" + chartStoragePath}: {newOCIArtifact("helm-repo", "team-a/"+chartStoragePath, "manifest.json", "manifest")},
+			},
+			expectedRepoKey: "helm-repo",
+			expectedSubpath: "team-a",
+			expectedPath:    "team-a/" + chartStoragePath,
+			expectedCalls: []pushSearchCall{
+				{repo: "team-a", path: chartStoragePath},
+				{repo: "helm-repo", path: "team-a/" + chartStoragePath},
+			},
+		},
+		{
 			name:        "form 4 repo in path with extra subpath",
 			registryURL: "oci://art.company.com/helm-repo/staging/libs",
 			responses: map[pushSearchCall][]servicesUtils.ResultItem{
@@ -231,7 +246,7 @@ func TestResolveOCIPushArtifacts(t *testing.T) {
 			},
 		},
 		{
-			name:        "chooses real artifact when both multi-label host and first path segment are plausible",
+			name:        "returns path-based match on plausible multi-label host",
 			registryURL: "oci://helm-prod.company.example/team-a/charts",
 			responses: map[pushSearchCall][]servicesUtils.ResultItem{
 				{repo: "team-a", path: "charts/" + chartStoragePath}:           {newOCIArtifact("team-a", "charts/"+chartStoragePath, "manifest.json", "wrong")},
@@ -241,6 +256,19 @@ func TestResolveOCIPushArtifacts(t *testing.T) {
 			expectedSubpath: "charts",
 			expectedPath:    "charts/" + chartStoragePath,
 			expectedCalls:   []pushSearchCall{{repo: "team-a", path: "charts/" + chartStoragePath}},
+		},
+		{
+			name:        "returns unresolved error when all candidates miss",
+			registryURL: "oci://helm-repo.art.com/team-a/charts",
+			responses: map[pushSearchCall][]servicesUtils.ResultItem{
+				{repo: "team-a", path: "charts/" + chartStoragePath}:           nil,
+				{repo: "helm-repo", path: "team-a/charts/" + chartStoragePath}: nil,
+			},
+			expectedErrorText: "could not resolve OCI push repository key",
+			expectedCalls: []pushSearchCall{
+				{repo: "team-a", path: "charts/" + chartStoragePath},
+				{repo: "helm-repo", path: "team-a/charts/" + chartStoragePath},
+			},
 		},
 		{
 			name:        "tries host-based candidate without dash in repo key",
@@ -258,7 +286,7 @@ func TestResolveOCIPushArtifacts(t *testing.T) {
 			},
 		},
 		{
-			name:              "returns error when no candidate resolves",
+			name:              "returns unresolved error when generic multi-label host has no match",
 			registryURL:       "oci://art.company.com/helm-repo/team-a",
 			responses:         map[pushSearchCall][]servicesUtils.ResultItem{},
 			expectedErrorText: "could not resolve OCI push repository key",

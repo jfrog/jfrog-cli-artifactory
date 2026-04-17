@@ -72,11 +72,6 @@ func handlePushCommand(buildInfo *entities.BuildInfo, helmArgs []string, service
 	return saveBuildInfo(buildInfo, buildName, buildNumber, project)
 }
 
-type repoCandidate struct {
-	repoKey string
-	subpath string
-}
-
 func resolveOCIPushArtifacts(registryURL, chartName, chartVersion string, sm artifactory.ArtifactoryServicesManager) (repoKey, subpath, storagePath string, resultMap map[string]*servicesUtils.ResultItem, err error) {
 	rawReference := strings.TrimRight(strings.TrimPrefix(registryURL, oci), "/")
 	if !strings.Contains(rawReference, "/") {
@@ -113,24 +108,6 @@ func resolveOCIPushArtifacts(registryURL, chartName, chartVersion string, sm art
 		return candidate.repoKey, candidate.subpath, candidateStoragePath, candidateResultMap, nil
 	}
 	return "", "", "", nil, fmt.Errorf("could not resolve OCI push repository key for %q", registryURL)
-}
-
-func generateRepoCandidates(registry, repository string) []repoCandidate {
-	if repository == "" {
-		return []repoCandidate{{repoKey: extractRepositoryFromHostSubdomain(registry)}}
-	}
-	segments := strings.FieldsFunc(repository, func(r rune) bool {
-		return r == '/'
-	})
-	if len(segments) == 0 {
-		return nil
-	}
-	candidates := []repoCandidate{{repoKey: segments[0], subpath: strings.Join(segments[1:], "/")}}
-	hostRepoKey := extractRepositoryFromHostSubdomain(registry)
-	if len(segments) > 1 && hostRepoKey != "" && hostRepoKey != segments[0] {
-		candidates = append(candidates, repoCandidate{repoKey: hostRepoKey, subpath: repository})
-	}
-	return candidates
 }
 
 // searchPushedArtifacts searches for pushed OCI artifacts using a search pattern.

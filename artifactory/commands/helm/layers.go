@@ -2,6 +2,9 @@ package helm
 
 import (
 	"fmt"
+	"path"
+	"strings"
+
 	"github.com/jfrog/build-info-go/entities"
 	ioutils "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
@@ -10,7 +13,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"strings"
 )
 
 type manifest struct {
@@ -64,24 +66,46 @@ func processDependency(dep entities.Dependency, serviceManager artifactory.Artif
 
 // addOCILayersForDependency adds all OCI layers for a dependency that has checksums
 func addOCILayersForDependency(dep entities.Dependency, serviceManager artifactory.ArtifactoryServicesManager, processedDependencies *[]entities.Dependency) {
-	versionPath := extractDependencyPath(dep.Id)
-	if versionPath == "" {
+	chartName, chartVersion, err := parseDependencyID(dep.Id)
+	if err != nil {
 		log.Error("Failed to find a valid version for dependency: ", dep.Id)
 		return
 	}
-	repoName := extractRepositoryNameFromURL(dep.Repository)
-	if repoName == "" {
-		log.Error("Failed to find a valid repository for dependency: ", dep.Id)
-		return
+	registryReference := strings.TrimRight(strings.TrimPrefix(dep.Repository, oci), "/")
+	var candidates []ociRepoCandidate
+	if !strings.Contains(registryReference, "/") {
+		candidates = []ociRepoCandidate{{repoKey: extractRepositoryFromHostSubdomain(registryReference)}}
+	} else {
+		ref, parseErr := parseOCIReference(registryReference)
+		if parseErr != nil {
+			log.Error("Failed to find a valid repository for dependency: ", dep.Id)
+			return
+		}
+		candidates = generateRepoCandidates(ref.Registry, ref.Repository)
 	}
-	aqlQuery := fmt.Sprintf(`{
+	var (
+		repoName  string
+		resultMap map[string]*servicesUtils.ResultItem
+	)
+	for _, candidate := range candidates {
+		if candidate.repoKey == "" {
+			continue
+		}
+		storagePath := path.Join(candidate.subpath, chartName, chartVersion)
+		aqlQuery := fmt.Sprintf(`{
 	  "repo": "%s",
 	  "path": "%s"
-	}`, repoName, versionPath)
-	resultMap, err := searchOCIArtifactsByAQL(serviceManager, aqlQuery)
-	if err != nil {
-		log.Debug("Failed to search OCI artifacts for dependency ", dep.Id, " : ", err)
-		return
+	}`, candidate.repoKey, storagePath)
+		resultMap, err = searchOCIArtifactsByAQL(serviceManager, aqlQuery)
+		if err != nil {
+			log.Debug("Failed to search OCI artifacts for dependency ", dep.Id, " : ", err)
+			return
+		}
+		if len(resultMap) == 0 {
+			continue
+		}
+		repoName = candidate.repoKey
+		break
 	}
 	if len(resultMap) == 0 {
 		log.Debug("Did not find any OCI artifacts for dependency: ", dep.Id)

@@ -54,6 +54,29 @@ func extractRepositoryFromHostSubdomain(host string) string {
 	return ""
 }
 
+type ociRepoCandidate struct {
+	repoKey string
+	subpath string
+}
+
+func generateRepoCandidates(registry, repository string) []ociRepoCandidate {
+	if repository == "" {
+		return []ociRepoCandidate{{repoKey: extractRepositoryFromHostSubdomain(registry)}}
+	}
+	segments := strings.FieldsFunc(repository, func(r rune) bool {
+		return r == '/'
+	})
+	if len(segments) == 0 {
+		return nil
+	}
+	candidates := []ociRepoCandidate{{repoKey: segments[0], subpath: strings.Join(segments[1:], "/")}}
+	hostRepoKey := extractRepositoryFromHostSubdomain(registry)
+	if hostRepoKey != "" && hostRepoKey != segments[0] {
+		candidates = append(candidates, ociRepoCandidate{repoKey: hostRepoKey, subpath: repository})
+	}
+	return candidates
+}
+
 // removeProtocolPrefix removes protocol prefix from URL
 func removeProtocolPrefix(repository string) string {
 	prefixes := []string{oci, schemeHttp + "://", schemeSecure + "://"}
