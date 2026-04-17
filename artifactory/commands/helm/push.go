@@ -3,16 +3,19 @@ package helm
 import (
 	"encoding/json"
 	"fmt"
+
+	"os"
+	"path"
+	"strconv"
+	"strings"
+	"time"
+
 	ioutils "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
-	"os"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -29,20 +32,20 @@ func handlePushCommand(buildInfo *entities.BuildInfo, helmArgs []string, service
 	}
 	appendModuleAndBuildAgentIfAbsent(buildInfo, chartName, chartVersion)
 	log.Debug("Processing push command for chart: ", filePath, " to registry: ", registryURL)
-	repoName := extractRepositoryNameFromURL(registryURL)
+	repoKey, subpath, _, resultMap, err := resolveOCIPushArtifacts(registryURL, chartName, chartVersion, serviceManager)
+	if err != nil {
+		return err
+	}
 	timestamp := strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10)
 	buildProps := fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp)
 	if project != "" {
 		buildProps += fmt.Sprintf(";build.project=%s", project)
 	}
-	resultMap, err := searchPushedArtifacts(serviceManager, repoName, chartName, chartVersion, buildProps)
-	if err != nil {
-		return fmt.Errorf("failed to search oci layers for %s : %s: %w", chartName, chartVersion, err)
+	manifestFolderPath := path.Join(subpath, chartName)
+	if err = applyBuildPropertiesOnManifestFolder(serviceManager, repoKey, manifestFolderPath, chartVersion, buildProps); err != nil {
+		return fmt.Errorf("failed to apply build properties on OCI manifest folder for %s : %s: %w", chartName, chartVersion, err)
 	}
-	if len(resultMap) == 0 {
-		return fmt.Errorf("no oci layers found for chart: %s : %s", chartName, chartVersion)
-	}
-	artifactManifest, err := getManifest(resultMap, serviceManager, repoName)
+	artifactManifest, err := getManifest(resultMap, serviceManager, repoKey)
 	if err != nil {
 		return fmt.Errorf("failed to get manifest")
 	}
@@ -69,12 +72,73 @@ func handlePushCommand(buildInfo *entities.BuildInfo, helmArgs []string, service
 	return saveBuildInfo(buildInfo, buildName, buildNumber, project)
 }
 
-// searchPushedArtifacts searches for pushed OCI artifacts using a search pattern
-func searchPushedArtifacts(serviceManager artifactory.ArtifactoryServicesManager, repoName, chartName, chartVersion string, buildProperties string) (map[string]*servicesUtils.ResultItem, error) {
+type repoCandidate struct {
+	repoKey string
+	subpath string
+}
+
+func resolveOCIPushArtifacts(registryURL, chartName, chartVersion string, sm artifactory.ArtifactoryServicesManager) (repoKey, subpath, storagePath string, resultMap map[string]*servicesUtils.ResultItem, err error) {
+	rawReference := strings.TrimRight(strings.TrimPrefix(registryURL, oci), "/")
+	if !strings.Contains(rawReference, "/") {
+		repoKey = extractRepositoryFromHostSubdomain(rawReference)
+		if repoKey == "" {
+			return "", "", "", nil, fmt.Errorf("could not resolve OCI push repository key for %q", registryURL)
+		}
+		storagePath = path.Join(chartName, chartVersion)
+		resultMap, err = searchPushedArtifacts(sm, repoKey, storagePath)
+		if err != nil {
+			return "", "", "", nil, fmt.Errorf("failed to search oci layers for %s : %s: %w", chartName, chartVersion, err)
+		}
+		if len(resultMap) == 0 {
+			return "", "", "", nil, fmt.Errorf("could not resolve OCI push repository key for %q", registryURL)
+		}
+		return repoKey, "", storagePath, resultMap, nil
+	}
+	ref, err := parseOCIReference(rawReference)
+	if err != nil {
+		return "", "", "", nil, fmt.Errorf("failed to parse OCI registry URL %q: %w", registryURL, err)
+	}
+	for _, candidate := range generateRepoCandidates(ref.Registry, ref.Repository) {
+		if candidate.repoKey == "" {
+			continue
+		}
+		candidateStoragePath := path.Join(candidate.subpath, chartName, chartVersion)
+		candidateResultMap, searchErr := searchPushedArtifacts(sm, candidate.repoKey, candidateStoragePath)
+		if searchErr != nil {
+			return "", "", "", nil, fmt.Errorf("failed to search oci layers for %s : %s: %w", chartName, chartVersion, searchErr)
+		}
+		if len(candidateResultMap) == 0 {
+			continue
+		}
+		return candidate.repoKey, candidate.subpath, candidateStoragePath, candidateResultMap, nil
+	}
+	return "", "", "", nil, fmt.Errorf("could not resolve OCI push repository key for %q", registryURL)
+}
+
+func generateRepoCandidates(registry, repository string) []repoCandidate {
+	if repository == "" {
+		return []repoCandidate{{repoKey: extractRepositoryFromHostSubdomain(registry)}}
+	}
+	segments := strings.FieldsFunc(repository, func(r rune) bool {
+		return r == '/'
+	})
+	if len(segments) == 0 {
+		return nil
+	}
+	candidates := []repoCandidate{{repoKey: segments[0], subpath: strings.Join(segments[1:], "/")}}
+	hostRepoKey := extractRepositoryFromHostSubdomain(registry)
+	if len(segments) > 1 && hostRepoKey != "" && hostRepoKey != segments[0] {
+		candidates = append(candidates, repoCandidate{repoKey: hostRepoKey, subpath: repository})
+	}
+	return candidates
+}
+
+// searchPushedArtifacts searches for pushed OCI artifacts using a search pattern.
+func searchPushedArtifacts(serviceManager artifactory.ArtifactoryServicesManager, repoKey, storagePath string) (map[string]*servicesUtils.ResultItem, error) {
 	aqlQuery := fmt.Sprintf(`{
 	  "repo": "%s",
-	  "path": "%s/%s"
-	}`, repoName, chartName, chartVersion)
+	  "path": "%s"
+	}`, repoKey, storagePath)
 	searchParams := services.SearchParams{
 		CommonParams: &servicesUtils.CommonParams{
 			Aql: servicesUtils.Aql{ItemsFind: aqlQuery},
@@ -100,28 +164,20 @@ func searchPushedArtifacts(serviceManager artifactory.ArtifactoryServicesManager
 			log.Debug("Found OCI artifact: ", item.Name, " (path: ", item.Path, "/", item.Name, ", sha256: ", item.Sha256, ")")
 		}
 	}
-	if buildProperties != "" {
-		err = overwriteReaderWithManifestFolder(reader, repoName, chartName, chartVersion)
-		if err != nil {
-			return nil, err
-		}
-		reader.Reset()
-		addBuildPropertiesOnArtifacts(serviceManager, reader, buildProperties)
-	}
 	return artifacts, nil
 }
 
 // updateReaderContents updates the reader contents by writing the specified JSON value to all file paths
-func overwriteReaderWithManifestFolder(reader *content.ContentReader, repo, path, name string) error {
+func overwriteReaderWithManifestFolder(reader *content.ContentReader, repoKey, manifestFolderPath, manifestFolderName string) error {
 	if reader == nil {
 		return fmt.Errorf("reader is nil")
 	}
 	jsonData := map[string]interface{}{
 		"results": []map[string]interface{}{
 			{
-				"repo": repo,
-				"path": path,
-				"name": name,
+				"repo": repoKey,
+				"path": manifestFolderPath,
+				"name": manifestFolderName,
 				"type": "folder",
 			},
 		},
@@ -139,6 +195,55 @@ func overwriteReaderWithManifestFolder(reader *content.ContentReader, repo, path
 		}
 		log.Debug(fmt.Sprintf("Successfully updated file %s with JSON content", filePath))
 	}
+	return nil
+}
+
+func newManifestFolderReader(repoKey, manifestFolderPath, manifestFolderName string) (reader *content.ContentReader, cleanup func() error, err error) {
+	tmpFile, err := os.CreateTemp("", "jfrog-helm-push-manifest-folder-*.json")
+	if err != nil {
+		return nil, nil, err
+	}
+	tmpFilePath := tmpFile.Name()
+	if err = tmpFile.Close(); err != nil {
+		_ = os.Remove(tmpFilePath)
+		return nil, nil, err
+	}
+	reader = content.NewContentReader(tmpFilePath, content.DefaultKey)
+	cleanup = func() error {
+		var closeErr error
+		ioutils.Close(reader, &closeErr)
+		removeErr := os.Remove(tmpFilePath)
+		if closeErr != nil {
+			return closeErr
+		}
+		if removeErr != nil && !os.IsNotExist(removeErr) {
+			return removeErr
+		}
+		return nil
+	}
+	if err = overwriteReaderWithManifestFolder(reader, repoKey, manifestFolderPath, manifestFolderName); err != nil {
+		_ = cleanup()
+		return nil, nil, err
+	}
+	reader.Reset()
+	return reader, cleanup, nil
+}
+
+func applyBuildPropertiesOnManifestFolder(serviceManager artifactory.ArtifactoryServicesManager, repoKey, manifestFolderPath, manifestFolderName, buildProps string) (err error) {
+	if buildProps == "" {
+		return nil
+	}
+	reader, cleanup, err := newManifestFolderReader(repoKey, manifestFolderPath, manifestFolderName)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		cleanupErr := cleanup()
+		if err == nil && cleanupErr != nil {
+			err = cleanupErr
+		}
+	}()
+	addBuildPropertiesOnArtifacts(serviceManager, reader, buildProps)
 	return nil
 }
 
