@@ -27,13 +27,13 @@ const MinSupportedApiVersion string = "1.31"
 // Docker login error message
 const LoginFailureMessage string = "%s login failed for: %s.\n%s image must be in the form: registry-domain/path-in-repository/image-name:version."
 
-// SkipDockerImageIdVerificationEnv, when set to "true", tells the CLI to skip
-// the local docker image id lookup (which internally triggers `docker save`
-// on the entire image tarball to read the config digest) and the subsequent
-// manifest verification. Intended for large images where the lookup becomes
-// prohibitively slow. The Artifactory-side manifest's Config.Digest is used
+// EnforceDockerImageIdVerificationEnv, when set to "true", re-enables the
+// local docker image id lookup (which internally triggers `docker save` on the
+// entire image tarball to read the config digest) and the subsequent manifest
+// verification. By default this step is skipped because it is prohibitively
+// slow on large images; the Artifactory-side manifest's Config.Digest is used
 // in place of the local value for build-info construction.
-const SkipDockerImageIdVerificationEnv = "JFROG_CLI_SKIP_DOCKER_IMAGE_ID_VERIFICATION"
+const EnforceDockerImageIdVerificationEnv = "JFROG_CLI_ENFORCE_DOCKER_IMAGE_ID_VERIFICATION"
 
 func NewManager(containerManagerType ContainerManagerType) ContainerManager {
 	return &containerManager{Type: containerManagerType}
@@ -76,12 +76,14 @@ func (containerManager *containerManager) RunNativeCmd(cmdParams []string) error
 // Get image ID
 func (containerManager *containerManager) Id(image *Image) (string, error) {
 	if containerManager.GetContainerManagerType() == DockerClient {
-		// Opt-out: when this env var is set, skip the expensive daemon.Image
-		// call (which triggers `docker save` over the whole image) and let the
-		// caller fall back to the config digest reported by Artifactory's manifest.
+		// By default, skip the expensive daemon.Image call (which triggers
+		// `docker save` over the whole image) and let the caller fall back to
+		// the config digest reported by Artifactory's manifest. Set
+		// JFROG_CLI_ENFORCE_DOCKER_IMAGE_ID_VERIFICATION=true to opt back in
+		// to the slow but strict local verification path.
 		// See isVerifiedManifest / buildInfoBuilder for the matching consumer logic.
-		if strings.EqualFold(os.Getenv(SkipDockerImageIdVerificationEnv), "true") {
-			log.Debug(SkipDockerImageIdVerificationEnv + "=true -> skipping local image id lookup and verification")
+		if !strings.EqualFold(os.Getenv(EnforceDockerImageIdVerificationEnv), "true") {
+			log.Debug("Skipping local image id lookup and verification (set " + EnforceDockerImageIdVerificationEnv + "=true to enforce)")
 			return "", nil
 		}
 		ref, err := name.ParseReference(image.Name())
