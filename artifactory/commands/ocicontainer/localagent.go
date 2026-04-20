@@ -168,7 +168,15 @@ func (labib *localAgentBuildInfoBuilder) search(imagePathPattern string) (result
 }
 
 // Verify manifest by comparing sha256, which references to the image digest. If there is no match, return nil.
+// When the local image id lookup was skipped (imageSha2 is empty, controlled by
+// JFROG_CLI_SKIP_DOCKER_IMAGE_ID_VERIFICATION), accept the Artifactory manifest
+// as-is and adopt its Config.Digest for subsequent build-info lookups.
 func (labib *localAgentBuildInfoBuilder) isVerifiedManifest(imageManifest *manifest) bool {
+	if labib.buildInfoBuilder.imageSha2 == "" {
+		log.Debug("Image id verification skipped; adopting config digest from Artifactory manifest: " + imageManifest.Config.Digest)
+		labib.buildInfoBuilder.imageSha2 = imageManifest.Config.Digest
+		return true
+	}
 	if imageManifest.Config.Digest != labib.buildInfoBuilder.imageSha2 {
 		log.Debug(`Found incorrect manifest.json file. Expects digest "` + labib.buildInfoBuilder.imageSha2 + `" found "` + imageManifest.Config.Digest)
 		return false
