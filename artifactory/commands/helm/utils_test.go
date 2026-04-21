@@ -225,15 +225,38 @@ func TestAppendModuleAndBuildAgentIfAbsent(t *testing.T) {
 		assert.Equal(t, "Helm", buildInfo.BuildAgent.Name)
 		assert.NotEmpty(t, buildInfo.BuildAgent.Version)
 	})
-	t.Run("Existing module does not add", func(t *testing.T) {
+	t.Run("Existing matching helm module does not add duplicate", func(t *testing.T) {
 		buildInfo := &entities.BuildInfo{
 			Modules: []entities.Module{
-				{Id: "existing:1.0.0", Type: "helm"},
+				{Id: "test-chart:1.0.0", Type: "helm"},
 			},
 		}
 		initialCount := len(buildInfo.Modules)
 		appendModuleAndBuildAgentIfAbsent(buildInfo, "test-chart", "1.0.0")
 		assert.Equal(t, initialCount, len(buildInfo.Modules))
+	})
+	t.Run("Existing different module still adds missing helm module", func(t *testing.T) {
+		buildInfo := &entities.BuildInfo{
+			Modules: []entities.Module{
+				{Id: "existing:1.0.0", Type: "helm"},
+			},
+		}
+		appendModuleAndBuildAgentIfAbsent(buildInfo, "test-chart", "1.0.0")
+		assert.Len(t, buildInfo.Modules, 2)
+		assert.Equal(t, entities.ModuleType("helm"), buildInfo.Modules[1].Type)
+		assert.Equal(t, "test-chart:1.0.0", buildInfo.Modules[1].Id)
+	})
+	t.Run("Existing docker module with same id adds separate helm module", func(t *testing.T) {
+		buildInfo := &entities.BuildInfo{
+			Modules: []entities.Module{
+				{Id: "test-chart:1.0.0", Type: "docker"},
+			},
+		}
+		appendModuleAndBuildAgentIfAbsent(buildInfo, "test-chart", "1.0.0")
+		assert.Len(t, buildInfo.Modules, 2)
+		assert.Equal(t, entities.ModuleType("docker"), buildInfo.Modules[0].Type)
+		assert.Equal(t, entities.ModuleType("helm"), buildInfo.Modules[1].Type)
+		assert.Equal(t, "test-chart:1.0.0", buildInfo.Modules[1].Id)
 	})
 }
 
@@ -486,6 +509,34 @@ func TestAddArtifactsInBuildInfoUsesModuleTypeIdentity(t *testing.T) {
 			assertModuleArtifactsByTypeAndID(t, tt.buildInfo.Modules, tt.expectedArtifacts)
 		})
 	}
+}
+
+func TestAppendModuleAndAddArtifactsPreservesSeparateHelmModule(t *testing.T) {
+	buildInfo := &entities.BuildInfo{Modules: []entities.Module{{
+		Id:   "chart:1.0.0",
+		Type: entities.ModuleType("docker"),
+		Artifacts: []entities.Artifact{{
+			Name:     "docker-artifact",
+			Checksum: entities.Checksum{Sha256: "sha-docker"},
+		}},
+	}}}
+
+	appendModuleAndBuildAgentIfAbsent(buildInfo, "chart", "1.0.0")
+	addArtifactsInBuildInfo(buildInfo, []entities.Artifact{{
+		Name:     "helm-artifact",
+		Checksum: entities.Checksum{Sha256: "sha-helm"},
+	}}, "chart", "1.0.0", entities.ModuleType("helm"))
+
+	assert.Len(t, buildInfo.Modules, 2)
+	assert.Equal(t, entities.ModuleType("docker"), buildInfo.Modules[0].Type)
+	assert.Equal(t, "chart:1.0.0", buildInfo.Modules[0].Id)
+	assert.Len(t, buildInfo.Modules[0].Artifacts, 1)
+	assert.Equal(t, "docker-artifact", buildInfo.Modules[0].Artifacts[0].Name)
+
+	assert.Equal(t, entities.ModuleType("helm"), buildInfo.Modules[1].Type)
+	assert.Equal(t, "chart:1.0.0", buildInfo.Modules[1].Id)
+	assert.Len(t, buildInfo.Modules[1].Artifacts, 1)
+	assert.Equal(t, "helm-artifact", buildInfo.Modules[1].Artifacts[0].Name)
 }
 
 func TestRemoveDuplicateArtifacts(t *testing.T) {
