@@ -120,7 +120,7 @@ func (pc *PushCommand) Run() error {
 		var imageSha256 string
 		if pc.IsValidateSha() {
 			log.Info("Performing SHA-based validation for Docker push...")
-			imageSha256, err = cm.Id(pc.image)
+			imageSha256, err = cm.Id(pc.image, containerutils.Push)
 			if err != nil {
 				return err
 			}
@@ -145,7 +145,7 @@ func (pc *PushCommand) Run() error {
 	if pc.IsValidateSha() {
 		log.Info("Performing SHA-based validation for Docker push...")
 		// Get image SHA from the container manager
-		imageSha256, err := cm.Id(pc.image)
+		imageSha256, err := cm.Id(pc.image, containerutils.Push)
 		if err != nil {
 			return err
 		}
