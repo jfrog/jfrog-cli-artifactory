@@ -64,7 +64,7 @@ func handlePushCommand(buildInfo *entities.BuildInfo, helmArgs []string, service
 	for _, artLayer := range artifactsLayers {
 		artifacts = append(artifacts, artLayer.ToArtifact())
 	}
-	addArtifactsInBuildInfo(buildInfo, artifacts, chartName, chartVersion)
+	addArtifactsInBuildInfo(buildInfo, artifacts, chartName, chartVersion, entities.ModuleType("helm"))
 	removeDuplicateArtifacts(buildInfo)
 	return saveBuildInfo(buildInfo, buildName, buildNumber, project)
 }

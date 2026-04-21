@@ -225,15 +225,38 @@ func TestAppendModuleAndBuildAgentIfAbsent(t *testing.T) {
 		assert.Equal(t, "Helm", buildInfo.BuildAgent.Name)
 		assert.NotEmpty(t, buildInfo.BuildAgent.Version)
 	})
-	t.Run("Existing module does not add", func(t *testing.T) {
+	t.Run("Existing matching helm module does not add duplicate", func(t *testing.T) {
 		buildInfo := &entities.BuildInfo{
 			Modules: []entities.Module{
-				{Id: "existing:1.0.0", Type: "helm"},
+				{Id: "test-chart:1.0.0", Type: "helm"},
 			},
 		}
 		initialCount := len(buildInfo.Modules)
 		appendModuleAndBuildAgentIfAbsent(buildInfo, "test-chart", "1.0.0")
 		assert.Equal(t, initialCount, len(buildInfo.Modules))
+	})
+	t.Run("Existing different module still adds missing helm module", func(t *testing.T) {
+		buildInfo := &entities.BuildInfo{
+			Modules: []entities.Module{
+				{Id: "existing:1.0.0", Type: "helm"},
+			},
+		}
+		appendModuleAndBuildAgentIfAbsent(buildInfo, "test-chart", "1.0.0")
+		assert.Len(t, buildInfo.Modules, 2)
+		assert.Equal(t, entities.ModuleType("helm"), buildInfo.Modules[1].Type)
+		assert.Equal(t, "test-chart:1.0.0", buildInfo.Modules[1].Id)
+	})
+	t.Run("Existing docker module with same id adds separate helm module", func(t *testing.T) {
+		buildInfo := &entities.BuildInfo{
+			Modules: []entities.Module{
+				{Id: "test-chart:1.0.0", Type: "docker"},
+			},
+		}
+		appendModuleAndBuildAgentIfAbsent(buildInfo, "test-chart", "1.0.0")
+		assert.Len(t, buildInfo.Modules, 2)
+		assert.Equal(t, entities.ModuleType("docker"), buildInfo.Modules[0].Type)
+		assert.Equal(t, entities.ModuleType("helm"), buildInfo.Modules[1].Type)
+		assert.Equal(t, "test-chart:1.0.0", buildInfo.Modules[1].Id)
 	})
 }
 
@@ -362,7 +385,7 @@ func TestRemoveDuplicateDependencies(t *testing.T) {
 
 func TestAddArtifactsInBuildInfo(t *testing.T) {
 	t.Run("Nil build info", func(t *testing.T) {
-		addArtifactsInBuildInfo(nil, []entities.Artifact{}, "chart", "1.0.0")
+		addArtifactsInBuildInfo(nil, []entities.Artifact{}, "chart", "1.0.0", entities.ModuleType("helm"))
 	})
 
 	t.Run("Add artifacts to matching module", func(t *testing.T) {
@@ -379,7 +402,7 @@ func TestAddArtifactsInBuildInfo(t *testing.T) {
 			{Name: "artifact1", Checksum: entities.Checksum{Sha256: "sha1"}},
 			{Name: "artifact2", Checksum: entities.Checksum{Sha256: "sha2"}},
 		}
-		addArtifactsInBuildInfo(buildInfo, artifacts, "chart", "1.0.0")
+		addArtifactsInBuildInfo(buildInfo, artifacts, "chart", "1.0.0", entities.ModuleType("helm"))
 		assert.Len(t, buildInfo.Modules[0].Artifacts, 2)
 		assert.Equal(t, "artifact1", buildInfo.Modules[0].Artifacts[0].Name)
 		assert.Equal(t, "artifact2", buildInfo.Modules[0].Artifacts[1].Name)
@@ -398,7 +421,7 @@ func TestAddArtifactsInBuildInfo(t *testing.T) {
 		artifacts := []entities.Artifact{
 			{Name: "artifact1", Checksum: entities.Checksum{Sha256: "sha1"}},
 		}
-		addArtifactsInBuildInfo(buildInfo, artifacts, "chart", "1.0.0")
+		addArtifactsInBuildInfo(buildInfo, artifacts, "chart", "1.0.0", entities.ModuleType("helm"))
 		assert.Len(t, buildInfo.Modules[0].Artifacts, 0)
 	})
 
@@ -418,12 +441,102 @@ func TestAddArtifactsInBuildInfo(t *testing.T) {
 			{Name: "new1", Checksum: entities.Checksum{Sha256: "sha1"}},
 			{Name: "new2", Checksum: entities.Checksum{Sha256: "sha2"}},
 		}
-		addArtifactsInBuildInfo(buildInfo, artifacts, "chart", "1.0.0")
+		addArtifactsInBuildInfo(buildInfo, artifacts, "chart", "1.0.0", entities.ModuleType("helm"))
 		assert.Len(t, buildInfo.Modules[0].Artifacts, 3)
 		assert.Equal(t, "existing", buildInfo.Modules[0].Artifacts[0].Name)
 		assert.Equal(t, "new1", buildInfo.Modules[0].Artifacts[1].Name)
 		assert.Equal(t, "new2", buildInfo.Modules[0].Artifacts[2].Name)
 	})
+}
+
+func TestAddArtifactsInBuildInfoUsesModuleTypeIdentity(t *testing.T) {
+	tests := []struct {
+		name                string
+		moduleType          entities.ModuleType
+		buildInfo           *entities.BuildInfo
+		expectedArtifacts   map[string][]string
+		expectedModuleCount int
+	}{
+		{
+			name:       "same id and same type appends artifacts",
+			moduleType: entities.ModuleType("helm"),
+			buildInfo: &entities.BuildInfo{Modules: []entities.Module{{
+				Id:   "chart:1.0.0",
+				Type: entities.ModuleType("helm"),
+				Artifacts: []entities.Artifact{
+					{Name: "existing", Checksum: entities.Checksum{Sha256: "sha-existing"}},
+				},
+			}}},
+			expectedArtifacts: map[string][]string{
+				"helm|chart:1.0.0": {"existing", "new-artifact"},
+			},
+			expectedModuleCount: 1,
+		},
+		{
+			name:       "same id and different type does not merge",
+			moduleType: entities.ModuleType("helm"),
+			buildInfo: &entities.BuildInfo{Modules: []entities.Module{
+				{
+					Id:   "chart:1.0.0",
+					Type: entities.ModuleType("docker"),
+					Artifacts: []entities.Artifact{
+						{Name: "docker-artifact", Checksum: entities.Checksum{Sha256: "sha-docker"}},
+					},
+				},
+				{
+					Id:   "chart:1.0.0",
+					Type: entities.ModuleType("helm"),
+					Artifacts: []entities.Artifact{
+						{Name: "helm-artifact", Checksum: entities.Checksum{Sha256: "sha-helm"}},
+					},
+				},
+			}},
+			expectedArtifacts: map[string][]string{
+				"docker|chart:1.0.0": {"docker-artifact"},
+				"helm|chart:1.0.0":   {"helm-artifact", "new-artifact"},
+			},
+			expectedModuleCount: 2,
+		},
+	}
+
+	artifactsToAdd := []entities.Artifact{{Name: "new-artifact", Checksum: entities.Checksum{Sha256: "sha-new"}}}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			addArtifactsInBuildInfo(tt.buildInfo, artifactsToAdd, "chart", "1.0.0", tt.moduleType)
+
+			assert.Len(t, tt.buildInfo.Modules, tt.expectedModuleCount)
+			assertModuleArtifactsByTypeAndID(t, tt.buildInfo.Modules, tt.expectedArtifacts)
+		})
+	}
+}
+
+func TestAppendModuleAndAddArtifactsPreservesSeparateHelmModule(t *testing.T) {
+	buildInfo := &entities.BuildInfo{Modules: []entities.Module{{
+		Id:   "chart:1.0.0",
+		Type: entities.ModuleType("docker"),
+		Artifacts: []entities.Artifact{{
+			Name:     "docker-artifact",
+			Checksum: entities.Checksum{Sha256: "sha-docker"},
+		}},
+	}}}
+
+	appendModuleAndBuildAgentIfAbsent(buildInfo, "chart", "1.0.0")
+	addArtifactsInBuildInfo(buildInfo, []entities.Artifact{{
+		Name:     "helm-artifact",
+		Checksum: entities.Checksum{Sha256: "sha-helm"},
+	}}, "chart", "1.0.0", entities.ModuleType("helm"))
+
+	assert.Len(t, buildInfo.Modules, 2)
+	assert.Equal(t, entities.ModuleType("docker"), buildInfo.Modules[0].Type)
+	assert.Equal(t, "chart:1.0.0", buildInfo.Modules[0].Id)
+	assert.Len(t, buildInfo.Modules[0].Artifacts, 1)
+	assert.Equal(t, "docker-artifact", buildInfo.Modules[0].Artifacts[0].Name)
+
+	assert.Equal(t, entities.ModuleType("helm"), buildInfo.Modules[1].Type)
+	assert.Equal(t, "chart:1.0.0", buildInfo.Modules[1].Id)
+	assert.Len(t, buildInfo.Modules[1].Artifacts, 1)
+	assert.Equal(t, "helm-artifact", buildInfo.Modules[1].Artifacts[0].Name)
 }
 
 func TestRemoveDuplicateArtifacts(t *testing.T) {
@@ -641,4 +754,217 @@ func TestAppendModuleInExistingBuildInfo(t *testing.T) {
 		assert.Equal(t, "dep2", buildInfo.Modules[0].Dependencies[1].Id)
 		assert.Equal(t, "new1", buildInfo.Modules[0].Artifacts[0].Name)
 	})
+}
+
+func TestAppendModuleInExistingBuildInfoUsesModuleTypeIdentity(t *testing.T) {
+	tests := []struct {
+		name                string
+		initialModules      []entities.Module
+		moduleToAdd         entities.Module
+		expectedModules     []moduleExpectation
+		expectedModuleCount int
+	}{
+		{
+			name: "same id and same type merges into existing module",
+			initialModules: []entities.Module{{
+				Id:           "chart:1.0.0",
+				Type:         entities.ModuleType("helm"),
+				Artifacts:    []entities.Artifact{{Name: "old-artifact", Checksum: entities.Checksum{Sha256: "sha-old"}}},
+				Dependencies: []entities.Dependency{{Id: "dep-old", Checksum: entities.Checksum{Sha256: "dep-sha-old"}}},
+			}},
+			moduleToAdd: entities.Module{
+				Id:           "chart:1.0.0",
+				Type:         entities.ModuleType("helm"),
+				Artifacts:    []entities.Artifact{{Name: "new-artifact", Checksum: entities.Checksum{Sha256: "sha-new"}}},
+				Dependencies: []entities.Dependency{{Id: "dep-new", Checksum: entities.Checksum{Sha256: "dep-sha-new"}}},
+			},
+			expectedModules: []moduleExpectation{{
+				Type:          entities.ModuleType("helm"),
+				ID:            "chart:1.0.0",
+				ArtifactNames: []string{"new-artifact"},
+				DependencyIDs: []string{"dep-old", "dep-new"},
+			}},
+			expectedModuleCount: 1,
+		},
+		{
+			name: "same id and different type stays separate docker to helm",
+			initialModules: []entities.Module{{
+				Id:        "img:1.0",
+				Type:      entities.ModuleType("docker"),
+				Artifacts: []entities.Artifact{{Name: "docker-artifact", Checksum: entities.Checksum{Sha256: "sha-docker"}}},
+			}},
+			moduleToAdd: entities.Module{
+				Id:        "img:1.0",
+				Type:      entities.ModuleType("helm"),
+				Artifacts: []entities.Artifact{{Name: "helm-artifact", Checksum: entities.Checksum{Sha256: "sha-helm"}}},
+			},
+			expectedModules: []moduleExpectation{
+				{Type: entities.ModuleType("docker"), ID: "img:1.0", ArtifactNames: []string{"docker-artifact"}},
+				{Type: entities.ModuleType("helm"), ID: "img:1.0", ArtifactNames: []string{"helm-artifact"}},
+			},
+			expectedModuleCount: 2,
+		},
+		{
+			name: "same id and different type stays separate helm to docker",
+			initialModules: []entities.Module{{
+				Id:        "img:1.0",
+				Type:      entities.ModuleType("helm"),
+				Artifacts: []entities.Artifact{{Name: "helm-artifact", Checksum: entities.Checksum{Sha256: "sha-helm"}}},
+			}},
+			moduleToAdd: entities.Module{
+				Id:        "img:1.0",
+				Type:      entities.ModuleType("docker"),
+				Artifacts: []entities.Artifact{{Name: "docker-artifact", Checksum: entities.Checksum{Sha256: "sha-docker"}}},
+			},
+			expectedModules: []moduleExpectation{
+				{Type: entities.ModuleType("helm"), ID: "img:1.0", ArtifactNames: []string{"helm-artifact"}},
+				{Type: entities.ModuleType("docker"), ID: "img:1.0", ArtifactNames: []string{"docker-artifact"}},
+			},
+			expectedModuleCount: 2,
+		},
+		{
+			name: "empty type matches empty type",
+			initialModules: []entities.Module{{
+				Id:        "x:1",
+				Type:      entities.ModuleType(""),
+				Artifacts: []entities.Artifact{{Name: "old-empty", Checksum: entities.Checksum{Sha256: "sha-empty-old"}}},
+			}},
+			moduleToAdd: entities.Module{
+				Id:        "x:1",
+				Type:      entities.ModuleType(""),
+				Artifacts: []entities.Artifact{{Name: "new-empty", Checksum: entities.Checksum{Sha256: "sha-empty-new"}}},
+			},
+			expectedModules:     []moduleExpectation{{Type: entities.ModuleType(""), ID: "x:1", ArtifactNames: []string{"new-empty"}}},
+			expectedModuleCount: 1,
+		},
+		{
+			name: "empty type does not match non empty type",
+			initialModules: []entities.Module{{
+				Id:        "x:1",
+				Type:      entities.ModuleType("docker"),
+				Artifacts: []entities.Artifact{{Name: "docker-artifact", Checksum: entities.Checksum{Sha256: "sha-docker"}}},
+			}},
+			moduleToAdd: entities.Module{
+				Id:        "x:1",
+				Type:      entities.ModuleType(""),
+				Artifacts: []entities.Artifact{{Name: "empty-artifact", Checksum: entities.Checksum{Sha256: "sha-empty"}}},
+			},
+			expectedModules: []moduleExpectation{
+				{Type: entities.ModuleType("docker"), ID: "x:1", ArtifactNames: []string{"docker-artifact"}},
+				{Type: entities.ModuleType(""), ID: "x:1", ArtifactNames: []string{"empty-artifact"}},
+			},
+			expectedModuleCount: 2,
+		},
+		{
+			name: "order independence docker then helm",
+			initialModules: []entities.Module{{
+				Id:        "img:1.0",
+				Type:      entities.ModuleType("docker"),
+				Artifacts: []entities.Artifact{{Name: "docker-artifact", Checksum: entities.Checksum{Sha256: "sha-docker"}}},
+			}},
+			moduleToAdd: entities.Module{
+				Id:        "img:1.0",
+				Type:      entities.ModuleType("helm"),
+				Artifacts: []entities.Artifact{{Name: "helm-artifact", Checksum: entities.Checksum{Sha256: "sha-helm"}}},
+			},
+			expectedModules: []moduleExpectation{
+				{Type: entities.ModuleType("docker"), ID: "img:1.0", ArtifactNames: []string{"docker-artifact"}},
+				{Type: entities.ModuleType("helm"), ID: "img:1.0", ArtifactNames: []string{"helm-artifact"}},
+			},
+			expectedModuleCount: 2,
+		},
+		{
+			name: "order independence helm then docker",
+			initialModules: []entities.Module{{
+				Id:        "img:1.0",
+				Type:      entities.ModuleType("helm"),
+				Artifacts: []entities.Artifact{{Name: "helm-artifact", Checksum: entities.Checksum{Sha256: "sha-helm"}}},
+			}},
+			moduleToAdd: entities.Module{
+				Id:        "img:1.0",
+				Type:      entities.ModuleType("docker"),
+				Artifacts: []entities.Artifact{{Name: "docker-artifact", Checksum: entities.Checksum{Sha256: "sha-docker"}}},
+			},
+			expectedModules: []moduleExpectation{
+				{Type: entities.ModuleType("helm"), ID: "img:1.0", ArtifactNames: []string{"helm-artifact"}},
+				{Type: entities.ModuleType("docker"), ID: "img:1.0", ArtifactNames: []string{"docker-artifact"}},
+			},
+			expectedModuleCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buildInfo := &entities.BuildInfo{Modules: append([]entities.Module(nil), tt.initialModules...)}
+			moduleToAdd := tt.moduleToAdd
+
+			appendModuleInExistingBuildInfo(buildInfo, &moduleToAdd)
+
+			assert.Len(t, buildInfo.Modules, tt.expectedModuleCount)
+			assertModulesByTypeAndID(t, buildInfo.Modules, tt.expectedModules)
+		})
+	}
+}
+
+type moduleExpectation struct {
+	Type          entities.ModuleType
+	ID            string
+	ArtifactNames []string
+	DependencyIDs []string
+}
+
+func assertModulesByTypeAndID(t *testing.T, modules []entities.Module, expected []moduleExpectation) {
+	t.Helper()
+
+	assert.Len(t, modules, len(expected))
+	for _, expectedModule := range expected {
+		var matched *entities.Module
+		for i := range modules {
+			if modules[i].Type == expectedModule.Type && modules[i].Id == expectedModule.ID {
+				matched = &modules[i]
+				break
+			}
+		}
+		if assert.NotNil(t, matched, "module %s|%s should exist", expectedModule.Type, expectedModule.ID) {
+			assert.Equal(t, expectedModule.ArtifactNames, artifactNames(matched.Artifacts))
+			assert.Equal(t, expectedModule.DependencyIDs, dependencyIDs(matched.Dependencies))
+		}
+	}
+}
+
+func assertModuleArtifactsByTypeAndID(t *testing.T, modules []entities.Module, expected map[string][]string) {
+	t.Helper()
+
+	assert.Len(t, modules, len(expected))
+	for key, names := range expected {
+		matched := false
+		for i := range modules {
+			moduleKey := string(modules[i].Type) + "|" + modules[i].Id
+			if moduleKey == key {
+				assert.Equal(t, names, artifactNames(modules[i].Artifacts))
+				matched = true
+				break
+			}
+		}
+		assert.True(t, matched, "module %s should exist", key)
+	}
+}
+
+func artifactNames(artifacts []entities.Artifact) []string {
+	names := make([]string, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		names = append(names, artifact.Name)
+	}
+	return names
+}
+
+func dependencyIDs(dependencies []entities.Dependency) []string {
+	if len(dependencies) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(dependencies))
+	for _, dependency := range dependencies {
+		ids = append(ids, dependency.Id)
+	}
+	return ids
 }

@@ -25,12 +25,19 @@ func appendModuleAndBuildAgentIfAbsent(buildInfo *entities.BuildInfo, chartName 
 		log.Debug("No build info collected, skipping further processing")
 		return
 	}
-	if len(buildInfo.Modules) == 0 {
-		module := entities.Module{
-			Id:   fmt.Sprintf("%s:%s", chartName, chartVersion),
-			Type: "helm",
+	moduleId := fmt.Sprintf("%s:%s", chartName, chartVersion)
+	moduleExists := false
+	for _, module := range buildInfo.Modules {
+		if module.Type == entities.ModuleType("helm") && module.Id == moduleId {
+			moduleExists = true
+			break
 		}
-		buildInfo.Modules = append(buildInfo.Modules, module)
+	}
+	if !moduleExists {
+		buildInfo.Modules = append(buildInfo.Modules, entities.Module{
+			Id:   moduleId,
+			Type: entities.ModuleType("helm"),
+		})
 	}
 	if buildInfo.BuildAgent == nil || buildInfo.BuildAgent.Version == "" {
 		if buildInfo.BuildAgent == nil {
@@ -151,13 +158,13 @@ func removeDuplicateDependencies(buildInfo *entities.BuildInfo) {
 	}
 }
 
-func addArtifactsInBuildInfo(buildInfo *entities.BuildInfo, artifacts []entities.Artifact, chartName, chartVersion string) {
+func addArtifactsInBuildInfo(buildInfo *entities.BuildInfo, artifacts []entities.Artifact, chartName, chartVersion string, moduleType entities.ModuleType) {
 	if buildInfo == nil {
 		return
 	}
 	moduleId := fmt.Sprintf("%s:%s", chartName, chartVersion)
 	for moduleIdx, module := range buildInfo.Modules {
-		if module.Id == moduleId {
+		if module.Type == moduleType && module.Id == moduleId {
 			module.Artifacts = append(module.Artifacts, artifacts...)
 			buildInfo.Modules[moduleIdx] = module
 		}
@@ -192,7 +199,7 @@ func appendModuleInExistingBuildInfo(buildInfo *entities.BuildInfo, moduleToAdd 
 		return
 	}
 	for moduleIdx, module := range buildInfo.Modules {
-		if module.Id == moduleToAdd.Id {
+		if module.Type == moduleToAdd.Type && module.Id == moduleToAdd.Id {
 			dependencies := moduleToAdd.Dependencies
 			if len(dependencies) > 0 {
 				buildInfo.Modules[moduleIdx].Dependencies = append(buildInfo.Modules[moduleIdx].Dependencies, dependencies...)
