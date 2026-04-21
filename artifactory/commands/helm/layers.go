@@ -78,7 +78,7 @@ func addOCILayersForDependency(dep entities.Dependency, serviceManager artifacto
 	} else {
 		ref, parseErr := parseOCIReference(registryReference)
 		if parseErr != nil {
-			log.Error("Failed to find a valid repository for dependency: ", dep.Id)
+			log.Error("Failed to find a valid repository for dependency: ", dep.Id, " : ", parseErr)
 			return
 		}
 		candidates = generateRepoCandidates(ref.Registry, ref.Repository)

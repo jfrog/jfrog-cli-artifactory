@@ -47,7 +47,7 @@ func handlePushCommand(buildInfo *entities.BuildInfo, helmArgs []string, service
 	}
 	artifactManifest, err := getManifest(resultMap, serviceManager, repoKey)
 	if err != nil {
-		return fmt.Errorf("failed to get manifest")
+		return fmt.Errorf("failed to get manifest: %w", err)
 	}
 	if artifactManifest == nil {
 		return fmt.Errorf("could not find image manifest in Artifactory")
@@ -85,7 +85,7 @@ func resolveOCIPushArtifacts(registryURL, chartName, chartVersion string, sm art
 			return "", "", "", nil, fmt.Errorf("failed to search oci layers for %s : %s: %w", chartName, chartVersion, err)
 		}
 		if len(resultMap) == 0 {
-			return "", "", "", nil, fmt.Errorf("could not resolve OCI push repository key for %q", registryURL)
+			return "", "", "", nil, fmt.Errorf("no oci artifacts found for repoKey %q and storagePath %q", repoKey, storagePath)
 		}
 		return repoKey, "", storagePath, resultMap, nil
 	}
@@ -144,7 +144,7 @@ func searchPushedArtifacts(serviceManager artifactory.ArtifactoryServicesManager
 	return artifacts, nil
 }
 
-// updateReaderContents updates the reader contents by writing the specified JSON value to all file paths
+// overwriteReaderWithManifestFolder overwrites the reader's backing files with JSON describing the manifest folder result.
 func overwriteReaderWithManifestFolder(reader *content.ContentReader, repoKey, manifestFolderPath, manifestFolderName string) error {
 	if reader == nil {
 		return fmt.Errorf("reader is nil")

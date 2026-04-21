@@ -103,7 +103,6 @@ func newOCIArtifact(repo, storagePath, name, sha256 string) servicesUtils.Result
 		Type:   "file",
 		Sha256: sha256,
 	}
-
 }
 
 func createChartArchive(t *testing.T, chartName, chartVersion string) string {
