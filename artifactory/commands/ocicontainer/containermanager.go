@@ -3,12 +3,14 @@ package ocicontainer
 import (
 	"bytes"
 	"fmt"
-	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/google/go-containerregistry/pkg/v1/daemon"
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
+
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/daemon"
 
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
@@ -27,13 +29,25 @@ const MinSupportedApiVersion string = "1.31"
 // Docker login error message
 const LoginFailureMessage string = "%s login failed for: %s.\n%s image must be in the form: registry-domain/path-in-repository/image-name:version."
 
-// EnforceDockerImageIdVerificationEnv, when set to "true", re-enables the
-// local docker image id lookup (which internally triggers `docker save` on the
-// entire image tarball to read the config digest) and the subsequent manifest
-// verification. By default this step is skipped because it is prohibitively
-// slow on large images; the Artifactory-side manifest's Config.Digest is used
-// in place of the local value for build-info construction.
-const EnforceDockerImageIdVerificationEnv = "JFROG_CLI_ENFORCE_DOCKER_IMAGE_ID_VERIFICATION"
+// SkipDockerImageIdVerificationEnv is an opt-in escape hatch that, when set to
+// a truthy value, skips the local docker image id lookup (which internally
+// triggers `docker save` on the entire image tarball) and the subsequent
+// manifest verification during a docker push. The Artifactory-side manifest's
+// Config.Digest is adopted in place of the local value for build-info
+// construction. The skip is intentionally ignored for pull and other flows —
+// only pushes of large images hit the OOM / latency problem this addresses.
+const SkipDockerImageIdVerificationEnv = "JFROG_CLI_SKIP_DOCKER_IMAGE_ID_VERIFICATION"
+
+// shouldSkipImageIdVerification returns true iff the user opted in via the
+// SkipDockerImageIdVerificationEnv env var AND the caller is on a push flow.
+// Any parse error or missing value is treated as false (i.e. verify).
+func shouldSkipImageIdVerification(commandType CommandType) bool {
+	if commandType != Push {
+		return false
+	}
+	skip, _ := strconv.ParseBool(os.Getenv(SkipDockerImageIdVerificationEnv))
+	return skip
+}
 
 func NewManager(containerManagerType ContainerManagerType) ContainerManager {
 	return &containerManager{Type: containerManagerType}
@@ -52,8 +66,10 @@ func (cmt ContainerManagerType) String() string {
 
 // Container image
 type ContainerManager interface {
-	// Image ID is basically the image's SHA256
-	Id(image *Image) (string, error)
+	// Image ID is basically the image's SHA256. commandType is used to gate
+	// the opt-in skip (SkipDockerImageIdVerificationEnv): non-push flows
+	// always perform the full verification path.
+	Id(image *Image, commandType CommandType) (string, error)
 	OsCompatibility(image *Image) (string, string, error)
 	RunNativeCmd(cmdParams []string) error
 	GetContainerManagerType() ContainerManagerType
@@ -74,23 +90,26 @@ func (containerManager *containerManager) RunNativeCmd(cmdParams []string) error
 }
 
 // Get image ID
-func (containerManager *containerManager) Id(image *Image) (string, error) {
+func (containerManager *containerManager) Id(image *Image, commandType CommandType) (string, error) {
 	if containerManager.GetContainerManagerType() == DockerClient {
-		// By default, skip the expensive daemon.Image call (which triggers
-		// `docker save` over the whole image) and let the caller fall back to
-		// the config digest reported by Artifactory's manifest. Set
-		// JFROG_CLI_ENFORCE_DOCKER_IMAGE_ID_VERIFICATION=true to opt back in
-		// to the slow but strict local verification path.
-		// See isVerifiedManifest / buildInfoBuilder for the matching consumer logic.
-		if !strings.EqualFold(os.Getenv(EnforceDockerImageIdVerificationEnv), "true") {
-			log.Debug("Skipping local image id lookup and verification (set " + EnforceDockerImageIdVerificationEnv + "=true to enforce)")
+		// Optional opt-in short-circuit for pushes of large images, where the
+		// daemon.Image call below triggers `docker save` over the whole image
+		// tarball and has caused OOMs / long stalls. When skipped, the caller
+		// falls back to the Artifactory-side manifest Config.Digest — see
+		// localAgentBuildInfoBuilder.resolveAndVerifyManifest for the matching
+		// consumer logic.
+		if shouldSkipImageIdVerification(commandType) {
+			log.Debug("Skipping local image id lookup on docker push (" + SkipDockerImageIdVerificationEnv + "=true); Artifactory manifest digest will be adopted downstream")
 			return "", nil
 		}
 		ref, err := name.ParseReference(image.Name())
 		if err != nil {
 			return "", err
 		}
-		localImage, err := daemon.Image(ref, daemon.WithUnbufferedOpener())
+		// WithFileBufferedOpener spools the `docker save` stream to a temp
+		// file rather than buffering it entirely in memory, which avoids the
+		// OOM on large images without dropping the verification step.
+		localImage, err := daemon.Image(ref, daemon.WithFileBufferedOpener())
 		if err != nil {
 			return "", err
 		}

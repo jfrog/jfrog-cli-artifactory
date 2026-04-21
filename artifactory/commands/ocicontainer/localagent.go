@@ -23,7 +23,7 @@ type localAgentBuildInfoBuilder struct {
 
 // Create new build info builder container CLI tool
 func NewLocalAgentBuildInfoBuilder(image *Image, repository, buildName, buildNumber, project string, serviceManager artifactory.ArtifactoryServicesManager, commandType CommandType, containerManager ContainerManager) (*localAgentBuildInfoBuilder, error) {
-	imageSha2, err := containerManager.Id(image)
+	imageSha2, err := containerManager.Id(image, commandType)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +119,7 @@ func (labib *localAgentBuildInfoBuilder) searchImage() (map[string]*utils.Result
 		if err != nil {
 			return nil, nil, err
 		}
-		if manifest != nil && labib.isVerifiedManifest(manifest) {
+		if manifest != nil && labib.resolveAndVerifyManifest(manifest) {
 			return resultMap, manifest, nil
 		}
 	}
@@ -167,14 +167,18 @@ func (labib *localAgentBuildInfoBuilder) search(imagePathPattern string) (result
 	return resultMap, err
 }
 
-// Verify manifest by comparing sha256, which references to the image digest. If there is no match, return nil.
-// By default the local image id lookup is skipped (imageSha2 is empty) and we
-// accept the Artifactory manifest as-is, adopting its Config.Digest for
-// subsequent build-info lookups. Set
-// JFROG_CLI_ENFORCE_DOCKER_IMAGE_ID_VERIFICATION=true to re-enable strict local verification.
-func (labib *localAgentBuildInfoBuilder) isVerifiedManifest(imageManifest *manifest) bool {
+// resolveAndVerifyManifest verifies the Artifactory manifest against the
+// locally-computed image id and — as a side effect — adopts the Artifactory
+// manifest's Config.Digest into builder.imageSha2 when no local id is
+// available (e.g. the caller opted into SkipDockerImageIdVerificationEnv on a
+// push). Downstream code relies on builder.imageSha2 being populated for
+// layer lookups, which is why this one function performs both the check and
+// the resolution in a single pass.
+//
+// Returns true if the manifest should be accepted.
+func (labib *localAgentBuildInfoBuilder) resolveAndVerifyManifest(imageManifest *manifest) bool {
 	if labib.buildInfoBuilder.imageSha2 == "" {
-		log.Debug("Image id verification skipped; adopting config digest from Artifactory manifest: " + imageManifest.Config.Digest)
+		log.Debug("Local image id unavailable; adopting Artifactory manifest config digest for build-info: " + imageManifest.Config.Digest)
 		labib.buildInfoBuilder.imageSha2 = imageManifest.Config.Digest
 		return true
 	}
