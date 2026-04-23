@@ -1,7 +1,6 @@
 package helm
 
 import (
-	"fmt"
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"helm.sh/helm/v3/pkg/chart/loader"
@@ -20,17 +19,9 @@ func needBuildInfo(cmdName string) bool {
 	return buildInfoNeededCommands[cmdName]
 }
 
-func appendModuleAndBuildAgentIfAbsent(buildInfo *entities.BuildInfo, chartName string, chartVersion string) {
+func ensureBuildAgent(buildInfo *entities.BuildInfo) {
 	if buildInfo == nil {
-		log.Debug("No build info collected, skipping further processing")
 		return
-	}
-	if len(buildInfo.Modules) == 0 {
-		module := entities.Module{
-			Id:   fmt.Sprintf("%s:%s", chartName, chartVersion),
-			Type: "helm",
-		}
-		buildInfo.Modules = append(buildInfo.Modules, module)
 	}
 	if buildInfo.BuildAgent == nil || buildInfo.BuildAgent.Version == "" {
 		if buildInfo.BuildAgent == nil {
@@ -148,19 +139,6 @@ func removeDuplicateDependencies(buildInfo *entities.BuildInfo) {
 		}
 		module.Dependencies = dependencies
 		buildInfo.Modules[moduleIdx] = module
-	}
-}
-
-func addArtifactsInBuildInfo(buildInfo *entities.BuildInfo, artifacts []entities.Artifact, chartName, chartVersion string) {
-	if buildInfo == nil {
-		return
-	}
-	moduleId := fmt.Sprintf("%s:%s", chartName, chartVersion)
-	for moduleIdx, module := range buildInfo.Modules {
-		if module.Id == moduleId {
-			module.Artifacts = append(module.Artifacts, artifacts...)
-			buildInfo.Modules[moduleIdx] = module
-		}
 	}
 }
 
