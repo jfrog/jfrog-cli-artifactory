@@ -105,6 +105,7 @@ func addOCILayersForDependency(dep entities.Dependency, serviceManager artifacto
 			continue
 		}
 		repoName = candidate.repoKey
+		log.Debug("Resolved OCI dependency ", dep.Id, " to repo: ", candidate.repoKey, ", subpath: ", candidate.subpath)
 		break
 	}
 	if len(resultMap) == 0 {
