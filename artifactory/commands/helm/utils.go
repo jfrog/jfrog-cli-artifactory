@@ -25,12 +25,19 @@ func appendModuleAndBuildAgentIfAbsent(buildInfo *entities.BuildInfo, chartName 
 		log.Debug("No build info collected, skipping further processing")
 		return
 	}
-	if len(buildInfo.Modules) == 0 {
-		module := entities.Module{
-			Id:   fmt.Sprintf("%s:%s", chartName, chartVersion),
-			Type: "helm",
+	moduleId := fmt.Sprintf("%s:%s", chartName, chartVersion)
+	moduleExists := false
+	for _, module := range buildInfo.Modules {
+		if module.Id == moduleId {
+			moduleExists = true
+			break
 		}
-		buildInfo.Modules = append(buildInfo.Modules, module)
+	}
+	if !moduleExists {
+		buildInfo.Modules = append(buildInfo.Modules, entities.Module{
+			Id:   moduleId,
+			Type: "helm",
+		})
 	}
 	if buildInfo.BuildAgent == nil || buildInfo.BuildAgent.Version == "" {
 		if buildInfo.BuildAgent == nil {

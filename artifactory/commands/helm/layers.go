@@ -69,15 +69,19 @@ func addOCILayersForDependency(dep entities.Dependency, serviceManager artifacto
 		log.Error("Failed to find a valid version for dependency: ", dep.Id)
 		return
 	}
-	repoName := extractRepositoryNameFromURL(dep.Repository)
+	repoName, subPath := extractRepoAndSubPath(dep.Repository)
 	if repoName == "" {
 		log.Error("Failed to find a valid repository for dependency: ", dep.Id)
 		return
 	}
+	fullPath := versionPath
+	if subPath != "" {
+		fullPath = subPath + "/" + versionPath
+	}
 	aqlQuery := fmt.Sprintf(`{
 	  "repo": "%s",
 	  "path": "%s"
-	}`, repoName, versionPath)
+	}`, repoName, fullPath)
 	resultMap, err := searchOCIArtifactsByAQL(serviceManager, aqlQuery)
 	if err != nil {
 		log.Debug("Failed to search OCI artifacts for dependency ", dep.Id, " : ", err)

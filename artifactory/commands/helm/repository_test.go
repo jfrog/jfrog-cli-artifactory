@@ -157,6 +157,90 @@ func TestExtractDependencyPathInRepository(t *testing.T) {
 	}
 }
 
+func TestExtractRepoAndSubPath(t *testing.T) {
+	tests := []struct {
+		name            string
+		url             string
+		expectedRepo    string
+		expectedSubPath string
+	}{
+		{
+			name:            "No subpath - simple repo",
+			url:             "oci://example.com/my-repo",
+			expectedRepo:    "my-repo",
+			expectedSubPath: "",
+		},
+		{
+			name:            "Single-level subpath",
+			url:             "oci://example.com/my-repo/team",
+			expectedRepo:    "my-repo",
+			expectedSubPath: "team",
+		},
+		{
+			name:            "Multi-level subpath",
+			url:             "oci://example.com/my-repo/team/app/env",
+			expectedRepo:    "my-repo",
+			expectedSubPath: "team/app/env",
+		},
+		{
+			name:            "OCI URL with artifactory prefix",
+			url:             "oci://example.com/artifactory/my-repo",
+			expectedRepo:    "artifactory",
+			expectedSubPath: "my-repo",
+		},
+		{
+			name:            "HTTPS URL with subpath",
+			url:             "https://example.com/my-repo/subdir",
+			expectedRepo:    "my-repo",
+			expectedSubPath: "subdir",
+		},
+		{
+			name:            "Empty string",
+			url:             "",
+			expectedRepo:    "",
+			expectedSubPath: "",
+		},
+		{
+			name:            "No protocol",
+			url:             "my-repo",
+			expectedRepo:    "my-repo",
+			expectedSubPath: "",
+		},
+		{
+			name:            "Subdomain only - no path segments",
+			url:             "oci://demo-helm-local.jfrog.io",
+			expectedRepo:    "demo-helm-local",
+			expectedSubPath: "",
+		},
+		{
+			name:            "OCI subdomain with port",
+			url:             "oci://my-helm-repo.registry.example.com:8443",
+			expectedRepo:    "my-helm-repo",
+			expectedSubPath: "",
+		},
+		{
+			name:            "Trailing slash is trimmed",
+			url:             "oci://example.com/my-repo/team/",
+			expectedRepo:    "my-repo",
+			expectedSubPath: "team",
+		},
+		{
+			name:            "Deep nesting",
+			url:             "oci://registry.example.com/helm-local/org/team/project/charts",
+			expectedRepo:    "helm-local",
+			expectedSubPath: "org/team/project/charts",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, subPath := extractRepoAndSubPath(tt.url)
+			assert.Equal(t, tt.expectedRepo, repo)
+			assert.Equal(t, tt.expectedSubPath, subPath)
+		})
+	}
+}
+
 // TestIsOCIRepository tests the isOCIRepository function
 func TestIsOCIRepository(t *testing.T) {
 	tests := []struct {

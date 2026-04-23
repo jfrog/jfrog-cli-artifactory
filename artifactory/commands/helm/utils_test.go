@@ -209,6 +209,87 @@ func TestParseOCIReference(t *testing.T) {
 	}
 }
 
+func TestBuildOCIChartPath(t *testing.T) {
+	tests := []struct {
+		name         string
+		subpath      string
+		chartName    string
+		chartVersion string
+		expected     string
+	}{
+		{
+			name:         "No subpath - root level chart",
+			subpath:      "",
+			chartName:    "mychart",
+			chartVersion: "1.0.0",
+			expected:     "mychart/1.0.0",
+		},
+		{
+			name:         "Single-level subpath",
+			subpath:      "team",
+			chartName:    "mychart",
+			chartVersion: "1.0.0",
+			expected:     "team/mychart/1.0.0",
+		},
+		{
+			name:         "Multi-level subpath",
+			subpath:      "team/app/env",
+			chartName:    "mychart",
+			chartVersion: "2.3.4",
+			expected:     "team/app/env/mychart/2.3.4",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildOCIChartPath(tt.subpath, tt.chartName, tt.chartVersion)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestSplitOCIChartPath(t *testing.T) {
+	tests := []struct {
+		name         string
+		ociChartPath string
+		expectedPath string
+		expectedName string
+	}{
+		{
+			name:         "Simple chart/version",
+			ociChartPath: "mychart/1.0.0",
+			expectedPath: "mychart",
+			expectedName: "1.0.0",
+		},
+		{
+			name:         "Nested path with chart/version",
+			ociChartPath: "team/app/mychart/1.0.0",
+			expectedPath: "team/app/mychart",
+			expectedName: "1.0.0",
+		},
+		{
+			name:         "Deeply nested",
+			ociChartPath: "org/team/env/mychart/2.3.4",
+			expectedPath: "org/team/env/mychart",
+			expectedName: "2.3.4",
+		},
+		{
+			name:         "No slash",
+			ociChartPath: "single",
+			expectedPath: "single",
+			expectedName: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path, name := splitOCIChartPath(tt.ociChartPath)
+			assert.Equal(t, tt.expectedPath, path)
+			assert.Equal(t, tt.expectedName, name)
+		})
+	}
+}
+
 func TestAppendModuleAndBuildAgentIfAbsent(t *testing.T) {
 	t.Run("Nil build info", func(t *testing.T) {
 		appendModuleAndBuildAgentIfAbsent(nil, "test-chart", "1.0.0")
@@ -225,15 +306,37 @@ func TestAppendModuleAndBuildAgentIfAbsent(t *testing.T) {
 		assert.Equal(t, "Helm", buildInfo.BuildAgent.Name)
 		assert.NotEmpty(t, buildInfo.BuildAgent.Version)
 	})
-	t.Run("Existing module does not add", func(t *testing.T) {
+	t.Run("Same module ID already exists - no duplicate", func(t *testing.T) {
 		buildInfo := &entities.BuildInfo{
 			Modules: []entities.Module{
-				{Id: "existing:1.0.0", Type: "helm"},
+				{Id: "test-chart:1.0.0", Type: "helm"},
 			},
 		}
-		initialCount := len(buildInfo.Modules)
 		appendModuleAndBuildAgentIfAbsent(buildInfo, "test-chart", "1.0.0")
-		assert.Equal(t, initialCount, len(buildInfo.Modules))
+		assert.Len(t, buildInfo.Modules, 1)
+	})
+	t.Run("Different modules exist - adds new helm module", func(t *testing.T) {
+		buildInfo := &entities.BuildInfo{
+			Modules: []entities.Module{
+				{Id: "docker-image:0.20.0", Type: "docker"},
+				{Id: "legacy-chart:0.20.0", Type: "generic"},
+			},
+		}
+		appendModuleAndBuildAgentIfAbsent(buildInfo, "test-chart", "1.0.0")
+		assert.Len(t, buildInfo.Modules, 3)
+		assert.Equal(t, "test-chart:1.0.0", buildInfo.Modules[2].Id)
+		assert.Equal(t, entities.ModuleType("helm"), buildInfo.Modules[2].Type)
+	})
+	t.Run("Preserves existing modules when adding new one", func(t *testing.T) {
+		buildInfo := &entities.BuildInfo{
+			Modules: []entities.Module{
+				{Id: "existing:1.0.0", Type: "docker"},
+			},
+		}
+		appendModuleAndBuildAgentIfAbsent(buildInfo, "test-chart", "2.0.0")
+		assert.Len(t, buildInfo.Modules, 2)
+		assert.Equal(t, "existing:1.0.0", buildInfo.Modules[0].Id)
+		assert.Equal(t, "test-chart:2.0.0", buildInfo.Modules[1].Id)
 	})
 }
 

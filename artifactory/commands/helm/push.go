@@ -29,18 +29,19 @@ func handlePushCommand(buildInfo *entities.BuildInfo, helmArgs []string, service
 	}
 	appendModuleAndBuildAgentIfAbsent(buildInfo, chartName, chartVersion)
 	log.Debug("Processing push command for chart: ", filePath, " to registry: ", registryURL)
-	repoName := extractRepositoryNameFromURL(registryURL)
+	repoName, subPath := extractRepoAndSubPath(registryURL)
+	ociChartPath := buildOCIChartPath(subPath, chartName, chartVersion)
 	timestamp := strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10)
 	buildProps := fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp)
 	if project != "" {
 		buildProps += fmt.Sprintf(";build.project=%s", project)
 	}
-	resultMap, err := searchPushedArtifacts(serviceManager, repoName, chartName, chartVersion, buildProps)
+	resultMap, err := searchPushedArtifacts(serviceManager, repoName, ociChartPath, buildProps)
 	if err != nil {
-		return fmt.Errorf("failed to search oci layers for %s : %s: %w", chartName, chartVersion, err)
+		return fmt.Errorf("failed to search oci layers for %s: %w", ociChartPath, err)
 	}
 	if len(resultMap) == 0 {
-		return fmt.Errorf("no oci layers found for chart: %s : %s", chartName, chartVersion)
+		return fmt.Errorf("no oci layers found for chart path: %s", ociChartPath)
 	}
 	artifactManifest, err := getManifest(resultMap, serviceManager, repoName)
 	if err != nil {
@@ -69,12 +70,13 @@ func handlePushCommand(buildInfo *entities.BuildInfo, helmArgs []string, service
 	return saveBuildInfo(buildInfo, buildName, buildNumber, project)
 }
 
-// searchPushedArtifacts searches for pushed OCI artifacts using a search pattern
-func searchPushedArtifacts(serviceManager artifactory.ArtifactoryServicesManager, repoName, chartName, chartVersion string, buildProperties string) (map[string]*servicesUtils.ResultItem, error) {
+// searchPushedArtifacts searches for pushed OCI artifacts using a search pattern.
+// ociChartPath is the full path under the repository, e.g. "subdir1/subdir2/chart-name/1.0.0".
+func searchPushedArtifacts(serviceManager artifactory.ArtifactoryServicesManager, repoName, ociChartPath string, buildProperties string) (map[string]*servicesUtils.ResultItem, error) {
 	aqlQuery := fmt.Sprintf(`{
 	  "repo": "%s",
-	  "path": "%s/%s"
-	}`, repoName, chartName, chartVersion)
+	  "path": "%s"
+	}`, repoName, ociChartPath)
 	searchParams := services.SearchParams{
 		CommonParams: &servicesUtils.CommonParams{
 			Aql: servicesUtils.Aql{ItemsFind: aqlQuery},
@@ -101,7 +103,8 @@ func searchPushedArtifacts(serviceManager artifactory.ArtifactoryServicesManager
 		}
 	}
 	if buildProperties != "" {
-		err = overwriteReaderWithManifestFolder(reader, repoName, chartName, chartVersion)
+		manifestPath, manifestName := splitOCIChartPath(ociChartPath)
+		err = overwriteReaderWithManifestFolder(reader, repoName, manifestPath, manifestName)
 		if err != nil {
 			return nil, err
 		}
@@ -109,6 +112,33 @@ func searchPushedArtifacts(serviceManager artifactory.ArtifactoryServicesManager
 		addBuildPropertiesOnArtifacts(serviceManager, reader, buildProperties)
 	}
 	return artifacts, nil
+}
+
+// buildOCIChartPath constructs the full Artifactory storage path for an OCI chart
+// by joining the optional subpath (nested directory segments from the OCI URL),
+// chartName, and chartVersion. For example:
+//
+//	subpath="team/app", chartName="mychart", chartVersion="1.0.0"
+//	  → "team/app/mychart/1.0.0"
+//
+//	subpath="", chartName="mychart", chartVersion="1.0.0"
+//	  → "mychart/1.0.0"
+func buildOCIChartPath(subpath, chartName, chartVersion string) string {
+	if subpath != "" {
+		return fmt.Sprintf("%s/%s/%s", subpath, chartName, chartVersion)
+	}
+	return fmt.Sprintf("%s/%s", chartName, chartVersion)
+}
+
+// splitOCIChartPath splits a full OCI chart path into the parent directory
+// (path) and the leaf directory (name), suitable for Artifactory's folder
+// result item format. For "team/app/mychart/1.0.0" it returns
+// ("team/app/mychart", "1.0.0").
+func splitOCIChartPath(ociChartPath string) (path, name string) {
+	if idx := strings.LastIndex(ociChartPath, "/"); idx >= 0 {
+		return ociChartPath[:idx], ociChartPath[idx+1:]
+	}
+	return ociChartPath, ""
 }
 
 // updateReaderContents updates the reader contents by writing the specified JSON value to all file paths

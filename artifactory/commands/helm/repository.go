@@ -15,28 +15,47 @@ const (
 // Supports both path-based access (oci://registry.com/repo-name) and
 // subdomain access (oci://repo-name.registry.com) methods
 func extractRepositoryNameFromURL(repositoryURL string) string {
-	if repositoryURL == "" {
-		return ""
+	repoName, _ := extractRepoAndSubPath(repositoryURL)
+	return repoName
+}
+
+// extractRepoAndSubPath extracts the Artifactory repository name and any
+// sub-path from an OCI or HTTPS URL. For path-based access like
+// oci://registry.example.com/my-repo/subdir1/subdir2, the repo is "my-repo"
+// and the sub-path is "subdir1/subdir2". For subdomain access like
+// oci://demo-helm-local.jfrog.io, the repo comes from the subdomain and
+// the sub-path is empty.
+func extractRepoAndSubPath(registryURL string) (repoName, subPath string) {
+	if registryURL == "" {
+		return "", ""
 	}
-	if !strings.Contains(repositoryURL, "://") {
-		return repositoryURL
+	if !strings.Contains(registryURL, "://") {
+		return registryURL, ""
 	}
-	repoURL := removeProtocolPrefix(repositoryURL)
+	repoURL := removeProtocolPrefix(registryURL)
 	if repoURL == "" {
-		return repositoryURL
+		return registryURL, ""
 	}
 	parts := strings.Split(repoURL, "/")
 	if len(parts) > 1 && parts[0] == "" {
 		if len(parts) > 2 && parts[2] != "" {
-			return parts[2]
+			repoName = parts[2]
+			if remaining := parts[3:]; len(remaining) > 0 {
+				subPath = strings.TrimRight(strings.Join(remaining, "/"), "/")
+			}
+			return
 		}
 	} else if len(parts) > 1 && parts[1] != "" {
-		return parts[1]
+		repoName = parts[1]
+		if remaining := parts[2:]; len(remaining) > 0 {
+			subPath = strings.TrimRight(strings.Join(remaining, "/"), "/")
+		}
+		return
 	}
 	// No path segments found — try subdomain Docker access method where the
 	// repository name is encoded as the first hostname label:
 	// oci://demo-helm-local.jfrog.io  →  repo = "demo-helm-local"
-	return extractRepositoryFromHostSubdomain(parts[0])
+	return extractRepositoryFromHostSubdomain(parts[0]), ""
 }
 
 // extractRepositoryFromHostSubdomain extracts the repository name from the
