@@ -1,12 +1,15 @@
 package pnpm
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/gofrog/version"
 	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestResolveRepoFromRegistry(t *testing.T) {
@@ -418,6 +421,135 @@ func TestNewCommandUnsupported(t *testing.T) {
 	_, err = NewCommand("p", nil, nil, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported pnpm command")
+}
+
+// TestExtractLsForwardFlags verifies that workspace-scoping flags from `pnpm install`
+// are forwarded to `pnpm ls` so the dependency tree matches the install scope.
+func TestExtractLsForwardFlags(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{"no flags", []string{}, nil},
+		{"unrelated flags", []string{"--frozen-lockfile", "--prod"}, nil},
+		{"ignore-workspace only", []string{"--ignore-workspace"}, []string{"--ignore-workspace"}},
+		{"ignore-workspace mixed", []string{"--frozen-lockfile", "--ignore-workspace", "--prod"}, []string{"--ignore-workspace"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, extractLsForwardFlags(tt.args))
+		})
+	}
+}
+
+// TestBuildPnpmLsArgs verifies the pnpm ls command line is assembled correctly
+// based on workspace context and forwarded flags.
+func TestBuildPnpmLsArgs(t *testing.T) {
+	tests := []struct {
+		name                  string
+		extraArgs             []string
+		scopeToCurrentPackage bool
+		want                  []string
+	}{
+		{
+			name:                  "workspace root (no scoping, no extra flags)",
+			extraArgs:             nil,
+			scopeToCurrentPackage: false,
+			want:                  []string{"ls", "-r", "--depth", "Infinity", "--json"},
+		},
+		{
+			name:                  "sub-package (scoped, no extra flags)",
+			extraArgs:             nil,
+			scopeToCurrentPackage: true,
+			want:                  []string{"ls", "--depth", "Infinity", "--json"},
+		},
+		{
+			// `pnpm ls -r --ignore-workspace` prints one JSON array per project concatenated
+			// on stdout, which is not parseable. When --ignore-workspace is forwarded we must
+			// drop -r regardless of cwd so the output stays a single JSON array.
+			name:                  "workspace root with ignore-workspace forwarded (must drop -r)",
+			extraArgs:             []string{"--ignore-workspace"},
+			scopeToCurrentPackage: false,
+			want:                  []string{"ls", "--depth", "Infinity", "--json", "--ignore-workspace"},
+		},
+		{
+			name:                  "sub-package with ignore-workspace forwarded",
+			extraArgs:             []string{"--ignore-workspace"},
+			scopeToCurrentPackage: true,
+			want:                  []string{"ls", "--depth", "Infinity", "--json", "--ignore-workspace"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, buildPnpmLsArgs(tt.extraArgs, tt.scopeToCurrentPackage))
+		})
+	}
+}
+
+// TestSamePath verifies that symlinked paths are recognized as the same directory.
+// This matters on macOS where /var is a symlink to /private/var, and pnpm resolves
+// symlinks in its output while our workingDir is typically unresolved.
+func TestSamePath(t *testing.T) {
+	t.Run("identical strings", func(t *testing.T) {
+		assert.True(t, samePath("/foo/bar", "/foo/bar"))
+	})
+
+	t.Run("different strings", func(t *testing.T) {
+		assert.False(t, samePath("/foo/bar", "/foo/baz"))
+	})
+
+	t.Run("symlinked directories resolve equal", func(t *testing.T) {
+		real := t.TempDir()
+		linkDir := filepath.Join(t.TempDir(), "link")
+		require.NoError(t, os.Symlink(real, linkDir))
+
+		assert.True(t, samePath(real, linkDir),
+			"paths pointing to the same directory via a symlink should be treated as equal")
+	})
+
+	t.Run("non-existent paths fall back to string comparison", func(t *testing.T) {
+		assert.False(t, samePath("/does/not/exist/a", "/does/not/exist/b"))
+		assert.True(t, samePath("/does/not/exist", "/does/not/exist"))
+	})
+}
+
+// TestIsPnpmWorkspaceSubPackage exercises the detection helper against three
+// realistic filesystem layouts. It shells out to pnpm (available in CI per
+// TestValidatePnpmPrerequisites) but does not require any packages to be installed.
+func TestIsPnpmWorkspaceSubPackage(t *testing.T) {
+	t.Run("non-workspace directory returns false", func(t *testing.T) {
+		dir := t.TempDir()
+		assert.False(t, isPnpmWorkspaceSubPackage(dir),
+			"a plain directory with no pnpm-workspace.yaml must not be treated as a sub-package")
+	})
+
+	t.Run("workspace root returns false", func(t *testing.T) {
+		root := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(root, "pnpm-workspace.yaml"),
+			[]byte("packages:\n  - 'apps/*'\n"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(root, "package.json"),
+			[]byte(`{"name":"root","version":"1.0.0"}`), 0o644))
+
+		assert.False(t, isPnpmWorkspaceSubPackage(root),
+			"workingDir equal to the workspace root must not be treated as a sub-package")
+	})
+
+	t.Run("workspace sub-package returns true", func(t *testing.T) {
+		root := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(root, "pnpm-workspace.yaml"),
+			[]byte("packages:\n  - 'apps/*'\n"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(root, "package.json"),
+			[]byte(`{"name":"root","version":"1.0.0"}`), 0o644))
+
+		subPkg := filepath.Join(root, "apps", "web-app")
+		require.NoError(t, os.MkdirAll(subPkg, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(subPkg, "package.json"),
+			[]byte(`{"name":"web-app","version":"1.0.0"}`), 0o644))
+
+		assert.True(t, isPnpmWorkspaceSubPackage(subPkg),
+			"workingDir inside a workspace package must be treated as a sub-package")
+	})
 }
 
 // TestParsePnpmLsProjectsEmpty verifies handling of empty/minimal pnpm ls output (RTECO-903).
