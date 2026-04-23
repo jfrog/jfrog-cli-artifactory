@@ -111,21 +111,20 @@ func TestAddOCILayersForDependency(t *testing.T) {
 		manifestPath         string
 	}{
 		{
-			name: "single-segment virtual host subpath resolves using host fallback",
+			name: "single-segment virtual host subpath resolves on first host-based candidate",
 			dependency: entities.Dependency{
 				Id:         chartName + ":" + chartVersion,
 				Repository: "oci://helm-repo.art.com/team-a",
 			},
 			responses: map[pushSearchCall][]servicesUtils.ResultItem{
-				{repo: "team-a", path: "chart/0.1.0"}: nil,
 				{repo: "helm-repo", path: "team-a/chart/0.1.0"}: {
 					newOCIArtifact("helm-repo", "team-a/chart/0.1.0", "manifest.json", "manifest-sha"),
 					newOCIArtifact("helm-repo", "team-a/chart/0.1.0", "sha256__config", "config-sha"),
 					newOCIArtifact("helm-repo", "team-a/chart/0.1.0", "sha256__layer", "layer-sha"),
 				},
+				{repo: "team-a", path: "chart/0.1.0"}: nil,
 			},
 			expectedSearchCalls: []pushSearchCall{
-				{repo: "team-a", path: "chart/0.1.0"},
 				{repo: "helm-repo", path: "team-a/chart/0.1.0"},
 			},
 			expectedDependencies: []entities.Dependency{
@@ -137,21 +136,20 @@ func TestAddOCILayersForDependency(t *testing.T) {
 			manifestPath: "team-a/chart/0.1.0",
 		},
 		{
-			name: "oci dependency with non-root subpath resolves using validated candidate",
+			name: "oci dependency with non-root subpath resolves on first host-based candidate",
 			dependency: entities.Dependency{
 				Id:         chartName + ":" + chartVersion,
 				Repository: "oci://helm-repo.art.com/team-a/charts",
 			},
 			responses: map[pushSearchCall][]servicesUtils.ResultItem{
-				{repo: "team-a", path: "charts/chart/0.1.0"}: nil,
 				{repo: "helm-repo", path: "team-a/charts/chart/0.1.0"}: {
 					newOCIArtifact("helm-repo", "team-a/charts/chart/0.1.0", "manifest.json", "manifest-sha"),
 					newOCIArtifact("helm-repo", "team-a/charts/chart/0.1.0", "sha256__config", "config-sha"),
 					newOCIArtifact("helm-repo", "team-a/charts/chart/0.1.0", "sha256__layer", "layer-sha"),
 				},
+				{repo: "team-a", path: "charts/chart/0.1.0"}: nil,
 			},
 			expectedSearchCalls: []pushSearchCall{
-				{repo: "team-a", path: "charts/chart/0.1.0"},
 				{repo: "helm-repo", path: "team-a/charts/chart/0.1.0"},
 			},
 			expectedDependencies: []entities.Dependency{
@@ -185,18 +183,18 @@ func TestAddOCILayersForDependency(t *testing.T) {
 			manifestPath: "chart/0.1.0",
 		},
 		{
-			name: "oci dependency without matching candidate returns without adding layers",
+			name: "oci dependency without matching host-first or path fallback returns without adding layers",
 			dependency: entities.Dependency{
 				Id:         chartName + ":" + chartVersion,
 				Repository: "oci://helm-repo.art.com/team-a/charts",
 			},
 			responses: map[pushSearchCall][]servicesUtils.ResultItem{
-				{repo: "team-a", path: "charts/chart/0.1.0"}:           nil,
 				{repo: "helm-repo", path: "team-a/charts/chart/0.1.0"}: nil,
+				{repo: "team-a", path: "charts/chart/0.1.0"}:           nil,
 			},
 			expectedSearchCalls: []pushSearchCall{
-				{repo: "team-a", path: "charts/chart/0.1.0"},
 				{repo: "helm-repo", path: "team-a/charts/chart/0.1.0"},
+				{repo: "team-a", path: "charts/chart/0.1.0"},
 			},
 		},
 	}

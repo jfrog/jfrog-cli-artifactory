@@ -208,30 +208,30 @@ func TestGenerateOCIRepoCandidates(t *testing.T) {
 			expected:   []ociRepoCandidate{{repoKey: "helm-repo"}},
 		},
 		{
-			name:       "generic multi-label host still yields distinct fallback candidate",
+			name:       "generic multi-label host yields host-first and path fallback candidates",
 			registry:   "art.company.example",
 			repository: "helm-repo/staging/libs",
 			expected: []ociRepoCandidate{
-				{repoKey: "helm-repo", subpath: "staging/libs"},
 				{repoKey: "art", subpath: "helm-repo/staging/libs"},
+				{repoKey: "helm-repo", subpath: "staging/libs"},
 			},
 		},
 		{
-			name:       "virtual host adds host-based fallback candidate",
+			name:       "virtual host prefers host-based candidate before path fallback",
 			registry:   "helm-repo.company.example",
 			repository: "team-a/charts",
 			expected: []ociRepoCandidate{
-				{repoKey: "team-a", subpath: "charts"},
 				{repoKey: "helm-repo", subpath: "team-a/charts"},
+				{repoKey: "team-a", subpath: "charts"},
 			},
 		},
 		{
-			name:       "single-segment virtual host subpath adds host-based fallback candidate",
+			name:       "single-segment virtual host subpath prefers host-based candidate before path fallback",
 			registry:   "helm-repo.art.com",
 			repository: "team-a",
 			expected: []ociRepoCandidate{
-				{repoKey: "team-a", subpath: ""},
 				{repoKey: "helm-repo", subpath: "team-a"},
+				{repoKey: "team-a", subpath: ""},
 			},
 		},
 		{

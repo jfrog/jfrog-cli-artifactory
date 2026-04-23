@@ -61,8 +61,8 @@ type ociRepoCandidate struct {
 
 // generateRepoCandidates generates plausible Artifactory repo key + subpath
 // combinations for an OCI reference. For path-based URLs, it attempts:
-//  1. First path segment as repo key (e.g., "team-a" for "team-a/charts")
-//  2. Host-derived repo key if different (e.g., "helm-repo" for "helm-repo.art.com")
+//  1. Host-derived repo key if different (e.g., "helm-repo" for "helm-repo.art.com")
+//  2. First path segment as repo key (e.g., "team-a" for "team-a/charts")
 //
 // Candidates are validated by searching for actual OCI artifacts at each location,
 // ensuring correctness without relying solely on URL structure heuristics.
@@ -76,11 +76,12 @@ func generateRepoCandidates(registry, repository string) []ociRepoCandidate {
 	if len(segments) == 0 {
 		return nil
 	}
-	candidates := []ociRepoCandidate{{repoKey: segments[0], subpath: strings.Join(segments[1:], "/")}}
+	var candidates []ociRepoCandidate
 	hostRepoKey := extractRepositoryFromHostSubdomain(registry)
 	if hostRepoKey != "" && hostRepoKey != segments[0] {
 		candidates = append(candidates, ociRepoCandidate{repoKey: hostRepoKey, subpath: repository})
 	}
+	candidates = append(candidates, ociRepoCandidate{repoKey: segments[0], subpath: strings.Join(segments[1:], "/")})
 	return candidates
 }
 
