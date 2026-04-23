@@ -220,15 +220,18 @@ func applyBuildPropertiesOnManifestFolder(serviceManager artifactory.Artifactory
 			err = cleanupErr
 		}
 	}()
-	addBuildPropertiesOnArtifacts(serviceManager, reader, buildProps)
-	return nil
+	return addBuildPropertiesOnArtifacts(serviceManager, reader, buildProps)
 }
 
-func addBuildPropertiesOnArtifacts(serviceManager artifactory.ArtifactoryServicesManager, reader *content.ContentReader, buildProps string) {
+func addBuildPropertiesOnArtifacts(serviceManager artifactory.ArtifactoryServicesManager, reader *content.ContentReader, buildProps string) error {
 	propsParams := services.PropsParams{
 		Reader:      reader,
 		Props:       buildProps,
 		IsRecursive: true,
 	}
-	_, _ = serviceManager.SetProps(propsParams)
+	_, err := serviceManager.SetProps(propsParams)
+	if err != nil {
+		return fmt.Errorf("failed to set build properties on artifacts: %w", err)
+	}
+	return nil
 }

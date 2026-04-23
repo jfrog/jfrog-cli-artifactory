@@ -36,6 +36,7 @@ type pushTestServiceManager struct {
 	searchResults  map[pushSearchCall][]servicesUtils.ResultItem
 	searchCalls    []pushSearchCall
 	propsCalls     []pushPropsCall
+	propsErr       error
 	remoteContents map[string]string
 }
 
@@ -59,6 +60,9 @@ func (m *pushTestServiceManager) SetProps(params services.PropsParams) (int, err
 	item := new(servicesUtils.ResultItem)
 	require.NoError(m.t, params.Reader.NextRecord(item))
 	m.propsCalls = append(m.propsCalls, pushPropsCall{props: params.Props, item: *item})
+	if m.propsErr != nil {
+		return 0, m.propsErr
+	}
 	return 1, nil
 }
 
@@ -346,6 +350,20 @@ func TestNewManifestFolderReader(t *testing.T) {
 	assert.Equal(t, "folder", item.Type)
 }
 
+func TestApplyBuildPropertiesOnManifestFolderReturnsSetPropsError(t *testing.T) {
+	serviceManager := newPushTestServiceManager(t)
+	serviceManager.propsErr = fmt.Errorf("set props failed")
+
+	err := applyBuildPropertiesOnManifestFolder(serviceManager, "helm-repo", "team-a/charts/chart", "0.1.0", "build.name=test")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "failed to set build properties on artifacts")
+	assert.ErrorContains(t, err, "set props failed")
+	require.Len(t, serviceManager.propsCalls, 1)
+	assert.Equal(t, "helm-repo", serviceManager.propsCalls[0].item.Repo)
+	assert.Equal(t, "team-a/charts/chart", serviceManager.propsCalls[0].item.Path)
+	assert.Equal(t, "0.1.0", serviceManager.propsCalls[0].item.Name)
+}
+
 func TestOverwriteReaderWithManifestFolderUsesRealArtifactoryPath(t *testing.T) {
 	reader := newPushSearchReader(t, []servicesUtils.ResultItem{
 		newOCIArtifact("old-repo", "ignored", "manifest.json", "manifest"),
@@ -469,4 +487,28 @@ func TestHandlePushCommandResolvesOCIPaths(t *testing.T) {
 			assert.Len(t, buildInfo.Modules[0].Artifacts, 3)
 		})
 	}
+}
+
+func TestHandlePushCommandReturnsBuildPropsError(t *testing.T) {
+	t.Setenv("JFROG_CLI_HOME_DIR", t.TempDir())
+	serviceManager := newPushTestServiceManager(t)
+	serviceManager.propsErr = fmt.Errorf("set props failed")
+	serviceManager.searchResults[pushSearchCall{repo: "helm-repo", path: "chart/0.1.0"}] = []servicesUtils.ResultItem{
+		newOCIArtifact("helm-repo", "chart/0.1.0", "manifest.json", "manifest-sha"),
+		newOCIArtifact("helm-repo", "chart/0.1.0", "sha256__config", "config-sha"),
+		newOCIArtifact("helm-repo", "chart/0.1.0", "sha256__layer", "layer-sha"),
+	}
+	chartPath := createChartArchive(t, "chart", "0.1.0")
+	buildInfo := &entities.BuildInfo{
+		Modules:    []entities.Module{{Id: "chart:0.1.0", Type: "helm"}},
+		BuildAgent: &entities.Agent{Name: "Helm", Version: "test"},
+	}
+
+	err := handlePushCommand(buildInfo, []string{chartPath, "oci://helm-repo.art.com"}, serviceManager, "build-name", "42", "proj")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "failed to apply build properties on OCI manifest folder")
+	assert.ErrorContains(t, err, "failed to set build properties on artifacts")
+	assert.ErrorContains(t, err, "set props failed")
+	require.Len(t, serviceManager.propsCalls, 1)
+	assert.Empty(t, buildInfo.Modules[0].Artifacts)
 }
