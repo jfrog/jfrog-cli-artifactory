@@ -54,6 +54,37 @@ func extractRepositoryFromHostSubdomain(host string) string {
 	return ""
 }
 
+type ociRepoCandidate struct {
+	repoKey string
+	subpath string
+}
+
+// generateRepoCandidates generates plausible Artifactory repo key + subpath
+// combinations for an OCI reference. For path-based URLs, it attempts:
+//  1. Host-derived repo key if different (e.g., "helm-repo" for "helm-repo.art.com")
+//  2. First path segment as repo key (e.g., "team-a" for "team-a/charts")
+//
+// Candidates are validated by searching for actual OCI artifacts at each location,
+// ensuring correctness without relying solely on URL structure heuristics.
+func generateRepoCandidates(registry, repository string) []ociRepoCandidate {
+	if repository == "" {
+		return []ociRepoCandidate{{repoKey: extractRepositoryFromHostSubdomain(registry)}}
+	}
+	segments := strings.FieldsFunc(repository, func(r rune) bool {
+		return r == '/'
+	})
+	if len(segments) == 0 {
+		return nil
+	}
+	var candidates []ociRepoCandidate
+	hostRepoKey := extractRepositoryFromHostSubdomain(registry)
+	if hostRepoKey != "" && hostRepoKey != segments[0] {
+		candidates = append(candidates, ociRepoCandidate{repoKey: hostRepoKey, subpath: repository})
+	}
+	candidates = append(candidates, ociRepoCandidate{repoKey: segments[0], subpath: strings.Join(segments[1:], "/")})
+	return candidates
+}
+
 // removeProtocolPrefix removes protocol prefix from URL
 func removeProtocolPrefix(repository string) string {
 	prefixes := []string{oci, schemeHttp + "://", schemeSecure + "://"}

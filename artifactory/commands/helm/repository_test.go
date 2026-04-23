@@ -194,6 +194,61 @@ func TestIsOCIRepository(t *testing.T) {
 	}
 }
 
+func TestGenerateOCIRepoCandidates(t *testing.T) {
+	tests := []struct {
+		name       string
+		registry   string
+		repository string
+		expected   []ociRepoCandidate
+	}{
+		{
+			name:       "host-only registry falls back to host repo",
+			registry:   "helm-repo.company.example",
+			repository: "",
+			expected:   []ociRepoCandidate{{repoKey: "helm-repo"}},
+		},
+		{
+			name:       "generic multi-label host yields host-first and path fallback candidates",
+			registry:   "art.company.example",
+			repository: "helm-repo/staging/libs",
+			expected: []ociRepoCandidate{
+				{repoKey: "art", subpath: "helm-repo/staging/libs"},
+				{repoKey: "helm-repo", subpath: "staging/libs"},
+			},
+		},
+		{
+			name:       "virtual host prefers host-based candidate before path fallback",
+			registry:   "helm-repo.company.example",
+			repository: "team-a/charts",
+			expected: []ociRepoCandidate{
+				{repoKey: "helm-repo", subpath: "team-a/charts"},
+				{repoKey: "team-a", subpath: "charts"},
+			},
+		},
+		{
+			name:       "single-segment virtual host subpath prefers host-based candidate before path fallback",
+			registry:   "helm-repo.art.com",
+			repository: "team-a",
+			expected: []ociRepoCandidate{
+				{repoKey: "helm-repo", subpath: "team-a"},
+				{repoKey: "team-a", subpath: ""},
+			},
+		},
+		{
+			name:       "single-segment path repo does not add duplicate host fallback",
+			registry:   "helm-repo.company.example",
+			repository: "helm-repo",
+			expected:   []ociRepoCandidate{{repoKey: "helm-repo", subpath: ""}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, generateRepoCandidates(tt.registry, tt.repository))
+		})
+	}
+}
+
 // TestRemoveProtocolPrefix tests the removeProtocolPrefix function
 func TestRemoveProtocolPrefix(t *testing.T) {
 	tests := []struct {
