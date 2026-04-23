@@ -4,6 +4,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/delete"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/install"
+	skillslist "github.com/jfrog/jfrog-cli-artifactory/skills/commands/list"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/publish"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/search"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
@@ -11,6 +12,12 @@ import (
 
 func GetCommands() []components.Command {
 	return []components.Command{
+		{
+			Name:        "list",
+			Flags:       flagkit.GetCommandFlags(flagkit.SkillsList),
+			Description: "List skills from an Artifactory repository (--repo) or from a local AI agent's skills directory (--agent). Exactly one of --repo or --agent must be specified.",
+			Action:      skillslist.RunList,
+		},
 		{
 			Name:        "publish",
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsPublish),

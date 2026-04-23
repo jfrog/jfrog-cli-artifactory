@@ -13,6 +13,31 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+func ListSkills(serverDetails *config.ServerDetails, repoKey string, limit int, sortBy string) ([]services.SkillListItem, error) {
+	sm, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
+	if err != nil {
+		return nil, err
+	}
+	var all []services.SkillListItem
+	cursor := ""
+	pageSize := 100
+	for {
+		items, nextCursor, err := sm.ListSkills(repoKey, pageSize, cursor, sortBy)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, items...)
+		if limit > 0 && len(all) >= limit {
+			return all[:limit], nil
+		}
+		if nextCursor == "" || len(items) < pageSize {
+			break
+		}
+		cursor = nextCursor
+	}
+	return all, nil
+}
+
 func ListVersions(serverDetails *config.ServerDetails, repoKey, slug string) ([]services.SkillVersion, error) {
 	sm, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
 	if err != nil {
