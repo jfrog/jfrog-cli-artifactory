@@ -502,6 +502,7 @@ const (
 	// Skills commands keys
 	SkillsPublish = "skills-publish"
 	SkillsInstall = "skills-install"
+	SkillsUpdate  = "skills-update"
 	SkillsSearch  = "skills-search"
 	SkillsDelete  = "skills-delete"
 
@@ -511,10 +512,14 @@ const (
 	signingKey          = "signing-key"
 	keyAlias            = "key-alias"
 	skillsQuiet         = "skills-" + quiet
+	skillsForce         = "force"
 	propSearch          = "prop"
 	skillsFormat        = "skills-" + Format
 	skipScan            = "skip-scan"
 	autoDeleteOnFailure = "auto-delete-on-failure"
+	skillsAgent         = "agent"
+	skillsProjectDir    = "project-dir"
+	skillsCrossAgent    = "cross-agent"
 )
 
 var commandFlags = map[string][]string{
@@ -848,6 +853,11 @@ var commandFlags = map[string][]string{
 	SkillsInstall: {
 		url, user, password, accessToken, serverId, repo, version, installPath, skillsQuiet,
 	},
+	SkillsUpdate: {
+		url, user, password, accessToken, serverId, repo, version,
+		skillsAgent, skillsProjectDir, global, skillsCrossAgent,
+		dryRun, skillsForce, skillsQuiet,
+	},
 	SkillsDelete: {
 		url, user, password, accessToken, serverId, repo, version, dryRun,
 	},
@@ -1162,7 +1172,11 @@ var flagsMap = map[string]components.Flag{
 	signingKey:          components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
 	keyAlias:            components.NewStringFlag(keyAlias, "Alias for the signing key. Overrides EVD_KEY_ALIAS env var.", components.SetMandatoryFalse()),
 	skillsQuiet:         components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
+	skillsForce:         components.NewBoolFlag(skillsForce, "Re-download the skill even if it is already at the target version, overwriting any local modifications.", components.WithBoolDefaultValueFalse()),
 	skillsFormat:        components.NewStringFlag(Format, "Output format: \"table\" (default) or \"json\".", components.SetMandatoryFalse()),
+	skillsAgent:         components.NewStringFlag(skillsAgent, "Target AI agent (cursor, claude-code, github-copilot, windsurf). Mutually exclusive with --cross-agent.", components.SetMandatoryFalse()),
+	skillsProjectDir:    components.NewStringFlag(skillsProjectDir, "Path to the project root. Installs into <project-dir>/<agent-project-dir>. Defaults to current directory.", components.SetMandatoryFalse()),
+	skillsCrossAgent:    components.NewBoolFlag(skillsCrossAgent, "Install the skill into the cross-agent directory (.agents/skills). Mutually exclusive with --agent.", components.WithBoolDefaultValueFalse()),
 	propSearch:          components.NewBoolFlag(propSearch, "Use Artifactory property search (skill.name) instead of Skills API search.", components.WithBoolDefaultValueFalse()),
 	skipScan:            components.NewBoolFlag(skipScan, "Skip Xray security scan after publish. Can also be set via JFROG_CLI_SKIP_SKILLS_SCAN=true.", components.WithBoolDefaultValueFalse()),
 	autoDeleteOnFailure: components.NewBoolFlag(autoDeleteOnFailure, "Automatically delete the artifact if Xray scan identifies it as malicious.", components.WithBoolDefaultValueFalse()),

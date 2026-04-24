@@ -6,6 +6,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/install"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/publish"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/search"
+	skillsupdate "github.com/jfrog/jfrog-cli-artifactory/skills/commands/update"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 )
 
@@ -31,6 +32,13 @@ func GetCommands() []components.Command {
 			Description: "Search for skills across Artifactory repositories.",
 			Arguments:   getSearchArguments(),
 			Action:      search.RunSearch,
+		},
+		{
+			Name:        "update",
+			Flags:       flagkit.GetCommandFlags(flagkit.SkillsUpdate),
+			Description: "Update an installed skill to the latest (or a specific) version. Use --dry-run to preview and --force to re-download even when already up to date.",
+			Arguments:   getUpdateArguments(),
+			Action:      skillsupdate.RunUpdate,
 		},
 		{
 			Name:        "delete",
@@ -65,6 +73,15 @@ func getInstallArguments() []components.Argument {
 		{
 			Name:        "slug",
 			Description: "Skill name/slug to install.",
+		},
+	}
+}
+
+func getUpdateArguments() []components.Argument {
+	return []components.Argument{
+		{
+			Name:        "slug",
+			Description: "Skill name/slug to update (e.g. web-search).",
 		},
 	}
 }

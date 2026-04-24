@@ -115,6 +115,9 @@ func (ic *InstallCommand) Run() error {
 	}
 
 	destDir := ic.getDestDir()
+	if err := os.RemoveAll(destDir); err != nil {
+		return fmt.Errorf("failed to remove existing skill directory: %w", err)
+	}
 	if err := copyDir(unzipDir, destDir); err != nil {
 		return fmt.Errorf("failed to copy skill files: %w", err)
 	}
