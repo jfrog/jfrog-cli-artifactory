@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	coreformat "github.com/jfrog/jfrog-cli-core/v2/common/format"
@@ -157,4 +159,128 @@ func TestPrintSearchTable_EmptyResults(t *testing.T) {
 
 	err := printSearchTable(reader)
 	assert.NoError(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// getPingOutputFormat tests
+// ---------------------------------------------------------------------------
+
+func TestGetPingOutputFormat_Default(t *testing.T) {
+	ctx := newTestContext(nil)
+	format, err := getPingOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
+}
+
+func TestGetPingOutputFormat_ExplicitJSON(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "json"})
+	format, err := getPingOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Json, format)
+}
+
+func TestGetPingOutputFormat_ExplicitTable(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "table"})
+	format, err := getPingOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Table, format)
+}
+
+func TestGetPingOutputFormat_Invalid(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "xml"})
+	_, err := getPingOutputFormat(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// ---------------------------------------------------------------------------
+// printPingResponse tests
+// ---------------------------------------------------------------------------
+
+func TestPrintPingResponse_JSON(t *testing.T) {
+	var buf bytes.Buffer
+	err := printPingResponse([]byte("OK"), coreformat.Json, &buf)
+	require.NoError(t, err)
+	// Verify the output is valid JSON with the expected fields.
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(`{"message":"OK","status_code":200}`), &result))
+}
+
+func TestPrintPingResponse_Table(t *testing.T) {
+	var buf bytes.Buffer
+	err := printPingResponse([]byte("OK"), coreformat.Table, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "VALUE")
+	assert.Contains(t, out, "status_code")
+	assert.Contains(t, out, "200")
+	assert.Contains(t, out, "message")
+	assert.Contains(t, out, "OK")
+}
+
+func TestPrintPingResponse_None_BackwardCompat(t *testing.T) {
+	var buf bytes.Buffer
+	err := printPingResponse([]byte("OK"), coreformat.None, &buf)
+	require.NoError(t, err)
+	// None format uses log.Output (not the writer), so buf stays empty.
+	// Just verify no error is returned.
+}
+
+func TestPrintPingResponse_UnsupportedFormat(t *testing.T) {
+	var buf bytes.Buffer
+	err := printPingResponse([]byte("OK"), coreformat.Sarif, &buf)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported format")
+	assert.Contains(t, err.Error(), "rt ping")
+}
+
+// ---------------------------------------------------------------------------
+// printPingTable tests
+// ---------------------------------------------------------------------------
+
+func TestPrintPingTable_OKBody(t *testing.T) {
+	var buf bytes.Buffer
+	err := printPingTable([]byte("OK"), &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	require.GreaterOrEqual(t, len(lines), 3, "expected header + 2 data rows")
+	assert.Contains(t, lines[0], "FIELD")
+	assert.Contains(t, lines[0], "VALUE")
+	assert.Contains(t, out, "status_code")
+	assert.Contains(t, out, "200")
+	assert.Contains(t, out, "message")
+	assert.Contains(t, out, "OK")
+}
+
+func TestPrintPingTable_EmptyBody(t *testing.T) {
+	var buf bytes.Buffer
+	err := printPingTable(nil, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	// Empty body falls back to HTTP status phrase "OK".
+	assert.Contains(t, out, "OK")
+}
+
+// ---------------------------------------------------------------------------
+// pingResponseFromBody tests
+// ---------------------------------------------------------------------------
+
+func TestPingResponseFromBody_PlainText(t *testing.T) {
+	resp := pingResponseFromBody([]byte("OK"))
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "OK", resp.Message)
+}
+
+func TestPingResponseFromBody_EmptyBody(t *testing.T) {
+	resp := pingResponseFromBody(nil)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "OK", resp.Message) // http.StatusText(200) == "OK"
+}
+
+func TestPingResponseFromBody_WhitespaceBody(t *testing.T) {
+	resp := pingResponseFromBody([]byte("  OK  "))
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "OK", resp.Message)
 }

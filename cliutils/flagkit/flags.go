@@ -437,6 +437,10 @@ const (
 	maxWaitMinutes = "max-wait-minutes"
 	CreateRepo     = "create-repo"
 
+	// Unique ping flags
+	pingPrefix = "ping-"
+	pingFormat = pingPrefix + Format
+
 	// Unique offline-update flags
 	target = "target"
 
@@ -776,7 +780,7 @@ var commandFlags = map[string][]string{
 	},
 	Ping: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
-		ClientCertKeyPath, InsecureTls,
+		ClientCertKeyPath, InsecureTls, pingFormat,
 	},
 	RtCurl: {
 		serverId,
@@ -970,8 +974,11 @@ var flagsMap = map[string]components.Flag{
 	deleteProps:        components.NewStringFlag(props, "List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts with these properties will be deleted.", components.SetMandatoryFalse()),
 	deleteExcludeProps: components.NewStringFlag(excludeProps, "List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts without the specified properties will be deleted.", components.SetMandatoryFalse()),
 
+	// Ping specific command flags
+	pingFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
+
 	// Search specific commands flags
-	searchFormat:       components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
+	searchFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
 	searchRecursive:    components.NewBoolFlag(Recursive, "[Default: true] Set to false if you do not wish to search artifacts inside sub-folders in Artifactory.", components.WithBoolDefaultValueFalse()),
 	count:              components.NewBoolFlag(count, "Set to true to display only the total of files or folders found.", components.WithBoolDefaultValueFalse()),
 	searchProps:        components.NewStringFlag(props, "List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts with these properties will be returned.", components.SetMandatoryFalse()),

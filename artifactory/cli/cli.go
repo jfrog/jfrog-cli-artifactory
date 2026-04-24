@@ -1,10 +1,14 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"text/tabwriter"
 
 	ioutils "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/buildinfo"
@@ -637,16 +641,83 @@ func pingCmd(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-	pingCmd := coregeneric.NewPingCommand()
-	pingCmd.SetServerDetails(artDetails)
-	err = commands.Exec(pingCmd)
-	resString := clientutils.IndentJson(pingCmd.Response())
+	cmd := coregeneric.NewPingCommand()
+	cmd.SetServerDetails(artDetails)
+	err = commands.Exec(cmd)
+	resBody := cmd.Response()
+	resString := clientutils.IndentJson(resBody)
 	if err != nil {
 		return errors.New(err.Error() + "\n" + resString)
 	}
-	log.Output(resString)
+	outputFormat, fmtErr := getPingOutputFormat(c)
+	if fmtErr != nil {
+		return fmtErr
+	}
+	return printPingResponse(resBody, outputFormat, os.Stdout)
+}
 
-	return err
+// getPingOutputFormat reads the --format flag and returns the resolved output format.
+// When the flag is not set the function returns coreformat.None, preserving the
+// previous behaviour (plain-text "OK" output).
+func getPingOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
+	if !c.IsFlagSet(flagkit.Format) {
+		return coreformat.None, nil
+	}
+	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
+}
+
+// printPingResponse renders the raw ping body in the requested output format.
+func printPingResponse(body []byte, outputFormat coreformat.OutputFormat, w io.Writer) error {
+	switch outputFormat {
+	case coreformat.None:
+		// Backward-compatible: print the raw (or indented) response as before.
+		log.Output(clientutils.IndentJson(body))
+		return nil
+	case coreformat.Json:
+		return printPingJSON(body)
+	case coreformat.Table:
+		return printPingTable(body, w)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt ping. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// pingResponse is the structured representation emitted for --format json / table.
+type pingResponse struct {
+	StatusCode int    `json:"status_code"`
+	Message    string `json:"message"`
+}
+
+// pingResponseFromBody builds a pingResponse from the raw HTTP body.
+// The body is expected to be plain text (e.g. "OK"). A 200 status is assumed
+// because error responses are handled before this function is called.
+func pingResponseFromBody(body []byte) pingResponse {
+	msg := http.StatusText(http.StatusOK)
+	if len(body) > 0 {
+		msg = strings.TrimSpace(string(body))
+	}
+	return pingResponse{StatusCode: http.StatusOK, Message: msg}
+}
+
+// printPingJSON emits the ping result as indented JSON.
+func printPingJSON(body []byte) error {
+	resp := pingResponseFromBody(body)
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	log.Output(clientutils.IndentJson(data))
+	return nil
+}
+
+// printPingTable renders the ping result as a two-column tabwriter table.
+func printPingTable(body []byte, w io.Writer) error {
+	resp := pingResponseFromBody(body)
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
+	_, _ = fmt.Fprintf(tw, "status_code\t%d\n", resp.StatusCode)
+	_, _ = fmt.Fprintf(tw, "message\t%s\n", resp.Message)
+	return tw.Flush()
 }
 
 func prepareDownloadCommand(c *components.Context) (*spec.SpecFiles, error) {
