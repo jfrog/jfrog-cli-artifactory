@@ -223,6 +223,7 @@ const (
 	downloadSplitCount   = downloadPrefix + SplitCount
 	validateSymlinks     = "validate-symlinks"
 	skipChecksum         = "skip-checksum"
+	downloadFormat       = downloadPrefix + Format
 
 	// Unique move flags
 	movePrefix       = "move-"
@@ -605,7 +606,7 @@ var commandFlags = map[string][]string{
 		sortOrder, limit, offset, downloadRecursive, downloadFlat, build, includeDeps, excludeArtifacts, downloadMinSplit, downloadSplitCount,
 		retries, retryWaitTime, dryRun, downloadExplode, bypassArchiveInspection, validateSymlinks, bundle, publicGpgKey, includeDirs,
 		downloadProps, downloadExcludeProps, failNoOp, threads, archiveEntries, downloadSyncDeletes, syncDeletesQuiet, InsecureTls, detailedSummary, Project,
-		skipChecksum,
+		skipChecksum, downloadFormat,
 	},
 	DirectDownload: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
@@ -977,6 +978,9 @@ var flagsMap = map[string]components.Flag{
 
 	// Upload specific command flags
 	uploadFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
+
+	// Download specific command flags
+	downloadFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
 
 	// Ping specific command flags
 	pingFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),

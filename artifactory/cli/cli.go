@@ -867,7 +867,7 @@ func directDownloadCmd(c *components.Context) error {
 	return common.GetCliError(err, result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c))
 }
 
-func downloadCmd(c *components.Context) error {
+func downloadCmd(c *components.Context) (err error) {
 	downloadSpec, err := prepareDownloadCommand(c)
 	if err != nil {
 		return err
@@ -894,8 +894,16 @@ func downloadCmd(c *components.Context) error {
 	if err != nil {
 		return err
 	}
+	outputFormat, err := getDownloadOutputFormat(c)
+	if err != nil {
+		return err
+	}
+	detailedSummary := common.GetDetailedSummary(c)
+	// When a structured format is requested we need the per-file transfer details reader,
+	// so force detailed-summary mode regardless of the explicit flag.
+	needDetailedReader := outputFormat != coreformat.None
 	downloadCommand := generic.NewDownloadCommand()
-	downloadCommand.SetConfiguration(configuration).SetBuildConfiguration(buildConfiguration).SetSpec(downloadSpec).SetServerDetails(serverDetails).SetDryRun(c.GetBoolFlagValue("dry-run")).SetSyncDeletesPath(c.GetStringFlagValue("sync-deletes")).SetQuiet(common.GetQuietValue(c)).SetDetailedSummary(c.GetBoolFlagValue("detailed-summary")).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
+	downloadCommand.SetConfiguration(configuration).SetBuildConfiguration(buildConfiguration).SetSpec(downloadSpec).SetServerDetails(serverDetails).SetDryRun(c.GetBoolFlagValue("dry-run")).SetSyncDeletesPath(c.GetStringFlagValue("sync-deletes")).SetQuiet(common.GetQuietValue(c)).SetDetailedSummary(detailedSummary || needDetailedReader).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
 
 	if downloadCommand.ShouldPrompt() && !coreutils.AskYesNo("Sync-deletes may delete some files in your local file system. Are you sure you want to continue?\n"+
 		"You can avoid this confirmation message by adding --quiet to the command.", false) {
@@ -905,12 +913,81 @@ func downloadCmd(c *components.Context) error {
 	err = progressbar.ExecWithProgress(downloadCommand)
 	result := downloadCommand.Result()
 	defer common.CleanupResult(result, &err)
-	basicSummary, err := common.CreateSummaryReportString(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
-	if err != nil {
+	if outputFormat == coreformat.None {
+		basicSummary, sErr := common.CreateSummaryReportString(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+		if sErr != nil {
+			return sErr
+		}
+		err = common.PrintDetailedSummaryReport(basicSummary, result.Reader(), false, err)
+		return common.GetCliError(err, result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c))
+	}
+	err = printDownloadResponse(result, outputFormat, os.Stdout, common.IsFailNoOp(c), err)
+	return
+}
+
+// getDownloadOutputFormat reads the --format flag and returns the resolved output format.
+// When the flag is not set the function returns coreformat.None, preserving the
+// previous behaviour (JSON summary output via PrintDetailedSummaryReport).
+func getDownloadOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
+	if !c.IsFlagSet(flagkit.Format) {
+		return coreformat.None, nil
+	}
+	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
+}
+
+// printDownloadResponse renders the download result in the requested output format.
+// It preserves the fail-no-op and error-accounting semantics of PrintDetailedSummaryReport.
+func printDownloadResponse(result *commandUtils.Result, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		basicSummary, err := common.CreateSummaryReportString(result.SuccessCount(), result.FailCount(), failNoOp, originalErr)
+		if err != nil {
+			return err
+		}
+		return common.PrintDetailedSummaryReport(basicSummary, result.Reader(), false, originalErr)
+	case coreformat.Table:
+		err := printDownloadTable(result, w)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, result.SuccessCount(), result.FailCount(), failNoOp)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt download. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// downloadTableRow is a table-printable representation of a downloaded file.
+type downloadTableRow struct {
+	Source string `col-name:"SOURCE"`
+	Target string `col-name:"TARGET"`
+	Sha256 string `col-name:"SHA256"`
+}
+
+// printDownloadTable renders downloaded files as a human-readable table.
+func printDownloadTable(result *commandUtils.Result, w io.Writer) error {
+	reader := result.Reader()
+	if reader == nil {
+		// No per-file details available (e.g. dry-run without build-info collection).
+		// Fall back to a minimal counts table.
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
+		_, _ = fmt.Fprintf(tw, "success\t%d\n", result.SuccessCount())
+		_, _ = fmt.Fprintf(tw, "failure\t%d\n", result.FailCount())
+		return tw.Flush()
+	}
+	var rows []downloadTableRow
+	for item := new(clientutils.FileTransferDetails); reader.NextRecord(item) == nil; item = new(clientutils.FileTransferDetails) {
+		rows = append(rows, downloadTableRow{
+			Source: item.RtUrl + item.SourcePath,
+			Target: item.TargetPath,
+			Sha256: item.Sha256,
+		})
+	}
+	if err := reader.GetError(); err != nil {
 		return err
 	}
-	err = common.PrintDetailedSummaryReport(basicSummary, result.Reader(), false, err)
-	return common.GetCliError(err, result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c))
+	reader.Reset()
+	return coreutils.PrintTable(rows, "Download Results", "No files were downloaded.", false)
 }
 
 func checkRbExistenceInV2(c *components.Context) (bool, error) {
