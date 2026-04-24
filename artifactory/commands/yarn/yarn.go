@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/build-info-go/flexpack"
 	gofrogio "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-core/v2/common/format"
 	"github.com/jfrog/jfrog-client-go/artifactory"
@@ -27,6 +28,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
+	"github.com/jfrog/gofrog/version"
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -43,6 +45,11 @@ const (
 	// #nosec G101
 	yarnNpmAuthToken  = "YARN_NPM_AUTH_TOKEN"
 	yarnNpmAlwaysAuth = "YARN_NPM_ALWAYS_AUTH"
+
+	// maxSupportedYarnVersion is the highest major version of Yarn that is supported.
+	// Yarn v4 (Berry) is now fully supported.
+	maxSupportedYarnVersion = "4"
+	nextMajorYarnVersion    = "5.0.0"
 )
 
 type YarnCommand struct {
@@ -59,6 +66,7 @@ type YarnCommand struct {
 	serverDetails      *config.ServerDetails
 	buildConfiguration *buildUtils.BuildConfiguration
 	buildInfoModule    *build.YarnModule
+	useNative          bool
 }
 
 func NewYarnCommand() *YarnCommand {
@@ -75,6 +83,21 @@ func (yc *YarnCommand) SetArgs(args []string) *YarnCommand {
 	return yc
 }
 
+func (yc *YarnCommand) SetUseNative(useNative bool) *YarnCommand {
+	yc.useNative = useNative
+	return yc
+}
+
+func (yc *YarnCommand) SetBuildConfiguration(buildConfiguration *buildUtils.BuildConfiguration) *YarnCommand {
+	yc.buildConfiguration = buildConfiguration
+	return yc
+}
+
+func (yc *YarnCommand) SetServerDetails(serverDetails *config.ServerDetails) *YarnCommand {
+	yc.serverDetails = serverDetails
+	return yc
+}
+
 func (yc *YarnCommand) Run() (err error) {
 	log.Info("Running Yarn...")
 	if err = yc.validateSupportedCommand(); err != nil {
@@ -82,6 +105,82 @@ func (yc *YarnCommand) Run() (err error) {
 		return
 	}
 
+	// Check if native mode is enabled via JFROG_RUN_NATIVE env var
+	if flexpack.IsFlexPackEnabled() {
+		yc.useNative = true
+		log.Info("Running yarn in native mode (JFROG_RUN_NATIVE=true)")
+	}
+
+	if yc.useNative {
+		return yc.runNative()
+	}
+	return yc.runWithConfiguredRegistry()
+}
+
+// runNative runs yarn using the user's own .yarnrc.yml authentication configuration.
+// This mode is activated when JFROG_RUN_NATIVE=true. It skips all Artifactory auth
+// configuration and .yarnrc backup/restore, trusting the user's existing setup.
+//
+// Dependency tree collection works the same way via `yarn info --all --recursive --json`.
+// Server details for checksum collection are resolved from --server-id or the default server.
+func (yc *YarnCommand) runNative() (err error) {
+	var filteredYarnArgs []string
+	yc.threads, _, _, _, filteredYarnArgs, yc.buildConfiguration, err = extractYarnOptionsFromArgs(yc.yarnArgs)
+	if err != nil {
+		log.Debug("Error occurred while extracting yarn opts: ", err)
+		return
+	}
+
+	// Extract --server-id from args; if empty, GetSpecificConfig returns the default server.
+	filteredYarnArgs, serverID, err := coreutils.ExtractServerIdFromCommand(filteredYarnArgs)
+	if err != nil {
+		return
+	}
+	if yc.serverDetails == nil {
+		yc.serverDetails, err = config.GetSpecificConfig(serverID, true, true)
+		if err != nil {
+			return
+		}
+	}
+
+	if err = yc.preparePrerequisites(); err != nil {
+		return
+	}
+
+	var missingDepsChan chan string
+	var missingDependencies []string
+	if yc.collectBuildInfo {
+		missingDepsChan, err = yc.prepareBuildInfo()
+		if err != nil {
+			return
+		}
+		go func() {
+			for depId := range missingDepsChan {
+				missingDependencies = append(missingDependencies, depId)
+			}
+		}()
+	}
+
+	// In native mode, we use the user's own .yarnrc.yml as-is — no backup/restore needed.
+	yc.buildInfoModule.SetArgs(filteredYarnArgs)
+	if err = yc.buildInfoModule.Build(); err != nil {
+		return
+	}
+
+	if yc.collectBuildInfo {
+		close(missingDepsChan)
+		printMissingDependencies(missingDependencies)
+	}
+
+	log.Info("Yarn finished successfully.")
+	return
+}
+
+// runWithConfiguredRegistry runs yarn after configuring the registry and auth
+// from the project's jfrog config file. It sets YARN_NPM_* environment variables
+// and modifies .yarnrc.yml to point at the configured Artifactory repository,
+// then restores everything after the build completes.
+func (yc *YarnCommand) runWithConfiguredRegistry() (err error) {
 	if err = yc.readConfigFile(); err != nil {
 		return
 	}
@@ -95,11 +194,6 @@ func (yc *YarnCommand) Run() (err error) {
 
 	if err = yc.preparePrerequisites(); err != nil {
 		return
-	}
-
-	err = verifyYarnVersion(yc.executablePath, filteredYarnArgs)
-	if err != nil {
-		return err
 	}
 
 	var missingDepsChan chan string
@@ -164,30 +258,42 @@ func (yc *YarnCommand) validateSupportedCommand() error {
 				return errorutils.CheckErrorf("The command 'jfrog rt yarn npm %s' is not supported.", npmCommand)
 			}
 		}
-		// validate 'yarn set version *' command
-		err := validateSupportedVersion(arg, yc.yarnArgs, index)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// validateSupportedVersion checks if the version to be set is supported.
-// currently version 4 is not supported.
-func validateSupportedVersion(arg string, yarnArgs []string, index int) error {
-	if arg == "set" && len(yarnArgs) > index {
-		setCommand := yarnArgs[index+1]
-		if setCommand == "version" && len(yarnArgs) > index+2 {
-			versionCommand := yarnArgs[index+2]
-			err := yarn.IsVersionSupported(versionCommand)
-			if err != nil {
+		if arg == "set" && len(yc.yarnArgs) > index+2 && yc.yarnArgs[index+1] == "version" {
+			if err := validateSetVersion(yc.yarnArgs[index+2]); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
 }
+
+// validateSetVersion checks that the requested yarn version in 'yarn set version X.Y.Z'
+// does not exceed the maximum supported major version.
+func validateSetVersion(requestedVersion string) error {
+	v := version.NewVersion(requestedVersion)
+	if v.AtLeast(nextMajorYarnVersion) {
+		return errorutils.CheckErrorf(
+			"Yarn version %s is not supported. The maximum supported major version is %s.",
+			requestedVersion, maxSupportedYarnVersion)
+	}
+	return nil
+}
+
+// skipVersionCheck returns true for commands that should not trigger a yarn version
+// compatibility check (e.g. 'yarn set version' or 'yarn --version').
+func skipVersionCheck(args []string) bool {
+	for i, arg := range args {
+		if arg == "--version" || arg == "-v" {
+			return true
+		}
+		if arg == "set" && len(args) > i+1 && args[i+1] == "version" {
+			return true
+		}
+	}
+	return false
+}
+
+
 
 func (yc *YarnCommand) readConfigFile() error {
 	log.Debug("Preparing to read the config file", yc.configFilePath)
@@ -246,6 +352,11 @@ func (yc *YarnCommand) preparePrerequisites() error {
 		yc.buildInfoModule.SetName(yc.buildConfiguration.GetModule())
 	}
 
+	// In native mode, the user handles auth via their own .yarnrc.yml — skip Artifactory auth setup.
+	if yc.useNative {
+		return nil
+	}
+
 	yc.registry, yc.npmAuthIdent, yc.npmAuthToken, err = GetYarnAuthDetails(yc.serverDetails, yc.repo)
 	return err
 }
@@ -298,33 +409,6 @@ func GetYarnAuthDetails(server *config.ServerDetails, repo string) (registry, np
 	return
 }
 
-func verifyYarnVersion(executablePath string, filteredYarnArgs []string) error {
-	if skipVersionCheck(filteredYarnArgs) {
-
-		log.Debug("Skipping yarn version verification")
-		return nil
-	}
-	err := yarn.IsInstalledYarnVersionSupported(executablePath)
-	log.Debug("Yarn version verified")
-	if err != nil {
-		return err
-	}
-	log.Debug("Successfully verified yarn version")
-	return nil
-}
-
-func skipVersionCheck(filteredYarnArgs []string) bool {
-	// Allow 'yarn set version' command - (this will help to downgrade and upgrade yarn version)
-	if len(filteredYarnArgs) >= 2 && filteredYarnArgs[0] == "set" && filteredYarnArgs[1] == "version" {
-		return true
-	}
-
-	// Allow '--version' to check current version
-	if len(filteredYarnArgs) >= 1 && filteredYarnArgs[0] == "--version" {
-		return true
-	}
-	return false
-}
 
 func setArtifactoryAuth(server *config.ServerDetails) (auth.ServiceDetails, error) {
 	authArtDetails, err := server.CreateArtAuthConfig()
@@ -384,8 +468,8 @@ func updateScopeRegistries(execPath, registry, npmAuthIdent, npmAuthToken string
 	if err != nil {
 		return err
 	}
-	// If npmScopesStr is "undefined" it means that the npmScopes configuration does not exist in case using yarn version 4.
-	if npmScopesStr == "undefined" {
+	// Empty string means the npmScopes configuration is not set (normalised from yarn v4's "undefined" by ConfigGet).
+	if npmScopesStr == "" {
 		return nil
 	}
 	npmScopesMap := make(map[string]yarnNpmScope)
