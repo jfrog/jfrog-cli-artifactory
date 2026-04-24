@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/jfrog/build-info-go/build"
@@ -100,8 +102,9 @@ func (pic *PnpmInstallCommand) collectAndSaveBuildInfo() error {
 	}
 	log.Debug("Server details. Artifactory URL:", pic.serverDetails.ArtifactoryUrl)
 
+	scopeToCurrentPackage := isPnpmWorkspaceSubPackage(pic.workingDirectory)
 	log.Debug("Running pnpm ls to collect dependency tree...")
-	projects, err := runPnpmLs(pic.workingDirectory)
+	projects, err := runPnpmLs(pic.workingDirectory, extractLsForwardFlags(pic.pnpmArgs), scopeToCurrentPackage)
 	if err != nil {
 		return err
 	}
@@ -114,8 +117,82 @@ func (pic *PnpmInstallCommand) collectAndSaveBuildInfo() error {
 	return saveBuildInfo(modules, pic.buildConfiguration)
 }
 
-func runPnpmLs(workingDir string) ([]pnpmLsProject, error) {
-	pnpmLsArgs := []string{"ls", "-r", "--depth", "Infinity", "--json"}
+// isPnpmWorkspaceSubPackage returns true when workingDir is inside a pnpm workspace
+// but is NOT the workspace root (i.e. the user invoked the command from a single
+// workspace package). When true, build-info should be scoped to that package only.
+//
+// Detection is delegated to pnpm itself via `pnpm root -w`, which prints the
+// workspace root's node_modules path when inside a workspace and errors with a
+// non-zero exit code otherwise. Any error (not a workspace, pnpm missing, etc.)
+// is logged at debug level and treated as "not a sub-package" — in that case
+// the caller keeps the existing recursive behavior.
+func isPnpmWorkspaceSubPackage(workingDir string) bool {
+	cmd := exec.Command("pnpm", "root", "-w")
+	cmd.Dir = workingDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Debug(fmt.Sprintf("pnpm workspace detection skipped (%s; output: %q); falling back to recursive pnpm ls.", err.Error(), strings.TrimSpace(string(out))))
+		return false
+	}
+	workspaceRoot := filepath.Dir(strings.TrimSpace(string(out)))
+	// pnpm resolves symlinks in its output (e.g. on macOS /var → /private/var), so
+	// compare canonicalized paths to avoid false "sub-package" detection when the
+	// working directory happens to contain a symlink.
+	if samePath(workspaceRoot, workingDir) {
+		log.Debug("Invoked at pnpm workspace root; collecting build-info for all workspace packages.")
+		return false
+	}
+	if workspaceRoot == "" {
+		return false
+	}
+	log.Debug(fmt.Sprintf("Invoked inside workspace sub-package (workspace root: %s); scoping build-info to current package.", workspaceRoot))
+	return true
+}
+
+// samePath reports whether a and b refer to the same directory after resolving
+// symlinks. Falls back to a plain string comparison if either path cannot be
+// resolved (e.g. one side no longer exists on disk).
+func samePath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	resolvedA, errA := filepath.EvalSymlinks(a)
+	resolvedB, errB := filepath.EvalSymlinks(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return resolvedA == resolvedB
+}
+
+// extractLsForwardFlags returns flags from the user's pnpm install args that must
+// be forwarded to `pnpm ls` so the dependency tree respects the same workspace
+// scope as the install command (e.g. --ignore-workspace).
+func extractLsForwardFlags(installArgs []string) []string {
+	var forwarded []string
+	for _, arg := range installArgs {
+		if arg == "--ignore-workspace" {
+			forwarded = append(forwarded, arg)
+		}
+	}
+	return forwarded
+}
+
+// buildPnpmLsArgs assembles the argument list for `pnpm ls`. The `-r` flag is omitted
+// when either (a) we are scoping output to the current working directory's package, or
+// (b) the user forwarded --ignore-workspace — in that case pnpm emits one JSON array
+// per project concatenated on stdout, which is not parseable as a single array.
+func buildPnpmLsArgs(extraArgs []string, scopeToCurrentPackage bool) []string {
+	args := []string{"ls"}
+	if !scopeToCurrentPackage && !slices.Contains(extraArgs, "--ignore-workspace") {
+		args = append(args, "-r")
+	}
+	args = append(args, "--depth", "Infinity", "--json")
+	args = append(args, extraArgs...)
+	return args
+}
+
+func runPnpmLs(workingDir string, extraArgs []string, scopeToCurrentPackage bool) ([]pnpmLsProject, error) {
+	pnpmLsArgs := buildPnpmLsArgs(extraArgs, scopeToCurrentPackage)
 	log.Info("Collecting dependency tree information. This may take a few minutes for large projects...")
 	log.Debug("Running command: pnpm", strings.Join(pnpmLsArgs, " "))
 	command := exec.Command("pnpm", pnpmLsArgs...)
