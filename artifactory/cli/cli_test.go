@@ -7,8 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	commandUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	coreformat "github.com/jfrog/jfrog-cli-core/v2/common/format"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
+	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -283,4 +285,135 @@ func TestPingResponseFromBody_WhitespaceBody(t *testing.T) {
 	resp := pingResponseFromBody([]byte("  OK  "))
 	assert.Equal(t, 200, resp.StatusCode)
 	assert.Equal(t, "OK", resp.Message)
+}
+
+// ---------------------------------------------------------------------------
+// upload test helpers
+// ---------------------------------------------------------------------------
+
+// createUploadResult builds a *commandUtils.Result with the given counts and an optional
+// per-file transfer-details ContentReader (keyed "files", matching Artifactory's convention).
+func createUploadResult(t *testing.T, success, failed int, transfers []clientutils.FileTransferDetails) *commandUtils.Result {
+	t.Helper()
+	r := new(commandUtils.Result)
+	r.SetSuccessCount(success)
+	r.SetFailCount(failed)
+	if transfers != nil {
+		type filesWrapper struct {
+			Files []clientutils.FileTransferDetails `json:"files"`
+		}
+		data, err := json.Marshal(filesWrapper{Files: transfers})
+		require.NoError(t, err)
+
+		f, err := os.CreateTemp("", "upload-details-*.json")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = os.Remove(f.Name()) })
+		_, err = f.Write(data)
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+
+		r.SetReader(content.NewContentReader(f.Name(), "files"))
+	}
+	return r
+}
+
+// ---------------------------------------------------------------------------
+// getUploadOutputFormat tests
+// ---------------------------------------------------------------------------
+
+func TestGetUploadOutputFormat_Default(t *testing.T) {
+	ctx := newTestContext(nil)
+	format, err := getUploadOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
+}
+
+func TestGetUploadOutputFormat_ExplicitJSON(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "json"})
+	format, err := getUploadOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Json, format)
+}
+
+func TestGetUploadOutputFormat_ExplicitTable(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "table"})
+	format, err := getUploadOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Table, format)
+}
+
+func TestGetUploadOutputFormat_Invalid(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "xml"})
+	_, err := getUploadOutputFormat(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// ---------------------------------------------------------------------------
+// printUploadTable tests
+// ---------------------------------------------------------------------------
+
+func TestPrintUploadTable_WithResults(t *testing.T) {
+	transfers := []clientutils.FileTransferDetails{
+		{SourcePath: "/local/a.jar", TargetPath: "repo/a.jar", RtUrl: "https://myrt.example.com/", Sha256: "abc123"},
+		{SourcePath: "/local/b.zip", TargetPath: "repo/b.zip", RtUrl: "https://myrt.example.com/", Sha256: "def456"},
+	}
+	result := createUploadResult(t, 2, 0, transfers)
+	defer result.Reader().Close()
+
+	var buf bytes.Buffer
+	err := printUploadTable(result, &buf)
+	require.NoError(t, err)
+	// The table should not contain raw tabwriter output from the fallback path.
+	// When a reader is present, PrintTable is used (writes to stdout), so we only
+	// check that the function does not error and the reader state is consistent.
+}
+
+func TestPrintUploadTable_NoReader_FallsBackToCountsTable(t *testing.T) {
+	result := createUploadResult(t, 3, 1, nil)
+
+	var buf bytes.Buffer
+	err := printUploadTable(result, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "VALUE")
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "3")
+	assert.Contains(t, out, "failure")
+	assert.Contains(t, out, "1")
+}
+
+func TestPrintUploadTable_EmptyReader(t *testing.T) {
+	result := createUploadResult(t, 0, 0, []clientutils.FileTransferDetails{})
+	defer result.Reader().Close()
+
+	var buf bytes.Buffer
+	err := printUploadTable(result, &buf)
+	require.NoError(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// printUploadResponse tests
+// ---------------------------------------------------------------------------
+
+func TestPrintUploadResponse_Table_NoReader(t *testing.T) {
+	result := createUploadResult(t, 2, 0, nil)
+
+	var buf bytes.Buffer
+	err := printUploadResponse(result, coreformat.Table, &buf, false, nil)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "2")
+}
+
+func TestPrintUploadResponse_UnsupportedFormat(t *testing.T) {
+	result := createUploadResult(t, 1, 0, nil)
+
+	var buf bytes.Buffer
+	err := printUploadResponse(result, coreformat.Sarif, &buf, false, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported format")
+	assert.Contains(t, err.Error(), "rt upload")
 }

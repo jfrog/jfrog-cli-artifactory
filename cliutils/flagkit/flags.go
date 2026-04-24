@@ -209,6 +209,7 @@ const (
 	deb               = "deb"
 	symlinks          = "symlinks"
 	uploadAnt         = uploadPrefix + antFlag
+	uploadFormat      = uploadPrefix + Format
 
 	// Unique download flags
 	downloadPrefix       = "download-"
@@ -596,7 +597,7 @@ var commandFlags = map[string][]string{
 		ClientCertKeyPath, specFlag, specVars, BuildName, BuildNumber, module, uploadExclusions, deb,
 		uploadRecursive, uploadFlat, uploadRegexp, retries, retryWaitTime, dryRun, uploadExplode, symlinks, includeDirs,
 		failNoOp, threads, uploadSyncDeletes, syncDeletesQuiet, InsecureTls, detailedSummary, Project,
-		uploadAnt, uploadArchive, uploadMinSplit, uploadSplitCount, chunkSize,
+		uploadAnt, uploadArchive, uploadMinSplit, uploadSplitCount, chunkSize, uploadFormat,
 	},
 	Download: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
@@ -973,6 +974,9 @@ var flagsMap = map[string]components.Flag{
 	deleteQuiet:        components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip the delete confirmation message.", components.WithBoolDefaultValueFalse()),
 	deleteProps:        components.NewStringFlag(props, "List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts with these properties will be deleted.", components.SetMandatoryFalse()),
 	deleteExcludeProps: components.NewStringFlag(excludeProps, "List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts without the specified properties will be deleted.", components.SetMandatoryFalse()),
+
+	// Upload specific command flags
+	uploadFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
 
 	// Ping specific command flags
 	pingFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),

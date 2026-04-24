@@ -60,6 +60,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/commandWrappers"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	coregeneric "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/generic"
+	commandUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
@@ -998,13 +999,20 @@ func uploadCmd(c *components.Context) (err error) {
 	if err != nil {
 		return
 	}
+	outputFormat, err := getUploadOutputFormat(c)
+	if err != nil {
+		return
+	}
 	uploadCmd := generic.NewUploadCommand()
 	rtDetails, err := common.CreateArtifactoryDetailsByFlags(c)
 	if err != nil {
 		return
 	}
 	printDeploymentView, detailedSummary := log.IsStdErrTerminal(), common.GetDetailedSummary(c)
-	uploadCmd.SetUploadConfiguration(configuration).SetBuildConfiguration(buildConfiguration).SetSpec(uploadSpec).SetServerDetails(rtDetails).SetDryRun(c.GetBoolFlagValue("dry-run")).SetSyncDeletesPath(c.GetStringFlagValue("sync-deletes")).SetQuiet(common.GetQuietValue(c)).SetDetailedSummary(detailedSummary || printDeploymentView).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
+	// When a structured format is requested we need the per-file transfer details reader,
+	// so force detailed-summary mode regardless of the explicit flag.
+	needDetailedReader := outputFormat != coreformat.None
+	uploadCmd.SetUploadConfiguration(configuration).SetBuildConfiguration(buildConfiguration).SetSpec(uploadSpec).SetServerDetails(rtDetails).SetDryRun(c.GetBoolFlagValue("dry-run")).SetSyncDeletesPath(c.GetStringFlagValue("sync-deletes")).SetQuiet(common.GetQuietValue(c)).SetDetailedSummary(detailedSummary || printDeploymentView || needDetailedReader).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
 
 	if uploadCmd.ShouldPrompt() && !coreutils.AskYesNo("Sync-deletes may delete some artifacts in Artifactory. Are you sure you want to continue?\n"+
 		"You can avoid this confirmation message by adding --quiet to the command.", false) {
@@ -1014,8 +1022,73 @@ func uploadCmd(c *components.Context) (err error) {
 	err = progressbar.ExecWithProgress(uploadCmd)
 	result := uploadCmd.Result()
 	defer common.CleanupResult(result, &err)
-	err = common.PrintCommandSummary(uploadCmd.Result(), detailedSummary, printDeploymentView, common.IsFailNoOp(c), err)
+	if outputFormat == coreformat.None {
+		err = common.PrintCommandSummary(uploadCmd.Result(), detailedSummary, printDeploymentView, common.IsFailNoOp(c), err)
+		return
+	}
+	err = printUploadResponse(result, outputFormat, os.Stdout, common.IsFailNoOp(c), err)
 	return
+}
+
+// getUploadOutputFormat reads the --format flag and returns the resolved output format.
+// When the flag is not set the function returns coreformat.None, preserving the
+// previous behaviour (JSON summary output via PrintCommandSummary).
+func getUploadOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
+	if !c.IsFlagSet(flagkit.Format) {
+		return coreformat.None, nil
+	}
+	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
+}
+
+// printUploadResponse renders the upload result in the requested output format.
+// It preserves the fail-no-op and error-accounting semantics of PrintCommandSummary.
+func printUploadResponse(result *commandUtils.Result, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		return common.PrintCommandSummary(result, true, false, failNoOp, originalErr)
+	case coreformat.Table:
+		err := printUploadTable(result, w)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, result.SuccessCount(), result.FailCount(), failNoOp)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt upload. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// uploadTableRow is a table-printable representation of an uploaded file.
+type uploadTableRow struct {
+	Source string `col-name:"SOURCE"`
+	Target string `col-name:"TARGET"`
+	Sha256 string `col-name:"SHA256"`
+}
+
+// printUploadTable renders uploaded files as a human-readable table.
+func printUploadTable(result *commandUtils.Result, w io.Writer) error {
+	reader := result.Reader()
+	if reader == nil {
+		// No per-file details available (e.g. dry-run without build-info collection).
+		// Fall back to a minimal counts table.
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
+		_, _ = fmt.Fprintf(tw, "success\t%d\n", result.SuccessCount())
+		_, _ = fmt.Fprintf(tw, "failure\t%d\n", result.FailCount())
+		return tw.Flush()
+	}
+	var rows []uploadTableRow
+	for item := new(clientutils.FileTransferDetails); reader.NextRecord(item) == nil; item = new(clientutils.FileTransferDetails) {
+		rows = append(rows, uploadTableRow{
+			Source: item.SourcePath,
+			Target: item.RtUrl + item.TargetPath,
+			Sha256: item.Sha256,
+		})
+	}
+	if err := reader.GetError(); err != nil {
+		return err
+	}
+	reader.Reset()
+	return coreutils.PrintTable(rows, "Upload Results", "No files were uploaded.", false)
 }
 
 func prepareCopyMoveCommand(c *components.Context) (*spec.SpecFiles, error) {
