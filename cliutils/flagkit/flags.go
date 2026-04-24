@@ -5,6 +5,7 @@ import (
 
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/cmddefs"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
+	"github.com/jfrog/jfrog-cli-core/v2/common/format"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 )
@@ -251,6 +252,7 @@ const (
 	searchExcludeProps = searchPrefix + excludeProps
 	count              = "count"
 	searchTransitive   = searchPrefix + transitive
+	searchFormat       = searchPrefix + Format
 
 	// Unique properties flags
 	propertiesPrefix  = "props-"
@@ -629,7 +631,7 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
 		ClientCertKeyPath, specFlag, specVars, exclusions, sortBy, sortOrder, limit, offset,
 		searchRecursive, build, includeDeps, excludeArtifacts, count, bundle, includeDirs, searchProps, searchExcludeProps, failNoOp, archiveEntries,
-		InsecureTls, searchTransitive, retries, retryWaitTime, Project, searchInclude,
+		InsecureTls, searchTransitive, retries, retryWaitTime, Project, searchInclude, searchFormat,
 	},
 	Properties: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
@@ -969,6 +971,7 @@ var flagsMap = map[string]components.Flag{
 	deleteExcludeProps: components.NewStringFlag(excludeProps, "List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts without the specified properties will be deleted.", components.SetMandatoryFalse()),
 
 	// Search specific commands flags
+	searchFormat:       components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
 	searchRecursive:    components.NewBoolFlag(Recursive, "[Default: true] Set to false if you do not wish to search artifacts inside sub-folders in Artifactory.", components.WithBoolDefaultValueFalse()),
 	count:              components.NewBoolFlag(count, "Set to true to display only the total of files or folders found.", components.WithBoolDefaultValueFalse()),
 	searchProps:        components.NewStringFlag(props, "List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts with these properties will be returned.", components.SetMandatoryFalse()),

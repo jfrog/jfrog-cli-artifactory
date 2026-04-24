@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -60,6 +61,7 @@ import (
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/cliutils/summary"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
+	coreformat "github.com/jfrog/jfrog-cli-core/v2/common/format"
 	"github.com/jfrog/jfrog-cli-core/v2/common/progressbar"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/common"
@@ -70,6 +72,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/pkg/errors"
 )
@@ -1129,13 +1132,13 @@ func searchCmd(c *components.Context) (err error) {
 	if err != nil {
 		return
 	}
-	searchCmd := generic.NewSearchCommand()
-	searchCmd.SetServerDetails(artDetails).SetSpec(searchSpec).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
-	err = commands.Exec(searchCmd)
+	cmd := generic.NewSearchCommand()
+	cmd.SetServerDetails(artDetails).SetSpec(searchSpec).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
+	err = commands.Exec(cmd)
 	if err != nil {
 		return
 	}
-	reader := searchCmd.Result().Reader()
+	reader := cmd.Result().Reader()
 	defer ioutils.Close(reader, &err)
 	length, err := reader.Length()
 	if err != nil {
@@ -1145,11 +1148,66 @@ func searchCmd(c *components.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	if !c.GetBoolFlagValue("count") {
-		return utils.PrintSearchResults(reader)
+	if c.GetBoolFlagValue("count") {
+		log.Output(length)
+		return nil
 	}
-	log.Output(length)
-	return nil
+	outputFormat, err := getSearchOutputFormat(c)
+	if err != nil {
+		return err
+	}
+	return printSearchResponse(reader, outputFormat)
+}
+
+// searchTableRow is a table-printable representation of a search result item.
+type searchTableRow struct {
+	Path     string `col-name:"PATH"`
+	Type     string `col-name:"TYPE"`
+	Size     string `col-name:"SIZE"`
+	Created  string `col-name:"CREATED"`
+	Modified string `col-name:"MODIFIED"`
+	Sha256   string `col-name:"SHA256"`
+}
+
+// getSearchOutputFormat reads the --format flag and returns the resolved output format.
+// Default is json to preserve backward-compatible behaviour (the command has always emitted JSON).
+func getSearchOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
+	if !c.IsFlagSet(flagkit.Format) {
+		return coreformat.Json, nil
+	}
+	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
+}
+
+// printSearchResponse renders ContentReader results in the requested output format.
+func printSearchResponse(reader *content.ContentReader, outputFormat coreformat.OutputFormat) error {
+	switch outputFormat {
+	case coreformat.Json:
+		return utils.PrintSearchResults(reader)
+	case coreformat.Table:
+		return printSearchTable(reader)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt search. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// printSearchTable prints search results as a human-readable table using coreutils.PrintTable.
+func printSearchTable(reader *content.ContentReader) error {
+	var rows []searchTableRow
+	for item := new(utils.SearchResult); reader.NextRecord(item) == nil; item = new(utils.SearchResult) {
+		rows = append(rows, searchTableRow{
+			Path:     item.Path,
+			Type:     item.Type,
+			Size:     fmt.Sprintf("%d", item.Size),
+			Created:  item.Created,
+			Modified: item.Modified,
+			Sha256:   item.Sha256,
+		})
+	}
+	if err := reader.GetError(); err != nil {
+		return err
+	}
+	reader.Reset()
+	return coreutils.PrintTable(rows, "Search Results", "No artifacts found.", false)
 }
 
 func preparePropsCmd(c *components.Context) (*generic.PropsCommand, error) {
