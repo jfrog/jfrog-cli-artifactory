@@ -239,6 +239,7 @@ const (
 	copyFlat         = copyPrefix + flat
 	copyProps        = copyPrefix + props
 	copyExcludeProps = copyPrefix + excludeProps
+	copyFormat       = copyPrefix + Format
 
 	// Unique delete flags
 	deletePrefix       = "delete-"
@@ -626,7 +627,7 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
 		ClientCertKeyPath, specFlag, specVars, exclusions, sortBy, sortOrder, limit, offset, copyRecursive,
 		copyFlat, dryRun, build, includeDeps, excludeArtifacts, bundle, copyProps, copyExcludeProps, failNoOp, threads,
-		archiveEntries, InsecureTls, retries, retryWaitTime, Project,
+		archiveEntries, InsecureTls, retries, retryWaitTime, Project, copyFormat,
 	},
 	Delete: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
@@ -971,6 +972,7 @@ var flagsMap = map[string]components.Flag{
 	copyFlat:         components.NewBoolFlag(flat, "If set to false, files are copied according to their file system hierarchy.", components.WithBoolDefaultValueFalse()),
 	copyProps:        components.NewStringFlag(props, "List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts with these properties will be copied.", components.SetMandatoryFalse()),
 	copyExcludeProps: components.NewStringFlag(excludeProps, "List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts without the specified properties will be copied.", components.SetMandatoryFalse()),
+	copyFormat:       components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
 
 	// Delete specific commands flags
 	deleteRecursive:    components.NewBoolFlag(Recursive, "[Default: true] Set to false if you do not wish to delete artifacts inside sub-folders in Artifactory.", components.WithBoolDefaultValueFalse()),

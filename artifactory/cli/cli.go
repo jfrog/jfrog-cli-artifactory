@@ -1305,7 +1305,65 @@ func copyCmd(c *components.Context) error {
 	copyCommand.SetThreads(threads).SetSpec(copySpec).SetDryRun(c.GetBoolFlagValue("dry-run")).SetServerDetails(rtDetails).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
 	err = commands.Exec(copyCommand)
 	result := copyCommand.Result()
-	return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+
+	outputFormat, fmtErr := getCopyOutputFormat(c)
+	if fmtErr != nil {
+		return fmtErr
+	}
+	if outputFormat == coreformat.None {
+		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+	}
+	return printCopyResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
+}
+
+// getCopyOutputFormat reads the --format flag and returns the resolved output format.
+// When the flag is not set the function returns coreformat.None, preserving the
+// previous behaviour (brief summary output via printBriefSummaryAndGetError).
+func getCopyOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
+	if !c.IsFlagSet(flagkit.Format) {
+		return coreformat.None, nil
+	}
+	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
+}
+
+// printCopyResponse renders the copy result in the requested output format.
+func printCopyResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		err := printCopyJSON(succeeded, failed, failNoOp, originalErr)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	case coreformat.Table:
+		err := printCopyTable(succeeded, failed, w)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt copy. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// printCopyJSON emits a JSON summary of the copy operation to stdout via log.Output.
+func printCopyJSON(succeeded, failed int, failNoOp bool, originalErr error) error {
+	summaryReport := summary.GetSummaryReport(succeeded, failed, failNoOp, originalErr)
+	data, err := summaryReport.Marshal()
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	log.Output(clientutils.IndentJson(data))
+	return nil
+}
+
+// printCopyTable renders a counts table for the copy operation.
+func printCopyTable(succeeded, failed int, w io.Writer) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
+	_, _ = fmt.Fprintf(tw, "success\t%d\n", succeeded)
+	_, _ = fmt.Fprintf(tw, "failure\t%d\n", failed)
+	return tw.Flush()
 }
 
 // Prints a 'brief' (not detailed) summary and returns the appropriate exit error.

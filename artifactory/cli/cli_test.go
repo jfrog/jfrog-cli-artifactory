@@ -654,3 +654,110 @@ func TestPrintMoveJSON_FailureStatus(t *testing.T) {
 	err := printMoveJSON(2, 1, false, nil)
 	require.NoError(t, err)
 }
+
+// ---------------------------------------------------------------------------
+// getCopyOutputFormat tests
+// ---------------------------------------------------------------------------
+
+func TestGetCopyOutputFormat_Default(t *testing.T) {
+	ctx := newTestContext(nil)
+	format, err := getCopyOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
+}
+
+func TestGetCopyOutputFormat_ExplicitJSON(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "json"})
+	format, err := getCopyOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Json, format)
+}
+
+func TestGetCopyOutputFormat_ExplicitTable(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "table"})
+	format, err := getCopyOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Table, format)
+}
+
+func TestGetCopyOutputFormat_Invalid(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "xml"})
+	_, err := getCopyOutputFormat(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// ---------------------------------------------------------------------------
+// printCopyTable tests
+// ---------------------------------------------------------------------------
+
+func TestPrintCopyTable_SuccessAndFailure(t *testing.T) {
+	var buf bytes.Buffer
+	err := printCopyTable(5, 2, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "VALUE")
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "5")
+	assert.Contains(t, out, "failure")
+	assert.Contains(t, out, "2")
+}
+
+func TestPrintCopyTable_ZeroCounts(t *testing.T) {
+	var buf bytes.Buffer
+	err := printCopyTable(0, 0, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "VALUE")
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "failure")
+}
+
+// ---------------------------------------------------------------------------
+// printCopyResponse tests
+// ---------------------------------------------------------------------------
+
+func TestPrintCopyResponse_Table(t *testing.T) {
+	var buf bytes.Buffer
+	err := printCopyResponse(3, 0, coreformat.Table, &buf, false, nil)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "3")
+	assert.Contains(t, out, "failure")
+	assert.Contains(t, out, "0")
+}
+
+func TestPrintCopyResponse_JSON(t *testing.T) {
+	var buf bytes.Buffer
+	// printCopyJSON writes to log.Output (stdout), not to buf; we only check no error is returned.
+	err := printCopyResponse(4, 0, coreformat.Json, &buf, false, nil)
+	require.NoError(t, err)
+}
+
+func TestPrintCopyResponse_UnsupportedFormat(t *testing.T) {
+	var buf bytes.Buffer
+	err := printCopyResponse(1, 0, coreformat.Sarif, &buf, false, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported format")
+	assert.Contains(t, err.Error(), "rt copy")
+}
+
+// ---------------------------------------------------------------------------
+// printCopyJSON tests
+// ---------------------------------------------------------------------------
+
+func TestPrintCopyJSON_SuccessStatus(t *testing.T) {
+	// No error, no failures → status should be "success".
+	// Output goes to log.Output (stdout); we just verify no error is returned.
+	err := printCopyJSON(3, 0, false, nil)
+	require.NoError(t, err)
+}
+
+func TestPrintCopyJSON_FailureStatus(t *testing.T) {
+	// Has failures → status should be "failure".
+	err := printCopyJSON(2, 1, false, nil)
+	require.NoError(t, err)
+}
