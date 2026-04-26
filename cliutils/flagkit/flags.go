@@ -447,6 +447,10 @@ const (
 	pingPrefix = "ping-"
 	pingFormat = pingPrefix + Format
 
+	// Unique container-push flags
+	containerPushPrefix = "container-push-"
+	containerPushFormat = containerPushPrefix + Format
+
 	// Unique offline-update flags
 	target = "target"
 
@@ -726,7 +730,7 @@ var commandFlags = map[string][]string{
 	},
 	ContainerPush: {
 		BuildName, BuildNumber, module, url, user, password, accessToken, sshPassphrase, sshKeyPath,
-		serverId, skipLogin, threads, Project, detailedSummary, validateSha,
+		serverId, skipLogin, threads, Project, detailedSummary, validateSha, containerPushFormat,
 	},
 	ContainerPull: {
 		BuildName, BuildNumber, module, url, user, password, accessToken, sshPassphrase, sshKeyPath,
@@ -991,6 +995,9 @@ var flagsMap = map[string]components.Flag{
 
 	// Ping specific command flags
 	pingFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
+
+	// Container-push specific command flags
+	containerPushFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
 
 	// Build-publish specific command flags
 	bpFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),

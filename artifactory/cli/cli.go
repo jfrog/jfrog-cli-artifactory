@@ -516,8 +516,15 @@ func containerPushCmd(c *components.Context, containerManagerType containerutils
 	if err != nil {
 		return
 	}
+	outputFormat, err := getContainerPushOutputFormat(c)
+	if err != nil {
+		return
+	}
 	printDeploymentView, detailedSummary := log.IsStdErrTerminal(), c.GetBoolFlagValue("detailed-summary")
-	dockerPushCommand.SetThreads(threads).SetDetailedSummary(detailedSummary || printDeploymentView).SetCmdParams([]string{"push", imageTag}).SetSkipLogin(skipLogin).SetBuildConfiguration(buildConfiguration).SetRepo(targetRepo).SetServerDetails(artDetails).SetImageTag(imageTag).SetValidateSha(validateSha)
+	// When a structured format is requested we need the per-layer transfer details reader,
+	// so force detailed-summary mode regardless of the explicit flag.
+	needDetailedReader := outputFormat != coreformat.None
+	dockerPushCommand.SetThreads(threads).SetDetailedSummary(detailedSummary || printDeploymentView || needDetailedReader).SetCmdParams([]string{"push", imageTag}).SetSkipLogin(skipLogin).SetBuildConfiguration(buildConfiguration).SetRepo(targetRepo).SetServerDetails(artDetails).SetImageTag(imageTag).SetValidateSha(validateSha)
 	err = commandWrappers.ShowDockerDeprecationMessageIfNeeded(containerManagerType, dockerPushCommand.IsGetRepoSupported)
 	if err != nil {
 		return
@@ -527,8 +534,70 @@ func containerPushCmd(c *components.Context, containerManagerType containerutils
 
 	// Cleanup.
 	defer common.CleanupResult(result, &err)
-	err = common.PrintCommandSummary(dockerPushCommand.Result(), detailedSummary, printDeploymentView, false, err)
+	if outputFormat == coreformat.None {
+		err = common.PrintCommandSummary(dockerPushCommand.Result(), detailedSummary, printDeploymentView, false, err)
+		return
+	}
+	err = printContainerPushResponse(result, outputFormat, os.Stdout, err)
 	return
+}
+
+// getContainerPushOutputFormat reads the --format flag and returns the resolved output format.
+// When the flag is not set the function returns coreformat.None, preserving the
+// previous behaviour (deployment view / JSON summary output via PrintCommandSummary).
+func getContainerPushOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
+	if !c.IsFlagSet(flagkit.Format) {
+		return coreformat.None, nil
+	}
+	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
+}
+
+// printContainerPushResponse renders the container push result in the requested output format.
+func printContainerPushResponse(result *commandUtils.Result, outputFormat coreformat.OutputFormat, w io.Writer, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		return common.PrintCommandSummary(result, true, false, false, originalErr)
+	case coreformat.Table:
+		err := printContainerPushTable(result, w)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, result.SuccessCount(), result.FailCount(), false)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt podman-push. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// containerPushTableRow is a table-printable representation of a pushed layer.
+type containerPushTableRow struct {
+	Target string `col-name:"TARGET"`
+	Sha256 string `col-name:"SHA256"`
+}
+
+// printContainerPushTable renders pushed layers as a human-readable table.
+func printContainerPushTable(result *commandUtils.Result, w io.Writer) error {
+	reader := result.Reader()
+	if reader == nil {
+		// No per-layer details available (e.g. no build-info collection and no detailed-summary).
+		// Fall back to a minimal counts table.
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
+		_, _ = fmt.Fprintf(tw, "success\t%d\n", result.SuccessCount())
+		_, _ = fmt.Fprintf(tw, "failure\t%d\n", result.FailCount())
+		return tw.Flush()
+	}
+	var rows []containerPushTableRow
+	for item := new(clientutils.FileTransferDetails); reader.NextRecord(item) == nil; item = new(clientutils.FileTransferDetails) {
+		rows = append(rows, containerPushTableRow{
+			Target: item.RtUrl + item.TargetPath,
+			Sha256: item.Sha256,
+		})
+	}
+	if err := reader.GetError(); err != nil {
+		return err
+	}
+	reader.Reset()
+	return coreutils.PrintTable(rows, "Push Results", "No layers were pushed.", false)
 }
 
 func containerPullCmd(c *components.Context, containerManagerType containerutils.ContainerManagerType) error {

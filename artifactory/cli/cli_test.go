@@ -967,3 +967,133 @@ func TestPrintBuildPublishJSON_ValidURL(t *testing.T) {
 	err := printBuildPublishJSON("https://example.jfrog.io/ui/builds/myapp/1/123/published")
 	require.NoError(t, err)
 }
+
+// ---------------------------------------------------------------------------
+// container-push test helpers
+// ---------------------------------------------------------------------------
+
+// createContainerPushResult builds a *commandUtils.Result with the given counts and an optional
+// per-layer transfer-details ContentReader (keyed "files", matching the push command convention).
+func createContainerPushResult(t *testing.T, success, failed int, transfers []clientutils.FileTransferDetails) *commandUtils.Result {
+	t.Helper()
+	r := new(commandUtils.Result)
+	r.SetSuccessCount(success)
+	r.SetFailCount(failed)
+	if transfers != nil {
+		type filesWrapper struct {
+			Files []clientutils.FileTransferDetails `json:"files"`
+		}
+		data, err := json.Marshal(filesWrapper{Files: transfers})
+		require.NoError(t, err)
+
+		f, err := os.CreateTemp("", "container-push-details-*.json")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = os.Remove(f.Name()) })
+		_, err = f.Write(data)
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+
+		r.SetReader(content.NewContentReader(f.Name(), "files"))
+	}
+	return r
+}
+
+// ---------------------------------------------------------------------------
+// getContainerPushOutputFormat tests
+// ---------------------------------------------------------------------------
+
+func TestGetContainerPushOutputFormat_Default(t *testing.T) {
+	ctx := newTestContext(nil)
+	format, err := getContainerPushOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
+}
+
+func TestGetContainerPushOutputFormat_ExplicitJSON(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "json"})
+	format, err := getContainerPushOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Json, format)
+}
+
+func TestGetContainerPushOutputFormat_ExplicitTable(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "table"})
+	format, err := getContainerPushOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Table, format)
+}
+
+func TestGetContainerPushOutputFormat_Invalid(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "xml"})
+	_, err := getContainerPushOutputFormat(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// ---------------------------------------------------------------------------
+// printContainerPushTable tests
+// ---------------------------------------------------------------------------
+
+func TestPrintContainerPushTable_WithResults(t *testing.T) {
+	transfers := []clientutils.FileTransferDetails{
+		{TargetPath: "myrepo/sha256:aabbcc", RtUrl: "https://myrt.example.com/", Sha256: "aabbcc"},
+		{TargetPath: "myrepo/sha256:ddeeff", RtUrl: "https://myrt.example.com/", Sha256: "ddeeff"},
+	}
+	result := createContainerPushResult(t, 2, 0, transfers)
+	defer result.Reader().Close()
+
+	var buf bytes.Buffer
+	err := printContainerPushTable(result, &buf)
+	require.NoError(t, err)
+	// When a reader is present, PrintTable is used (writes to stdout); we only
+	// check that the function does not error and the reader state is consistent.
+}
+
+func TestPrintContainerPushTable_NoReader_FallsBackToCountsTable(t *testing.T) {
+	result := createContainerPushResult(t, 3, 1, nil)
+
+	var buf bytes.Buffer
+	err := printContainerPushTable(result, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "VALUE")
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "3")
+	assert.Contains(t, out, "failure")
+	assert.Contains(t, out, "1")
+}
+
+func TestPrintContainerPushTable_EmptyReader(t *testing.T) {
+	result := createContainerPushResult(t, 0, 0, []clientutils.FileTransferDetails{})
+	defer result.Reader().Close()
+
+	var buf bytes.Buffer
+	err := printContainerPushTable(result, &buf)
+	require.NoError(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// printContainerPushResponse tests
+// ---------------------------------------------------------------------------
+
+func TestPrintContainerPushResponse_Table_NoReader(t *testing.T) {
+	result := createContainerPushResult(t, 2, 0, nil)
+
+	var buf bytes.Buffer
+	err := printContainerPushResponse(result, coreformat.Table, &buf, nil)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "2")
+}
+
+func TestPrintContainerPushResponse_UnsupportedFormat(t *testing.T) {
+	result := createContainerPushResult(t, 1, 0, nil)
+
+	var buf bytes.Buffer
+	err := printContainerPushResponse(result, coreformat.Sarif, &buf, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported format")
+	assert.Contains(t, err.Error(), "rt podman-push")
+}
