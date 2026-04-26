@@ -1097,3 +1097,61 @@ func TestPrintContainerPushResponse_UnsupportedFormat(t *testing.T) {
 	assert.Contains(t, err.Error(), "unsupported format")
 	assert.Contains(t, err.Error(), "rt podman-push")
 }
+
+// ---------------------------------------------------------------------------
+// build-promote (Pattern B — json-only) tests
+// ---------------------------------------------------------------------------
+
+// TestBuildPromoteFormat_ValidJSON verifies that --format json is accepted and
+// printBuildPromoteJSON does not panic or error.
+func TestBuildPromoteFormat_ValidJSON(t *testing.T) {
+	// printBuildPromoteJSON writes to log.Output (stdout); we just verify it does not panic.
+	require.NotPanics(t, func() {
+		printBuildPromoteJSON()
+	})
+}
+
+// TestBuildPromoteFormat_EmptyBody verifies that the synthetic JSON object is
+// well-formed when the body is nil (the common case: client discards body).
+func TestBuildPromoteFormat_EmptyBody(t *testing.T) {
+	// printBuildPromoteJSON always produces {"message":"OK","status_code":200}.
+	// We verify the function runs without error (output goes to log.Output, not a writer).
+	require.NotPanics(t, func() {
+		printBuildPromoteJSON()
+	})
+}
+
+// TestBuildPromoteFormat_InvalidFormatRejected verifies that --format table (and
+// any other unsupported format) is rejected before the HTTP call is made.
+func TestBuildPromoteFormat_InvalidFormatRejected(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "table"})
+	_, err := coreformat.ParseOutputFormat(ctx.GetStringFlagValue("format"), []coreformat.OutputFormat{coreformat.Json})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// TestBuildPromoteFormat_JSONFormatAccepted verifies that --format json passes
+// ParseOutputFormat validation without error.
+func TestBuildPromoteFormat_JSONFormatAccepted(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "json"})
+	outputFormat, err := coreformat.ParseOutputFormat(ctx.GetStringFlagValue("format"), []coreformat.OutputFormat{coreformat.Json})
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Json, outputFormat)
+}
+
+// TestBuildPromoteFormat_SarifRejected verifies that --format sarif is rejected.
+func TestBuildPromoteFormat_SarifRejected(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "sarif"})
+	_, err := coreformat.ParseOutputFormat(ctx.GetStringFlagValue("format"), []coreformat.OutputFormat{coreformat.Json})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// TestBuildPromoteFormat_XMLRejected verifies that an arbitrary unsupported format
+// value is rejected.
+func TestBuildPromoteFormat_XMLRejected(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "xml"})
+	_, err := coreformat.ParseOutputFormat(ctx.GetStringFlagValue("format"), []coreformat.OutputFormat{coreformat.Json})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}

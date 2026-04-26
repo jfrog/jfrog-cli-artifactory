@@ -302,6 +302,7 @@ const (
 	buildPromotePrefix  = "bpr-"
 	bprDryRun           = buildPromotePrefix + dryRun
 	bprProps            = buildPromotePrefix + props
+	bprFormat           = buildPromotePrefix + Format
 	comment             = "comment"
 	sourceRepo          = "source-repo"
 	includeDependencies = "include-dependencies"
@@ -683,7 +684,7 @@ var commandFlags = map[string][]string{
 	},
 	BuildPromote: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, Status, comment,
-		sourceRepo, includeDependencies, copyFlag, failFast, bprDryRun, bprProps, InsecureTls, Project,
+		sourceRepo, includeDependencies, copyFlag, failFast, bprDryRun, bprProps, InsecureTls, Project, bprFormat,
 	},
 	BuildDiscard: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, maxDays, maxBuilds,
@@ -1052,6 +1053,7 @@ var flagsMap = map[string]components.Flag{
 	failFast:            components.NewBoolFlag(failFast, "[Default: true] If true, fail and abort the operation upon receiving an error.", components.WithBoolDefaultValueFalse()),
 	bprDryRun:           components.NewBoolFlag(dryRun, "If true, promotion is only simulated. The build is not promoted.", components.WithBoolDefaultValueFalse()),
 	bprProps:            components.NewStringFlag(props, "List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\" to be attached to the build artifacts.", components.SetMandatoryFalse()),
+	bprFormat:           components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json}), components.SetMandatoryFalse()),
 
 	// BuildDiscard specific commands flags
 	maxDays:         components.NewStringFlag(maxDays, "The maximum number of days to keep builds in Artifactory.", components.SetMandatoryFalse()),

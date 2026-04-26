@@ -1989,6 +1989,13 @@ func buildPromoteCmd(c *components.Context) error {
 	if c.GetNumberOfArgs() > 3 {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
+
+	if c.IsFlagSet(flagkit.Format) {
+		if _, fmtErr := coreformat.ParseOutputFormat(c.GetStringFlagValue(flagkit.Format), []coreformat.OutputFormat{coreformat.Json}); fmtErr != nil {
+			return fmtErr
+		}
+	}
+
 	configuration := createBuildPromoteConfiguration(c)
 	rtDetails, err := common.CreateArtifactoryDetailsByFlags(c)
 	if err != nil {
@@ -1999,7 +2006,29 @@ func buildPromoteCmd(c *components.Context) error {
 		return err
 	}
 	buildPromotionCmd := buildinfo.NewBuildPromotionCommand().SetDryRun(c.GetBoolFlagValue("dry-run")).SetServerDetails(rtDetails).SetPromotionParams(configuration).SetBuildConfiguration(buildConfiguration)
-	return commands.Exec(buildPromotionCmd)
+	if err = commands.Exec(buildPromotionCmd); err != nil {
+		return err
+	}
+
+	// error == nil guarantees the server responded with 200.
+	// The client layer discards the body, so we pass nil and let the helper
+	// synthesize {"status_code": 200, "message": "OK"}.
+	if c.IsFlagSet(flagkit.Format) {
+		printBuildPromoteJSON()
+	}
+	return nil
+}
+
+// printBuildPromoteJSON emits a synthetic JSON success response for build-promote.
+// The Artifactory promote API returns a body, but the client layer discards it;
+// error == nil guarantees HTTP 200, so we synthesise {"status_code":200,"message":"OK"}.
+func printBuildPromoteJSON() {
+	synthetic := map[string]interface{}{
+		"status_code": 200,
+		"message":     "OK",
+	}
+	data, _ := json.Marshal(synthetic)
+	log.Output(clientutils.IndentJson(data))
 }
 
 func buildDiscardCmd(c *components.Context) error {
