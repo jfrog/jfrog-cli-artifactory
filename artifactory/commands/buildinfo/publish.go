@@ -35,6 +35,13 @@ type BuildPublishCommand struct {
 	collectGitInfo     bool
 	collectEnv         bool
 	depExcludeScopes   []string
+	// buildInfoUiUrl holds the Artifactory UI URL of the published build info.
+	// It is populated by Run() and exposed via GetBuildInfoUiUrl() so the CLI
+	// layer can render it when --format is set.
+	buildInfoUiUrl string
+	// suppressOutput prevents Run() from printing the buildInfoUiUrl JSON to
+	// stdout.  Set this to true when the CLI layer will handle output formatting.
+	suppressOutput bool
 	BuildAddGitCommand
 }
 
@@ -73,6 +80,19 @@ func (bpc *BuildPublishCommand) SetDetailedSummary(detailedSummary bool) *BuildP
 
 func (bpc *BuildPublishCommand) IsDetailedSummary() bool {
 	return bpc.detailedSummary
+}
+
+// GetBuildInfoUiUrl returns the Artifactory UI URL for the published build info.
+// This is populated after Run() completes successfully.
+func (bpc *BuildPublishCommand) GetBuildInfoUiUrl() string {
+	return bpc.buildInfoUiUrl
+}
+
+// SetSuppressOutput instructs Run() not to print the buildInfoUiUrl JSON to
+// stdout.  Use this when the CLI layer will handle output formatting.
+func (bpc *BuildPublishCommand) SetSuppressOutput(suppress bool) *BuildPublishCommand {
+	bpc.suppressOutput = suppress
+	return bpc
 }
 
 func (bpc *BuildPublishCommand) CommandName() string {
@@ -230,6 +250,9 @@ func (bpc *BuildPublishCommand) Run() error {
 		return err
 	}
 
+	// Always store the URL so the CLI layer can access it for --format rendering.
+	bpc.buildInfoUiUrl = buildLink
+
 	logMsg := "Build info successfully deployed."
 	if bpc.IsDetailedSummary() {
 		log.Info(logMsg + " Browse it in Artifactory under " + buildLink)
@@ -237,6 +260,9 @@ func (bpc *BuildPublishCommand) Run() error {
 	}
 
 	log.Info(logMsg)
+	if bpc.suppressOutput {
+		return nil
+	}
 	return logJsonOutput(buildLink)
 }
 

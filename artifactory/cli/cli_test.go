@@ -868,3 +868,102 @@ func TestPrintDeleteJSON_FailureStatus(t *testing.T) {
 	err := printDeleteJSON(2, 1, false, nil)
 	require.NoError(t, err)
 }
+
+// ---------------------------------------------------------------------------
+// getBuildPublishOutputFormat tests
+// ---------------------------------------------------------------------------
+
+func TestGetBuildPublishOutputFormat_Default(t *testing.T) {
+	ctx := newTestContext(nil)
+	format, err := getBuildPublishOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.None, format, "default should be None (backward-compatible: Run() prints JSON internally)")
+}
+
+func TestGetBuildPublishOutputFormat_ExplicitJSON(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "json"})
+	format, err := getBuildPublishOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Json, format)
+}
+
+func TestGetBuildPublishOutputFormat_ExplicitTable(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "table"})
+	format, err := getBuildPublishOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Table, format)
+}
+
+func TestGetBuildPublishOutputFormat_Invalid(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "xml"})
+	_, err := getBuildPublishOutputFormat(ctx)
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "only the following output formats are supported")
+}
+
+// ---------------------------------------------------------------------------
+// printBuildPublishResponse tests
+// ---------------------------------------------------------------------------
+
+func TestPrintBuildPublishResponse_JSON(t *testing.T) {
+	var buf bytes.Buffer
+	// printBuildPublishJSON writes to log.Output (stdout); we verify no error.
+	err := printBuildPublishResponse("https://example.jfrog.io/ui/builds/myapp/1/123/published", coreformat.Json, &buf)
+	require.NoError(t, err)
+}
+
+func TestPrintBuildPublishResponse_Table(t *testing.T) {
+	var buf bytes.Buffer
+	const testURL = "https://example.jfrog.io/ui/builds/myapp/1/123/published"
+	err := printBuildPublishResponse(testURL, coreformat.Table, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "VALUE")
+	assert.Contains(t, out, "buildInfoUiUrl")
+	assert.Contains(t, out, testURL)
+}
+
+func TestPrintBuildPublishResponse_Table_EmptyURL(t *testing.T) {
+	var buf bytes.Buffer
+	err := printBuildPublishResponse("", coreformat.Table, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "buildInfoUiUrl")
+}
+
+func TestPrintBuildPublishResponse_UnsupportedFormat(t *testing.T) {
+	var buf bytes.Buffer
+	err := printBuildPublishResponse("https://example.jfrog.io/ui/builds/myapp/1", coreformat.Sarif, &buf)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported format")
+	assert.Contains(t, err.Error(), "rt build-publish")
+}
+
+// ---------------------------------------------------------------------------
+// printBuildPublishTable tests
+// ---------------------------------------------------------------------------
+
+func TestPrintBuildPublishTable_ContainsHeaderAndURL(t *testing.T) {
+	var buf bytes.Buffer
+	const testURL = "https://myrt.example.com/ui/builds/my-build/42/1234/published"
+	err := printBuildPublishTable(testURL, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	// tabwriter replaces tabs with spaces; check for rendered tokens
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "VALUE")
+	assert.Contains(t, out, "buildInfoUiUrl")
+	assert.Contains(t, out, testURL)
+}
+
+// ---------------------------------------------------------------------------
+// printBuildPublishJSON tests
+// ---------------------------------------------------------------------------
+
+func TestPrintBuildPublishJSON_ValidURL(t *testing.T) {
+	// Output goes to log.Output; we just verify no error is returned.
+	err := printBuildPublishJSON("https://example.jfrog.io/ui/builds/myapp/1/123/published")
+	require.NoError(t, err)
+}

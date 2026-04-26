@@ -272,6 +272,7 @@ const (
 	buildPublishPrefix = "bp-"
 	bpDryRun           = buildPublishPrefix + dryRun
 	bpDetailedSummary  = buildPublishPrefix + detailedSummary
+	bpFormat           = buildPublishPrefix + Format
 	envInclude         = "env-include"
 	envExclude         = "env-exclude"
 	buildUrl           = "build-url"
@@ -650,7 +651,7 @@ var commandFlags = map[string][]string{
 	},
 	BuildPublish: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, buildUrl, bpDryRun,
-		envInclude, envExclude, InsecureTls, Project, bpDetailedSummary, bpOverwrite, collectEnv, collectGitInfo, gitConfigFilePath, dotGitPath, depExclude,
+		envInclude, envExclude, InsecureTls, Project, bpDetailedSummary, bpOverwrite, collectEnv, collectGitInfo, gitConfigFilePath, dotGitPath, depExclude, bpFormat,
 	},
 	BuildAppend: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, buildUrl, bpDryRun,
@@ -990,6 +991,9 @@ var flagsMap = map[string]components.Flag{
 
 	// Ping specific command flags
 	pingFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
+
+	// Build-publish specific command flags
+	bpFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
 
 	// Search specific commands flags
 	searchFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),

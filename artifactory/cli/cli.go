@@ -12,6 +12,7 @@ import (
 
 	ioutils "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/buildinfo"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/formats"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/container"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/curl"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
@@ -1704,20 +1705,83 @@ func buildPublishCmd(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-	buildPublishCmd := buildinfo.NewBuildPublishCommand().SetServerDetails(rtDetails).SetBuildConfiguration(buildConfiguration).SetConfig(buildInfoConfiguration).SetDetailedSummary(common.GetDetailedSummary(c))
-	buildPublishCmd.SetCollectEnv(c.GetBoolFlagValue("collect-env"))
-	buildPublishCmd.SetCollectGitInfo(c.GetBoolFlagValue("collect-git-info"))
-	buildPublishCmd.SetDotGitPath(c.GetStringFlagValue("dot-git-path"))
-	buildPublishCmd.SetConfigFilePath(c.GetStringFlagValue("git-config-file-path"))
-	buildPublishCmd.SetDepExcludeScopes(c.GetStringsArrFlagValue("dep-exclude-scopes"))
 
-	err = commands.Exec(buildPublishCmd)
-	if buildPublishCmd.IsDetailedSummary() {
-		if publishedSummary := buildPublishCmd.GetSummary(); publishedSummary != nil {
+	outputFormat, fmtErr := getBuildPublishOutputFormat(c)
+	if fmtErr != nil {
+		return fmtErr
+	}
+
+	cmd := buildinfo.NewBuildPublishCommand().SetServerDetails(rtDetails).SetBuildConfiguration(buildConfiguration).SetConfig(buildInfoConfiguration).SetDetailedSummary(common.GetDetailedSummary(c))
+	cmd.SetCollectEnv(c.GetBoolFlagValue("collect-env"))
+	cmd.SetCollectGitInfo(c.GetBoolFlagValue("collect-git-info"))
+	cmd.SetDotGitPath(c.GetStringFlagValue("dot-git-path"))
+	cmd.SetConfigFilePath(c.GetStringFlagValue("git-config-file-path"))
+	cmd.SetDepExcludeScopes(c.GetStringsArrFlagValue("dep-exclude-scopes"))
+
+	// When --format is set, suppress the internal logJsonOutput call so that the
+	// CLI layer can render the URL itself.
+	if outputFormat != coreformat.None {
+		cmd.SetSuppressOutput(true)
+	}
+
+	err = commands.Exec(cmd)
+
+	// When --detailed-summary is set and --format is NOT set, keep the
+	// existing SHA-256 summary behaviour.
+	if cmd.IsDetailedSummary() && outputFormat == coreformat.None {
+		if publishedSummary := cmd.GetSummary(); publishedSummary != nil {
 			return summary.PrintBuildInfoSummaryReport(publishedSummary.IsSucceeded(), publishedSummary.GetSha256(), err)
 		}
 	}
-	return err
+
+	if outputFormat == coreformat.None {
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	return printBuildPublishResponse(cmd.GetBuildInfoUiUrl(), outputFormat, os.Stdout)
+}
+
+// getBuildPublishOutputFormat reads the --format flag and returns the resolved output format.
+// When the flag is not set the function returns coreformat.None, preserving the
+// previous behaviour (JSON printed internally by Run()).
+func getBuildPublishOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
+	if !c.IsFlagSet(flagkit.Format) {
+		return coreformat.None, nil
+	}
+	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
+}
+
+// printBuildPublishResponse renders the build-publish result in the requested output format.
+func printBuildPublishResponse(buildInfoUiUrl string, outputFormat coreformat.OutputFormat, w io.Writer) error {
+	switch outputFormat {
+	case coreformat.Json:
+		return printBuildPublishJSON(buildInfoUiUrl)
+	case coreformat.Table:
+		return printBuildPublishTable(buildInfoUiUrl, w)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt build-publish. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// printBuildPublishJSON emits the build-publish result as indented JSON.
+func printBuildPublishJSON(buildInfoUiUrl string) error {
+	output := formats.BuildPublishOutput{BuildInfoUiUrl: buildInfoUiUrl}
+	data, err := output.JSON()
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	log.Output(clientutils.IndentJson(data))
+	return nil
+}
+
+// printBuildPublishTable renders the build-publish result as a two-column tabwriter table.
+func printBuildPublishTable(buildInfoUiUrl string, w io.Writer) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
+	_, _ = fmt.Fprintf(tw, "buildInfoUiUrl\t%s\n", buildInfoUiUrl)
+	return tw.Flush()
 }
 
 func buildAppendCmd(c *components.Context) error {
