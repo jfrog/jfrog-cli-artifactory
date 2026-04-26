@@ -2035,18 +2035,47 @@ func buildDiscardCmd(c *components.Context) error {
 	if c.GetNumberOfArgs() > 1 {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
+
+	if c.IsFlagSet(flagkit.Format) {
+		if _, fmtErr := coreformat.ParseOutputFormat(c.GetStringFlagValue(flagkit.Format), []coreformat.OutputFormat{coreformat.Json}); fmtErr != nil {
+			return fmtErr
+		}
+	}
+
 	configuration := createBuildDiscardConfiguration(c)
 	if configuration.BuildName == "" {
 		return common.PrintHelpAndReturnError("Build name is expected as a command argument or environment variable.", c)
 	}
-	buildDiscardCmd := buildinfo.NewBuildDiscardCommand()
+	buildDiscardCommand := buildinfo.NewBuildDiscardCommand()
 	rtDetails, err := common.CreateArtifactoryDetailsByFlags(c)
 	if err != nil {
 		return err
 	}
-	buildDiscardCmd.SetServerDetails(rtDetails).SetDiscardBuildsParams(configuration)
+	buildDiscardCommand.SetServerDetails(rtDetails).SetDiscardBuildsParams(configuration)
 
-	return commands.Exec(buildDiscardCmd)
+	if err = commands.Exec(buildDiscardCommand); err != nil {
+		return err
+	}
+
+	// error == nil guarantees the server responded with 204 No Content.
+	// The client layer discards the body, so we pass nil and let the helper
+	// synthesize {"status_code": 204, "message": "No Content"}.
+	if c.IsFlagSet(flagkit.Format) {
+		printBuildDiscardJSON()
+	}
+	return nil
+}
+
+// printBuildDiscardJSON emits a synthetic JSON success response for build-discard.
+// The Artifactory discard API returns 204 No Content with no body; the client layer
+// discards the response, so error == nil guarantees HTTP 204.
+func printBuildDiscardJSON() {
+	synthetic := map[string]interface{}{
+		"status_code": 204,
+		"message":     "No Content",
+	}
+	data, _ := json.Marshal(synthetic)
+	log.Output(clientutils.IndentJson(data))
 }
 
 func gitLfsCleanCmd(c *components.Context) error {

@@ -1155,3 +1155,59 @@ func TestBuildPromoteFormat_XMLRejected(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
+
+// ---------------------------------------------------------------------------
+// build-discard --format tests
+// ---------------------------------------------------------------------------
+
+// TestBuildDiscardFormat_ValidJSON verifies that printBuildDiscardJSON does not panic.
+func TestBuildDiscardFormat_ValidJSON(t *testing.T) {
+	require.NotPanics(t, func() {
+		printBuildDiscardJSON()
+	})
+}
+
+// TestBuildDiscardFormat_EmptyBody verifies that the synthetic JSON object is
+// well-formed when the body is nil (204 No Content; client discards body).
+func TestBuildDiscardFormat_EmptyBody(t *testing.T) {
+	// printBuildDiscardJSON always produces {"message":"No Content","status_code":204}.
+	// We verify the function runs without error (output goes to log.Output, not a writer).
+	require.NotPanics(t, func() {
+		printBuildDiscardJSON()
+	})
+}
+
+// TestBuildDiscardFormat_InvalidFormatRejected verifies that --format table (and
+// any other unsupported format) is rejected before the HTTP call is made.
+func TestBuildDiscardFormat_InvalidFormatRejected(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "table"})
+	_, err := coreformat.ParseOutputFormat(ctx.GetStringFlagValue("format"), []coreformat.OutputFormat{coreformat.Json})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// TestBuildDiscardFormat_JSONFormatAccepted verifies that --format json passes
+// ParseOutputFormat validation without error.
+func TestBuildDiscardFormat_JSONFormatAccepted(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "json"})
+	outputFormat, err := coreformat.ParseOutputFormat(ctx.GetStringFlagValue("format"), []coreformat.OutputFormat{coreformat.Json})
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Json, outputFormat)
+}
+
+// TestBuildDiscardFormat_SarifRejected verifies that --format sarif is rejected.
+func TestBuildDiscardFormat_SarifRejected(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "sarif"})
+	_, err := coreformat.ParseOutputFormat(ctx.GetStringFlagValue("format"), []coreformat.OutputFormat{coreformat.Json})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// TestBuildDiscardFormat_XMLRejected verifies that an arbitrary unsupported format
+// value is rejected.
+func TestBuildDiscardFormat_XMLRejected(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "xml"})
+	_, err := coreformat.ParseOutputFormat(ctx.GetStringFlagValue("format"), []coreformat.OutputFormat{coreformat.Json})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}

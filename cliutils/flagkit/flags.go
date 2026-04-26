@@ -314,6 +314,7 @@ const (
 	// Unique build-discard flags
 	buildDiscardPrefix = "bdi-"
 	bdiAsync           = buildDiscardPrefix + Async
+	bdiFormat          = buildDiscardPrefix + Format
 	maxDays            = "max-days"
 	maxBuilds          = "max-builds"
 	excludeBuilds      = "exclude-builds"
@@ -688,7 +689,7 @@ var commandFlags = map[string][]string{
 	},
 	BuildDiscard: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, maxDays, maxBuilds,
-		excludeBuilds, deleteArtifacts, bdiAsync, InsecureTls, Project,
+		excludeBuilds, deleteArtifacts, bdiAsync, InsecureTls, Project, bdiFormat,
 	},
 	GitLfsClean: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, refs, glcRepo, glcDryRun,
@@ -1061,6 +1062,7 @@ var flagsMap = map[string]components.Flag{
 	excludeBuilds:   components.NewStringFlag(excludeBuilds, "List of comma-separated(,) build numbers in the form of \"value1,value2,...\", that should not be removed from Artifactory.", components.SetMandatoryFalse()),
 	deleteArtifacts: components.NewBoolFlag(deleteArtifacts, "If set to true, automatically removes build artifacts stored in Artifactory.", components.WithBoolDefaultValueFalse()),
 	bdiAsync:        components.NewBoolFlag(Async, "If set to true, build discard will run asynchronously and will not wait for response.", components.WithBoolDefaultValueFalse()),
+	bdiFormat:       components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json}), components.SetMandatoryFalse()),
 
 	// GitLfsClean specific commands flags
 	refs:      components.NewStringFlag(refs, "[Default: refs/remotes/*] List of comma-separated(,) Git references in the form of \"ref1,ref2,...\" which should be preserved.", components.SetMandatoryFalse()),
