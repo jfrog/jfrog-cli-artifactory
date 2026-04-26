@@ -247,6 +247,7 @@ const (
 	deleteProps        = deletePrefix + props
 	deleteExcludeProps = deletePrefix + excludeProps
 	deleteQuiet        = deletePrefix + quiet
+	deleteFormat       = deletePrefix + Format
 
 	// Unique search flags
 	searchInclude      = "include"
@@ -633,7 +634,7 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
 		ClientCertKeyPath, specFlag, specVars, exclusions, sortBy, sortOrder, limit, offset,
 		deleteRecursive, dryRun, build, includeDeps, excludeArtifacts, deleteQuiet, deleteProps, deleteExcludeProps, failNoOp, threads, archiveEntries,
-		InsecureTls, retries, retryWaitTime, Project,
+		InsecureTls, retries, retryWaitTime, Project, deleteFormat,
 	},
 	Search: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
@@ -979,6 +980,7 @@ var flagsMap = map[string]components.Flag{
 	deleteQuiet:        components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip the delete confirmation message.", components.WithBoolDefaultValueFalse()),
 	deleteProps:        components.NewStringFlag(props, "List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts with these properties will be deleted.", components.SetMandatoryFalse()),
 	deleteExcludeProps: components.NewStringFlag(excludeProps, "List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts without the specified properties will be deleted.", components.SetMandatoryFalse()),
+	deleteFormat:       components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
 
 	// Upload specific command flags
 	uploadFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),

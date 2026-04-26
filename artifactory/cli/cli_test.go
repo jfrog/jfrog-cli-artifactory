@@ -761,3 +761,110 @@ func TestPrintCopyJSON_FailureStatus(t *testing.T) {
 	err := printCopyJSON(2, 1, false, nil)
 	require.NoError(t, err)
 }
+
+// ---------------------------------------------------------------------------
+// getDeleteOutputFormat tests
+// ---------------------------------------------------------------------------
+
+func TestGetDeleteOutputFormat_Default(t *testing.T) {
+	ctx := newTestContext(nil)
+	format, err := getDeleteOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
+}
+
+func TestGetDeleteOutputFormat_ExplicitJSON(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "json"})
+	format, err := getDeleteOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Json, format)
+}
+
+func TestGetDeleteOutputFormat_ExplicitTable(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "table"})
+	format, err := getDeleteOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Table, format)
+}
+
+func TestGetDeleteOutputFormat_Invalid(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "xml"})
+	_, err := getDeleteOutputFormat(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// ---------------------------------------------------------------------------
+// printDeleteTable tests
+// ---------------------------------------------------------------------------
+
+func TestPrintDeleteTable_SuccessAndFailure(t *testing.T) {
+	var buf bytes.Buffer
+	err := printDeleteTable(5, 2, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "VALUE")
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "5")
+	assert.Contains(t, out, "failure")
+	assert.Contains(t, out, "2")
+}
+
+func TestPrintDeleteTable_ZeroCounts(t *testing.T) {
+	var buf bytes.Buffer
+	err := printDeleteTable(0, 0, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "VALUE")
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "failure")
+}
+
+// ---------------------------------------------------------------------------
+// printDeleteResponse tests
+// ---------------------------------------------------------------------------
+
+func TestPrintDeleteResponse_Table(t *testing.T) {
+	var buf bytes.Buffer
+	err := printDeleteResponse(3, 0, coreformat.Table, &buf, false, nil)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "3")
+	assert.Contains(t, out, "failure")
+	assert.Contains(t, out, "0")
+}
+
+func TestPrintDeleteResponse_JSON(t *testing.T) {
+	var buf bytes.Buffer
+	// printDeleteJSON writes to log.Output (stdout), not to buf; we only check no error is returned.
+	err := printDeleteResponse(4, 0, coreformat.Json, &buf, false, nil)
+	require.NoError(t, err)
+}
+
+func TestPrintDeleteResponse_UnsupportedFormat(t *testing.T) {
+	var buf bytes.Buffer
+	err := printDeleteResponse(1, 0, coreformat.Sarif, &buf, false, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported format")
+	assert.Contains(t, err.Error(), "rt delete")
+}
+
+// ---------------------------------------------------------------------------
+// printDeleteJSON tests
+// ---------------------------------------------------------------------------
+
+func TestPrintDeleteJSON_SuccessStatus(t *testing.T) {
+	// No error, no failures → status should be "success".
+	// Output goes to log.Output (stdout); we just verify no error is returned.
+	err := printDeleteJSON(3, 0, false, nil)
+	require.NoError(t, err)
+}
+
+func TestPrintDeleteJSON_FailureStatus(t *testing.T) {
+	// Has failures → status should be "failure".
+	err := printDeleteJSON(2, 1, false, nil)
+	require.NoError(t, err)
+}

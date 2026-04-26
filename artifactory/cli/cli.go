@@ -1424,7 +1424,65 @@ func deleteCmd(c *components.Context) error {
 	deleteCommand.SetThreads(threads).SetQuiet(common.GetQuietValue(c)).SetDryRun(c.GetBoolFlagValue("dry-run")).SetServerDetails(rtDetails).SetSpec(deleteSpec).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
 	err = commands.Exec(deleteCommand)
 	result := deleteCommand.Result()
-	return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+
+	outputFormat, fmtErr := getDeleteOutputFormat(c)
+	if fmtErr != nil {
+		return fmtErr
+	}
+	if outputFormat == coreformat.None {
+		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+	}
+	return printDeleteResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
+}
+
+// getDeleteOutputFormat reads the --format flag and returns the resolved output format.
+// When the flag is not set the function returns coreformat.None, preserving the
+// previous behaviour (brief summary output via printBriefSummaryAndGetError).
+func getDeleteOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
+	if !c.IsFlagSet(flagkit.Format) {
+		return coreformat.None, nil
+	}
+	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
+}
+
+// printDeleteResponse renders the delete result in the requested output format.
+func printDeleteResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		err := printDeleteJSON(succeeded, failed, failNoOp, originalErr)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	case coreformat.Table:
+		err := printDeleteTable(succeeded, failed, w)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt delete. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// printDeleteJSON emits a JSON summary of the delete operation to stdout via log.Output.
+func printDeleteJSON(succeeded, failed int, failNoOp bool, originalErr error) error {
+	summaryReport := summary.GetSummaryReport(succeeded, failed, failNoOp, originalErr)
+	data, err := summaryReport.Marshal()
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	log.Output(clientutils.IndentJson(data))
+	return nil
+}
+
+// printDeleteTable renders a counts table for the delete operation.
+func printDeleteTable(succeeded, failed int, w io.Writer) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
+	_, _ = fmt.Fprintf(tw, "success\t%d\n", succeeded)
+	_, _ = fmt.Fprintf(tw, "failure\t%d\n", failed)
+	return tw.Flush()
 }
 
 func prepareSearchCommand(c *components.Context) (*spec.SpecFiles, error) {
