@@ -231,6 +231,7 @@ const (
 	moveFlat         = movePrefix + flat
 	moveProps        = movePrefix + props
 	moveExcludeProps = movePrefix + excludeProps
+	moveFormat       = movePrefix + Format
 
 	// Unique copy flags
 	copyPrefix       = "copy-"
@@ -619,7 +620,7 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
 		ClientCertKeyPath, specFlag, specVars, exclusions, sortBy, sortOrder, limit, offset, moveRecursive,
 		moveFlat, dryRun, build, includeDeps, excludeArtifacts, moveProps, moveExcludeProps, failNoOp, threads, archiveEntries,
-		InsecureTls, retries, retryWaitTime, Project,
+		InsecureTls, retries, retryWaitTime, Project, moveFormat,
 	},
 	Copy: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
@@ -963,6 +964,7 @@ var flagsMap = map[string]components.Flag{
 	moveFlat:         components.NewBoolFlag(flat, "If set to false, files are moved according to their file system hierarchy.", components.WithBoolDefaultValueFalse()),
 	moveProps:        components.NewStringFlag(props, "List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts with these properties will be moved.", components.SetMandatoryFalse()),
 	moveExcludeProps: components.NewStringFlag(excludeProps, "List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts without the specified properties will be moved.", components.SetMandatoryFalse()),
+	moveFormat:       components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
 
 	// Copy specific commands flags
 	copyRecursive:    components.NewBoolFlag(Recursive, "[Default: true] Set to false if you do not wish to copy artifacts inside sub-folders in Artifactory.", components.WithBoolDefaultValueFalse()),

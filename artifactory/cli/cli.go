@@ -1198,7 +1198,7 @@ func moveCmd(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-	moveCmd := generic.NewMoveCommand()
+	mvCmd := generic.NewMoveCommand()
 	rtDetails, err := common.CreateArtifactoryDetailsByFlags(c)
 	if err != nil {
 		return err
@@ -1215,10 +1215,68 @@ func moveCmd(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-	moveCmd.SetThreads(threads).SetDryRun(c.GetBoolFlagValue("dry-run")).SetServerDetails(rtDetails).SetSpec(moveSpec).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
-	err = commands.Exec(moveCmd)
-	result := moveCmd.Result()
-	return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+	mvCmd.SetThreads(threads).SetDryRun(c.GetBoolFlagValue("dry-run")).SetServerDetails(rtDetails).SetSpec(moveSpec).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
+	err = commands.Exec(mvCmd)
+	result := mvCmd.Result()
+
+	outputFormat, fmtErr := getMoveOutputFormat(c)
+	if fmtErr != nil {
+		return fmtErr
+	}
+	if outputFormat == coreformat.None {
+		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+	}
+	return printMoveResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
+}
+
+// getMoveOutputFormat reads the --format flag and returns the resolved output format.
+// When the flag is not set the function returns coreformat.None, preserving the
+// previous behaviour (brief summary output via printBriefSummaryAndGetError).
+func getMoveOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
+	if !c.IsFlagSet(flagkit.Format) {
+		return coreformat.None, nil
+	}
+	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
+}
+
+// printMoveResponse renders the move result in the requested output format.
+func printMoveResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		err := printMoveJSON(succeeded, failed, failNoOp, originalErr)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	case coreformat.Table:
+		err := printMoveTable(succeeded, failed, w)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt move. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// printMoveJSON emits a JSON summary of the move operation to stdout via log.Output.
+func printMoveJSON(succeeded, failed int, failNoOp bool, originalErr error) error {
+	summaryReport := summary.GetSummaryReport(succeeded, failed, failNoOp, originalErr)
+	data, err := summaryReport.Marshal()
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	log.Output(clientutils.IndentJson(data))
+	return nil
+}
+
+// printMoveTable renders a counts table for the move operation.
+func printMoveTable(succeeded, failed int, w io.Writer) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
+	_, _ = fmt.Fprintf(tw, "success\t%d\n", succeeded)
+	_, _ = fmt.Fprintf(tw, "failure\t%d\n", failed)
+	return tw.Flush()
 }
 
 func copyCmd(c *components.Context) error {

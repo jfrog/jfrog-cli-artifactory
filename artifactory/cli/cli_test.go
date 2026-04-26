@@ -547,3 +547,110 @@ func TestPrintDownloadResponse_UnsupportedFormat(t *testing.T) {
 	assert.Contains(t, err.Error(), "unsupported format")
 	assert.Contains(t, err.Error(), "rt download")
 }
+
+// ---------------------------------------------------------------------------
+// getMoveOutputFormat tests
+// ---------------------------------------------------------------------------
+
+func TestGetMoveOutputFormat_Default(t *testing.T) {
+	ctx := newTestContext(nil)
+	format, err := getMoveOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
+}
+
+func TestGetMoveOutputFormat_ExplicitJSON(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "json"})
+	format, err := getMoveOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Json, format)
+}
+
+func TestGetMoveOutputFormat_ExplicitTable(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "table"})
+	format, err := getMoveOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Table, format)
+}
+
+func TestGetMoveOutputFormat_Invalid(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "xml"})
+	_, err := getMoveOutputFormat(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// ---------------------------------------------------------------------------
+// printMoveTable tests
+// ---------------------------------------------------------------------------
+
+func TestPrintMoveTable_SuccessAndFailure(t *testing.T) {
+	var buf bytes.Buffer
+	err := printMoveTable(5, 2, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "VALUE")
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "5")
+	assert.Contains(t, out, "failure")
+	assert.Contains(t, out, "2")
+}
+
+func TestPrintMoveTable_ZeroCounts(t *testing.T) {
+	var buf bytes.Buffer
+	err := printMoveTable(0, 0, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "VALUE")
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "failure")
+}
+
+// ---------------------------------------------------------------------------
+// printMoveResponse tests
+// ---------------------------------------------------------------------------
+
+func TestPrintMoveResponse_Table(t *testing.T) {
+	var buf bytes.Buffer
+	err := printMoveResponse(3, 0, coreformat.Table, &buf, false, nil)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "3")
+	assert.Contains(t, out, "failure")
+	assert.Contains(t, out, "0")
+}
+
+func TestPrintMoveResponse_JSON(t *testing.T) {
+	var buf bytes.Buffer
+	// printMoveJSON writes to log.Output (stdout), not to buf; we only check no error is returned.
+	err := printMoveResponse(4, 0, coreformat.Json, &buf, false, nil)
+	require.NoError(t, err)
+}
+
+func TestPrintMoveResponse_UnsupportedFormat(t *testing.T) {
+	var buf bytes.Buffer
+	err := printMoveResponse(1, 0, coreformat.Sarif, &buf, false, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported format")
+	assert.Contains(t, err.Error(), "rt move")
+}
+
+// ---------------------------------------------------------------------------
+// printMoveJSON tests
+// ---------------------------------------------------------------------------
+
+func TestPrintMoveJSON_SuccessStatus(t *testing.T) {
+	// No error, no failures → status should be "success".
+	// Output goes to log.Output (stdout); we just verify no error is returned.
+	err := printMoveJSON(3, 0, false, nil)
+	require.NoError(t, err)
+}
+
+func TestPrintMoveJSON_FailureStatus(t *testing.T) {
+	// Has failures → status should be "failure".
+	err := printMoveJSON(2, 1, false, nil)
+	require.NoError(t, err)
+}
