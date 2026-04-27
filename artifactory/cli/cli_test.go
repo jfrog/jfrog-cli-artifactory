@@ -581,12 +581,12 @@ func TestGetMoveOutputFormat_Invalid(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// printMoveTable tests
+// printCountsTable tests
 // ---------------------------------------------------------------------------
 
-func TestPrintMoveTable_SuccessAndFailure(t *testing.T) {
+func TestPrintCountsTableSuccessAndFailure(t *testing.T) {
 	var buf bytes.Buffer
-	err := printMoveTable(5, 2, &buf)
+	err := printCountsTable(5, 2, &buf)
 	require.NoError(t, err)
 	out := buf.String()
 	assert.Contains(t, out, "FIELD")
@@ -597,9 +597,9 @@ func TestPrintMoveTable_SuccessAndFailure(t *testing.T) {
 	assert.Contains(t, out, "2")
 }
 
-func TestPrintMoveTable_ZeroCounts(t *testing.T) {
+func TestPrintCountsTableZeroCounts(t *testing.T) {
 	var buf bytes.Buffer
-	err := printMoveTable(0, 0, &buf)
+	err := printCountsTable(0, 0, &buf)
 	require.NoError(t, err)
 	out := buf.String()
 	assert.Contains(t, out, "FIELD")
@@ -639,23 +639,6 @@ func TestPrintMoveResponse_UnsupportedFormat(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// printMoveJSON tests
-// ---------------------------------------------------------------------------
-
-func TestPrintMoveJSON_SuccessStatus(t *testing.T) {
-	// No error, no failures → status should be "success".
-	// Output goes to log.Output (stdout); we just verify no error is returned.
-	err := printMoveJSON(3, 0, false, nil)
-	require.NoError(t, err)
-}
-
-func TestPrintMoveJSON_FailureStatus(t *testing.T) {
-	// Has failures → status should be "failure".
-	err := printMoveJSON(2, 1, false, nil)
-	require.NoError(t, err)
-}
-
-// ---------------------------------------------------------------------------
 // getOutputFormatWithDefault tests (copy — default None)
 // ---------------------------------------------------------------------------
 
@@ -688,34 +671,6 @@ func TestGetCopyOutputFormat_Invalid(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// printCopyTable tests
-// ---------------------------------------------------------------------------
-
-func TestPrintCopyTable_SuccessAndFailure(t *testing.T) {
-	var buf bytes.Buffer
-	err := printCopyTable(5, 2, &buf)
-	require.NoError(t, err)
-	out := buf.String()
-	assert.Contains(t, out, "FIELD")
-	assert.Contains(t, out, "VALUE")
-	assert.Contains(t, out, "success")
-	assert.Contains(t, out, "5")
-	assert.Contains(t, out, "failure")
-	assert.Contains(t, out, "2")
-}
-
-func TestPrintCopyTable_ZeroCounts(t *testing.T) {
-	var buf bytes.Buffer
-	err := printCopyTable(0, 0, &buf)
-	require.NoError(t, err)
-	out := buf.String()
-	assert.Contains(t, out, "FIELD")
-	assert.Contains(t, out, "VALUE")
-	assert.Contains(t, out, "success")
-	assert.Contains(t, out, "failure")
-}
-
-// ---------------------------------------------------------------------------
 // printCopyResponse tests
 // ---------------------------------------------------------------------------
 
@@ -743,23 +698,6 @@ func TestPrintCopyResponse_UnsupportedFormat(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported format")
 	assert.Contains(t, err.Error(), "rt copy")
-}
-
-// ---------------------------------------------------------------------------
-// printCopyJSON tests
-// ---------------------------------------------------------------------------
-
-func TestPrintCopyJSON_SuccessStatus(t *testing.T) {
-	// No error, no failures → status should be "success".
-	// Output goes to log.Output (stdout); we just verify no error is returned.
-	err := printCopyJSON(3, 0, false, nil)
-	require.NoError(t, err)
-}
-
-func TestPrintCopyJSON_FailureStatus(t *testing.T) {
-	// Has failures → status should be "failure".
-	err := printCopyJSON(2, 1, false, nil)
-	require.NoError(t, err)
 }
 
 // ---------------------------------------------------------------------------
@@ -795,34 +733,6 @@ func TestGetDeleteOutputFormat_Invalid(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// printDeleteTable tests
-// ---------------------------------------------------------------------------
-
-func TestPrintDeleteTable_SuccessAndFailure(t *testing.T) {
-	var buf bytes.Buffer
-	err := printDeleteTable(5, 2, &buf)
-	require.NoError(t, err)
-	out := buf.String()
-	assert.Contains(t, out, "FIELD")
-	assert.Contains(t, out, "VALUE")
-	assert.Contains(t, out, "success")
-	assert.Contains(t, out, "5")
-	assert.Contains(t, out, "failure")
-	assert.Contains(t, out, "2")
-}
-
-func TestPrintDeleteTable_ZeroCounts(t *testing.T) {
-	var buf bytes.Buffer
-	err := printDeleteTable(0, 0, &buf)
-	require.NoError(t, err)
-	out := buf.String()
-	assert.Contains(t, out, "FIELD")
-	assert.Contains(t, out, "VALUE")
-	assert.Contains(t, out, "success")
-	assert.Contains(t, out, "failure")
-}
-
-// ---------------------------------------------------------------------------
 // printDeleteResponse tests
 // ---------------------------------------------------------------------------
 
@@ -850,23 +760,6 @@ func TestPrintDeleteResponse_UnsupportedFormat(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported format")
 	assert.Contains(t, err.Error(), "rt delete")
-}
-
-// ---------------------------------------------------------------------------
-// printDeleteJSON tests
-// ---------------------------------------------------------------------------
-
-func TestPrintDeleteJSON_SuccessStatus(t *testing.T) {
-	// No error, no failures → status should be "success".
-	// Output goes to log.Output (stdout); we just verify no error is returned.
-	err := printDeleteJSON(3, 0, false, nil)
-	require.NoError(t, err)
-}
-
-func TestPrintDeleteJSON_FailureStatus(t *testing.T) {
-	// Has failures → status should be "failure".
-	err := printDeleteJSON(2, 1, false, nil)
-	require.NoError(t, err)
 }
 
 // ---------------------------------------------------------------------------
@@ -1102,25 +995,6 @@ func TestPrintContainerPushResponse_UnsupportedFormat(t *testing.T) {
 // build-promote (Pattern B — json-only) tests
 // ---------------------------------------------------------------------------
 
-// TestBuildPromoteFormat_ValidJSON verifies that --format json is accepted and
-// printBuildPromoteJSON does not panic or error.
-func TestBuildPromoteFormat_ValidJSON(t *testing.T) {
-	// printBuildPromoteJSON writes to log.Output (stdout); we just verify it does not panic.
-	require.NotPanics(t, func() {
-		printBuildPromoteJSON()
-	})
-}
-
-// TestBuildPromoteFormat_EmptyBody verifies that the synthetic JSON object is
-// well-formed when the body is nil (the common case: client discards body).
-func TestBuildPromoteFormat_EmptyBody(t *testing.T) {
-	// printBuildPromoteJSON always produces {"message":"OK","status_code":200}.
-	// We verify the function runs without error (output goes to log.Output, not a writer).
-	require.NotPanics(t, func() {
-		printBuildPromoteJSON()
-	})
-}
-
 // TestBuildPromoteFormat_InvalidFormatRejected verifies that --format table (and
 // any other unsupported format) is rejected before the HTTP call is made.
 func TestBuildPromoteFormat_InvalidFormatRejected(t *testing.T) {
@@ -1159,23 +1033,6 @@ func TestBuildPromoteFormat_XMLRejected(t *testing.T) {
 // ---------------------------------------------------------------------------
 // build-discard --format tests
 // ---------------------------------------------------------------------------
-
-// TestBuildDiscardFormat_ValidJSON verifies that printBuildDiscardJSON does not panic.
-func TestBuildDiscardFormat_ValidJSON(t *testing.T) {
-	require.NotPanics(t, func() {
-		printBuildDiscardJSON()
-	})
-}
-
-// TestBuildDiscardFormat_EmptyBody verifies that the synthetic JSON object is
-// well-formed when the body is nil (204 No Content; client discards body).
-func TestBuildDiscardFormat_EmptyBody(t *testing.T) {
-	// printBuildDiscardJSON always produces {"message":"No Content","status_code":204}.
-	// We verify the function runs without error (output goes to log.Output, not a writer).
-	require.NotPanics(t, func() {
-		printBuildDiscardJSON()
-	})
-}
 
 // TestBuildDiscardFormat_InvalidFormatRejected verifies that --format table (and
 // any other unsupported format) is rejected before the HTTP call is made.
@@ -1245,34 +1102,6 @@ func TestGetSetPropsOutputFormat_Invalid(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// printSetPropsTable tests
-// ---------------------------------------------------------------------------
-
-func TestPrintSetPropsTable_SuccessAndFailure(t *testing.T) {
-	var buf bytes.Buffer
-	err := printSetPropsTable(7, 3, &buf)
-	require.NoError(t, err)
-	out := buf.String()
-	assert.Contains(t, out, "FIELD")
-	assert.Contains(t, out, "VALUE")
-	assert.Contains(t, out, "success")
-	assert.Contains(t, out, "7")
-	assert.Contains(t, out, "failure")
-	assert.Contains(t, out, "3")
-}
-
-func TestPrintSetPropsTable_ZeroCounts(t *testing.T) {
-	var buf bytes.Buffer
-	err := printSetPropsTable(0, 0, &buf)
-	require.NoError(t, err)
-	out := buf.String()
-	assert.Contains(t, out, "FIELD")
-	assert.Contains(t, out, "VALUE")
-	assert.Contains(t, out, "success")
-	assert.Contains(t, out, "failure")
-}
-
-// ---------------------------------------------------------------------------
 // printSetPropsResponse tests
 // ---------------------------------------------------------------------------
 
@@ -1300,23 +1129,6 @@ func TestPrintSetPropsResponse_UnsupportedFormat(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported format")
 	assert.Contains(t, err.Error(), "rt set-props")
-}
-
-// ---------------------------------------------------------------------------
-// printSetPropsJSON tests
-// ---------------------------------------------------------------------------
-
-func TestPrintSetPropsJSON_SuccessStatus(t *testing.T) {
-	// No error, no failures → status should be "success".
-	// Output goes to log.Output (stdout); we just verify no error is returned.
-	err := printSetPropsJSON(3, 0, false, nil)
-	require.NoError(t, err)
-}
-
-func TestPrintSetPropsJSON_FailureStatus(t *testing.T) {
-	// Has failures → status should be "failure".
-	err := printSetPropsJSON(2, 1, false, nil)
-	require.NoError(t, err)
 }
 
 // ---------------------------------------------------------------------------
@@ -1352,33 +1164,6 @@ func TestGetDeletePropsOutputFormat_Invalid(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// printDeletePropsTable tests
-// ---------------------------------------------------------------------------
-
-func TestPrintDeletePropsTable_SuccessAndFailure(t *testing.T) {
-	var buf bytes.Buffer
-	err := printDeletePropsTable(7, 3, &buf)
-	require.NoError(t, err)
-	out := buf.String()
-	assert.Contains(t, out, "FIELD")
-	assert.Contains(t, out, "VALUE")
-	assert.Contains(t, out, "success")
-	assert.Contains(t, out, "failure")
-	assert.Contains(t, out, "7")
-	assert.Contains(t, out, "3")
-}
-
-func TestPrintDeletePropsTable_ZeroCounts(t *testing.T) {
-	var buf bytes.Buffer
-	err := printDeletePropsTable(0, 0, &buf)
-	require.NoError(t, err)
-	out := buf.String()
-	assert.Contains(t, out, "FIELD")
-	assert.Contains(t, out, "VALUE")
-	assert.Contains(t, out, "0")
-}
-
-// ---------------------------------------------------------------------------
 // printDeletePropsResponse tests
 // ---------------------------------------------------------------------------
 
@@ -1406,23 +1191,6 @@ func TestPrintDeletePropsResponse_UnsupportedFormat(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported format")
 	assert.Contains(t, err.Error(), "rt delete-props")
-}
-
-// ---------------------------------------------------------------------------
-// printDeletePropsJSON tests
-// ---------------------------------------------------------------------------
-
-func TestPrintDeletePropsJSON_SuccessStatus(t *testing.T) {
-	// No error, no failures → status should be "success".
-	// Output goes to log.Output (stdout); we just verify no error is returned.
-	err := printDeletePropsJSON(3, 0, false, nil)
-	require.NoError(t, err)
-}
-
-func TestPrintDeletePropsJSON_FailureStatus(t *testing.T) {
-	// Has failures → status should be "failure".
-	err := printDeletePropsJSON(2, 1, false, nil)
-	require.NoError(t, err)
 }
 
 // ---------------------------------------------------------------------------
@@ -1487,51 +1255,6 @@ func TestPrintBuildAddDependenciesResponse_UnsupportedFormat(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported format")
 	assert.Contains(t, err.Error(), "rt build-add-dependencies")
-}
-
-// ---------------------------------------------------------------------------
-// printBuildAddDependenciesTable tests
-// ---------------------------------------------------------------------------
-
-func TestPrintBuildAddDependenciesTable_WithCounts(t *testing.T) {
-	var buf bytes.Buffer
-	err := printBuildAddDependenciesTable(10, 3, &buf)
-	require.NoError(t, err)
-	out := buf.String()
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	require.GreaterOrEqual(t, len(lines), 3, "expected header + 2 data rows")
-	assert.Contains(t, lines[0], "FIELD")
-	assert.Contains(t, lines[0], "VALUE")
-	assert.Contains(t, out, "success")
-	assert.Contains(t, out, "10")
-	assert.Contains(t, out, "failure")
-	assert.Contains(t, out, "3")
-}
-
-func TestPrintBuildAddDependenciesTable_ZeroCounts(t *testing.T) {
-	var buf bytes.Buffer
-	err := printBuildAddDependenciesTable(0, 0, &buf)
-	require.NoError(t, err)
-	out := buf.String()
-	assert.Contains(t, out, "success")
-	assert.Contains(t, out, "failure")
-}
-
-// ---------------------------------------------------------------------------
-// printBuildAddDependenciesJSON tests
-// ---------------------------------------------------------------------------
-
-func TestPrintBuildAddDependenciesJSON_SuccessStatus(t *testing.T) {
-	// No error, no failures → status should be "success".
-	// Output goes to log.Output (stdout); we just verify no error is returned.
-	err := printBuildAddDependenciesJSON(8, 0, false, nil)
-	require.NoError(t, err)
-}
-
-func TestPrintBuildAddDependenciesJSON_FailureStatus(t *testing.T) {
-	// Has failures → status should reflect failure.
-	err := printBuildAddDependenciesJSON(3, 2, false, nil)
-	require.NoError(t, err)
 }
 
 // ---------------------------------------------------------------------------
@@ -1668,23 +1391,6 @@ func TestPrintDirectDownloadResponse_UnsupportedFormat(t *testing.T) {
 // docker-promote --format tests
 // ---------------------------------------------------------------------------
 
-// TestDockerPromoteFormat_ValidJSON verifies that printDockerPromoteJSON does not panic.
-func TestDockerPromoteFormat_ValidJSON(t *testing.T) {
-	require.NotPanics(t, func() {
-		printDockerPromoteJSON()
-	})
-}
-
-// TestDockerPromoteFormat_EmptyBody verifies that the synthetic JSON object is
-// well-formed when the body is nil (the common case: client discards body).
-func TestDockerPromoteFormat_EmptyBody(t *testing.T) {
-	// printDockerPromoteJSON always produces {"message":"OK","status_code":200}.
-	// We verify the function runs without error (output goes to log.Output, not a writer).
-	require.NotPanics(t, func() {
-		printDockerPromoteJSON()
-	})
-}
-
 // TestDockerPromoteFormat_InvalidFormatRejected verifies that --format table (and
 // any other unsupported format) is rejected before the HTTP call is made.
 func TestDockerPromoteFormat_InvalidFormatRejected(t *testing.T) {
@@ -1782,51 +1488,6 @@ func TestPrintGitLfsCleanResponse_UnsupportedFormat(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported format")
 	assert.Contains(t, err.Error(), "rt git-lfs-clean")
-}
-
-// ---------------------------------------------------------------------------
-// printGitLfsCleanTable tests
-// ---------------------------------------------------------------------------
-
-func TestPrintGitLfsCleanTable_WithCounts(t *testing.T) {
-	var buf bytes.Buffer
-	err := printGitLfsCleanTable(10, 3, &buf)
-	require.NoError(t, err)
-	out := buf.String()
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	require.GreaterOrEqual(t, len(lines), 3, "expected header + 2 data rows")
-	assert.Contains(t, lines[0], "FIELD")
-	assert.Contains(t, lines[0], "VALUE")
-	assert.Contains(t, out, "success")
-	assert.Contains(t, out, "10")
-	assert.Contains(t, out, "failure")
-	assert.Contains(t, out, "3")
-}
-
-func TestPrintGitLfsCleanTable_ZeroCounts(t *testing.T) {
-	var buf bytes.Buffer
-	err := printGitLfsCleanTable(0, 0, &buf)
-	require.NoError(t, err)
-	out := buf.String()
-	assert.Contains(t, out, "success")
-	assert.Contains(t, out, "failure")
-}
-
-// ---------------------------------------------------------------------------
-// printGitLfsCleanJSON tests
-// ---------------------------------------------------------------------------
-
-func TestPrintGitLfsCleanJSON_SuccessStatus(t *testing.T) {
-	// No error, no failures → status should be "success".
-	// Output goes to log.Output (stdout); we just verify no error is returned.
-	err := printGitLfsCleanJSON(8, 0, nil)
-	require.NoError(t, err)
-}
-
-func TestPrintGitLfsCleanJSON_FailureStatus(t *testing.T) {
-	// Has failures → status should reflect failure; we verify no error is returned.
-	err := printGitLfsCleanJSON(3, 2, nil)
-	require.NoError(t, err)
 }
 
 // ---------------------------------------------------------------------------
@@ -2086,23 +1747,6 @@ func TestPrintNugetDepsTreeTable_InvalidJSON(t *testing.T) {
 // replication-create --format tests (Pattern B — json-only)
 // ---------------------------------------------------------------------------
 
-// TestReplicationCreateFormat_ValidJSON verifies that printReplicationCreateJSON does not panic.
-func TestReplicationCreateFormat_ValidJSON(t *testing.T) {
-	require.NotPanics(t, func() {
-		printReplicationCreateJSON()
-	})
-}
-
-// TestReplicationCreateFormat_EmptyBody verifies that the synthetic JSON object is
-// well-formed when the body is nil (the common case: client discards body).
-func TestReplicationCreateFormat_EmptyBody(t *testing.T) {
-	// printReplicationCreateJSON always produces {"message":"OK","status_code":200}.
-	// We verify the function runs without error (output goes to log.Output, not a writer).
-	require.NotPanics(t, func() {
-		printReplicationCreateJSON()
-	})
-}
-
 // TestReplicationCreateFormat_InvalidFormatRejected verifies that --format table (and
 // any other unsupported format) is rejected before the HTTP call is made.
 func TestReplicationCreateFormat_InvalidFormatRejected(t *testing.T) {
@@ -2141,23 +1785,6 @@ func TestReplicationCreateFormat_XMLRejected(t *testing.T) {
 // ---------------------------------------------------------------------------
 // repo-create --format tests (Pattern B — json-only)
 // ---------------------------------------------------------------------------
-
-// TestRepoCreateFormat_ValidJSON verifies that printRepoCreateJSON does not panic.
-func TestRepoCreateFormat_ValidJSON(t *testing.T) {
-	require.NotPanics(t, func() {
-		printRepoCreateJSON()
-	})
-}
-
-// TestRepoCreateFormat_EmptyBody verifies that the synthetic JSON object is
-// well-formed when the body is nil (the common case: client discards body).
-func TestRepoCreateFormat_EmptyBody(t *testing.T) {
-	// printRepoCreateJSON always produces {"message":"OK","status_code":200}.
-	// We verify the function runs without error (output goes to log.Output, not a writer).
-	require.NotPanics(t, func() {
-		printRepoCreateJSON()
-	})
-}
 
 // TestRepoCreateFormat_InvalidFormatRejected verifies that --format table (and
 // any other unsupported format) is rejected before the HTTP call is made.
@@ -2198,23 +1825,6 @@ func TestRepoCreateFormat_XMLRejected(t *testing.T) {
 // repo-update --format tests (Pattern B — json-only)
 // ---------------------------------------------------------------------------
 
-// TestRepoUpdateFormat_ValidJSON verifies that printRepoUpdateJSON does not panic.
-func TestRepoUpdateFormat_ValidJSON(t *testing.T) {
-	require.NotPanics(t, func() {
-		printRepoUpdateJSON()
-	})
-}
-
-// TestRepoUpdateFormat_EmptyBody verifies that the synthetic JSON object is
-// well-formed when the body is nil (client discards body).
-func TestRepoUpdateFormat_EmptyBody(t *testing.T) {
-	// printRepoUpdateJSON always produces {"message":"OK","status_code":200}.
-	// We verify the function runs without error (output goes to log.Output, not a writer).
-	require.NotPanics(t, func() {
-		printRepoUpdateJSON()
-	})
-}
-
 // TestRepoUpdateFormat_InvalidFormatRejected verifies that --format table (and
 // any other unsupported format) is rejected before the HTTP call is made.
 func TestRepoUpdateFormat_InvalidFormatRejected(t *testing.T) {
@@ -2248,4 +1858,22 @@ func TestRepoUpdateFormat_XMLRejected(t *testing.T) {
 	_, err := coreformat.ParseOutputFormat(ctx.GetStringFlagValue("format"), []coreformat.OutputFormat{coreformat.Json})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+func TestPrintSummaryJSONSuccessStatus(t *testing.T) {
+	err := printSummaryJSON(3, 0, false, nil)
+	require.NoError(t, err)
+}
+
+func TestPrintSummaryJSONFailureStatus(t *testing.T) {
+	err := printSummaryJSON(2, 1, false, nil)
+	require.NoError(t, err)
+}
+
+func TestPrintStatusJSONOK(t *testing.T) {
+	require.NotPanics(t, func() { printStatusJSON(200, "OK") })
+}
+
+func TestPrintStatusJSONNoContent(t *testing.T) {
+	require.NotPanics(t, func() { printStatusJSON(204, "No Content") })
 }

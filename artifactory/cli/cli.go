@@ -518,22 +518,37 @@ func dockerPromoteCmd(c *components.Context) error {
 	// The client layer discards the body, so we pass nil and let the helper
 	// synthesize {"status_code": 200, "message": "OK"}.
 	if c.IsFlagSet(flagkit.Format) {
-		printDockerPromoteJSON()
+		printStatusJSON(200, "OK")
 	}
 	return nil
 }
 
-// printDockerPromoteJSON emits a synthetic JSON success response for docker-promote.
-// The Artifactory docker promote API returns a body, but the client layer discards it;
-// error == nil guarantees HTTP 200, so we synthesise {"status_code":200,"message":"OK"}.
-func printDockerPromoteJSON() {
-	synthetic := map[string]interface{}{
-		"status_code": 200,
-		"message":     "OK",
-	}
-	data, _ := json.Marshal(synthetic)
+// printStatusJSON emits a synthetic JSON response with the given HTTP status code and message.
+func printStatusJSON(statusCode int, message string) {
+	data, _ := json.Marshal(map[string]interface{}{"status_code": statusCode, "message": message})
 	log.Output(clientutils.IndentJson(data))
 }
+
+// printCountsTable writes a two-row FIELD/VALUE tabwriter table with success and failure counts.
+func printCountsTable(succeeded, failed int, w io.Writer) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
+	_, _ = fmt.Fprintf(tw, "success\t%d\n", succeeded)
+	_, _ = fmt.Fprintf(tw, "failure\t%d\n", failed)
+	return tw.Flush()
+}
+
+// printSummaryJSON marshals a summary report to indented JSON and writes it to the log output.
+func printSummaryJSON(succeeded, failed int, failNoOp bool, originalErr error) error {
+	summaryReport := summary.GetSummaryReport(succeeded, failed, failNoOp, originalErr)
+	data, err := summaryReport.Marshal()
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	log.Output(clientutils.IndentJson(data))
+	return nil
+}
+
 
 func containerPushCmd(c *components.Context, containerManagerType containerutils.ContainerManagerType) (err error) {
 	if c.GetNumberOfArgs() != 2 {
@@ -609,13 +624,7 @@ type containerPushTableRow struct {
 func printContainerPushTable(result *commandUtils.Result, w io.Writer) error {
 	reader := result.Reader()
 	if reader == nil {
-		// No per-layer details available (e.g. no build-info collection and no detailed-summary).
-		// Fall back to a minimal counts table.
-		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
-		_, _ = fmt.Fprintf(tw, "success\t%d\n", result.SuccessCount())
-		_, _ = fmt.Fprintf(tw, "failure\t%d\n", result.FailCount())
-		return tw.Flush()
+		return printCountsTable(result.SuccessCount(), result.FailCount(), w)
 	}
 	var rows []containerPushTableRow
 	for item := new(clientutils.FileTransferDetails); reader.NextRecord(item) == nil; item = new(clientutils.FileTransferDetails) {
@@ -1154,13 +1163,7 @@ type downloadTableRow struct {
 func printDownloadTable(result *commandUtils.Result, w io.Writer) error {
 	reader := result.Reader()
 	if reader == nil {
-		// No per-file details available (e.g. dry-run without build-info collection).
-		// Fall back to a minimal counts table.
-		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
-		_, _ = fmt.Fprintf(tw, "success\t%d\n", result.SuccessCount())
-		_, _ = fmt.Fprintf(tw, "failure\t%d\n", result.FailCount())
-		return tw.Flush()
+		return printCountsTable(result.SuccessCount(), result.FailCount(), w)
 	}
 	var rows []downloadTableRow
 	for item := new(clientutils.FileTransferDetails); reader.NextRecord(item) == nil; item = new(clientutils.FileTransferDetails) {
@@ -1209,13 +1212,7 @@ type directDownloadTableRow struct {
 func printDirectDownloadTable(result *commandUtils.Result, w io.Writer) error {
 	reader := result.Reader()
 	if reader == nil {
-		// No per-file details available (e.g. dry-run without build-info collection).
-		// Fall back to a minimal counts table.
-		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
-		_, _ = fmt.Fprintf(tw, "success\t%d\n", result.SuccessCount())
-		_, _ = fmt.Fprintf(tw, "failure\t%d\n", result.FailCount())
-		return tw.Flush()
+		return printCountsTable(result.SuccessCount(), result.FailCount(), w)
 	}
 	var rows []directDownloadTableRow
 	for item := new(clientutils.FileTransferDetails); reader.NextRecord(item) == nil; item = new(clientutils.FileTransferDetails) {
@@ -1377,13 +1374,7 @@ type uploadTableRow struct {
 func printUploadTable(result *commandUtils.Result, w io.Writer) error {
 	reader := result.Reader()
 	if reader == nil {
-		// No per-file details available (e.g. dry-run without build-info collection).
-		// Fall back to a minimal counts table.
-		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
-		_, _ = fmt.Fprintf(tw, "success\t%d\n", result.SuccessCount())
-		_, _ = fmt.Fprintf(tw, "failure\t%d\n", result.FailCount())
-		return tw.Flush()
+		return printCountsTable(result.SuccessCount(), result.FailCount(), w)
 	}
 	var rows []uploadTableRow
 	for item := new(clientutils.FileTransferDetails); reader.NextRecord(item) == nil; item = new(clientutils.FileTransferDetails) {
@@ -1465,13 +1456,13 @@ func moveCmd(c *components.Context) error {
 func printMoveResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
 	switch outputFormat {
 	case coreformat.Json:
-		err := printMoveJSON(succeeded, failed, failNoOp, originalErr)
+		err := printSummaryJSON(succeeded, failed, failNoOp, originalErr)
 		if err != nil {
 			return err
 		}
 		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
 	case coreformat.Table:
-		err := printMoveTable(succeeded, failed, w)
+		err := printCountsTable(succeeded, failed, w)
 		if err != nil {
 			return err
 		}
@@ -1479,26 +1470,6 @@ func printMoveResponse(succeeded, failed int, outputFormat coreformat.OutputForm
 	default:
 		return errorutils.CheckErrorf("unsupported format '%s' for rt move. Acceptable values are: json, table", outputFormat)
 	}
-}
-
-// printMoveJSON emits a JSON summary of the move operation to stdout via log.Output.
-func printMoveJSON(succeeded, failed int, failNoOp bool, originalErr error) error {
-	summaryReport := summary.GetSummaryReport(succeeded, failed, failNoOp, originalErr)
-	data, err := summaryReport.Marshal()
-	if err != nil {
-		return errorutils.CheckError(err)
-	}
-	log.Output(clientutils.IndentJson(data))
-	return nil
-}
-
-// printMoveTable renders a counts table for the move operation.
-func printMoveTable(succeeded, failed int, w io.Writer) error {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
-	_, _ = fmt.Fprintf(tw, "success\t%d\n", succeeded)
-	_, _ = fmt.Fprintf(tw, "failure\t%d\n", failed)
-	return tw.Flush()
 }
 
 func copyCmd(c *components.Context) error {
@@ -1542,13 +1513,13 @@ func copyCmd(c *components.Context) error {
 func printCopyResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
 	switch outputFormat {
 	case coreformat.Json:
-		err := printCopyJSON(succeeded, failed, failNoOp, originalErr)
+		err := printSummaryJSON(succeeded, failed, failNoOp, originalErr)
 		if err != nil {
 			return err
 		}
 		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
 	case coreformat.Table:
-		err := printCopyTable(succeeded, failed, w)
+		err := printCountsTable(succeeded, failed, w)
 		if err != nil {
 			return err
 		}
@@ -1556,26 +1527,6 @@ func printCopyResponse(succeeded, failed int, outputFormat coreformat.OutputForm
 	default:
 		return errorutils.CheckErrorf("unsupported format '%s' for rt copy. Acceptable values are: json, table", outputFormat)
 	}
-}
-
-// printCopyJSON emits a JSON summary of the copy operation to stdout via log.Output.
-func printCopyJSON(succeeded, failed int, failNoOp bool, originalErr error) error {
-	summaryReport := summary.GetSummaryReport(succeeded, failed, failNoOp, originalErr)
-	data, err := summaryReport.Marshal()
-	if err != nil {
-		return errorutils.CheckError(err)
-	}
-	log.Output(clientutils.IndentJson(data))
-	return nil
-}
-
-// printCopyTable renders a counts table for the copy operation.
-func printCopyTable(succeeded, failed int, w io.Writer) error {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
-	_, _ = fmt.Fprintf(tw, "success\t%d\n", succeeded)
-	_, _ = fmt.Fprintf(tw, "failure\t%d\n", failed)
-	return tw.Flush()
 }
 
 // Prints a 'brief' (not detailed) summary and returns the appropriate exit error.
@@ -1651,13 +1602,13 @@ func deleteCmd(c *components.Context) error {
 func printDeleteResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
 	switch outputFormat {
 	case coreformat.Json:
-		err := printDeleteJSON(succeeded, failed, failNoOp, originalErr)
+		err := printSummaryJSON(succeeded, failed, failNoOp, originalErr)
 		if err != nil {
 			return err
 		}
 		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
 	case coreformat.Table:
-		err := printDeleteTable(succeeded, failed, w)
+		err := printCountsTable(succeeded, failed, w)
 		if err != nil {
 			return err
 		}
@@ -1665,26 +1616,6 @@ func printDeleteResponse(succeeded, failed int, outputFormat coreformat.OutputFo
 	default:
 		return errorutils.CheckErrorf("unsupported format '%s' for rt delete. Acceptable values are: json, table", outputFormat)
 	}
-}
-
-// printDeleteJSON emits a JSON summary of the delete operation to stdout via log.Output.
-func printDeleteJSON(succeeded, failed int, failNoOp bool, originalErr error) error {
-	summaryReport := summary.GetSummaryReport(succeeded, failed, failNoOp, originalErr)
-	data, err := summaryReport.Marshal()
-	if err != nil {
-		return errorutils.CheckError(err)
-	}
-	log.Output(clientutils.IndentJson(data))
-	return nil
-}
-
-// printDeleteTable renders a counts table for the delete operation.
-func printDeleteTable(succeeded, failed int, w io.Writer) error {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
-	_, _ = fmt.Fprintf(tw, "success\t%d\n", succeeded)
-	_, _ = fmt.Fprintf(tw, "failure\t%d\n", failed)
-	return tw.Flush()
 }
 
 func prepareSearchCommand(c *components.Context) (*spec.SpecFiles, error) {
@@ -1876,13 +1807,13 @@ func setPropsCmd(c *components.Context) error {
 func printSetPropsResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
 	switch outputFormat {
 	case coreformat.Json:
-		err := printSetPropsJSON(succeeded, failed, failNoOp, originalErr)
+		err := printSummaryJSON(succeeded, failed, failNoOp, originalErr)
 		if err != nil {
 			return err
 		}
 		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
 	case coreformat.Table:
-		err := printSetPropsTable(succeeded, failed, w)
+		err := printCountsTable(succeeded, failed, w)
 		if err != nil {
 			return err
 		}
@@ -1890,26 +1821,6 @@ func printSetPropsResponse(succeeded, failed int, outputFormat coreformat.Output
 	default:
 		return errorutils.CheckErrorf("unsupported format '%s' for rt set-props. Acceptable values are: json, table", outputFormat)
 	}
-}
-
-// printSetPropsJSON emits a JSON summary of the set-props operation to stdout via log.Output.
-func printSetPropsJSON(succeeded, failed int, failNoOp bool, originalErr error) error {
-	summaryReport := summary.GetSummaryReport(succeeded, failed, failNoOp, originalErr)
-	data, err := summaryReport.Marshal()
-	if err != nil {
-		return errorutils.CheckError(err)
-	}
-	log.Output(clientutils.IndentJson(data))
-	return nil
-}
-
-// printSetPropsTable renders a counts table for the set-props operation.
-func printSetPropsTable(succeeded, failed int, w io.Writer) error {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
-	_, _ = fmt.Fprintf(tw, "success\t%d\n", succeeded)
-	_, _ = fmt.Fprintf(tw, "failure\t%d\n", failed)
-	return tw.Flush()
 }
 
 func deletePropsCmd(c *components.Context) error {
@@ -1944,13 +1855,13 @@ func deletePropsCmd(c *components.Context) error {
 func printDeletePropsResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
 	switch outputFormat {
 	case coreformat.Json:
-		err := printDeletePropsJSON(succeeded, failed, failNoOp, originalErr)
+		err := printSummaryJSON(succeeded, failed, failNoOp, originalErr)
 		if err != nil {
 			return err
 		}
 		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
 	case coreformat.Table:
-		err := printDeletePropsTable(succeeded, failed, w)
+		err := printCountsTable(succeeded, failed, w)
 		if err != nil {
 			return err
 		}
@@ -1958,26 +1869,6 @@ func printDeletePropsResponse(succeeded, failed int, outputFormat coreformat.Out
 	default:
 		return errorutils.CheckErrorf("unsupported format '%s' for rt delete-props. Acceptable values are: json, table", outputFormat)
 	}
-}
-
-// printDeletePropsJSON emits a JSON summary of the delete-props operation to stdout via log.Output.
-func printDeletePropsJSON(succeeded, failed int, failNoOp bool, originalErr error) error {
-	summaryReport := summary.GetSummaryReport(succeeded, failed, failNoOp, originalErr)
-	data, err := summaryReport.Marshal()
-	if err != nil {
-		return errorutils.CheckError(err)
-	}
-	log.Output(clientutils.IndentJson(data))
-	return nil
-}
-
-// printDeletePropsTable renders a counts table for the delete-props operation.
-func printDeletePropsTable(succeeded, failed int, w io.Writer) error {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
-	_, _ = fmt.Fprintf(tw, "success\t%d\n", succeeded)
-	_, _ = fmt.Fprintf(tw, "failure\t%d\n", failed)
-	return tw.Flush()
 }
 
 func buildPublishCmd(c *components.Context) error {
@@ -2133,13 +2024,13 @@ func buildAddDependenciesCmd(c *components.Context) error {
 func printBuildAddDependenciesResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
 	switch outputFormat {
 	case coreformat.Json:
-		err := printBuildAddDependenciesJSON(succeeded, failed, failNoOp, originalErr)
+		err := printSummaryJSON(succeeded, failed, failNoOp, originalErr)
 		if err != nil {
 			return err
 		}
 		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
 	case coreformat.Table:
-		err := printBuildAddDependenciesTable(succeeded, failed, w)
+		err := printCountsTable(succeeded, failed, w)
 		if err != nil {
 			return err
 		}
@@ -2147,26 +2038,6 @@ func printBuildAddDependenciesResponse(succeeded, failed int, outputFormat coref
 	default:
 		return errorutils.CheckErrorf("unsupported format '%s' for rt build-add-dependencies. Acceptable values are: json, table", outputFormat)
 	}
-}
-
-// printBuildAddDependenciesJSON emits a JSON summary of the build-add-dependencies operation to stdout via log.Output.
-func printBuildAddDependenciesJSON(succeeded, failed int, failNoOp bool, originalErr error) error {
-	summaryReport := summary.GetSummaryReport(succeeded, failed, failNoOp, originalErr)
-	data, err := summaryReport.Marshal()
-	if err != nil {
-		return errorutils.CheckError(err)
-	}
-	log.Output(clientutils.IndentJson(data))
-	return nil
-}
-
-// printBuildAddDependenciesTable renders a counts table for the build-add-dependencies operation.
-func printBuildAddDependenciesTable(succeeded, failed int, w io.Writer) error {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
-	_, _ = fmt.Fprintf(tw, "success\t%d\n", succeeded)
-	_, _ = fmt.Fprintf(tw, "failure\t%d\n", failed)
-	return tw.Flush()
 }
 
 func buildCollectEnvCmd(c *components.Context) error {
@@ -2271,21 +2142,9 @@ func buildPromoteCmd(c *components.Context) error {
 	// The client layer discards the body, so we pass nil and let the helper
 	// synthesize {"status_code": 200, "message": "OK"}.
 	if c.IsFlagSet(flagkit.Format) {
-		printBuildPromoteJSON()
+		printStatusJSON(200, "OK")
 	}
 	return nil
-}
-
-// printBuildPromoteJSON emits a synthetic JSON success response for build-promote.
-// The Artifactory promote API returns a body, but the client layer discards it;
-// error == nil guarantees HTTP 200, so we synthesise {"status_code":200,"message":"OK"}.
-func printBuildPromoteJSON() {
-	synthetic := map[string]interface{}{
-		"status_code": 200,
-		"message":     "OK",
-	}
-	data, _ := json.Marshal(synthetic)
-	log.Output(clientutils.IndentJson(data))
 }
 
 func buildDiscardCmd(c *components.Context) error {
@@ -2318,21 +2177,9 @@ func buildDiscardCmd(c *components.Context) error {
 	// The client layer discards the body, so we pass nil and let the helper
 	// synthesize {"status_code": 204, "message": "No Content"}.
 	if c.IsFlagSet(flagkit.Format) {
-		printBuildDiscardJSON()
+		printStatusJSON(204, "No Content")
 	}
 	return nil
-}
-
-// printBuildDiscardJSON emits a synthetic JSON success response for build-discard.
-// The Artifactory discard API returns 204 No Content with no body; the client layer
-// discards the response, so error == nil guarantees HTTP 204.
-func printBuildDiscardJSON() {
-	synthetic := map[string]interface{}{
-		"status_code": 204,
-		"message":     "No Content",
-	}
-	data, _ := json.Marshal(synthetic)
-	log.Output(clientutils.IndentJson(data))
 }
 
 func gitLfsCleanCmd(c *components.Context) error {
@@ -2373,32 +2220,15 @@ func gitLfsCleanCmd(c *components.Context) error {
 func printGitLfsCleanResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, originalErr error) error {
 	switch outputFormat {
 	case coreformat.Json:
-		return printGitLfsCleanJSON(succeeded, failed, originalErr)
+		if err := printSummaryJSON(succeeded, failed, false, originalErr); err != nil {
+			return err
+		}
+		return originalErr
 	case coreformat.Table:
-		return printGitLfsCleanTable(succeeded, failed, w)
+		return printCountsTable(succeeded, failed, w)
 	default:
 		return errorutils.CheckErrorf("unsupported format '%s' for rt git-lfs-clean. Acceptable values are: json, table", outputFormat)
 	}
-}
-
-// printGitLfsCleanJSON emits a JSON summary of the git-lfs-clean operation to stdout via log.Output.
-func printGitLfsCleanJSON(succeeded, failed int, originalErr error) error {
-	summaryReport := summary.GetSummaryReport(succeeded, failed, false, originalErr)
-	data, err := summaryReport.Marshal()
-	if err != nil {
-		return errorutils.CheckError(err)
-	}
-	log.Output(clientutils.IndentJson(data))
-	return originalErr
-}
-
-// printGitLfsCleanTable renders a counts table for the git-lfs-clean operation.
-func printGitLfsCleanTable(succeeded, failed int, w io.Writer) error {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
-	_, _ = fmt.Fprintf(tw, "success\t%d\n", succeeded)
-	_, _ = fmt.Fprintf(tw, "failure\t%d\n", failed)
-	return tw.Flush()
 }
 
 func curlCmd(c *components.Context) error {
@@ -2481,21 +2311,9 @@ func repoCreateCmd(c *components.Context) error {
 	// The client layer discards the body, so we pass nil and let the helper
 	// synthesize {"status_code": 200, "message": "OK"}.
 	if c.IsFlagSet(flagkit.Format) {
-		printRepoCreateJSON()
+		printStatusJSON(200, "OK")
 	}
 	return nil
-}
-
-// printRepoCreateJSON emits a synthetic JSON success response for repo-create.
-// The Artifactory repo create API returns a body, but the client layer discards it;
-// error == nil guarantees HTTP 200, so we synthesise {"status_code":200,"message":"OK"}.
-func printRepoCreateJSON() {
-	synthetic := map[string]interface{}{
-		"status_code": 200,
-		"message":     "OK",
-	}
-	data, _ := json.Marshal(synthetic)
-	log.Output(clientutils.IndentJson(data))
 }
 
 func repoUpdateCmd(c *components.Context) error {
@@ -2525,21 +2343,9 @@ func repoUpdateCmd(c *components.Context) error {
 	// The client layer discards the body, so we pass nil and let the helper
 	// synthesize {"status_code": 200, "message": "OK"}.
 	if c.IsFlagSet(flagkit.Format) {
-		printRepoUpdateJSON()
+		printStatusJSON(200, "OK")
 	}
 	return nil
-}
-
-// printRepoUpdateJSON emits a synthetic JSON success response for repo-update.
-// The Artifactory repo update API returns a body, but the client layer discards it;
-// error == nil guarantees HTTP 200, so we synthesise {"status_code":200,"message":"OK"}.
-func printRepoUpdateJSON() {
-	synthetic := map[string]interface{}{
-		"status_code": 200,
-		"message":     "OK",
-	}
-	data, _ := json.Marshal(synthetic)
-	log.Output(clientutils.IndentJson(data))
 }
 
 func repoDeleteCmd(c *components.Context) error {
@@ -2591,21 +2397,9 @@ func replicationCreateCmd(c *components.Context) error {
 	// The client layer discards the body, so we pass nil and let the helper
 	// synthesize {"status_code": 200, "message": "OK"}.
 	if c.IsFlagSet(flagkit.Format) {
-		printReplicationCreateJSON()
+		printStatusJSON(200, "OK")
 	}
 	return nil
-}
-
-// printReplicationCreateJSON emits a synthetic JSON success response for replication-create.
-// The Artifactory replication create API returns a body, but the client layer discards it;
-// error == nil guarantees HTTP 200, so we synthesise {"status_code":200,"message":"OK"}.
-func printReplicationCreateJSON() {
-	synthetic := map[string]interface{}{
-		"status_code": 200,
-		"message":     "OK",
-	}
-	data, _ := json.Marshal(synthetic)
-	log.Output(clientutils.IndentJson(data))
 }
 
 func replicationDeleteCmd(c *components.Context) error {

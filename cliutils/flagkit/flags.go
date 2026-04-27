@@ -411,6 +411,9 @@ const (
 	repoUpdatePrefix = "repo-update-"
 	repoUpdateFormat = repoUpdatePrefix + Format
 
+	// Unique template-consumer flags
+	templateConsumerFormat = TemplateConsumer + "-" + Format
+
 	// Template user flags
 	vars = "vars"
 
@@ -849,7 +852,7 @@ var commandFlags = map[string][]string{
 	},
 	TemplateConsumer: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
-		ClientCertKeyPath, vars,
+		ClientCertKeyPath, vars, templateConsumerFormat,
 	},
 	ReplicationCreate: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
@@ -1199,7 +1202,8 @@ var flagsMap = map[string]components.Flag{
 	ExcludeProjects: components.NewStringFlag(ExcludeProjects, "List of semicolon-separated(;) JFrog Projects to exclude from the transfer. You can use wildcards to specify patterns for the project keys.", components.SetMandatoryFalse()),
 
 	// TemplateConsumer specific commands flags
-	vars: components.NewStringFlag(vars, "List of semicolon-separated(;) variables in the form of \"key1=value1;key2=value2;...\" (wrapped by quotes) to be replaced in the template. In the template, the variables should be used as follows: ${key1}.", components.SetMandatoryFalse()),
+	vars:                   components.NewStringFlag(vars, "List of semicolon-separated(;) variables in the form of \"key1=value1;key2=value2;...\" (wrapped by quotes) to be replaced in the template. In the template, the variables should be used as follows: ${key1}.", components.SetMandatoryFalse()),
+	templateConsumerFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json}), components.SetMandatoryFalse()),
 
 	// ArtifactoryAccessTokenCreate specific commands flags
 	rtAtcGroups:      components.NewStringFlag(Groups, "[Default: *] A list of comma-separated(,) groups for the access token to be associated with. Specify * to indicate that this is a 'user-scoped token', i.e., the token provides the same access privileges that the current subject has, and is therefore evaluated dynamically. ", components.SetMandatoryFalse()),
