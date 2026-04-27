@@ -87,6 +87,7 @@ const (
 	RtCurl         = "rt-curl"
 	TemplateConsumer       = "template-consumer"
 	ReplicationCreate      = "replication-create"
+	RepoCreate             = "repo-create"
 	RepoDelete             = "repo-delete"
 	ReplicationDelete      = "replication-delete"
 	PermissionTargetDelete = "permission-target-delete"
@@ -400,6 +401,10 @@ const (
 	// Unique replication-create flags
 	replicationCreatePrefix = "replication-create-"
 	replicationCreateFormat = replicationCreatePrefix + Format
+
+	// Unique repo-create flags
+	repoCreatePrefix = "repo-create-"
+	repoCreateFormat = repoCreatePrefix + Format
 
 	// Template user flags
 	vars = "vars"
@@ -845,6 +850,10 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
 		ClientCertKeyPath, vars, replicationCreateFormat,
 	},
+	RepoCreate: {
+		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
+		ClientCertKeyPath, vars, repoCreateFormat,
+	},
 	RepoDelete: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
 		ClientCertKeyPath, deleteQuiet,
@@ -1157,6 +1166,9 @@ var flagsMap = map[string]components.Flag{
 
 	// ReplicationCreate specific commands flags
 	replicationCreateFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json}), components.SetMandatoryFalse()),
+
+	// RepoCreate specific commands flags
+	repoCreateFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json}), components.SetMandatoryFalse()),
 
 	allowInsecureConnections: components.NewBoolFlag(allowInsecureConnections, "Set to true if you wish to configure NuGet sources with unsecured connections. This is recommended for testing purposes only.", components.WithBoolDefaultValueFalse()),
 	npmDetailedSummary:       components.NewBoolFlag(detailedSummary, "Set to true to include a list of the affected files in the command summary.", components.WithBoolDefaultValueFalse()),
