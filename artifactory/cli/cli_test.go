@@ -1424,3 +1424,112 @@ func TestPrintDeletePropsJSON_FailureStatus(t *testing.T) {
 	err := printDeletePropsJSON(2, 1, false, nil)
 	require.NoError(t, err)
 }
+
+// ---------------------------------------------------------------------------
+// getBuildAddDependenciesOutputFormat tests
+// ---------------------------------------------------------------------------
+
+func TestGetBuildAddDependenciesOutputFormat_Default(t *testing.T) {
+	ctx := newTestContext(nil)
+	format, err := getBuildAddDependenciesOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
+}
+
+func TestGetBuildAddDependenciesOutputFormat_ExplicitJSON(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "json"})
+	format, err := getBuildAddDependenciesOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Json, format)
+}
+
+func TestGetBuildAddDependenciesOutputFormat_ExplicitTable(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "table"})
+	format, err := getBuildAddDependenciesOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Table, format)
+}
+
+func TestGetBuildAddDependenciesOutputFormat_Invalid(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "xml"})
+	_, err := getBuildAddDependenciesOutputFormat(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// ---------------------------------------------------------------------------
+// printBuildAddDependenciesResponse tests
+// ---------------------------------------------------------------------------
+
+func TestPrintBuildAddDependenciesResponse_Table(t *testing.T) {
+	var buf bytes.Buffer
+	err := printBuildAddDependenciesResponse(7, 0, coreformat.Table, &buf, false, nil)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "VALUE")
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "7")
+	assert.Contains(t, out, "failure")
+	assert.Contains(t, out, "0")
+}
+
+func TestPrintBuildAddDependenciesResponse_JSON(t *testing.T) {
+	var buf bytes.Buffer
+	// printBuildAddDependenciesJSON writes to log.Output (stdout), not to buf; we only check no error is returned.
+	err := printBuildAddDependenciesResponse(5, 0, coreformat.Json, &buf, false, nil)
+	require.NoError(t, err)
+}
+
+func TestPrintBuildAddDependenciesResponse_UnsupportedFormat(t *testing.T) {
+	var buf bytes.Buffer
+	err := printBuildAddDependenciesResponse(1, 0, coreformat.Sarif, &buf, false, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported format")
+	assert.Contains(t, err.Error(), "rt build-add-dependencies")
+}
+
+// ---------------------------------------------------------------------------
+// printBuildAddDependenciesTable tests
+// ---------------------------------------------------------------------------
+
+func TestPrintBuildAddDependenciesTable_WithCounts(t *testing.T) {
+	var buf bytes.Buffer
+	err := printBuildAddDependenciesTable(10, 3, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	require.GreaterOrEqual(t, len(lines), 3, "expected header + 2 data rows")
+	assert.Contains(t, lines[0], "FIELD")
+	assert.Contains(t, lines[0], "VALUE")
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "10")
+	assert.Contains(t, out, "failure")
+	assert.Contains(t, out, "3")
+}
+
+func TestPrintBuildAddDependenciesTable_ZeroCounts(t *testing.T) {
+	var buf bytes.Buffer
+	err := printBuildAddDependenciesTable(0, 0, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "failure")
+}
+
+// ---------------------------------------------------------------------------
+// printBuildAddDependenciesJSON tests
+// ---------------------------------------------------------------------------
+
+func TestPrintBuildAddDependenciesJSON_SuccessStatus(t *testing.T) {
+	// No error, no failures → status should be "success".
+	// Output goes to log.Output (stdout); we just verify no error is returned.
+	err := printBuildAddDependenciesJSON(8, 0, false, nil)
+	require.NoError(t, err)
+}
+
+func TestPrintBuildAddDependenciesJSON_FailureStatus(t *testing.T) {
+	// Has failures → status should reflect failure.
+	err := printBuildAddDependenciesJSON(3, 2, false, nil)
+	require.NoError(t, err)
+}

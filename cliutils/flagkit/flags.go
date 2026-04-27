@@ -292,6 +292,7 @@ const (
 	badRegexp    = badPrefix + regexpFlag
 	badFromRt    = badPrefix + fromRt
 	badModule    = badPrefix + module
+	badFormat    = badPrefix + Format
 
 	// Unique build-add-git flags
 	configFlag = "config"
@@ -665,7 +666,7 @@ var commandFlags = map[string][]string{
 		envInclude, envExclude, InsecureTls, Project,
 	},
 	BuildAddDependencies: {
-		specFlag, specVars, uploadExclusions, badRecursive, badRegexp, badDryRun, Project, badFromRt, serverId, badModule,
+		specFlag, specVars, uploadExclusions, badRecursive, badRegexp, badDryRun, Project, badFromRt, serverId, badModule, badFormat,
 	},
 	BuildAddGit: {
 		configFlag, serverId, Project,
@@ -1040,6 +1041,7 @@ var flagsMap = map[string]components.Flag{
 	badDryRun:    components.NewBoolFlag(dryRun, "Set to true to only get a summary of the dependencies that will be added to the build info.", components.WithBoolDefaultValueFalse()),
 	badFromRt:    components.NewBoolFlag(fromRt, "Set true to search the files in Artifactory, rather than on the local file system. The --regexp option is not supported when --from-rt is set to true.", components.WithBoolDefaultValueFalse()),
 	badModule:    components.NewStringFlag(module, "Optional module name in the build-info for adding the dependency.", components.SetMandatoryFalse()),
+	badFormat:    components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
 
 	// Build Add Git specific commands flags
 	configFlag: components.NewStringFlag(configFlag, "Path to a configuration file.", components.SetMandatoryFalse()),
