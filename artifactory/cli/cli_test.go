@@ -1533,3 +1533,133 @@ func TestPrintBuildAddDependenciesJSON_FailureStatus(t *testing.T) {
 	err := printBuildAddDependenciesJSON(3, 2, false, nil)
 	require.NoError(t, err)
 }
+
+// ---------------------------------------------------------------------------
+// direct-download test helpers
+// ---------------------------------------------------------------------------
+
+// createDirectDownloadResult builds a *commandUtils.Result with the given counts and an optional
+// per-file transfer-details ContentReader (keyed "files", matching Artifactory's convention).
+func createDirectDownloadResult(t *testing.T, success, failed int, transfers []clientutils.FileTransferDetails) *commandUtils.Result {
+	t.Helper()
+	r := new(commandUtils.Result)
+	r.SetSuccessCount(success)
+	r.SetFailCount(failed)
+	if transfers != nil {
+		type filesWrapper struct {
+			Files []clientutils.FileTransferDetails `json:"files"`
+		}
+		data, err := json.Marshal(filesWrapper{Files: transfers})
+		require.NoError(t, err)
+
+		f, err := os.CreateTemp("", "direct-download-details-*.json")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = os.Remove(f.Name()) })
+		_, err = f.Write(data)
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+
+		r.SetReader(content.NewContentReader(f.Name(), "files"))
+	}
+	return r
+}
+
+// ---------------------------------------------------------------------------
+// getDirectDownloadOutputFormat tests
+// ---------------------------------------------------------------------------
+
+func TestGetDirectDownloadOutputFormat_Default(t *testing.T) {
+	ctx := newTestContext(nil)
+	format, err := getDirectDownloadOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
+}
+
+func TestGetDirectDownloadOutputFormat_ExplicitJSON(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "json"})
+	format, err := getDirectDownloadOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Json, format)
+}
+
+func TestGetDirectDownloadOutputFormat_ExplicitTable(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "table"})
+	format, err := getDirectDownloadOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Table, format)
+}
+
+func TestGetDirectDownloadOutputFormat_Invalid(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "xml"})
+	_, err := getDirectDownloadOutputFormat(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// ---------------------------------------------------------------------------
+// printDirectDownloadTable tests
+// ---------------------------------------------------------------------------
+
+func TestPrintDirectDownloadTable_WithResults(t *testing.T) {
+	transfers := []clientutils.FileTransferDetails{
+		{SourcePath: "repo/a.jar", TargetPath: "/local/a.jar", RtUrl: "https://myrt.example.com/", Sha256: "abc123"},
+		{SourcePath: "repo/b.zip", TargetPath: "/local/b.zip", RtUrl: "https://myrt.example.com/", Sha256: "def456"},
+	}
+	result := createDirectDownloadResult(t, 2, 0, transfers)
+	defer result.Reader().Close()
+
+	var buf bytes.Buffer
+	err := printDirectDownloadTable(result, &buf)
+	require.NoError(t, err)
+	// When a reader is present, PrintTable is used (writes to stdout); we only
+	// check that the function does not error and the reader state is consistent.
+}
+
+func TestPrintDirectDownloadTable_NoReader_FallsBackToCountsTable(t *testing.T) {
+	result := createDirectDownloadResult(t, 3, 1, nil)
+
+	var buf bytes.Buffer
+	err := printDirectDownloadTable(result, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "VALUE")
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "3")
+	assert.Contains(t, out, "failure")
+	assert.Contains(t, out, "1")
+}
+
+func TestPrintDirectDownloadTable_EmptyReader(t *testing.T) {
+	result := createDirectDownloadResult(t, 0, 0, []clientutils.FileTransferDetails{})
+	defer result.Reader().Close()
+
+	var buf bytes.Buffer
+	err := printDirectDownloadTable(result, &buf)
+	require.NoError(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// printDirectDownloadResponse tests
+// ---------------------------------------------------------------------------
+
+func TestPrintDirectDownloadResponse_Table_NoReader(t *testing.T) {
+	result := createDirectDownloadResult(t, 2, 0, nil)
+
+	var buf bytes.Buffer
+	err := printDirectDownloadResponse(result, coreformat.Table, &buf, false, nil)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "2")
+}
+
+func TestPrintDirectDownloadResponse_UnsupportedFormat(t *testing.T) {
+	result := createDirectDownloadResult(t, 1, 0, nil)
+
+	var buf bytes.Buffer
+	err := printDirectDownloadResponse(result, coreformat.Sarif, &buf, false, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported format")
+	assert.Contains(t, err.Error(), "rt direct-download")
+}

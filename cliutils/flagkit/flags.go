@@ -221,9 +221,10 @@ const (
 	downloadSyncDeletes  = downloadPrefix + syncDeletes
 	downloadMinSplit     = downloadPrefix + MinSplit
 	downloadSplitCount   = downloadPrefix + SplitCount
-	validateSymlinks     = "validate-symlinks"
-	skipChecksum         = "skip-checksum"
-	downloadFormat       = downloadPrefix + Format
+	validateSymlinks      = "validate-symlinks"
+	skipChecksum          = "skip-checksum"
+	downloadFormat        = downloadPrefix + Format
+	directDownloadFormat  = "direct-download-" + Format
 
 	// Unique move flags
 	movePrefix       = "move-"
@@ -625,7 +626,7 @@ var commandFlags = map[string][]string{
 		ClientCertKeyPath, specFlag, specVars, BuildName, BuildNumber, module, exclusions,
 		downloadRecursive, downloadFlat, build, includeDeps, excludeArtifacts, downloadMinSplit, downloadSplitCount,
 		retries, retryWaitTime, dryRun, downloadExplode, threads, downloadSyncDeletes, syncDeletesQuiet, skipChecksum, failNoOp, detailedSummary, Project,
-		bypassArchiveInspection, validateSymlinks, InsecureTls, bundle,
+		bypassArchiveInspection, validateSymlinks, InsecureTls, bundle, directDownloadFormat,
 	},
 	Move: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
@@ -996,6 +997,9 @@ var flagsMap = map[string]components.Flag{
 
 	// Download specific command flags
 	downloadFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
+
+	// Direct-download specific command flags
+	directDownloadFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
 
 	// Ping specific command flags
 	pingFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
