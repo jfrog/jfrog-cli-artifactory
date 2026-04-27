@@ -1719,3 +1719,112 @@ func TestDockerPromoteFormat_XMLRejected(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
+
+// ---------------------------------------------------------------------------
+// getGitLfsCleanOutputFormat tests
+// ---------------------------------------------------------------------------
+
+func TestGetGitLfsCleanOutputFormat_Default(t *testing.T) {
+	ctx := newTestContext(nil)
+	format, err := getGitLfsCleanOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
+}
+
+func TestGetGitLfsCleanOutputFormat_ExplicitJSON(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "json"})
+	format, err := getGitLfsCleanOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Json, format)
+}
+
+func TestGetGitLfsCleanOutputFormat_ExplicitTable(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "table"})
+	format, err := getGitLfsCleanOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Table, format)
+}
+
+func TestGetGitLfsCleanOutputFormat_Invalid(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "xml"})
+	_, err := getGitLfsCleanOutputFormat(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// ---------------------------------------------------------------------------
+// printGitLfsCleanResponse tests
+// ---------------------------------------------------------------------------
+
+func TestPrintGitLfsCleanResponse_Table(t *testing.T) {
+	var buf bytes.Buffer
+	err := printGitLfsCleanResponse(5, 1, coreformat.Table, &buf, nil)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "VALUE")
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "5")
+	assert.Contains(t, out, "failure")
+	assert.Contains(t, out, "1")
+}
+
+func TestPrintGitLfsCleanResponse_JSON(t *testing.T) {
+	var buf bytes.Buffer
+	// printGitLfsCleanJSON writes to log.Output (stdout); we only check no error is returned.
+	err := printGitLfsCleanResponse(3, 0, coreformat.Json, &buf, nil)
+	require.NoError(t, err)
+}
+
+func TestPrintGitLfsCleanResponse_UnsupportedFormat(t *testing.T) {
+	var buf bytes.Buffer
+	err := printGitLfsCleanResponse(1, 0, coreformat.Sarif, &buf, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported format")
+	assert.Contains(t, err.Error(), "rt git-lfs-clean")
+}
+
+// ---------------------------------------------------------------------------
+// printGitLfsCleanTable tests
+// ---------------------------------------------------------------------------
+
+func TestPrintGitLfsCleanTable_WithCounts(t *testing.T) {
+	var buf bytes.Buffer
+	err := printGitLfsCleanTable(10, 3, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	require.GreaterOrEqual(t, len(lines), 3, "expected header + 2 data rows")
+	assert.Contains(t, lines[0], "FIELD")
+	assert.Contains(t, lines[0], "VALUE")
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "10")
+	assert.Contains(t, out, "failure")
+	assert.Contains(t, out, "3")
+}
+
+func TestPrintGitLfsCleanTable_ZeroCounts(t *testing.T) {
+	var buf bytes.Buffer
+	err := printGitLfsCleanTable(0, 0, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "failure")
+}
+
+// ---------------------------------------------------------------------------
+// printGitLfsCleanJSON tests
+// ---------------------------------------------------------------------------
+
+func TestPrintGitLfsCleanJSON_SuccessStatus(t *testing.T) {
+	// No error, no failures → status should be "success".
+	// Output goes to log.Output (stdout); we just verify no error is returned.
+	err := printGitLfsCleanJSON(8, 0, nil)
+	require.NoError(t, err)
+}
+
+func TestPrintGitLfsCleanJSON_FailureStatus(t *testing.T) {
+	// Has failures → status should reflect failure; we verify no error is returned.
+	err := printGitLfsCleanJSON(3, 2, nil)
+	require.NoError(t, err)
+}

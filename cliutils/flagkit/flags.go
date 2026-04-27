@@ -326,11 +326,12 @@ const (
 	repo = "repo"
 
 	// Unique git-lfs-clean flags
-	glcPrefix = "glc-"
-	glcDryRun = glcPrefix + dryRun
-	glcQuiet  = glcPrefix + quiet
-	glcRepo   = glcPrefix + repo
-	refs      = "refs"
+	glcPrefix  = "glc-"
+	glcDryRun  = glcPrefix + dryRun
+	glcQuiet   = glcPrefix + quiet
+	glcRepo    = glcPrefix + repo
+	glcFormat  = glcPrefix + Format
+	refs       = "refs"
 
 	// Build tool config flags
 	global          = "global"
@@ -697,7 +698,7 @@ var commandFlags = map[string][]string{
 	},
 	GitLfsClean: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, refs, glcRepo, glcDryRun,
-		glcQuiet, InsecureTls, retries, retryWaitTime,
+		glcQuiet, InsecureTls, retries, retryWaitTime, glcFormat,
 	},
 	CocoapodsConfig: {
 		global, serverIdResolve, repoResolve,
@@ -1078,6 +1079,7 @@ var flagsMap = map[string]components.Flag{
 	glcRepo:   components.NewStringFlag(repo, "Local Git LFS repository which should be cleaned. If omitted, this is detected from the Git repository.", components.SetMandatoryFalse()),
 	glcDryRun: components.NewBoolFlag(dryRun, "If true, cleanup is only simulated. No files are actually deleted.", components.WithBoolDefaultValueFalse()),
 	glcQuiet:  components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip the delete confirmation message.", components.WithBoolDefaultValueFalse()),
+	glcFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
 
 	// Config commands flags
 	global:          components.NewBoolFlag(global, "Set to true if you'd like the configuration to be global (for all projects). Specific projects can override the global configuration.", components.WithBoolDefaultValueFalse()),

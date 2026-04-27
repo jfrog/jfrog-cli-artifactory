@@ -2379,7 +2379,60 @@ func gitLfsCleanCmd(c *components.Context) error {
 	}
 	gitLfsCmd.SetConfiguration(configuration).SetServerDetails(rtDetails).SetDryRun(c.GetBoolFlagValue("dry-run")).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
 
-	return commands.Exec(gitLfsCmd)
+	err = commands.Exec(gitLfsCmd)
+	succeeded, total := gitLfsCmd.Result()
+	failed := total - succeeded
+
+	outputFormat, fmtErr := getGitLfsCleanOutputFormat(c)
+	if fmtErr != nil {
+		return fmtErr
+	}
+	if outputFormat == coreformat.None {
+		return err
+	}
+	return printGitLfsCleanResponse(succeeded, failed, outputFormat, os.Stdout, err)
+}
+
+// getGitLfsCleanOutputFormat reads the --format flag and returns the resolved output format.
+// When the flag is not set the function returns coreformat.None, preserving the
+// previous behaviour (no structured output).
+func getGitLfsCleanOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
+	if !c.IsFlagSet(flagkit.Format) {
+		return coreformat.None, nil
+	}
+	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
+}
+
+// printGitLfsCleanResponse renders the git-lfs-clean result in the requested output format.
+func printGitLfsCleanResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		return printGitLfsCleanJSON(succeeded, failed, originalErr)
+	case coreformat.Table:
+		return printGitLfsCleanTable(succeeded, failed, w)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt git-lfs-clean. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// printGitLfsCleanJSON emits a JSON summary of the git-lfs-clean operation to stdout via log.Output.
+func printGitLfsCleanJSON(succeeded, failed int, originalErr error) error {
+	summaryReport := summary.GetSummaryReport(succeeded, failed, false, originalErr)
+	data, err := summaryReport.Marshal()
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	log.Output(clientutils.IndentJson(data))
+	return originalErr
+}
+
+// printGitLfsCleanTable renders a counts table for the git-lfs-clean operation.
+func printGitLfsCleanTable(succeeded, failed int, w io.Writer) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
+	_, _ = fmt.Fprintf(tw, "success\t%d\n", succeeded)
+	_, _ = fmt.Fprintf(tw, "failure\t%d\n", failed)
+	return tw.Flush()
 }
 
 func curlCmd(c *components.Context) error {
