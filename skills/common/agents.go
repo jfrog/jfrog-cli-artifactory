@@ -8,7 +8,7 @@ import (
 )
 
 // CrossAgentName is the reserved agent name for the shared cross-agent skills directory.
-const CrossAgentName = ""
+const CrossAgentName = "cross-agent"
 
 // AgentConfig holds the skills directory paths for an AI agent.
 type AgentConfig struct {
