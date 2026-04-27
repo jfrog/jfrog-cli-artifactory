@@ -408,7 +408,7 @@ func GetCommands() []components.Command {
 		{
 			Name:        "replication-create",
 			Aliases:     []string{"rplc"},
-			Flags:       flagkit.GetCommandFlags(flagkit.TemplateConsumer),
+			Flags:       flagkit.GetCommandFlags(flagkit.ReplicationCreate),
 			Description: replicationcreate.GetDescription(),
 			Arguments:   replicationcreate.GetArguments(),
 			Action:      replicationCreateCmd,
@@ -2662,13 +2662,42 @@ func replicationCreateCmd(c *components.Context) error {
 	if c.GetNumberOfArgs() != 1 {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
+
+	if c.IsFlagSet(flagkit.Format) {
+		if _, fmtErr := coreformat.ParseOutputFormat(c.GetStringFlagValue(flagkit.Format), []coreformat.OutputFormat{coreformat.Json}); fmtErr != nil {
+			return fmtErr
+		}
+	}
+
 	rtDetails, err := common.CreateArtifactoryDetailsByFlags(c)
 	if err != nil {
 		return err
 	}
-	replicationCreateCmd := replication.NewReplicationCreateCommand()
-	replicationCreateCmd.SetTemplatePath(c.GetArgumentAt(0)).SetServerDetails(rtDetails).SetVars(c.GetStringFlagValue("vars"))
-	return commands.Exec(replicationCreateCmd)
+	replicationCreateCommand := replication.NewReplicationCreateCommand()
+	replicationCreateCommand.SetTemplatePath(c.GetArgumentAt(0)).SetServerDetails(rtDetails).SetVars(c.GetStringFlagValue("vars"))
+	if err = commands.Exec(replicationCreateCommand); err != nil {
+		return err
+	}
+
+	// error == nil guarantees the server responded with 200.
+	// The client layer discards the body, so we pass nil and let the helper
+	// synthesize {"status_code": 200, "message": "OK"}.
+	if c.IsFlagSet(flagkit.Format) {
+		printReplicationCreateJSON()
+	}
+	return nil
+}
+
+// printReplicationCreateJSON emits a synthetic JSON success response for replication-create.
+// The Artifactory replication create API returns a body, but the client layer discards it;
+// error == nil guarantees HTTP 200, so we synthesise {"status_code":200,"message":"OK"}.
+func printReplicationCreateJSON() {
+	synthetic := map[string]interface{}{
+		"status_code": 200,
+		"message":     "OK",
+	}
+	data, _ := json.Marshal(synthetic)
+	log.Output(clientutils.IndentJson(data))
 }
 
 func replicationDeleteCmd(c *components.Context) error {

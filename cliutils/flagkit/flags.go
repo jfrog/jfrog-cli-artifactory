@@ -86,6 +86,7 @@ const (
 	NugetDepsTree  = "nuget-deps-tree"
 	RtCurl         = "rt-curl"
 	TemplateConsumer       = "template-consumer"
+	ReplicationCreate      = "replication-create"
 	RepoDelete             = "repo-delete"
 	ReplicationDelete      = "replication-delete"
 	PermissionTargetDelete = "permission-target-delete"
@@ -395,6 +396,10 @@ const (
 	namespace = "namespace"
 	provider  = "provider"
 	Tag       = "tag"
+
+	// Unique replication-create flags
+	replicationCreatePrefix = "replication-create-"
+	replicationCreateFormat = replicationCreatePrefix + Format
 
 	// Template user flags
 	vars = "vars"
@@ -836,6 +841,10 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
 		ClientCertKeyPath, vars,
 	},
+	ReplicationCreate: {
+		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
+		ClientCertKeyPath, vars, replicationCreateFormat,
+	},
 	RepoDelete: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
 		ClientCertKeyPath, deleteQuiet,
@@ -1145,6 +1154,9 @@ var flagsMap = map[string]components.Flag{
 	targetTag:         components.NewStringFlag("target-tag", "The target tag to assign the image after promotion.", components.SetMandatoryFalse()),
 	dockerPromoteCopy: components.NewBoolFlag("copy", "If set true, the Docker image is copied to the target repository, otherwise it is moved.", components.WithBoolDefaultValueFalse()),
 	dprFormat:         components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json}), components.SetMandatoryFalse()),
+
+	// ReplicationCreate specific commands flags
+	replicationCreateFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json}), components.SetMandatoryFalse()),
 
 	allowInsecureConnections: components.NewBoolFlag(allowInsecureConnections, "Set to true if you wish to configure NuGet sources with unsecured connections. This is recommended for testing purposes only.", components.WithBoolDefaultValueFalse()),
 	npmDetailedSummary:       components.NewBoolFlag(detailedSummary, "Set to true to include a list of the affected files in the command summary.", components.WithBoolDefaultValueFalse()),

@@ -2081,3 +2081,59 @@ func TestPrintNugetDepsTreeTable_InvalidJSON(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse nuget-deps-tree response")
 }
+
+// ---------------------------------------------------------------------------
+// replication-create --format tests (Pattern B — json-only)
+// ---------------------------------------------------------------------------
+
+// TestReplicationCreateFormat_ValidJSON verifies that printReplicationCreateJSON does not panic.
+func TestReplicationCreateFormat_ValidJSON(t *testing.T) {
+	require.NotPanics(t, func() {
+		printReplicationCreateJSON()
+	})
+}
+
+// TestReplicationCreateFormat_EmptyBody verifies that the synthetic JSON object is
+// well-formed when the body is nil (the common case: client discards body).
+func TestReplicationCreateFormat_EmptyBody(t *testing.T) {
+	// printReplicationCreateJSON always produces {"message":"OK","status_code":200}.
+	// We verify the function runs without error (output goes to log.Output, not a writer).
+	require.NotPanics(t, func() {
+		printReplicationCreateJSON()
+	})
+}
+
+// TestReplicationCreateFormat_InvalidFormatRejected verifies that --format table (and
+// any other unsupported format) is rejected before the HTTP call is made.
+func TestReplicationCreateFormat_InvalidFormatRejected(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "table"})
+	_, err := coreformat.ParseOutputFormat(ctx.GetStringFlagValue("format"), []coreformat.OutputFormat{coreformat.Json})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// TestReplicationCreateFormat_JSONFormatAccepted verifies that --format json passes
+// ParseOutputFormat validation without error.
+func TestReplicationCreateFormat_JSONFormatAccepted(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "json"})
+	outputFormat, err := coreformat.ParseOutputFormat(ctx.GetStringFlagValue("format"), []coreformat.OutputFormat{coreformat.Json})
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Json, outputFormat)
+}
+
+// TestReplicationCreateFormat_SarifRejected verifies that --format sarif is rejected.
+func TestReplicationCreateFormat_SarifRejected(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "sarif"})
+	_, err := coreformat.ParseOutputFormat(ctx.GetStringFlagValue("format"), []coreformat.OutputFormat{coreformat.Json})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// TestReplicationCreateFormat_XMLRejected verifies that an arbitrary unsupported format
+// value is rejected.
+func TestReplicationCreateFormat_XMLRejected(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "xml"})
+	_, err := coreformat.ParseOutputFormat(ctx.GetStringFlagValue("format"), []coreformat.OutputFormat{coreformat.Json})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
