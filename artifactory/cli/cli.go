@@ -479,6 +479,13 @@ func dockerPromoteCmd(c *components.Context) error {
 	if c.GetNumberOfArgs() != 3 {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
+
+	if c.IsFlagSet(flagkit.Format) {
+		if _, fmtErr := coreformat.ParseOutputFormat(c.GetStringFlagValue(flagkit.Format), []coreformat.OutputFormat{coreformat.Json}); fmtErr != nil {
+			return fmtErr
+		}
+	}
+
 	artDetails, err := common.CreateArtifactoryDetailsByFlags(c)
 	if err != nil {
 		return err
@@ -491,7 +498,29 @@ func dockerPromoteCmd(c *components.Context) error {
 	dockerPromoteCommand := container.NewDockerPromoteCommand()
 	dockerPromoteCommand.SetParams(params).SetServerDetails(artDetails)
 
-	return commands.Exec(dockerPromoteCommand)
+	if err = commands.Exec(dockerPromoteCommand); err != nil {
+		return err
+	}
+
+	// error == nil guarantees the server responded with 200.
+	// The client layer discards the body, so we pass nil and let the helper
+	// synthesize {"status_code": 200, "message": "OK"}.
+	if c.IsFlagSet(flagkit.Format) {
+		printDockerPromoteJSON()
+	}
+	return nil
+}
+
+// printDockerPromoteJSON emits a synthetic JSON success response for docker-promote.
+// The Artifactory docker promote API returns a body, but the client layer discards it;
+// error == nil guarantees HTTP 200, so we synthesise {"status_code":200,"message":"OK"}.
+func printDockerPromoteJSON() {
+	synthetic := map[string]interface{}{
+		"status_code": 200,
+		"message":     "OK",
+	}
+	data, _ := json.Marshal(synthetic)
+	log.Output(clientutils.IndentJson(data))
 }
 
 func containerPushCmd(c *components.Context, containerManagerType containerutils.ContainerManagerType) (err error) {

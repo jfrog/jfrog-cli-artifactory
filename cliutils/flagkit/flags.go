@@ -366,6 +366,7 @@ const (
 	sourceTag           = "source-tag"
 	targetTag           = "target-tag"
 	dockerPromoteCopy   = dockerPromotePrefix + Copy
+	dprFormat           = dockerPromotePrefix + Format
 
 	// Unique build docker create
 	imageFile = "image-file"
@@ -731,7 +732,7 @@ var commandFlags = map[string][]string{
 	},
 	DockerPromote: {
 		targetDockerImage, sourceTag, targetTag, dockerPromoteCopy, url, user, password, accessToken, sshPassphrase, sshKeyPath,
-		serverId,
+		serverId, dprFormat,
 	},
 	ContainerPush: {
 		BuildName, BuildNumber, module, url, user, password, accessToken, sshPassphrase, sshKeyPath,
@@ -1123,6 +1124,7 @@ var flagsMap = map[string]components.Flag{
 	sourceTag:         components.NewStringFlag("source-tag", "The tag name to promote.", components.SetMandatoryFalse()),
 	targetTag:         components.NewStringFlag("target-tag", "The target tag to assign the image after promotion.", components.SetMandatoryFalse()),
 	dockerPromoteCopy: components.NewBoolFlag("copy", "If set true, the Docker image is copied to the target repository, otherwise it is moved.", components.WithBoolDefaultValueFalse()),
+	dprFormat:         components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json}), components.SetMandatoryFalse()),
 
 	allowInsecureConnections: components.NewBoolFlag(allowInsecureConnections, "Set to true if you wish to configure NuGet sources with unsecured connections. This is recommended for testing purposes only.", components.WithBoolDefaultValueFalse()),
 	npmDetailedSummary:       components.NewBoolFlag(detailedSummary, "Set to true to include a list of the affected files in the command summary.", components.WithBoolDefaultValueFalse()),
