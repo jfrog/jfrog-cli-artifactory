@@ -11,6 +11,9 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
 
+// UvCommand is a placeholder for the future `jf rt python uv` path (non-native,
+// config-file-based). It is not currently wired to any CLI command; the active
+// uv integration uses NativeUvCommand in native_uv.go instead.
 type UvCommand struct {
 	PythonCommand
 }

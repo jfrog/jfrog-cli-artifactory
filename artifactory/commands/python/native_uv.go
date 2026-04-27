@@ -19,6 +19,7 @@ import (
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	specutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -76,12 +77,17 @@ func (c *NativeUvCommand) Run() error {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
+	// Parse pyproject.toml once and reuse across the entire Run invocation.
+	pyproject := parseUvPyproject(workingDir)
+
 	// Resolve publish URL: explicit arg > pyproject.toml
 	deployerRepo := c.deployerRepo
+	// use a local args copy so we don't mutate the receiver
+	args := append([]string(nil), c.args...)
 	if c.commandName == "publish" && deployerRepo == "" {
-		if tomlURL := uvPublishURLFromToml(workingDir); tomlURL != "" {
+		if tomlURL := pyproject.Tool.Uv.PublishURL; tomlURL != "" {
 			deployerRepo = tomlURL
-			c.args = append(c.args, "--publish-url", tomlURL)
+			args = append(args, "--publish-url", tomlURL)
 			log.Info("Using publish URL from pyproject.toml [tool.uv]: " + tomlURL)
 		}
 	}
@@ -94,7 +100,7 @@ func (c *NativeUvCommand) Run() error {
 	}
 
 	log.Info(fmt.Sprintf("Running UV %s.", c.commandName))
-	if err := runUvBinary(append([]string{c.commandName}, c.args...)); err != nil {
+	if err := runUvBinary(append([]string{c.commandName}, args...)); err != nil {
 		return fmt.Errorf("uv %s failed: %w", c.commandName, err)
 	}
 
@@ -114,7 +120,10 @@ func (c *NativeUvCommand) Run() error {
 func (c *NativeUvCommand) injectCredentials(workingDir, deployerRepo string, serverDetails *coreConfig.ServerDetails) {
 	user := serverDetails.User
 	pass := serverDetails.Password
-	if pass == "" {
+	if serverDetails.AccessToken != "" {
+		if user == "" {
+			user = auth.ExtractUsernameFromAccessToken(serverDetails.AccessToken)
+		}
 		pass = serverDetails.AccessToken
 	}
 	if user == "" || pass == "" {
@@ -123,20 +132,19 @@ func (c *NativeUvCommand) injectCredentials(workingDir, deployerRepo string, ser
 
 	injectedAny := false
 
+	// UV_INDEX_URL is UV's legacy global index env var. We log it for visibility but
+	// still proceed with per-index injection below, because UV_INDEX_URL only affects
+	// the default index and does not supply credentials for named [[tool.uv.index]] entries.
 	if os.Getenv("UV_INDEX_URL") != "" {
-		log.Info("UV auth: UV_INDEX_URL is set globally (native)")
+		log.Info("UV auth: UV_INDEX_URL is set globally (native); per-index credential injection still proceeds below")
 	}
 
 	for _, idx := range uvReadIndexesFromToml(workingDir) {
 		envName := uvIndexEnvName(idx.Name)
 		userKey := "UV_INDEX_" + envName + "_USERNAME"
 		switch {
-		case os.Getenv(userKey) != "":
-			log.Info(fmt.Sprintf("UV auth [index %q]: using env var %s (native, step 2)", idx.Name, userKey))
-		case uvURLHasEmbeddedCredentials(idx.URL):
-			log.Info(fmt.Sprintf("UV auth [index %q]: using credentials embedded in URL (native, step 3)", idx.Name))
-		case uvNetrcHasCredentials(idx.URL):
-			log.Info(fmt.Sprintf("UV auth [index %q]: using %s (native, step 4)", idx.Name, uvNetrcPath()))
+		case uvIndexHasNativeCredentials(idx.URL, userKey):
+			log.Info(fmt.Sprintf("UV auth [index %q]: native credentials already present (env var, embedded URL, or netrc)", idx.Name))
 		default:
 			if uvHostMatchesServer(idx.URL, serverDetails.ArtifactoryUrl) {
 				os.Setenv(userKey, user)
@@ -171,24 +179,11 @@ func runUvBinary(args []string) error {
 	return cmd.Run()
 }
 
-// uvGetCommandName strips the first non-flag argument from a slice and returns
-// (commandName, remainingArgs).
-func uvGetCommandName(orgArgs []string) (string, []string) {
-	cmdArgs := make([]string, len(orgArgs))
-	copy(cmdArgs, orgArgs)
-	for i, arg := range cmdArgs {
-		if !strings.HasPrefix(arg, "-") {
-			return arg, append(cmdArgs[:i], cmdArgs[i+1:]...)
-		}
-	}
-	return "", cmdArgs
-}
-
 // ── TOML types ───────────────────────────────────────────────────────────────
 
 type uvIndexEntry struct {
-	Name string
-	URL  string
+	Name string `toml:"name"`
+	URL  string `toml:"url"`
 }
 
 type uvToolUv struct {
@@ -438,7 +433,7 @@ func uvGetBuildInfo(workingDir string, buildConfiguration *buildUtils.BuildConfi
 					sd, _ = coreConfig.GetDefaultServerConf()
 				}
 				if sd != nil {
-					if indexURL := uvIndexURLFromToml(workingDir); indexURL != "" && !uvServerHostMatches(indexURL, sd.ArtifactoryUrl) {
+					if indexURL := uvIndexURLFromToml(workingDir); indexURL != "" && !uvHostMatchesServer(indexURL, sd.ArtifactoryUrl) {
 						log.Warn(fmt.Sprintf(
 							"UV build-info: jf server config host (%s) differs from index URL host (%s) — "+
 								"dependency checksum enrichment (sha1/md5) will be skipped. "+
@@ -479,7 +474,7 @@ func uvGetBuildInfo(workingDir string, buildConfiguration *buildUtils.BuildConfi
 			break
 		}
 		if repoKey != "" {
-			if deployerRepo != "" && !uvServerHostMatches(deployerRepo, sd.ArtifactoryUrl) {
+			if deployerRepo != "" && !uvHostMatchesServer(deployerRepo, sd.ArtifactoryUrl) {
 				log.Warn(fmt.Sprintf(
 					"UV build-info: jf server config host (%s) differs from publish URL host (%s) — "+
 						"artifact lookup and build property setting will be skipped. "+
@@ -535,12 +530,6 @@ func uvIndexURLFromToml(workingDir string) string {
 	return ""
 }
 
-// uvServerHostMatches returns true when rawURL's hostname matches the Artifactory server URL hostname.
-func uvServerHostMatches(rawURL, serverURL string) bool {
-	h := uvHostOf(rawURL)
-	return h != "" && h == uvHostOf(serverURL)
-}
-
 // uvEnrichDepsFromArtifactory searches each dependency by filename in the given Artifactory repo
 // and updates the dependency's sha1 and md5 checksums.
 func uvEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, serverDetails *coreConfig.ServerDetails) {
@@ -573,9 +562,9 @@ func uvEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, se
 		}
 		var aql struct {
 			Results []struct {
-				Actual_Sha1 string `json:"actual_sha1"`
-				Actual_Md5  string `json:"actual_md5"`
-				Sha256      string `json:"sha256"`
+				ActualSha1 string `json:"actual_sha1"`
+				ActualMd5  string `json:"actual_md5"`
+				Sha256     string `json:"sha256"`
 			} `json:"results"`
 		}
 		if err := json.Unmarshal(result, &aql); err != nil || len(aql.Results) == 0 {
@@ -583,13 +572,13 @@ func uvEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, se
 			continue
 		}
 		r := aql.Results[0]
-		deps[i].Checksum.Sha1 = r.Actual_Sha1
-		deps[i].Checksum.Md5 = r.Actual_Md5
+		deps[i].Checksum.Sha1 = r.ActualSha1
+		deps[i].Checksum.Md5 = r.ActualMd5
 		if r.Sha256 != "" {
 			deps[i].Checksum.Sha256 = r.Sha256
 		}
 		enriched++
-		log.Debug(fmt.Sprintf("Enriched %s with sha1=%s md5=%s", dep.Id, r.Actual_Sha1, r.Actual_Md5))
+		log.Debug(fmt.Sprintf("Enriched %s with sha1=%s md5=%s", dep.Id, r.ActualSha1, r.ActualMd5))
 	}
 	if enriched > 0 {
 		log.Info(fmt.Sprintf("Enriched %d/%d UV dependencies with Artifactory checksums (repo: %s)", enriched, len(deps), searchRepo))
@@ -645,7 +634,7 @@ func uvCollectDistArtifacts(workingDir string) ([]buildinfo.Artifact, error) {
 		artifact := buildinfo.Artifact{
 			Name: filename,
 			Path: ".",
-			Type: uvArtifactType(filename),
+			Type: getArtifactType(filename),
 		}
 		if checksums, csErr := uvFileChecksums(filepath.Join(distDir, filename)); csErr == nil {
 			artifact.Checksum = checksums
@@ -668,16 +657,6 @@ func uvFileChecksums(filePath string) (buildinfo.Checksum, error) {
 		Sha256: fileDetails.Checksum.Sha256,
 		Md5:    fileDetails.Checksum.Md5,
 	}, nil
-}
-
-func uvArtifactType(filename string) string {
-	if strings.HasSuffix(filename, ".whl") {
-		return "wheel"
-	}
-	if strings.HasSuffix(filename, ".tar.gz") {
-		return "sdist"
-	}
-	return "unknown"
 }
 
 // uvAddArtifactsToBuildInfo looks up uploaded artifacts in Artifactory and adds them
@@ -717,7 +696,7 @@ func uvAddArtifactsToBuildInfo(bi *buildinfo.BuildInfo, serverDetails *coreConfi
 			artifacts = append(artifacts, buildinfo.Artifact{
 				Name:     result.Name,
 				Path:     result.Path,
-				Type:     uvArtifactType(result.Name),
+				Type:     getArtifactType(result.Name),
 				Checksum: localArtifact.Checksum,
 			})
 			break
@@ -764,6 +743,9 @@ func uvSetBuildProperties(serverDetails *coreConfig.ServerDetails, targetRepo, b
 			continue
 		}
 		_, err = servicesManager.SetProps(services.PropsParams{Reader: searchReader, Props: buildProps})
+		if closeErr := searchReader.Close(); closeErr != nil {
+			log.Warn("Failed to close search reader:", closeErr)
+		}
 		if err != nil {
 			log.Warn(fmt.Sprintf("Failed to set properties on artifact %s: %v", artifact.Name, err))
 		}
