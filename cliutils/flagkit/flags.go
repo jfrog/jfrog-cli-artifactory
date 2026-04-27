@@ -458,6 +458,10 @@ const (
 	containerPushPrefix = "container-push-"
 	containerPushFormat = containerPushPrefix + Format
 
+	// Unique container-pull flags
+	containerPullPrefix = "container-pull-"
+	containerPullFormat = containerPullPrefix + Format
+
 	// Unique offline-update flags
 	target = "target"
 
@@ -741,7 +745,7 @@ var commandFlags = map[string][]string{
 	},
 	ContainerPull: {
 		BuildName, BuildNumber, module, url, user, password, accessToken, sshPassphrase, sshKeyPath,
-		serverId, skipLogin, Project,
+		serverId, skipLogin, Project, containerPullFormat,
 	},
 	NpmConfig: {
 		global, serverIdResolve, serverIdDeploy, repoResolve, repoDeploy,
@@ -1008,6 +1012,9 @@ var flagsMap = map[string]components.Flag{
 
 	// Container-push specific command flags
 	containerPushFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
+
+	// Container-pull specific command flags
+	containerPullFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
 
 	// Build-publish specific command flags
 	bpFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),

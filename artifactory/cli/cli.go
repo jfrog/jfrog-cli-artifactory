@@ -644,13 +644,70 @@ func containerPullCmd(c *components.Context, containerManagerType containerutils
 	if err != nil {
 		return err
 	}
+	outputFormat, err := getContainerPullOutputFormat(c)
+	if err != nil {
+		return err
+	}
 	dockerPullCommand := container.NewPullCommand(containerManagerType)
 	dockerPullCommand.SetCmdParams([]string{"pull", imageTag}).SetSkipLogin(skipLogin).SetImageTag(imageTag).SetRepo(sourceRepo).SetServerDetails(artDetails).SetBuildConfiguration(buildConfiguration)
 	err = commandWrappers.ShowDockerDeprecationMessageIfNeeded(containerManagerType, dockerPullCommand.IsGetRepoSupported)
 	if err != nil {
 		return err
 	}
-	return commands.Exec(dockerPullCommand)
+	if err = commands.Exec(dockerPullCommand); err != nil {
+		return err
+	}
+	if outputFormat == coreformat.None {
+		return nil
+	}
+	return printContainerPullResponse(imageTag, sourceRepo, outputFormat, os.Stdout)
+}
+
+// getContainerPullOutputFormat reads the --format flag and returns the resolved output format.
+// When the flag is not set the function returns coreformat.None, preserving the
+// previous behaviour (no structured output beyond the native podman/docker output).
+func getContainerPullOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
+	if !c.IsFlagSet(flagkit.Format) {
+		return coreformat.None, nil
+	}
+	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
+}
+
+// printContainerPullResponse renders the container pull result in the requested output format.
+func printContainerPullResponse(imageTag, sourceRepo string, outputFormat coreformat.OutputFormat, w io.Writer) error {
+	switch outputFormat {
+	case coreformat.Json:
+		return printContainerPullJSON(imageTag, sourceRepo)
+	case coreformat.Table:
+		return printContainerPullTable(imageTag, sourceRepo, w)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt podman-pull. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// printContainerPullJSON emits a JSON summary of the container pull operation to stdout via log.Output.
+func printContainerPullJSON(imageTag, sourceRepo string) error {
+	result := map[string]interface{}{
+		"status": "ok",
+		"image":  imageTag,
+		"repo":   sourceRepo,
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	log.Output(clientutils.IndentJson(data))
+	return nil
+}
+
+// printContainerPullTable renders a FIELD/VALUE table for the container pull operation.
+func printContainerPullTable(imageTag, sourceRepo string, w io.Writer) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
+	_, _ = fmt.Fprintf(tw, "status\t%s\n", "ok")
+	_, _ = fmt.Fprintf(tw, "image\t%s\n", imageTag)
+	_, _ = fmt.Fprintf(tw, "repo\t%s\n", sourceRepo)
+	return tw.Flush()
 }
 
 func BuildDockerCreateCmd(c *components.Context) error {

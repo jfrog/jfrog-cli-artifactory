@@ -1828,3 +1828,117 @@ func TestPrintGitLfsCleanJSON_FailureStatus(t *testing.T) {
 	err := printGitLfsCleanJSON(3, 2, nil)
 	require.NoError(t, err)
 }
+
+// ---------------------------------------------------------------------------
+// getContainerPullOutputFormat tests
+// ---------------------------------------------------------------------------
+
+func TestGetContainerPullOutputFormat_Default(t *testing.T) {
+	ctx := newTestContext(nil)
+	format, err := getContainerPullOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
+}
+
+func TestGetContainerPullOutputFormat_ExplicitJSON(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "json"})
+	format, err := getContainerPullOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Json, format)
+}
+
+func TestGetContainerPullOutputFormat_ExplicitTable(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "table"})
+	format, err := getContainerPullOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Table, format)
+}
+
+func TestGetContainerPullOutputFormat_Invalid(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "xml"})
+	_, err := getContainerPullOutputFormat(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// ---------------------------------------------------------------------------
+// printContainerPullResponse tests
+// ---------------------------------------------------------------------------
+
+func TestPrintContainerPullResponse_JSON(t *testing.T) {
+	var buf bytes.Buffer
+	// printContainerPullJSON writes to log.Output (stdout); we only check no error is returned.
+	err := printContainerPullResponse("myrepo.example.com/myimage:latest", "docker-local", coreformat.Json, &buf)
+	require.NoError(t, err)
+}
+
+func TestPrintContainerPullResponse_Table(t *testing.T) {
+	var buf bytes.Buffer
+	err := printContainerPullResponse("myrepo.example.com/myimage:latest", "docker-local", coreformat.Table, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "VALUE")
+	assert.Contains(t, out, "status")
+	assert.Contains(t, out, "ok")
+	assert.Contains(t, out, "image")
+	assert.Contains(t, out, "myrepo.example.com/myimage:latest")
+	assert.Contains(t, out, "repo")
+	assert.Contains(t, out, "docker-local")
+}
+
+func TestPrintContainerPullResponse_UnsupportedFormat(t *testing.T) {
+	var buf bytes.Buffer
+	err := printContainerPullResponse("myimage:latest", "docker-local", coreformat.Sarif, &buf)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported format")
+	assert.Contains(t, err.Error(), "rt podman-pull")
+}
+
+// ---------------------------------------------------------------------------
+// printContainerPullTable tests
+// ---------------------------------------------------------------------------
+
+func TestPrintContainerPullTable_WithValues(t *testing.T) {
+	var buf bytes.Buffer
+	err := printContainerPullTable("registry.example.com/my-image:v1.2.3", "docker-local", &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	require.GreaterOrEqual(t, len(lines), 4, "expected header + 3 data rows (status, image, repo)")
+	assert.Contains(t, lines[0], "FIELD")
+	assert.Contains(t, lines[0], "VALUE")
+	assert.Contains(t, out, "status")
+	assert.Contains(t, out, "ok")
+	assert.Contains(t, out, "image")
+	assert.Contains(t, out, "registry.example.com/my-image:v1.2.3")
+	assert.Contains(t, out, "repo")
+	assert.Contains(t, out, "docker-local")
+}
+
+func TestPrintContainerPullTable_EmptyValues(t *testing.T) {
+	var buf bytes.Buffer
+	err := printContainerPullTable("", "", &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "VALUE")
+	assert.Contains(t, out, "status")
+	assert.Contains(t, out, "ok")
+}
+
+// ---------------------------------------------------------------------------
+// printContainerPullJSON tests
+// ---------------------------------------------------------------------------
+
+func TestPrintContainerPullJSON_Success(t *testing.T) {
+	// Output goes to log.Output (stdout); we just verify no error is returned.
+	err := printContainerPullJSON("registry.example.com/myimage:latest", "docker-local")
+	require.NoError(t, err)
+}
+
+func TestPrintContainerPullJSON_EmptyValues(t *testing.T) {
+	// Even with empty image/repo the function should not error.
+	err := printContainerPullJSON("", "")
+	require.NoError(t, err)
+}
