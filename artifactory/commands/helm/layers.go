@@ -64,29 +64,47 @@ func processDependency(dep entities.Dependency, serviceManager artifactory.Artif
 
 // addOCILayersForDependency adds all OCI layers for a dependency that has checksums
 func addOCILayersForDependency(dep entities.Dependency, serviceManager artifactory.ArtifactoryServicesManager, processedDependencies *[]entities.Dependency) {
-	versionPath := extractDependencyPath(dep.Id)
-	if versionPath == "" {
+	chartName, chartVersion, err := parseDependencyID(dep.Id)
+	if err != nil {
 		log.Error("Failed to find a valid version for dependency: ", dep.Id)
 		return
 	}
-	repoName := extractRepositoryNameFromURL(dep.Repository)
-	if repoName == "" {
+
+	candidates := generateOCIRepoCandidates(dep.Repository)
+	if len(candidates) == 0 {
 		log.Error("Failed to find a valid repository for dependency: ", dep.Id)
 		return
 	}
-	aqlQuery := fmt.Sprintf(`{
-	  "repo": "%s",
-	  "path": "%s"
-	}`, repoName, versionPath)
-	resultMap, err := searchOCIArtifactsByAQL(serviceManager, aqlQuery)
-	if err != nil {
-		log.Debug("Failed to search OCI artifacts for dependency ", dep.Id, " : ", err)
-		return
+
+	var (
+		repoName  string
+		resultMap map[string]*servicesUtils.ResultItem
+	)
+	for _, candidate := range candidates {
+		if candidate.repoKey == "" {
+			continue
+		}
+		storagePath := buildOCIChartPath(candidate.subpath, chartName, chartVersion)
+		aqlQuery := fmt.Sprintf(`{
+		  "repo": "%s",
+		  "path": "%s"
+		}`, candidate.repoKey, storagePath)
+		resultMap, err = searchOCIArtifactsByAQL(serviceManager, aqlQuery)
+		if err != nil {
+			log.Debug("Failed to search OCI artifacts for dependency ", dep.Id, " : ", err)
+			return
+		}
+		if len(resultMap) == 0 {
+			continue
+		}
+		repoName = candidate.repoKey
+		break
 	}
 	if len(resultMap) == 0 {
 		log.Debug("Did not find any OCI artifacts for dependency: ", dep.Id)
 		return
 	}
+
 	dependencyManifest, err := getManifest(resultMap, serviceManager, repoName)
 	if err != nil {
 		log.Debug("Failed to get manifest")

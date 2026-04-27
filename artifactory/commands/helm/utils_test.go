@@ -209,31 +209,227 @@ func TestParseOCIReference(t *testing.T) {
 	}
 }
 
-func TestAppendModuleAndBuildAgentIfAbsent(t *testing.T) {
+func TestBuildOCIChartPath(t *testing.T) {
+	tests := []struct {
+		name         string
+		subpath      string
+		chartName    string
+		chartVersion string
+		expected     string
+	}{
+		{
+			name:         "No subpath - root level chart",
+			subpath:      "",
+			chartName:    "mychart",
+			chartVersion: "1.0.0",
+			expected:     "mychart/1.0.0",
+		},
+		{
+			name:         "Single-level subpath",
+			subpath:      "team",
+			chartName:    "mychart",
+			chartVersion: "1.0.0",
+			expected:     "team/mychart/1.0.0",
+		},
+		{
+			name:         "Multi-level subpath",
+			subpath:      "team/app/env",
+			chartName:    "mychart",
+			chartVersion: "2.3.4",
+			expected:     "team/app/env/mychart/2.3.4",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildOCIChartPath(tt.subpath, tt.chartName, tt.chartVersion)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestSplitOCIChartPath(t *testing.T) {
+	tests := []struct {
+		name         string
+		ociChartPath string
+		expectedPath string
+		expectedName string
+	}{
+		{
+			name:         "Simple chart/version",
+			ociChartPath: "mychart/1.0.0",
+			expectedPath: "mychart",
+			expectedName: "1.0.0",
+		},
+		{
+			name:         "Nested path with chart/version",
+			ociChartPath: "team/app/mychart/1.0.0",
+			expectedPath: "team/app/mychart",
+			expectedName: "1.0.0",
+		},
+		{
+			name:         "Deeply nested",
+			ociChartPath: "org/team/env/mychart/2.3.4",
+			expectedPath: "org/team/env/mychart",
+			expectedName: "2.3.4",
+		},
+		{
+			name:         "No slash",
+			ociChartPath: "single",
+			expectedPath: "single",
+			expectedName: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path, name := splitOCIChartPath(tt.ociChartPath)
+			assert.Equal(t, tt.expectedPath, path)
+			assert.Equal(t, tt.expectedName, name)
+		})
+	}
+}
+
+func TestEnsureBuildAgent(t *testing.T) {
 	t.Run("Nil build info", func(t *testing.T) {
-		appendModuleAndBuildAgentIfAbsent(nil, "test-chart", "1.0.0")
+		ensureBuildAgent(nil)
 	})
-	t.Run("Empty modules adds module and BuildAgent", func(t *testing.T) {
-		buildInfo := &entities.BuildInfo{
-			Modules: []entities.Module{},
-		}
-		appendModuleAndBuildAgentIfAbsent(buildInfo, "test-chart", "1.0.0")
-		assert.Len(t, buildInfo.Modules, 1)
-		assert.Equal(t, "test-chart:1.0.0", buildInfo.Modules[0].Id)
-		assert.Equal(t, entities.ModuleType("helm"), buildInfo.Modules[0].Type)
+	t.Run("Sets BuildAgent when nil", func(t *testing.T) {
+		buildInfo := &entities.BuildInfo{}
+		ensureBuildAgent(buildInfo)
 		assert.NotNil(t, buildInfo.BuildAgent)
 		assert.Equal(t, "Helm", buildInfo.BuildAgent.Name)
 		assert.NotEmpty(t, buildInfo.BuildAgent.Version)
 	})
-	t.Run("Existing module does not add", func(t *testing.T) {
+	t.Run("Sets BuildAgent when version is empty", func(t *testing.T) {
+		buildInfo := &entities.BuildInfo{
+			BuildAgent: &entities.Agent{Name: "old", Version: ""},
+		}
+		ensureBuildAgent(buildInfo)
+		assert.Equal(t, "Helm", buildInfo.BuildAgent.Name)
+		assert.NotEmpty(t, buildInfo.BuildAgent.Version)
+	})
+	t.Run("Does not overwrite existing BuildAgent", func(t *testing.T) {
+		buildInfo := &entities.BuildInfo{
+			BuildAgent: &entities.Agent{Name: "Docker", Version: "20.10.0"},
+		}
+		ensureBuildAgent(buildInfo)
+		assert.Equal(t, "Docker", buildInfo.BuildAgent.Name)
+		assert.Equal(t, "20.10.0", buildInfo.BuildAgent.Version)
+	})
+	t.Run("Does not touch modules", func(t *testing.T) {
 		buildInfo := &entities.BuildInfo{
 			Modules: []entities.Module{
-				{Id: "existing:1.0.0", Type: "helm"},
+				{Id: "docker-image:0.20.0", Type: "docker"},
 			},
 		}
-		initialCount := len(buildInfo.Modules)
-		appendModuleAndBuildAgentIfAbsent(buildInfo, "test-chart", "1.0.0")
-		assert.Equal(t, initialCount, len(buildInfo.Modules))
+		ensureBuildAgent(buildInfo)
+		assert.Len(t, buildInfo.Modules, 1, "ensureBuildAgent must not modify modules")
+		assert.Equal(t, "docker-image:0.20.0", buildInfo.Modules[0].Id)
+	})
+}
+
+// TestPushModuleMergeScenarios tests the module-merging behavior that
+// handlePushCommand relies on: ensureBuildAgent + appendModuleInExistingBuildInfo.
+// These scenarios reproduce the customer-reported bug where OCI helm artifacts
+// were dropped when Docker modules already existed in the build.
+func TestPushModuleMergeScenarios(t *testing.T) {
+	helmArtifacts := []entities.Artifact{
+		{Name: "manifest.json", Checksum: entities.Checksum{Sha256: "sha-manifest"}},
+		{Name: "sha256__config", Checksum: entities.Checksum{Sha256: "sha-config"}},
+		{Name: "sha256__layer", Checksum: entities.Checksum{Sha256: "sha-layer"}},
+	}
+
+	t.Run("Helm-only: no prior modules", func(t *testing.T) {
+		buildInfo := &entities.BuildInfo{}
+		ensureBuildAgent(buildInfo)
+		helmModule := &entities.Module{
+			Id:        "mychart:0.23.0",
+			Type:      "helm",
+			Artifacts: helmArtifacts,
+		}
+		appendModuleInExistingBuildInfo(buildInfo, helmModule)
+
+		assert.Len(t, buildInfo.Modules, 1)
+		assert.Equal(t, "mychart:0.23.0", buildInfo.Modules[0].Id)
+		assert.Equal(t, entities.ModuleType("helm"), buildInfo.Modules[0].Type)
+		assert.Len(t, buildInfo.Modules[0].Artifacts, 3)
+	})
+
+	t.Run("Docker + Helm OCI different versions: both modules present", func(t *testing.T) {
+		buildInfo := &entities.BuildInfo{
+			Modules: []entities.Module{
+				{
+					Id:   "demoscicd-front:0.20.0",
+					Type: "docker",
+					Artifacts: []entities.Artifact{
+						{Name: "docker-layer", Checksum: entities.Checksum{Sha256: "sha-docker"}},
+					},
+				},
+			},
+		}
+		ensureBuildAgent(buildInfo)
+		helmModule := &entities.Module{
+			Id:        "demoscicd-front:0.23.0",
+			Type:      "helm",
+			Artifacts: helmArtifacts,
+		}
+		appendModuleInExistingBuildInfo(buildInfo, helmModule)
+
+		assert.Len(t, buildInfo.Modules, 2, "both Docker and Helm modules must be present")
+		assert.Equal(t, "demoscicd-front:0.20.0", buildInfo.Modules[0].Id)
+		assert.Equal(t, entities.ModuleType("docker"), buildInfo.Modules[0].Type)
+		assert.Len(t, buildInfo.Modules[0].Artifacts, 1, "Docker artifacts must be preserved")
+		assert.Equal(t, "demoscicd-front:0.23.0", buildInfo.Modules[1].Id)
+		assert.Equal(t, entities.ModuleType("helm"), buildInfo.Modules[1].Type)
+		assert.Len(t, buildInfo.Modules[1].Artifacts, 3, "Helm OCI artifacts must be present")
+	})
+
+	t.Run("Docker + Helm OCI same version: artifacts merged into existing module", func(t *testing.T) {
+		buildInfo := &entities.BuildInfo{
+			Modules: []entities.Module{
+				{
+					Id:   "demoscicd-front:0.20.0",
+					Type: "docker",
+					Artifacts: []entities.Artifact{
+						{Name: "docker-layer", Checksum: entities.Checksum{Sha256: "sha-docker"}},
+					},
+				},
+			},
+		}
+		ensureBuildAgent(buildInfo)
+		helmModule := &entities.Module{
+			Id:        "demoscicd-front:0.20.0",
+			Type:      "helm",
+			Artifacts: helmArtifacts,
+		}
+		appendModuleInExistingBuildInfo(buildInfo, helmModule)
+
+		assert.Len(t, buildInfo.Modules, 1, "same Id means modules are merged")
+		assert.Len(t, buildInfo.Modules[0].Artifacts, 3,
+			"appendModuleInExistingBuildInfo replaces artifacts when non-empty")
+	})
+
+	t.Run("Multiple prior modules: helm module appended alongside all", func(t *testing.T) {
+		buildInfo := &entities.BuildInfo{
+			Modules: []entities.Module{
+				{Id: "docker-image:0.20.0", Type: "docker"},
+				{Id: "legacy-chart:0.20.0", Type: "generic"},
+			},
+		}
+		ensureBuildAgent(buildInfo)
+		helmModule := &entities.Module{
+			Id:        "mychart:1.0.0",
+			Type:      "helm",
+			Artifacts: helmArtifacts,
+		}
+		appendModuleInExistingBuildInfo(buildInfo, helmModule)
+
+		assert.Len(t, buildInfo.Modules, 3)
+		assert.Equal(t, "docker-image:0.20.0", buildInfo.Modules[0].Id)
+		assert.Equal(t, "legacy-chart:0.20.0", buildInfo.Modules[1].Id)
+		assert.Equal(t, "mychart:1.0.0", buildInfo.Modules[2].Id)
+		assert.Len(t, buildInfo.Modules[2].Artifacts, 3)
 	})
 }
 
@@ -357,72 +553,6 @@ func TestRemoveDuplicateDependencies(t *testing.T) {
 		removeDuplicateDependencies(buildInfo)
 		assert.Len(t, buildInfo.Modules[0].Dependencies, 1)
 		assert.Len(t, buildInfo.Modules[1].Dependencies, 1)
-	})
-}
-
-func TestAddArtifactsInBuildInfo(t *testing.T) {
-	t.Run("Nil build info", func(t *testing.T) {
-		addArtifactsInBuildInfo(nil, []entities.Artifact{}, "chart", "1.0.0")
-	})
-
-	t.Run("Add artifacts to matching module", func(t *testing.T) {
-		buildInfo := &entities.BuildInfo{
-			Modules: []entities.Module{
-				{
-					Id:        "chart:1.0.0",
-					Type:      "helm",
-					Artifacts: []entities.Artifact{},
-				},
-			},
-		}
-		artifacts := []entities.Artifact{
-			{Name: "artifact1", Checksum: entities.Checksum{Sha256: "sha1"}},
-			{Name: "artifact2", Checksum: entities.Checksum{Sha256: "sha2"}},
-		}
-		addArtifactsInBuildInfo(buildInfo, artifacts, "chart", "1.0.0")
-		assert.Len(t, buildInfo.Modules[0].Artifacts, 2)
-		assert.Equal(t, "artifact1", buildInfo.Modules[0].Artifacts[0].Name)
-		assert.Equal(t, "artifact2", buildInfo.Modules[0].Artifacts[1].Name)
-	})
-
-	t.Run("No matching module", func(t *testing.T) {
-		buildInfo := &entities.BuildInfo{
-			Modules: []entities.Module{
-				{
-					Id:        "other:1.0.0",
-					Type:      "helm",
-					Artifacts: []entities.Artifact{},
-				},
-			},
-		}
-		artifacts := []entities.Artifact{
-			{Name: "artifact1", Checksum: entities.Checksum{Sha256: "sha1"}},
-		}
-		addArtifactsInBuildInfo(buildInfo, artifacts, "chart", "1.0.0")
-		assert.Len(t, buildInfo.Modules[0].Artifacts, 0)
-	})
-
-	t.Run("Append to existing artifacts", func(t *testing.T) {
-		buildInfo := &entities.BuildInfo{
-			Modules: []entities.Module{
-				{
-					Id:   "chart:1.0.0",
-					Type: "helm",
-					Artifacts: []entities.Artifact{
-						{Name: "existing", Checksum: entities.Checksum{Sha256: "sha0"}},
-					},
-				},
-			},
-		}
-		artifacts := []entities.Artifact{
-			{Name: "new1", Checksum: entities.Checksum{Sha256: "sha1"}},
-			{Name: "new2", Checksum: entities.Checksum{Sha256: "sha2"}},
-		}
-		addArtifactsInBuildInfo(buildInfo, artifacts, "chart", "1.0.0")
-		assert.Len(t, buildInfo.Modules[0].Artifacts, 3)
-		assert.Equal(t, "existing", buildInfo.Modules[0].Artifacts[0].Name)
-		assert.Equal(t, "new1", buildInfo.Modules[0].Artifacts[1].Name)
-		assert.Equal(t, "new2", buildInfo.Modules[0].Artifacts[2].Name)
 	})
 }
 
