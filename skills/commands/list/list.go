@@ -15,22 +15,6 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 )
 
-// agentSkillsDir maps a normalized agent name to its global skills directory.
-var agentSkillsDir = map[string]string{
-	"claude-code":    "~/.claude/skills",
-	"cursor":         "~/.cursor/skills",
-	"github-copilot": "~/.github/copilot/skills",
-	"windsurf":       "~/.agents/skills",
-}
-
-// agentProjectSkillsDir maps a normalized agent name to its project-relative skills directory.
-var agentProjectSkillsDir = map[string]string{
-	"claude-code":    ".claude/skills",
-	"cursor":         ".cursor/skills",
-	"github-copilot": ".github/copilot/skills",
-	"windsurf":       ".windsurf/skills",
-}
-
 type listResult struct {
 	Name        string `json:"name" col-name:"Name"`
 	Version     string `json:"version" col-name:"Version"`
@@ -91,8 +75,7 @@ func (lc *ListCommand) SetSortOrder(sortOrder string) *ListCommand {
 
 func (lc *ListCommand) Run() error {
 	if lc.repoKey == "" && lc.agentName == "" {
-		return fmt.Errorf("either --repo <repository> or --agent <agent-name> must be specified.\n" +
-			"Supported agents: claude-code, cursor, github-copilot, windsurf")
+		return fmt.Errorf("either --repo <repository> or --agent <agent-name> must be specified.\nSupported agents: %s", common.SupportedAgentsList())
 	}
 	if lc.repoKey != "" && lc.agentName != "" {
 		return fmt.Errorf("--repo and --agent are mutually exclusive; specify only one")
@@ -130,27 +113,18 @@ func (lc *ListCommand) listRepoSkills() error {
 func (lc *ListCommand) listLocalSkills() error {
 	normalized := strings.ToLower(strings.TrimSpace(lc.agentName))
 
-	_, knownGlobal := agentSkillsDir[normalized]
-	_, knownProject := agentProjectSkillsDir[normalized]
-	if !knownGlobal && !knownProject {
-		supported := make([]string, 0)
-		seen := map[string]bool{}
-		for k, v := range agentSkillsDir {
-			if !seen[v] {
-				supported = append(supported, k)
-				seen[v] = true
-			}
-		}
-		return fmt.Errorf("unknown agent %q. Supported agents: %s", lc.agentName, strings.Join(supported, ", "))
+	agent, known := common.Agents[normalized]
+	if !known {
+		return fmt.Errorf("unknown agent %q. Supported agents: %s", lc.agentName, common.SupportedAgentsList())
 	}
 
 	var dir string
 	if lc.projectDir != "" {
 		// Project-scoped: only look in <projectDir>/<agent-relative-path>, no fallback
-		dir = filepath.Join(lc.projectDir, agentProjectSkillsDir[normalized])
+		dir = filepath.Join(lc.projectDir, agent.ProjectDir)
 	} else {
 		// Global scope
-		dir = expandHome(agentSkillsDir[normalized])
+		dir = expandHome(agent.GlobalDir)
 	}
 
 	entries, err := os.ReadDir(dir)
@@ -279,8 +253,7 @@ func RunList(c *components.Context) error {
 	agentName := c.GetStringFlagValue("agent")
 
 	if repoKey == "" && agentName == "" {
-		return fmt.Errorf("either --repo <repository> or --agent <agent-name> must be specified.\n" +
-			"Supported agents: claude-code, cursor, github-copilot, windsurf")
+		return fmt.Errorf("either --repo <repository> or --agent <agent-name> must be specified.\nSupported agents: %s", common.SupportedAgentsList())
 	}
 
 	format := "table"

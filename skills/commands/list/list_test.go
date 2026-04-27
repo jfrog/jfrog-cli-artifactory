@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jfrog/jfrog-cli-artifactory/skills/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -403,18 +404,12 @@ func TestPrintResults_Empty(t *testing.T) {
 // Agent directory map coverage
 // ---------------------------------------------------------------------------
 
-func TestAgentSkillsDir_AllKnownAgents(t *testing.T) {
-	agents := []string{"claude-code", "cursor", "github-copilot", "windsurf"}
-	for _, agent := range agents {
-		_, ok := agentSkillsDir[agent]
-		assert.True(t, ok, "expected agent %q to be in agentSkillsDir", agent)
-	}
-}
-
-func TestAgentProjectSkillsDir_AllKnownAgents(t *testing.T) {
-	agents := []string{"claude-code", "cursor", "github-copilot", "windsurf"}
-	for _, agent := range agents {
-		_, ok := agentProjectSkillsDir[agent]
-		assert.True(t, ok, "expected agent %q to be in agentProjectSkillsDir", agent)
+func TestAgents_AllKnownAgents(t *testing.T) {
+	expected := []string{"claude-code", "cursor", "github-copilot", "windsurf"}
+	for _, name := range expected {
+		cfg, ok := common.Agents[name]
+		assert.True(t, ok, "expected agent %q to be in Agents", name)
+		assert.NotEmpty(t, cfg.GlobalDir, "expected agent %q to have a GlobalDir", name)
+		assert.NotEmpty(t, cfg.ProjectDir, "expected agent %q to have a ProjectDir", name)
 	}
 }
