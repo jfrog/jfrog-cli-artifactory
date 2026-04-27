@@ -3,6 +3,7 @@ module github.com/jfrog/jfrog-cli-artifactory
 go 1.25.7
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/c-bata/go-prompt v0.2.6
 	github.com/forPelevin/gomoji v1.4.1
 	github.com/google/go-containerregistry v0.21.3
@@ -26,7 +27,6 @@ require golang.org/x/net v0.52.0 // indirect
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
-	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/CycloneDX/cyclonedx-go v0.10.0 // indirect
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
@@ -198,9 +198,9 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/jfrog/build-info-go => github.com/jfrog/build-info-go v1.13.1-0.20260415162635-b0c4ad10c59d
+replace github.com/jfrog/build-info-go => github.com/jfrog/build-info-go v1.13.1-0.20260427062847-541623761fa5
 
-replace github.com/jfrog/jfrog-cli-core/v2 => github.com/agrasth/jfrog-cli-core/v2 v2.0.0-20260424090721-5d2f9a7aa212
+replace github.com/jfrog/jfrog-cli-core/v2 => github.com/agrasth/jfrog-cli-core/v2 v2.0.0-20260427063453-2fa17939a137
 
 // replace github.com/gfleury/go-bitbucket-v1 => github.com/gfleury/go-bitbucket-v1 v0.0.0-20230825095122-9bc1711434ab
 

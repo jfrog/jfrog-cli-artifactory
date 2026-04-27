@@ -23,8 +23,8 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-// NativeUvCommand runs `uv` directly (no config file required) and collects build info.
-type NativeUvCommand struct {
+// NativeUVCommand runs `uv` directly (no config file required) and collects build info.
+type NativeUVCommand struct {
 	commandName        string
 	args               []string
 	serverID           string
@@ -32,46 +32,46 @@ type NativeUvCommand struct {
 	buildConfiguration *buildUtils.BuildConfiguration
 }
 
-// NewNativeUvCommand creates a new NativeUvCommand instance.
-func NewNativeUvCommand() *NativeUvCommand {
-	return &NativeUvCommand{}
+// NewNativeUVCommand creates a new NativeUVCommand instance.
+func NewNativeUVCommand() *NativeUVCommand {
+	return &NativeUVCommand{}
 }
 
-func (c *NativeUvCommand) SetCommandName(name string) *NativeUvCommand {
+func (c *NativeUVCommand) SetCommandName(name string) *NativeUVCommand {
 	c.commandName = name
 	return c
 }
 
-func (c *NativeUvCommand) SetArgs(args []string) *NativeUvCommand {
+func (c *NativeUVCommand) SetArgs(args []string) *NativeUVCommand {
 	c.args = args
 	return c
 }
 
-func (c *NativeUvCommand) SetServerID(serverID string) *NativeUvCommand {
+func (c *NativeUVCommand) SetServerID(serverID string) *NativeUVCommand {
 	c.serverID = serverID
 	return c
 }
 
-func (c *NativeUvCommand) SetDeployerRepo(deployerRepo string) *NativeUvCommand {
+func (c *NativeUVCommand) SetDeployerRepo(deployerRepo string) *NativeUVCommand {
 	c.deployerRepo = deployerRepo
 	return c
 }
 
-func (c *NativeUvCommand) SetBuildConfiguration(bc *buildUtils.BuildConfiguration) *NativeUvCommand {
+func (c *NativeUVCommand) SetBuildConfiguration(bc *buildUtils.BuildConfiguration) *NativeUVCommand {
 	c.buildConfiguration = bc
 	return c
 }
 
-func (c *NativeUvCommand) CommandName() string {
+func (c *NativeUVCommand) CommandName() string {
 	return "rt_uv_native"
 }
 
-func (c *NativeUvCommand) ServerDetails() (*coreConfig.ServerDetails, error) {
+func (c *NativeUVCommand) ServerDetails() (*coreConfig.ServerDetails, error) {
 	return uvResolveServerDetails(c.serverID)
 }
 
 // Run executes the UV command with auth injection and optional build info collection.
-func (c *NativeUvCommand) Run() error {
+func (c *NativeUVCommand) Run() error {
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)
@@ -117,7 +117,7 @@ func (c *NativeUvCommand) Run() error {
 
 // injectCredentials sets UV_INDEX_* and UV_PUBLISH_* env vars from jf config,
 // only when native UV mechanisms (env vars, embedded URL, netrc) don't already cover the host.
-func (c *NativeUvCommand) injectCredentials(workingDir, deployerRepo string, serverDetails *coreConfig.ServerDetails) {
+func (c *NativeUVCommand) injectCredentials(workingDir, deployerRepo string, serverDetails *coreConfig.ServerDetails) {
 	user := serverDetails.User
 	pass := serverDetails.Password
 	if serverDetails.AccessToken != "" {
@@ -406,11 +406,11 @@ func uvGetBuildInfo(workingDir string, buildConfiguration *buildUtils.BuildConfi
 		return fmt.Errorf("GetBuildNumber failed: %w", err)
 	}
 
-	uvConfig := flexpack.UvConfig{
+	uvConfig := flexpack.UVConfig{
 		WorkingDirectory:       workingDir,
 		IncludeDevDependencies: false,
 	}
-	collector, err := flexpack.NewUvFlexPack(uvConfig)
+	collector, err := flexpack.NewUVFlexPack(uvConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create UV FlexPack collector: %w", err)
 	}
