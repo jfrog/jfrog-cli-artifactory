@@ -270,8 +270,8 @@ func RunList(c *components.Context) error {
 		}
 	}
 
-	sortBy := ""
-	sortOrder := ""
+	var sortBy string
+	var sortOrder string
 
 	if repoKey != "" {
 		// --repo: sort-by accepts updated (default) or downloads; sort-order not supported
