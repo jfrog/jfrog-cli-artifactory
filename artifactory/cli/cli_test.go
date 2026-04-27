@@ -48,26 +48,26 @@ func newTestContext(flags map[string]string) *components.Context {
 }
 
 // ---------------------------------------------------------------------------
-// getSearchOutputFormat tests
+// getOutputFormatWithDefault tests (search — default Json)
 // ---------------------------------------------------------------------------
 
 func TestGetSearchOutputFormat_Default(t *testing.T) {
 	ctx := newTestContext(nil)
-	format, err := getSearchOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.Json)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Json, format, "default format should be json (backward-compatible)")
 }
 
 func TestGetSearchOutputFormat_ExplicitJSON(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "json"})
-	format, err := getSearchOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.Json)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Json, format)
 }
 
 func TestGetSearchOutputFormat_ExplicitTable(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "table"})
-	format, err := getSearchOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.Json)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Table, format)
 }
@@ -76,7 +76,7 @@ func TestGetSearchOutputFormat_CaseInsensitive(t *testing.T) {
 	for _, val := range []string{"JSON", "Json", "TABLE", "Table"} {
 		t.Run(val, func(t *testing.T) {
 			ctx := newTestContext(map[string]string{"format": val})
-			_, err := getSearchOutputFormat(ctx)
+			_, err := getOutputFormatWithDefault(ctx, coreformat.Json)
 			require.NoError(t, err)
 		})
 	}
@@ -84,21 +84,21 @@ func TestGetSearchOutputFormat_CaseInsensitive(t *testing.T) {
 
 func TestGetSearchOutputFormat_UnsupportedFormat_Sarif(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "sarif"})
-	_, err := getSearchOutputFormat(ctx)
+	_, err := getOutputFormatWithDefault(ctx, coreformat.Json)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
 
 func TestGetSearchOutputFormat_UnsupportedFormat_SimpleJson(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "simple-json"})
-	_, err := getSearchOutputFormat(ctx)
+	_, err := getOutputFormatWithDefault(ctx, coreformat.Json)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
 
 func TestGetSearchOutputFormat_UnsupportedFormat_XML(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "xml"})
-	_, err := getSearchOutputFormat(ctx)
+	_, err := getOutputFormatWithDefault(ctx, coreformat.Json)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
@@ -164,33 +164,33 @@ func TestPrintSearchTable_EmptyResults(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// getPingOutputFormat tests
+// getOutputFormatWithDefault tests (ping — default None)
 // ---------------------------------------------------------------------------
 
 func TestGetPingOutputFormat_Default(t *testing.T) {
 	ctx := newTestContext(nil)
-	format, err := getPingOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
 }
 
 func TestGetPingOutputFormat_ExplicitJSON(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "json"})
-	format, err := getPingOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Json, format)
 }
 
 func TestGetPingOutputFormat_ExplicitTable(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "table"})
-	format, err := getPingOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Table, format)
 }
 
 func TestGetPingOutputFormat_Invalid(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "xml"})
-	_, err := getPingOutputFormat(ctx)
+	_, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
@@ -318,33 +318,33 @@ func createUploadResult(t *testing.T, success, failed int, transfers []clientuti
 }
 
 // ---------------------------------------------------------------------------
-// getUploadOutputFormat tests
+// getOutputFormatWithDefault tests (upload — default None)
 // ---------------------------------------------------------------------------
 
 func TestGetUploadOutputFormat_Default(t *testing.T) {
 	ctx := newTestContext(nil)
-	format, err := getUploadOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
 }
 
 func TestGetUploadOutputFormat_ExplicitJSON(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "json"})
-	format, err := getUploadOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Json, format)
 }
 
 func TestGetUploadOutputFormat_ExplicitTable(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "table"})
-	format, err := getUploadOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Table, format)
 }
 
 func TestGetUploadOutputFormat_Invalid(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "xml"})
-	_, err := getUploadOutputFormat(ctx)
+	_, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
@@ -449,33 +449,33 @@ func createDownloadResult(t *testing.T, success, failed int, transfers []clientu
 }
 
 // ---------------------------------------------------------------------------
-// getDownloadOutputFormat tests
+// getOutputFormatWithDefault tests (download — default None)
 // ---------------------------------------------------------------------------
 
 func TestGetDownloadOutputFormat_Default(t *testing.T) {
 	ctx := newTestContext(nil)
-	format, err := getDownloadOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
 }
 
 func TestGetDownloadOutputFormat_ExplicitJSON(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "json"})
-	format, err := getDownloadOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Json, format)
 }
 
 func TestGetDownloadOutputFormat_ExplicitTable(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "table"})
-	format, err := getDownloadOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Table, format)
 }
 
 func TestGetDownloadOutputFormat_Invalid(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "xml"})
-	_, err := getDownloadOutputFormat(ctx)
+	_, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
@@ -549,33 +549,33 @@ func TestPrintDownloadResponse_UnsupportedFormat(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// getMoveOutputFormat tests
+// getOutputFormatWithDefault tests (move — default None)
 // ---------------------------------------------------------------------------
 
 func TestGetMoveOutputFormat_Default(t *testing.T) {
 	ctx := newTestContext(nil)
-	format, err := getMoveOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
 }
 
 func TestGetMoveOutputFormat_ExplicitJSON(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "json"})
-	format, err := getMoveOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Json, format)
 }
 
 func TestGetMoveOutputFormat_ExplicitTable(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "table"})
-	format, err := getMoveOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Table, format)
 }
 
 func TestGetMoveOutputFormat_Invalid(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "xml"})
-	_, err := getMoveOutputFormat(ctx)
+	_, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
@@ -656,33 +656,33 @@ func TestPrintMoveJSON_FailureStatus(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// getCopyOutputFormat tests
+// getOutputFormatWithDefault tests (copy — default None)
 // ---------------------------------------------------------------------------
 
 func TestGetCopyOutputFormat_Default(t *testing.T) {
 	ctx := newTestContext(nil)
-	format, err := getCopyOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
 }
 
 func TestGetCopyOutputFormat_ExplicitJSON(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "json"})
-	format, err := getCopyOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Json, format)
 }
 
 func TestGetCopyOutputFormat_ExplicitTable(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "table"})
-	format, err := getCopyOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Table, format)
 }
 
 func TestGetCopyOutputFormat_Invalid(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "xml"})
-	_, err := getCopyOutputFormat(ctx)
+	_, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
@@ -763,33 +763,33 @@ func TestPrintCopyJSON_FailureStatus(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// getDeleteOutputFormat tests
+// getOutputFormatWithDefault tests (delete — default None)
 // ---------------------------------------------------------------------------
 
 func TestGetDeleteOutputFormat_Default(t *testing.T) {
 	ctx := newTestContext(nil)
-	format, err := getDeleteOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
 }
 
 func TestGetDeleteOutputFormat_ExplicitJSON(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "json"})
-	format, err := getDeleteOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Json, format)
 }
 
 func TestGetDeleteOutputFormat_ExplicitTable(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "table"})
-	format, err := getDeleteOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Table, format)
 }
 
 func TestGetDeleteOutputFormat_Invalid(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "xml"})
-	_, err := getDeleteOutputFormat(ctx)
+	_, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
@@ -870,33 +870,33 @@ func TestPrintDeleteJSON_FailureStatus(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// getBuildPublishOutputFormat tests
+// getOutputFormatWithDefault tests (build-publish — default None)
 // ---------------------------------------------------------------------------
 
 func TestGetBuildPublishOutputFormat_Default(t *testing.T) {
 	ctx := newTestContext(nil)
-	format, err := getBuildPublishOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.None, format, "default should be None (backward-compatible: Run() prints JSON internally)")
 }
 
 func TestGetBuildPublishOutputFormat_ExplicitJSON(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "json"})
-	format, err := getBuildPublishOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Json, format)
 }
 
 func TestGetBuildPublishOutputFormat_ExplicitTable(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "table"})
-	format, err := getBuildPublishOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Table, format)
 }
 
 func TestGetBuildPublishOutputFormat_Invalid(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "xml"})
-	_, err := getBuildPublishOutputFormat(ctx)
+	_, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.Error(t, err)
 	assert.Contains(t, strings.ToLower(err.Error()), "only the following output formats are supported")
 }
@@ -999,33 +999,33 @@ func createContainerPushResult(t *testing.T, success, failed int, transfers []cl
 }
 
 // ---------------------------------------------------------------------------
-// getContainerPushOutputFormat tests
+// getOutputFormatWithDefault tests (container-push — default None)
 // ---------------------------------------------------------------------------
 
 func TestGetContainerPushOutputFormat_Default(t *testing.T) {
 	ctx := newTestContext(nil)
-	format, err := getContainerPushOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
 }
 
 func TestGetContainerPushOutputFormat_ExplicitJSON(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "json"})
-	format, err := getContainerPushOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Json, format)
 }
 
 func TestGetContainerPushOutputFormat_ExplicitTable(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "table"})
-	format, err := getContainerPushOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Table, format)
 }
 
 func TestGetContainerPushOutputFormat_Invalid(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "xml"})
-	_, err := getContainerPushOutputFormat(ctx)
+	_, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
@@ -1213,33 +1213,33 @@ func TestBuildDiscardFormat_XMLRejected(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// getSetPropsOutputFormat tests
+// getOutputFormatWithDefault tests (set-props — default None)
 // ---------------------------------------------------------------------------
 
 func TestGetSetPropsOutputFormat_Default(t *testing.T) {
 	ctx := newTestContext(nil)
-	format, err := getSetPropsOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
 }
 
 func TestGetSetPropsOutputFormat_ExplicitJSON(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "json"})
-	format, err := getSetPropsOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Json, format)
 }
 
 func TestGetSetPropsOutputFormat_ExplicitTable(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "table"})
-	format, err := getSetPropsOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Table, format)
 }
 
 func TestGetSetPropsOutputFormat_Invalid(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "xml"})
-	_, err := getSetPropsOutputFormat(ctx)
+	_, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
@@ -1320,33 +1320,33 @@ func TestPrintSetPropsJSON_FailureStatus(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// getDeletePropsOutputFormat tests
+// getOutputFormatWithDefault tests (delete-props — default None)
 // ---------------------------------------------------------------------------
 
 func TestGetDeletePropsOutputFormat_Default(t *testing.T) {
 	ctx := newTestContext(nil)
-	format, err := getDeletePropsOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
 }
 
 func TestGetDeletePropsOutputFormat_ExplicitJSON(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "json"})
-	format, err := getDeletePropsOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Json, format)
 }
 
 func TestGetDeletePropsOutputFormat_ExplicitTable(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "table"})
-	format, err := getDeletePropsOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Table, format)
 }
 
 func TestGetDeletePropsOutputFormat_Invalid(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "xml"})
-	_, err := getDeletePropsOutputFormat(ctx)
+	_, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
@@ -1426,33 +1426,33 @@ func TestPrintDeletePropsJSON_FailureStatus(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// getBuildAddDependenciesOutputFormat tests
+// getOutputFormatWithDefault tests (build-add-dependencies — default None)
 // ---------------------------------------------------------------------------
 
 func TestGetBuildAddDependenciesOutputFormat_Default(t *testing.T) {
 	ctx := newTestContext(nil)
-	format, err := getBuildAddDependenciesOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
 }
 
 func TestGetBuildAddDependenciesOutputFormat_ExplicitJSON(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "json"})
-	format, err := getBuildAddDependenciesOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Json, format)
 }
 
 func TestGetBuildAddDependenciesOutputFormat_ExplicitTable(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "table"})
-	format, err := getBuildAddDependenciesOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Table, format)
 }
 
 func TestGetBuildAddDependenciesOutputFormat_Invalid(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "xml"})
-	_, err := getBuildAddDependenciesOutputFormat(ctx)
+	_, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
@@ -1565,33 +1565,33 @@ func createDirectDownloadResult(t *testing.T, success, failed int, transfers []c
 }
 
 // ---------------------------------------------------------------------------
-// getDirectDownloadOutputFormat tests
+// getOutputFormatWithDefault tests (direct-download — default None)
 // ---------------------------------------------------------------------------
 
 func TestGetDirectDownloadOutputFormat_Default(t *testing.T) {
 	ctx := newTestContext(nil)
-	format, err := getDirectDownloadOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
 }
 
 func TestGetDirectDownloadOutputFormat_ExplicitJSON(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "json"})
-	format, err := getDirectDownloadOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Json, format)
 }
 
 func TestGetDirectDownloadOutputFormat_ExplicitTable(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "table"})
-	format, err := getDirectDownloadOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Table, format)
 }
 
 func TestGetDirectDownloadOutputFormat_Invalid(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "xml"})
-	_, err := getDirectDownloadOutputFormat(ctx)
+	_, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
@@ -1721,33 +1721,33 @@ func TestDockerPromoteFormat_XMLRejected(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// getGitLfsCleanOutputFormat tests
+// getOutputFormatWithDefault tests (git-lfs-clean — default None)
 // ---------------------------------------------------------------------------
 
 func TestGetGitLfsCleanOutputFormat_Default(t *testing.T) {
 	ctx := newTestContext(nil)
-	format, err := getGitLfsCleanOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
 }
 
 func TestGetGitLfsCleanOutputFormat_ExplicitJSON(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "json"})
-	format, err := getGitLfsCleanOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Json, format)
 }
 
 func TestGetGitLfsCleanOutputFormat_ExplicitTable(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "table"})
-	format, err := getGitLfsCleanOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Table, format)
 }
 
 func TestGetGitLfsCleanOutputFormat_Invalid(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "xml"})
-	_, err := getGitLfsCleanOutputFormat(ctx)
+	_, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
@@ -1830,33 +1830,33 @@ func TestPrintGitLfsCleanJSON_FailureStatus(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// getContainerPullOutputFormat tests
+// getOutputFormatWithDefault tests (container-pull — default None)
 // ---------------------------------------------------------------------------
 
 func TestGetContainerPullOutputFormat_Default(t *testing.T) {
 	ctx := newTestContext(nil)
-	format, err := getContainerPullOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
 }
 
 func TestGetContainerPullOutputFormat_ExplicitJSON(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "json"})
-	format, err := getContainerPullOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Json, format)
 }
 
 func TestGetContainerPullOutputFormat_ExplicitTable(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "table"})
-	format, err := getContainerPullOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Table, format)
 }
 
 func TestGetContainerPullOutputFormat_Invalid(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "xml"})
-	_, err := getContainerPullOutputFormat(ctx)
+	_, err := getOutputFormatWithDefault(ctx, coreformat.None)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
@@ -1944,33 +1944,33 @@ func TestPrintContainerPullJSON_EmptyValues(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// getNugetDepsTreeOutputFormat tests
+// getOutputFormatWithDefault tests (nuget-deps-tree — default Json)
 // ---------------------------------------------------------------------------
 
 func TestGetNugetDepsTreeOutputFormat_Default(t *testing.T) {
 	ctx := newTestContext(nil)
-	format, err := getNugetDepsTreeOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.Json)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Json, format, "default (no flag) should be Json to preserve backward-compatible JSON tree output")
 }
 
 func TestGetNugetDepsTreeOutputFormat_ExplicitJSON(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "json"})
-	format, err := getNugetDepsTreeOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.Json)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Json, format)
 }
 
 func TestGetNugetDepsTreeOutputFormat_ExplicitTable(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "table"})
-	format, err := getNugetDepsTreeOutputFormat(ctx)
+	format, err := getOutputFormatWithDefault(ctx, coreformat.Json)
 	require.NoError(t, err)
 	assert.Equal(t, coreformat.Table, format)
 }
 
 func TestGetNugetDepsTreeOutputFormat_Invalid(t *testing.T) {
 	ctx := newTestContext(map[string]string{"format": "xml"})
-	_, err := getNugetDepsTreeOutputFormat(ctx)
+	_, err := getOutputFormatWithDefault(ctx, coreformat.Json)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }

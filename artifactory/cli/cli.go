@@ -476,6 +476,17 @@ func getRetryWaitTimeVerificationError() error {
 	return errorutils.CheckError(errors.New("The '--retry-wait-time' option should have a numeric value with 's'/'ms' suffix. " + common.GetDocumentationMessage()))
 }
 
+// getOutputFormatWithDefault reads the --format flag and returns the resolved output format.
+// When the flag is not set the function returns defaultFormat, preserving the caller's
+// previous behaviour.  Callers that previously emitted JSON by default pass coreformat.Json;
+// callers that previously produced non-structured output pass coreformat.None.
+func getOutputFormatWithDefault(c *components.Context, defaultFormat coreformat.OutputFormat) (coreformat.OutputFormat, error) {
+	if !c.IsFlagSet(flagkit.Format) {
+		return defaultFormat, nil
+	}
+	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
+}
+
 func dockerPromoteCmd(c *components.Context) error {
 	if c.GetNumberOfArgs() != 3 {
 		return common.WrongNumberOfArgumentsHandler(c)
@@ -546,7 +557,7 @@ func containerPushCmd(c *components.Context, containerManagerType containerutils
 	if err != nil {
 		return
 	}
-	outputFormat, err := getContainerPushOutputFormat(c)
+	outputFormat, err := getOutputFormatWithDefault(c, coreformat.None)
 	if err != nil {
 		return
 	}
@@ -570,16 +581,6 @@ func containerPushCmd(c *components.Context, containerManagerType containerutils
 	}
 	err = printContainerPushResponse(result, outputFormat, os.Stdout, err)
 	return
-}
-
-// getContainerPushOutputFormat reads the --format flag and returns the resolved output format.
-// When the flag is not set the function returns coreformat.None, preserving the
-// previous behaviour (deployment view / JSON summary output via PrintCommandSummary).
-func getContainerPushOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
-	if !c.IsFlagSet(flagkit.Format) {
-		return coreformat.None, nil
-	}
-	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
 }
 
 // printContainerPushResponse renders the container push result in the requested output format.
@@ -645,7 +646,7 @@ func containerPullCmd(c *components.Context, containerManagerType containerutils
 	if err != nil {
 		return err
 	}
-	outputFormat, err := getContainerPullOutputFormat(c)
+	outputFormat, err := getOutputFormatWithDefault(c, coreformat.None)
 	if err != nil {
 		return err
 	}
@@ -662,16 +663,6 @@ func containerPullCmd(c *components.Context, containerManagerType containerutils
 		return nil
 	}
 	return printContainerPullResponse(imageTag, sourceRepo, outputFormat, os.Stdout)
-}
-
-// getContainerPullOutputFormat reads the --format flag and returns the resolved output format.
-// When the flag is not set the function returns coreformat.None, preserving the
-// previous behaviour (no structured output beyond the native podman/docker output).
-func getContainerPullOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
-	if !c.IsFlagSet(flagkit.Format) {
-		return coreformat.None, nil
-	}
-	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
 }
 
 // printContainerPullResponse renders the container pull result in the requested output format.
@@ -792,21 +783,11 @@ func nugetDepsTreeCmd(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-	outputFormat, err := getNugetDepsTreeOutputFormat(c)
+	outputFormat, err := getOutputFormatWithDefault(c, coreformat.Json)
 	if err != nil {
 		return err
 	}
 	return printNugetDepsTreeResponse(content, outputFormat, os.Stdout)
-}
-
-// getNugetDepsTreeOutputFormat reads the --format flag and returns the resolved output format.
-// When the flag is not set the function returns coreformat.Json, preserving the
-// previous behaviour (JSON tree output).
-func getNugetDepsTreeOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
-	if !c.IsFlagSet(flagkit.Format) {
-		return coreformat.Json, nil
-	}
-	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
 }
 
 // printNugetDepsTreeResponse renders the dependency tree in the requested output format.
@@ -863,21 +844,11 @@ func pingCmd(c *components.Context) error {
 	if err != nil {
 		return errors.New(err.Error() + "\n" + resString)
 	}
-	outputFormat, fmtErr := getPingOutputFormat(c)
+	outputFormat, fmtErr := getOutputFormatWithDefault(c, coreformat.None)
 	if fmtErr != nil {
 		return fmtErr
 	}
 	return printPingResponse(resBody, outputFormat, os.Stdout)
-}
-
-// getPingOutputFormat reads the --format flag and returns the resolved output format.
-// When the flag is not set the function returns coreformat.None, preserving the
-// previous behaviour (plain-text "OK" output).
-func getPingOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
-	if !c.IsFlagSet(flagkit.Format) {
-		return coreformat.None, nil
-	}
-	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
 }
 
 // printPingResponse renders the raw ping body in the requested output format.
@@ -1060,7 +1031,7 @@ func directDownloadCmd(c *components.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	outputFormat, err := getDirectDownloadOutputFormat(c)
+	outputFormat, err := getOutputFormatWithDefault(c, coreformat.None)
 	if err != nil {
 		return err
 	}
@@ -1120,7 +1091,7 @@ func downloadCmd(c *components.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	outputFormat, err := getDownloadOutputFormat(c)
+	outputFormat, err := getOutputFormatWithDefault(c, coreformat.None)
 	if err != nil {
 		return err
 	}
@@ -1149,16 +1120,6 @@ func downloadCmd(c *components.Context) (err error) {
 	}
 	err = printDownloadResponse(result, outputFormat, os.Stdout, common.IsFailNoOp(c), err)
 	return
-}
-
-// getDownloadOutputFormat reads the --format flag and returns the resolved output format.
-// When the flag is not set the function returns coreformat.None, preserving the
-// previous behaviour (JSON summary output via PrintDetailedSummaryReport).
-func getDownloadOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
-	if !c.IsFlagSet(flagkit.Format) {
-		return coreformat.None, nil
-	}
-	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
 }
 
 // printDownloadResponse renders the download result in the requested output format.
@@ -1214,16 +1175,6 @@ func printDownloadTable(result *commandUtils.Result, w io.Writer) error {
 	}
 	reader.Reset()
 	return coreutils.PrintTable(rows, "Download Results", "No files were downloaded.", false)
-}
-
-// getDirectDownloadOutputFormat reads the --format flag and returns the resolved output format.
-// When the flag is not set the function returns coreformat.None, preserving the
-// previous behaviour (JSON summary output via PrintDetailedSummaryReport).
-func getDirectDownloadOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
-	if !c.IsFlagSet(flagkit.Format) {
-		return coreformat.None, nil
-	}
-	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
 }
 
 // printDirectDownloadResponse renders the direct-download result in the requested output format.
@@ -1367,7 +1318,7 @@ func uploadCmd(c *components.Context) (err error) {
 	if err != nil {
 		return
 	}
-	outputFormat, err := getUploadOutputFormat(c)
+	outputFormat, err := getOutputFormatWithDefault(c, coreformat.None)
 	if err != nil {
 		return
 	}
@@ -1396,16 +1347,6 @@ func uploadCmd(c *components.Context) (err error) {
 	}
 	err = printUploadResponse(result, outputFormat, os.Stdout, common.IsFailNoOp(c), err)
 	return
-}
-
-// getUploadOutputFormat reads the --format flag and returns the resolved output format.
-// When the flag is not set the function returns coreformat.None, preserving the
-// previous behaviour (JSON summary output via PrintCommandSummary).
-func getUploadOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
-	if !c.IsFlagSet(flagkit.Format) {
-		return coreformat.None, nil
-	}
-	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
 }
 
 // printUploadResponse renders the upload result in the requested output format.
@@ -1510,7 +1451,7 @@ func moveCmd(c *components.Context) error {
 	err = commands.Exec(mvCmd)
 	result := mvCmd.Result()
 
-	outputFormat, fmtErr := getMoveOutputFormat(c)
+	outputFormat, fmtErr := getOutputFormatWithDefault(c, coreformat.None)
 	if fmtErr != nil {
 		return fmtErr
 	}
@@ -1518,16 +1459,6 @@ func moveCmd(c *components.Context) error {
 		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
 	}
 	return printMoveResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
-}
-
-// getMoveOutputFormat reads the --format flag and returns the resolved output format.
-// When the flag is not set the function returns coreformat.None, preserving the
-// previous behaviour (brief summary output via printBriefSummaryAndGetError).
-func getMoveOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
-	if !c.IsFlagSet(flagkit.Format) {
-		return coreformat.None, nil
-	}
-	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
 }
 
 // printMoveResponse renders the move result in the requested output format.
@@ -1597,7 +1528,7 @@ func copyCmd(c *components.Context) error {
 	err = commands.Exec(copyCommand)
 	result := copyCommand.Result()
 
-	outputFormat, fmtErr := getCopyOutputFormat(c)
+	outputFormat, fmtErr := getOutputFormatWithDefault(c, coreformat.None)
 	if fmtErr != nil {
 		return fmtErr
 	}
@@ -1605,16 +1536,6 @@ func copyCmd(c *components.Context) error {
 		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
 	}
 	return printCopyResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
-}
-
-// getCopyOutputFormat reads the --format flag and returns the resolved output format.
-// When the flag is not set the function returns coreformat.None, preserving the
-// previous behaviour (brief summary output via printBriefSummaryAndGetError).
-func getCopyOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
-	if !c.IsFlagSet(flagkit.Format) {
-		return coreformat.None, nil
-	}
-	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
 }
 
 // printCopyResponse renders the copy result in the requested output format.
@@ -1716,7 +1637,7 @@ func deleteCmd(c *components.Context) error {
 	err = commands.Exec(deleteCommand)
 	result := deleteCommand.Result()
 
-	outputFormat, fmtErr := getDeleteOutputFormat(c)
+	outputFormat, fmtErr := getOutputFormatWithDefault(c, coreformat.None)
 	if fmtErr != nil {
 		return fmtErr
 	}
@@ -1724,16 +1645,6 @@ func deleteCmd(c *components.Context) error {
 		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
 	}
 	return printDeleteResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
-}
-
-// getDeleteOutputFormat reads the --format flag and returns the resolved output format.
-// When the flag is not set the function returns coreformat.None, preserving the
-// previous behaviour (brief summary output via printBriefSummaryAndGetError).
-func getDeleteOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
-	if !c.IsFlagSet(flagkit.Format) {
-		return coreformat.None, nil
-	}
-	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
 }
 
 // printDeleteResponse renders the delete result in the requested output format.
@@ -1838,7 +1749,7 @@ func searchCmd(c *components.Context) (err error) {
 		log.Output(length)
 		return nil
 	}
-	outputFormat, err := getSearchOutputFormat(c)
+	outputFormat, err := getOutputFormatWithDefault(c, coreformat.Json)
 	if err != nil {
 		return err
 	}
@@ -1853,15 +1764,6 @@ type searchTableRow struct {
 	Created  string `col-name:"CREATED"`
 	Modified string `col-name:"MODIFIED"`
 	Sha256   string `col-name:"SHA256"`
-}
-
-// getSearchOutputFormat reads the --format flag and returns the resolved output format.
-// Default is json to preserve backward-compatible behaviour (the command has always emitted JSON).
-func getSearchOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
-	if !c.IsFlagSet(flagkit.Format) {
-		return coreformat.Json, nil
-	}
-	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
 }
 
 // printSearchResponse renders ContentReader results in the requested output format.
@@ -1960,7 +1862,7 @@ func setPropsCmd(c *components.Context) error {
 	err = commands.Exec(propsCmd)
 	result := propsCmd.Result()
 
-	outputFormat, fmtErr := getSetPropsOutputFormat(c)
+	outputFormat, fmtErr := getOutputFormatWithDefault(c, coreformat.None)
 	if fmtErr != nil {
 		return fmtErr
 	}
@@ -1968,16 +1870,6 @@ func setPropsCmd(c *components.Context) error {
 		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
 	}
 	return printSetPropsResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
-}
-
-// getSetPropsOutputFormat reads the --format flag and returns the resolved output format.
-// When the flag is not set the function returns coreformat.None, preserving the
-// previous behaviour (brief summary output via printBriefSummaryAndGetError).
-func getSetPropsOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
-	if !c.IsFlagSet(flagkit.Format) {
-		return coreformat.None, nil
-	}
-	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
 }
 
 // printSetPropsResponse renders the set-props result in the requested output format.
@@ -2038,7 +1930,7 @@ func deletePropsCmd(c *components.Context) error {
 	err = commands.Exec(propsCmd)
 	result := propsCmd.Result()
 
-	outputFormat, fmtErr := getDeletePropsOutputFormat(c)
+	outputFormat, fmtErr := getOutputFormatWithDefault(c, coreformat.None)
 	if fmtErr != nil {
 		return fmtErr
 	}
@@ -2046,16 +1938,6 @@ func deletePropsCmd(c *components.Context) error {
 		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
 	}
 	return printDeletePropsResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
-}
-
-// getDeletePropsOutputFormat reads the --format flag and returns the resolved output format.
-// When the flag is not set the function returns coreformat.None, preserving the
-// previous behaviour (brief summary output via printBriefSummaryAndGetError).
-func getDeletePropsOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
-	if !c.IsFlagSet(flagkit.Format) {
-		return coreformat.None, nil
-	}
-	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
 }
 
 // printDeletePropsResponse renders the delete-props result in the requested output format.
@@ -2112,7 +1994,7 @@ func buildPublishCmd(c *components.Context) error {
 		return err
 	}
 
-	outputFormat, fmtErr := getBuildPublishOutputFormat(c)
+	outputFormat, fmtErr := getOutputFormatWithDefault(c, coreformat.None)
 	if fmtErr != nil {
 		return fmtErr
 	}
@@ -2147,16 +2029,6 @@ func buildPublishCmd(c *components.Context) error {
 		return err
 	}
 	return printBuildPublishResponse(cmd.GetBuildInfoUiUrl(), outputFormat, os.Stdout)
-}
-
-// getBuildPublishOutputFormat reads the --format flag and returns the resolved output format.
-// When the flag is not set the function returns coreformat.None, preserving the
-// previous behaviour (JSON printed internally by Run()).
-func getBuildPublishOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
-	if !c.IsFlagSet(flagkit.Format) {
-		return coreformat.None, nil
-	}
-	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
 }
 
 // printBuildPublishResponse renders the build-publish result in the requested output format.
@@ -2247,7 +2119,7 @@ func buildAddDependenciesCmd(c *components.Context) error {
 	err = commands.Exec(buildAddDependenciesCmd)
 	result := buildAddDependenciesCmd.Result()
 
-	outputFormat, fmtErr := getBuildAddDependenciesOutputFormat(c)
+	outputFormat, fmtErr := getOutputFormatWithDefault(c, coreformat.None)
 	if fmtErr != nil {
 		return fmtErr
 	}
@@ -2255,16 +2127,6 @@ func buildAddDependenciesCmd(c *components.Context) error {
 		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
 	}
 	return printBuildAddDependenciesResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
-}
-
-// getBuildAddDependenciesOutputFormat reads the --format flag and returns the resolved output format.
-// When the flag is not set the function returns coreformat.None, preserving the
-// previous behaviour (brief summary output via printBriefSummaryAndGetError).
-func getBuildAddDependenciesOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
-	if !c.IsFlagSet(flagkit.Format) {
-		return coreformat.None, nil
-	}
-	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
 }
 
 // printBuildAddDependenciesResponse renders the build-add-dependencies result in the requested output format.
@@ -2497,7 +2359,7 @@ func gitLfsCleanCmd(c *components.Context) error {
 	succeeded, total := gitLfsCmd.Result()
 	failed := total - succeeded
 
-	outputFormat, fmtErr := getGitLfsCleanOutputFormat(c)
+	outputFormat, fmtErr := getOutputFormatWithDefault(c, coreformat.None)
 	if fmtErr != nil {
 		return fmtErr
 	}
@@ -2505,16 +2367,6 @@ func gitLfsCleanCmd(c *components.Context) error {
 		return err
 	}
 	return printGitLfsCleanResponse(succeeded, failed, outputFormat, os.Stdout, err)
-}
-
-// getGitLfsCleanOutputFormat reads the --format flag and returns the resolved output format.
-// When the flag is not set the function returns coreformat.None, preserving the
-// previous behaviour (no structured output).
-func getGitLfsCleanOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
-	if !c.IsFlagSet(flagkit.Format) {
-		return coreformat.None, nil
-	}
-	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
 }
 
 // printGitLfsCleanResponse renders the git-lfs-clean result in the requested output format.
