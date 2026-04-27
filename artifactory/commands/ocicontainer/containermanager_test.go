@@ -66,7 +66,7 @@ func TestDockerClientId_MemoryUsage(t *testing.T) {
 
 	cm := &containerManager{Type: DockerClient}
 	image := NewImage("busybox:latest")
-	_, err = cm.Id(image)
+	_, err = cm.Id(image, Push)
 	require.NoError(t, err)
 
 	var memAfterUnbuffered runtime.MemStats
@@ -83,4 +83,53 @@ func TestDockerClientId_MemoryUsage(t *testing.T) {
 	}
 	assert.Less(t, unbufferedAllocMB, threshold,
 		"Id() allocated %d MB for a %d MB image — may be buffering entire image in memory (OOM risk for large images)", unbufferedAllocMB, imageSizeMB)
+}
+
+// Push + skip env=true => short-circuit, no daemon call, empty id.
+func TestDockerClientId_PushWithSkipEnvTrue_ShortCircuits(t *testing.T) {
+	t.Setenv(SkipDockerImageIdVerificationEnv, "true")
+
+	cm := &containerManager{Type: DockerClient}
+	id, err := cm.Id(NewImage("any-image-that-does-not-exist:latest"), Push)
+	require.NoError(t, err, "Id() must not error when the daemon is not consulted")
+	assert.Empty(t, id, "Id() must return an empty string when skip is opted-in on a push")
+}
+
+// Push + skip env unset => daemon path is taken. Prove by passing a
+// deliberately invalid image name: we expect name.ParseReference to reject it.
+func TestDockerClientId_PushWithoutSkipEnv_GoesToDaemonPath(t *testing.T) {
+	t.Setenv(SkipDockerImageIdVerificationEnv, "")
+
+	cm := &containerManager{Type: DockerClient}
+	_, err := cm.Id(NewImage("INVALID NAME WITH SPACE"), Push)
+	require.Error(t, err, "Id() must reach name.ParseReference on the default path")
+}
+
+// Push + skip env=false (any non-truthy value) => default verify path.
+func TestDockerClientId_PushWithSkipEnvFalse_GoesToDaemonPath(t *testing.T) {
+	t.Setenv(SkipDockerImageIdVerificationEnv, "false")
+
+	cm := &containerManager{Type: DockerClient}
+	_, err := cm.Id(NewImage("INVALID NAME WITH SPACE"), Push)
+	require.Error(t, err, "Id() must reach name.ParseReference when skip is explicitly false")
+}
+
+// Pull must IGNORE the skip env and always take the verify path. This is the
+// reviewer-requested contract: the OOM/skipping opt-out only applies to push.
+func TestDockerClientId_PullWithSkipEnvTrue_StillVerifies(t *testing.T) {
+	t.Setenv(SkipDockerImageIdVerificationEnv, "true")
+
+	cm := &containerManager{Type: DockerClient}
+	_, err := cm.Id(NewImage("INVALID NAME WITH SPACE"), Pull)
+	require.Error(t, err, "Pull must always verify; name.ParseReference should reject the malformed name")
+}
+
+// Non-truthy env values must all be treated as "do not skip" (strconv.ParseBool
+// semantics: everything except 1/t/T/TRUE/true/True returns false or an error).
+func TestDockerClientId_PushWithNonBoolSkipEnv_GoesToDaemonPath(t *testing.T) {
+	t.Setenv(SkipDockerImageIdVerificationEnv, "anything-other-than-true")
+
+	cm := &containerManager{Type: DockerClient}
+	_, err := cm.Id(NewImage("INVALID NAME WITH SPACE"), Push)
+	require.Error(t, err, "strconv.ParseBool returns an error for non-bool values; must fall through to daemon path")
 }
