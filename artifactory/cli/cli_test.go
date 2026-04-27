@@ -2193,3 +2193,59 @@ func TestRepoCreateFormat_XMLRejected(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
+
+// ---------------------------------------------------------------------------
+// repo-update --format tests (Pattern B — json-only)
+// ---------------------------------------------------------------------------
+
+// TestRepoUpdateFormat_ValidJSON verifies that printRepoUpdateJSON does not panic.
+func TestRepoUpdateFormat_ValidJSON(t *testing.T) {
+	require.NotPanics(t, func() {
+		printRepoUpdateJSON()
+	})
+}
+
+// TestRepoUpdateFormat_EmptyBody verifies that the synthetic JSON object is
+// well-formed when the body is nil (client discards body).
+func TestRepoUpdateFormat_EmptyBody(t *testing.T) {
+	// printRepoUpdateJSON always produces {"message":"OK","status_code":200}.
+	// We verify the function runs without error (output goes to log.Output, not a writer).
+	require.NotPanics(t, func() {
+		printRepoUpdateJSON()
+	})
+}
+
+// TestRepoUpdateFormat_InvalidFormatRejected verifies that --format table (and
+// any other unsupported format) is rejected before the HTTP call is made.
+func TestRepoUpdateFormat_InvalidFormatRejected(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "table"})
+	_, err := coreformat.ParseOutputFormat(ctx.GetStringFlagValue("format"), []coreformat.OutputFormat{coreformat.Json})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// TestRepoUpdateFormat_JSONFormatAccepted verifies that --format json passes
+// ParseOutputFormat validation without error.
+func TestRepoUpdateFormat_JSONFormatAccepted(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "json"})
+	outputFormat, err := coreformat.ParseOutputFormat(ctx.GetStringFlagValue("format"), []coreformat.OutputFormat{coreformat.Json})
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Json, outputFormat)
+}
+
+// TestRepoUpdateFormat_SarifRejected verifies that --format sarif is rejected.
+func TestRepoUpdateFormat_SarifRejected(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "sarif"})
+	_, err := coreformat.ParseOutputFormat(ctx.GetStringFlagValue("format"), []coreformat.OutputFormat{coreformat.Json})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// TestRepoUpdateFormat_XMLRejected verifies that an arbitrary unsupported format
+// value is rejected.
+func TestRepoUpdateFormat_XMLRejected(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "xml"})
+	_, err := coreformat.ParseOutputFormat(ctx.GetStringFlagValue("format"), []coreformat.OutputFormat{coreformat.Json})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}

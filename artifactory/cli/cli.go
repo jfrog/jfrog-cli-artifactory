@@ -381,7 +381,7 @@ func GetCommands() []components.Command {
 		{
 			Name:        "repo-update",
 			Aliases:     []string{"ru"},
-			Flags:       flagkit.GetCommandFlags(flagkit.TemplateConsumer),
+			Flags:       flagkit.GetCommandFlags(flagkit.RepoUpdate),
 			Description: repoupdate.GetDescription(),
 			Arguments:   repoupdate.GetArguments(),
 			Action:      repoUpdateCmd,
@@ -2651,15 +2651,43 @@ func repoUpdateCmd(c *components.Context) error {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
 
+	if c.IsFlagSet(flagkit.Format) {
+		if _, fmtErr := coreformat.ParseOutputFormat(c.GetStringFlagValue(flagkit.Format), []coreformat.OutputFormat{coreformat.Json}); fmtErr != nil {
+			return fmtErr
+		}
+	}
+
 	rtDetails, err := common.CreateArtifactoryDetailsByFlags(c)
 	if err != nil {
 		return err
 	}
 
 	// Run command.
-	repoUpdateCmd := repository.NewRepoUpdateCommand()
-	repoUpdateCmd.SetTemplatePath(c.GetArgumentAt(0)).SetServerDetails(rtDetails).SetVars(c.GetStringFlagValue("vars"))
-	return commands.Exec(repoUpdateCmd)
+	repoUpdateCommand := repository.NewRepoUpdateCommand()
+	repoUpdateCommand.SetTemplatePath(c.GetArgumentAt(0)).SetServerDetails(rtDetails).SetVars(c.GetStringFlagValue("vars"))
+	if err = commands.Exec(repoUpdateCommand); err != nil {
+		return err
+	}
+
+	// error == nil guarantees the server responded with 200.
+	// The client layer discards the body, so we pass nil and let the helper
+	// synthesize {"status_code": 200, "message": "OK"}.
+	if c.IsFlagSet(flagkit.Format) {
+		printRepoUpdateJSON()
+	}
+	return nil
+}
+
+// printRepoUpdateJSON emits a synthetic JSON success response for repo-update.
+// The Artifactory repo update API returns a body, but the client layer discards it;
+// error == nil guarantees HTTP 200, so we synthesise {"status_code":200,"message":"OK"}.
+func printRepoUpdateJSON() {
+	synthetic := map[string]interface{}{
+		"status_code": 200,
+		"message":     "OK",
+	}
+	data, _ := json.Marshal(synthetic)
+	log.Output(clientutils.IndentJson(data))
 }
 
 func repoDeleteCmd(c *components.Context) error {

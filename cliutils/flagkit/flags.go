@@ -88,6 +88,7 @@ const (
 	TemplateConsumer       = "template-consumer"
 	ReplicationCreate      = "replication-create"
 	RepoCreate             = "repo-create"
+	RepoUpdate             = "repo-update"
 	RepoDelete             = "repo-delete"
 	ReplicationDelete      = "replication-delete"
 	PermissionTargetDelete = "permission-target-delete"
@@ -405,6 +406,10 @@ const (
 	// Unique repo-create flags
 	repoCreatePrefix = "repo-create-"
 	repoCreateFormat = repoCreatePrefix + Format
+
+	// Unique repo-update flags
+	repoUpdatePrefix = "repo-update-"
+	repoUpdateFormat = repoUpdatePrefix + Format
 
 	// Template user flags
 	vars = "vars"
@@ -854,6 +859,10 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
 		ClientCertKeyPath, vars, repoCreateFormat,
 	},
+	RepoUpdate: {
+		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
+		ClientCertKeyPath, vars, repoUpdateFormat,
+	},
 	RepoDelete: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
 		ClientCertKeyPath, deleteQuiet,
@@ -1169,6 +1178,9 @@ var flagsMap = map[string]components.Flag{
 
 	// RepoCreate specific commands flags
 	repoCreateFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json}), components.SetMandatoryFalse()),
+
+	// RepoUpdate specific commands flags
+	repoUpdateFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json}), components.SetMandatoryFalse()),
 
 	allowInsecureConnections: components.NewBoolFlag(allowInsecureConnections, "Set to true if you wish to configure NuGet sources with unsecured connections. This is recommended for testing purposes only.", components.WithBoolDefaultValueFalse()),
 	npmDetailedSummary:       components.NewBoolFlag(detailedSummary, "Set to true to include a list of the affected files in the command summary.", components.WithBoolDefaultValueFalse()),
