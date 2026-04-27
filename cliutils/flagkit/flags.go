@@ -264,6 +264,7 @@ const (
 	propsRecursive    = propertiesPrefix + Recursive
 	propsProps        = propertiesPrefix + props
 	propsExcludeProps = propertiesPrefix + excludeProps
+	propsFormat       = propertiesPrefix + Format
 
 	// Unique go publish flags
 	goPublishExclusions = GoPublish + exclusions
@@ -653,7 +654,7 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
 		ClientCertKeyPath, specFlag, specVars, exclusions, sortBy, sortOrder, limit, offset,
 		propsRecursive, build, includeDeps, excludeArtifacts, bundle, includeDirs, failNoOp, threads, archiveEntries, propsProps, propsExcludeProps,
-		InsecureTls, retries, retryWaitTime, Project, repoOnly,
+		InsecureTls, retries, retryWaitTime, Project, repoOnly, propsFormat,
 	},
 	BuildPublish: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, buildUrl, bpDryRun,
@@ -1018,6 +1019,7 @@ var flagsMap = map[string]components.Flag{
 	propsProps:        components.NewStringFlag(props, "List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts with these properties are affected.", components.SetMandatoryFalse()),
 	propsExcludeProps: components.NewStringFlag(excludeProps, "List of semicolon-separated(;) properties in the form of \"key1=value1;key2=value2;...\". Only artifacts without the specified properties are affected.", components.SetMandatoryFalse()),
 	repoOnly:          components.NewBoolFlag(repoOnly, "When true, properties will be applicable only on repository level.", components.WithBoolDefaultValueFalse()),
+	propsFormat:       components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
 
 	// Build Publish and Append specific commands flags
 	buildUrl:          components.NewStringFlag(buildUrl, "Can be used for setting the CI server build URL in the build-info.", components.SetMandatoryFalse()),

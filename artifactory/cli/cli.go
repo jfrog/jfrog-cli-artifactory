@@ -1738,7 +1738,65 @@ func setPropsCmd(c *components.Context) error {
 	propsCmd.SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
 	err = commands.Exec(propsCmd)
 	result := propsCmd.Result()
-	return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+
+	outputFormat, fmtErr := getSetPropsOutputFormat(c)
+	if fmtErr != nil {
+		return fmtErr
+	}
+	if outputFormat == coreformat.None {
+		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+	}
+	return printSetPropsResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
+}
+
+// getSetPropsOutputFormat reads the --format flag and returns the resolved output format.
+// When the flag is not set the function returns coreformat.None, preserving the
+// previous behaviour (brief summary output via printBriefSummaryAndGetError).
+func getSetPropsOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
+	if !c.IsFlagSet(flagkit.Format) {
+		return coreformat.None, nil
+	}
+	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
+}
+
+// printSetPropsResponse renders the set-props result in the requested output format.
+func printSetPropsResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		err := printSetPropsJSON(succeeded, failed, failNoOp, originalErr)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	case coreformat.Table:
+		err := printSetPropsTable(succeeded, failed, w)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt set-props. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// printSetPropsJSON emits a JSON summary of the set-props operation to stdout via log.Output.
+func printSetPropsJSON(succeeded, failed int, failNoOp bool, originalErr error) error {
+	summaryReport := summary.GetSummaryReport(succeeded, failed, failNoOp, originalErr)
+	data, err := summaryReport.Marshal()
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	log.Output(clientutils.IndentJson(data))
+	return nil
+}
+
+// printSetPropsTable renders a counts table for the set-props operation.
+func printSetPropsTable(succeeded, failed int, w io.Writer) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
+	_, _ = fmt.Fprintf(tw, "success\t%d\n", succeeded)
+	_, _ = fmt.Fprintf(tw, "failure\t%d\n", failed)
+	return tw.Flush()
 }
 
 func deletePropsCmd(c *components.Context) error {

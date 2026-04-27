@@ -1211,3 +1211,110 @@ func TestBuildDiscardFormat_XMLRejected(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only the following output formats are supported")
 }
+
+// ---------------------------------------------------------------------------
+// getSetPropsOutputFormat tests
+// ---------------------------------------------------------------------------
+
+func TestGetSetPropsOutputFormat_Default(t *testing.T) {
+	ctx := newTestContext(nil)
+	format, err := getSetPropsOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.None, format, "default (no flag) should be None to preserve backward-compatible output")
+}
+
+func TestGetSetPropsOutputFormat_ExplicitJSON(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "json"})
+	format, err := getSetPropsOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Json, format)
+}
+
+func TestGetSetPropsOutputFormat_ExplicitTable(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "table"})
+	format, err := getSetPropsOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Table, format)
+}
+
+func TestGetSetPropsOutputFormat_Invalid(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "xml"})
+	_, err := getSetPropsOutputFormat(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// ---------------------------------------------------------------------------
+// printSetPropsTable tests
+// ---------------------------------------------------------------------------
+
+func TestPrintSetPropsTable_SuccessAndFailure(t *testing.T) {
+	var buf bytes.Buffer
+	err := printSetPropsTable(7, 3, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "VALUE")
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "7")
+	assert.Contains(t, out, "failure")
+	assert.Contains(t, out, "3")
+}
+
+func TestPrintSetPropsTable_ZeroCounts(t *testing.T) {
+	var buf bytes.Buffer
+	err := printSetPropsTable(0, 0, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "FIELD")
+	assert.Contains(t, out, "VALUE")
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "failure")
+}
+
+// ---------------------------------------------------------------------------
+// printSetPropsResponse tests
+// ---------------------------------------------------------------------------
+
+func TestPrintSetPropsResponse_Table(t *testing.T) {
+	var buf bytes.Buffer
+	err := printSetPropsResponse(5, 0, coreformat.Table, &buf, false, nil)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "success")
+	assert.Contains(t, out, "5")
+	assert.Contains(t, out, "failure")
+	assert.Contains(t, out, "0")
+}
+
+func TestPrintSetPropsResponse_JSON(t *testing.T) {
+	var buf bytes.Buffer
+	// printSetPropsJSON writes to log.Output (stdout), not to buf; we only check no error is returned.
+	err := printSetPropsResponse(4, 0, coreformat.Json, &buf, false, nil)
+	require.NoError(t, err)
+}
+
+func TestPrintSetPropsResponse_UnsupportedFormat(t *testing.T) {
+	var buf bytes.Buffer
+	err := printSetPropsResponse(1, 0, coreformat.Sarif, &buf, false, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported format")
+	assert.Contains(t, err.Error(), "rt set-props")
+}
+
+// ---------------------------------------------------------------------------
+// printSetPropsJSON tests
+// ---------------------------------------------------------------------------
+
+func TestPrintSetPropsJSON_SuccessStatus(t *testing.T) {
+	// No error, no failures → status should be "success".
+	// Output goes to log.Output (stdout); we just verify no error is returned.
+	err := printSetPropsJSON(3, 0, false, nil)
+	require.NoError(t, err)
+}
+
+func TestPrintSetPropsJSON_FailureStatus(t *testing.T) {
+	// Has failures → status should be "failure".
+	err := printSetPropsJSON(2, 1, false, nil)
+	require.NoError(t, err)
+}
