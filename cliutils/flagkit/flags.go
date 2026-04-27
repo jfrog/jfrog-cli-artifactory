@@ -82,8 +82,9 @@ const (
 	PipenvInstall          = "pipenv-install"
 	PoetryConfig           = "poetry-config"
 	Poetry                 = "poetry"
-	Ping                   = "ping"
-	RtCurl                 = "rt-curl"
+	Ping           = "ping"
+	NugetDepsTree  = "nuget-deps-tree"
+	RtCurl         = "rt-curl"
 	TemplateConsumer       = "template-consumer"
 	RepoDelete             = "repo-delete"
 	ReplicationDelete      = "replication-delete"
@@ -454,6 +455,10 @@ const (
 	pingPrefix = "ping-"
 	pingFormat = pingPrefix + Format
 
+	// Unique nuget-deps-tree flags
+	nugetDepsTreePrefix = "nuget-deps-tree-"
+	nugetDepsTreeFormat = nugetDepsTreePrefix + Format
+
 	// Unique container-push flags
 	containerPushPrefix = "container-push-"
 	containerPushFormat = containerPushPrefix + Format
@@ -803,6 +808,9 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
 		ClientCertKeyPath, InsecureTls, pingFormat,
 	},
+	NugetDepsTree: {
+		nugetDepsTreeFormat,
+	},
 	RtCurl: {
 		serverId,
 	},
@@ -1009,6 +1017,9 @@ var flagsMap = map[string]components.Flag{
 
 	// Ping specific command flags
 	pingFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
+
+	// Nuget-deps-tree specific command flags
+	nugetDepsTreeFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),
 
 	// Container-push specific command flags
 	containerPushFormat: components.NewStringFlag(Format, format.GetFormatFlagDescription([]format.OutputFormat{format.Json, format.Table}), components.SetMandatoryFalse()),

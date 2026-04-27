@@ -340,6 +340,7 @@ func GetCommands() []components.Command {
 		{
 			Name:        "nuget-deps-tree",
 			Aliases:     []string{"ndt"},
+			Flags:       flagkit.GetCommandFlags(flagkit.NugetDepsTree),
 			Description: nugettree.GetDescription(),
 			Action:      nugetDepsTreeCmd,
 			Category:    otherCategory,
@@ -787,7 +788,63 @@ func nugetDepsTreeCmd(c *components.Context) error {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
 
-	return dotnet.DependencyTreeCmd()
+	content, err := dotnet.DependencyTreeCmd()
+	if err != nil {
+		return err
+	}
+	outputFormat, err := getNugetDepsTreeOutputFormat(c)
+	if err != nil {
+		return err
+	}
+	return printNugetDepsTreeResponse(content, outputFormat, os.Stdout)
+}
+
+// getNugetDepsTreeOutputFormat reads the --format flag and returns the resolved output format.
+// When the flag is not set the function returns coreformat.Json, preserving the
+// previous behaviour (JSON tree output).
+func getNugetDepsTreeOutputFormat(c *components.Context) (coreformat.OutputFormat, error) {
+	if !c.IsFlagSet(flagkit.Format) {
+		return coreformat.Json, nil
+	}
+	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
+}
+
+// printNugetDepsTreeResponse renders the dependency tree in the requested output format.
+func printNugetDepsTreeResponse(data []byte, outputFormat coreformat.OutputFormat, w io.Writer) error {
+	switch outputFormat {
+	case coreformat.Json:
+		log.Output(clientutils.IndentJson(data))
+		return nil
+	case coreformat.Table:
+		return printNugetDepsTreeTable(data, w)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt nuget-deps-tree. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// nugetDepsTreeProject is used to unmarshal the projects array from the solution JSON.
+type nugetDepsTreeProject struct {
+	Name         string                 `json:"name"`
+	Dependencies map[string]interface{} `json:"dependencies"`
+}
+
+// nugetDepsTreeSolution is the top-level structure returned by solution.Marshal().
+type nugetDepsTreeSolution struct {
+	Projects []nugetDepsTreeProject `json:"projects"`
+}
+
+// printNugetDepsTreeTable renders the dependency tree as a table with PROJECT and DEPENDENCY_COUNT columns.
+func printNugetDepsTreeTable(data []byte, w io.Writer) error {
+	var sol nugetDepsTreeSolution
+	if err := json.Unmarshal(data, &sol); err != nil {
+		return errorutils.CheckErrorf("failed to parse nuget-deps-tree response: %s", err.Error())
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "PROJECT\tDEPENDENCY_COUNT")
+	for _, p := range sol.Projects {
+		_, _ = fmt.Fprintf(tw, "%s\t%d\n", p.Name, len(p.Dependencies))
+	}
+	return tw.Flush()
 }
 
 func pingCmd(c *components.Context) error {

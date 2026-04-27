@@ -1942,3 +1942,142 @@ func TestPrintContainerPullJSON_EmptyValues(t *testing.T) {
 	err := printContainerPullJSON("", "")
 	require.NoError(t, err)
 }
+
+// ---------------------------------------------------------------------------
+// getNugetDepsTreeOutputFormat tests
+// ---------------------------------------------------------------------------
+
+func TestGetNugetDepsTreeOutputFormat_Default(t *testing.T) {
+	ctx := newTestContext(nil)
+	format, err := getNugetDepsTreeOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Json, format, "default (no flag) should be Json to preserve backward-compatible JSON tree output")
+}
+
+func TestGetNugetDepsTreeOutputFormat_ExplicitJSON(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "json"})
+	format, err := getNugetDepsTreeOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Json, format)
+}
+
+func TestGetNugetDepsTreeOutputFormat_ExplicitTable(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "table"})
+	format, err := getNugetDepsTreeOutputFormat(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, coreformat.Table, format)
+}
+
+func TestGetNugetDepsTreeOutputFormat_Invalid(t *testing.T) {
+	ctx := newTestContext(map[string]string{"format": "xml"})
+	_, err := getNugetDepsTreeOutputFormat(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only the following output formats are supported")
+}
+
+// ---------------------------------------------------------------------------
+// printNugetDepsTreeResponse tests
+// ---------------------------------------------------------------------------
+
+// sampleNugetDepsTreeJSON returns a minimal solution JSON matching the structure
+// returned by solution.Marshal() — used as test input.
+func sampleNugetDepsTreeJSON(projects []nugetDepsTreeProject) []byte {
+	sol := nugetDepsTreeSolution{Projects: projects}
+	data, _ := json.Marshal(sol)
+	return data
+}
+
+func TestPrintNugetDepsTreeResponse_JSON(t *testing.T) {
+	data := sampleNugetDepsTreeJSON([]nugetDepsTreeProject{
+		{Name: "MyProject", Dependencies: map[string]interface{}{"Newtonsoft.Json:13.0.1": nil}},
+	})
+	var buf bytes.Buffer
+	err := printNugetDepsTreeResponse(data, coreformat.Json, &buf)
+	require.NoError(t, err)
+	// JSON output goes to log.Output (stdout), not to buf; just verify no error.
+}
+
+func TestPrintNugetDepsTreeResponse_Table(t *testing.T) {
+	data := sampleNugetDepsTreeJSON([]nugetDepsTreeProject{
+		{Name: "MyProject", Dependencies: map[string]interface{}{
+			"Newtonsoft.Json:13.0.1": nil,
+			"Serilog:3.0.0":          nil,
+		}},
+	})
+	var buf bytes.Buffer
+	err := printNugetDepsTreeResponse(data, coreformat.Table, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "PROJECT")
+	assert.Contains(t, out, "DEPENDENCY_COUNT")
+	assert.Contains(t, out, "MyProject")
+	assert.Contains(t, out, "2")
+}
+
+func TestPrintNugetDepsTreeResponse_UnsupportedFormat(t *testing.T) {
+	data := sampleNugetDepsTreeJSON(nil)
+	var buf bytes.Buffer
+	err := printNugetDepsTreeResponse(data, coreformat.Sarif, &buf)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported format")
+	assert.Contains(t, err.Error(), "rt nuget-deps-tree")
+}
+
+// ---------------------------------------------------------------------------
+// printNugetDepsTreeTable tests
+// ---------------------------------------------------------------------------
+
+func TestPrintNugetDepsTreeTable_MultipleProjects(t *testing.T) {
+	data := sampleNugetDepsTreeJSON([]nugetDepsTreeProject{
+		{Name: "ProjectA", Dependencies: map[string]interface{}{
+			"Newtonsoft.Json:13.0.1": nil,
+			"Serilog:3.0.0":          nil,
+			"AutoMapper:12.0.0":      nil,
+		}},
+		{Name: "ProjectB", Dependencies: map[string]interface{}{
+			"Dapper:2.0.0": nil,
+		}},
+	})
+	var buf bytes.Buffer
+	err := printNugetDepsTreeTable(data, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	require.GreaterOrEqual(t, len(lines), 3, "expected header + 2 project rows")
+	assert.Contains(t, lines[0], "PROJECT")
+	assert.Contains(t, lines[0], "DEPENDENCY_COUNT")
+	assert.Contains(t, out, "ProjectA")
+	assert.Contains(t, out, "3")
+	assert.Contains(t, out, "ProjectB")
+	assert.Contains(t, out, "1")
+}
+
+func TestPrintNugetDepsTreeTable_EmptyProjects(t *testing.T) {
+	data := sampleNugetDepsTreeJSON(nil)
+	var buf bytes.Buffer
+	err := printNugetDepsTreeTable(data, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	// Should still have the header even with no projects.
+	assert.Contains(t, out, "PROJECT")
+	assert.Contains(t, out, "DEPENDENCY_COUNT")
+}
+
+func TestPrintNugetDepsTreeTable_ProjectWithNoDependencies(t *testing.T) {
+	data := sampleNugetDepsTreeJSON([]nugetDepsTreeProject{
+		{Name: "EmptyProject", Dependencies: map[string]interface{}{}},
+	})
+	var buf bytes.Buffer
+	err := printNugetDepsTreeTable(data, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "EmptyProject")
+	assert.Contains(t, out, "0")
+}
+
+func TestPrintNugetDepsTreeTable_InvalidJSON(t *testing.T) {
+	var buf bytes.Buffer
+	err := printNugetDepsTreeTable([]byte("not-valid-json"), &buf)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse nuget-deps-tree response")
+}
