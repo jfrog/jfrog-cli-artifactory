@@ -83,7 +83,6 @@ func RunUpdate(c *components.Context) error {
 	return cmd.Run()
 }
 
-// validateInstallBase checks that the base install directory exists.
 func validateInstallBase(path string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return fmt.Errorf("path '%s' does not exist", path)
@@ -91,9 +90,6 @@ func validateInstallBase(path string) error {
 	return nil
 }
 
-// readInstalledVersion reads the version from the skill's SKILL.md.
-// Returns an empty string (no error) when SKILL.md has no version field.
-// Returns an error if the skill directory or SKILL.md is missing.
 func readInstalledVersion(skillDir string) (string, error) {
 	meta, err := publish.ParseSkillMeta(skillDir)
 	if err != nil {
@@ -111,11 +107,6 @@ func readInstalledVersion(skillDir string) (string, error) {
 	return meta.Version, nil
 }
 
-// resolveTargetVersion validates the requested version against what is available in Artifactory.
-//   - Empty / "latest": resolves to the latest semver.
-//   - Explicit version that exists: returns it as-is.
-//   - Explicit version that does NOT exist: prompts the user to pick from available versions
-//     interactively, or returns a clear error listing available versions in quiet/non-interactive mode.
 func resolveTargetVersion(serverDetails *config.ServerDetails, repoKey, slug, version string, quiet bool) (string, error) {
 	versions, err := common.ListVersions(serverDetails, repoKey, slug)
 	if err != nil {
@@ -133,8 +124,6 @@ func resolveTargetVersion(serverDetails *config.ServerDetails, repoKey, slug, ve
 	return selectVersion(versionStrs, version, repoKey, quiet)
 }
 
-// selectVersion picks a version from the available list.
-// Exported for testing.
 func selectVersion(available []string, requested, repoKey string, quiet bool) (string, error) {
 	if requested == "" || requested == "latest" {
 		latest, err := common.LatestVersion(available)
@@ -151,7 +140,6 @@ func selectVersion(available []string, requested, repoKey string, quiet bool) (s
 		}
 	}
 
-	// Version not found — prompt interactively or return a clear error.
 	if quiet || common.IsNonInteractive() {
 		return "", fmt.Errorf(
 			"version '%s' not found in repository '%s'.\nAvailable versions: %s",

@@ -51,7 +51,6 @@ func TestRunUpdate_PathDoesNotExist(t *testing.T) {
 
 func TestReadInstalledVersion_InvalidFrontmatter(t *testing.T) {
 	dir := skillDir(t, "bad-skill", "# No frontmatter at all\n")
-	// SKILL.md exists but has no frontmatter — should warn and return "" without error.
 	version, err := readInstalledVersion(dir)
 	require.NoError(t, err)
 	assert.Equal(t, "", version)
@@ -98,8 +97,6 @@ func TestSelectVersion_EmptyAvailableList(t *testing.T) {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-// skillDir creates a temp dir with a SKILL.md containing the given content.
-// Returns the path to the skill directory (base/<slug>/).
 func skillDir(t *testing.T, slug, skillMD string) string {
 	t.Helper()
 	base := t.TempDir()

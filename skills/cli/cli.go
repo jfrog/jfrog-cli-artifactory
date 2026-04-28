@@ -28,6 +28,7 @@ func GetCommands() []components.Command {
 		},
 		{
 			Name:        "update",
+			Hidden:      true,
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsUpdate),
 			Description: "Update an installed skill to the latest (or a specific) version. Use --path to specify where the skill is installed (default: current directory). Use --dry-run to preview and --force to re-download even if already up to date.",
 			Arguments:   getUpdateArguments(),
