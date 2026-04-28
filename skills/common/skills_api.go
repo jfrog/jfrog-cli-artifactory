@@ -18,7 +18,7 @@ func ListSkills(serverDetails *config.ServerDetails, repoKey string, limit int, 
 	if err != nil {
 		return nil, err
 	}
-	var all []services.SkillListItem
+	var allItems []services.SkillListItem
 	cursor := ""
 	pageSize := 100
 	for {
@@ -26,16 +26,16 @@ func ListSkills(serverDetails *config.ServerDetails, repoKey string, limit int, 
 		if err != nil {
 			return nil, err
 		}
-		all = append(all, items...)
-		if limit > 0 && len(all) >= limit {
-			return all[:limit], nil
+		allItems = append(allItems, items...)
+		if limit > 0 && len(allItems) >= limit {
+			return allItems[:limit], nil
 		}
 		if nextCursor == "" || len(items) < pageSize {
 			break
 		}
 		cursor = nextCursor
 	}
-	return all, nil
+	return allItems, nil
 }
 
 func ListVersions(serverDetails *config.ServerDetails, repoKey, slug string) ([]services.SkillVersion, error) {
