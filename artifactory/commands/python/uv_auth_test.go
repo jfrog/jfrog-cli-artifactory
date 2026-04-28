@@ -42,7 +42,9 @@ func TestUvNetrcHasCredentials(t *testing.T) {
 	), 0600)
 	assert.NoError(t, err)
 
-	t.Setenv("HOME", tmpDir)
+	// Use NETRC env var so uvNetrcPath() resolves correctly on all platforms
+	// (HOME is ignored by os.UserHomeDir on Windows which uses USERPROFILE instead).
+	t.Setenv("NETRC", netrcPath)
 
 	// matching host — should return true
 	assert.True(t, uvNetrcHasCredentials("https://myhost.example.com/simple"),
@@ -79,12 +81,11 @@ func TestUvNetrcHasCredentials_CustomPath(t *testing.T) {
 		"non-matching host should return false even with $NETRC set")
 }
 
-// TestUvNetrcHasCredentials_NoFile verifies that when ~/.netrc does not exist,
+// TestUvNetrcHasCredentials_NoFile verifies that when .netrc does not exist,
 // the function returns false rather than erroring.
 func TestUvNetrcHasCredentials_NoFile(t *testing.T) {
-	// Point HOME at an empty dir so there is no .netrc
-	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
+	// Point NETRC at a non-existent path — works on all platforms.
+	t.Setenv("NETRC", filepath.Join(t.TempDir(), ".netrc"))
 
 	assert.False(t, uvNetrcHasCredentials("https://myhost.example.com/simple"),
 		"should return false when .netrc file does not exist")
@@ -94,11 +95,12 @@ func TestUvNetrcHasCredentials_NoFile(t *testing.T) {
 // when .netrc contains multiple machine entries.
 func TestUvNetrcHasCredentials_MultipleEntries(t *testing.T) {
 	tmpDir := t.TempDir()
+	netrcPath := filepath.Join(tmpDir, ".netrc")
 	netrcContent := "machine first.example.com\nlogin u1\npassword p1\n" +
 		"machine second.example.com\nlogin u2\npassword p2\n"
-	err := os.WriteFile(filepath.Join(tmpDir, ".netrc"), []byte(netrcContent), 0600)
+	err := os.WriteFile(netrcPath, []byte(netrcContent), 0600)
 	assert.NoError(t, err)
-	t.Setenv("HOME", tmpDir)
+	t.Setenv("NETRC", netrcPath)
 
 	assert.True(t, uvNetrcHasCredentials("https://first.example.com/path"))
 	assert.True(t, uvNetrcHasCredentials("https://second.example.com/path"))
@@ -153,10 +155,11 @@ func TestUvIndexHasNativeCredentials(t *testing.T) {
 
 	t.Run("no env var, no URL credentials, netrc match", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		err := os.WriteFile(filepath.Join(tmpDir, ".netrc"),
+		netrcPath := filepath.Join(tmpDir, ".netrc")
+		err := os.WriteFile(netrcPath,
 			[]byte("machine netrchost.example.com\nlogin u\npassword p\n"), 0600)
 		assert.NoError(t, err)
-		t.Setenv("HOME", tmpDir)
+		t.Setenv("NETRC", netrcPath)
 		assert.True(t, uvIndexHasNativeCredentials(
 			"https://netrchost.example.com/simple",
 			"UV_INDEX_NONEXISTENT_VAR_XYZ2",
