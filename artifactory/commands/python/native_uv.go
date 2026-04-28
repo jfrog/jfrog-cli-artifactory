@@ -1,8 +1,8 @@
 package python
 
 import (
-	"crypto/md5"  //nolint:gosec // #nosec G501 -- sha1/md5 used for Artifactory build-info checksums, not security
-	"crypto/sha1" //nolint:gosec // #nosec G505
+	"crypto/md5"  // #nosec G501 -- sha1/md5 are used for Artifactory build-info checksums, not for security
+	"crypto/sha1" // #nosec G505
 	"encoding/json"
 	"fmt"
 	"io"
@@ -809,13 +809,13 @@ func uvEnrichDirectURLChecksums(deps []buildinfo.Dependency, directURLDeps map[s
 			continue
 		}
 		// Stream the file and compute sha1 + md5 in a single pass — no disk write needed.
-		resp, err := http.Get(sourceURL) //nolint:gosec // #nosec G107 -- URL is from uv.lock, not user input
+		resp, err := http.Get(sourceURL) // #nosec G107 -- URL is from uv.lock, not user input
 		if err != nil {
 			log.Info(fmt.Sprintf("UV build-info: dep %s direct URL not reachable (%v) — sha256 only", dep.Id, err))
 			continue
 		}
-		sha1w := sha1.New() //nolint:gosec // #nosec G401 -- sha1 used for Artifactory build-info, not security
-		md5w := md5.New()   //nolint:gosec // #nosec G401
+		sha1w := sha1.New() // #nosec G401 -- sha1 used for Artifactory build-info checksums, not security
+		md5w := md5.New()   // #nosec G401
 		_, copyErr := io.Copy(io.MultiWriter(sha1w, md5w), resp.Body)
 		_ = resp.Body.Close()
 		if copyErr != nil {
