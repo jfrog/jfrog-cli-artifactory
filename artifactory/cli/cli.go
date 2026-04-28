@@ -95,94 +95,105 @@ const (
 func GetCommands() []components.Command {
 	commands := []components.Command{
 		{
-			Name:        "upload",
-			Flags:       flagkit.GetCommandFlags(flagkit.Upload),
-			Aliases:     []string{"u"},
-			Description: upload.GetDescription(),
-			Arguments:   upload.GetArguments(),
-			Action:      uploadCmd,
-			Category:    filesCategory,
+			Name:             "upload",
+			Flags:            flagkit.GetCommandFlags(flagkit.Upload),
+			Aliases:          []string{"u"},
+			Description:      upload.GetDescription(),
+			Arguments:        upload.GetArguments(),
+			Action:           uploadCmd,
+			Category:         filesCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:        "download",
-			Flags:       flagkit.GetCommandFlags(flagkit.Download),
-			Aliases:     []string{"dl"},
-			Description: download.GetDescription(),
-			Arguments:   download.GetArguments(),
-			Action:      downloadCmd,
-			Category:    filesCategory,
+			Name:             "download",
+			Flags:            flagkit.GetCommandFlags(flagkit.Download),
+			Aliases:          []string{"dl"},
+			Description:      download.GetDescription(),
+			Arguments:        download.GetArguments(),
+			Action:           downloadCmd,
+			Category:         filesCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:        "direct-download",
-			Flags:       flagkit.GetCommandFlags(flagkit.DirectDownload),
-			Aliases:     []string{"ddl"},
-			Description: directdownload.GetDescription(),
-			Arguments:   directdownload.GetArguments(),
-			Action:      directDownloadCmd,
-			Category:    filesCategory,
+			Name:             "direct-download",
+			Flags:            flagkit.GetCommandFlags(flagkit.DirectDownload),
+			Aliases:          []string{"ddl"},
+			Description:      directdownload.GetDescription(),
+			Arguments:        directdownload.GetArguments(),
+			Action:           directDownloadCmd,
+			Category:         filesCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:        "move",
-			Flags:       flagkit.GetCommandFlags(flagkit.Move),
-			Aliases:     []string{"mv"},
-			Description: move.GetDescription(),
-			Arguments:   move.GetArguments(),
-			Action:      moveCmd,
-			Category:    filesCategory,
+			Name:             "move",
+			Flags:            flagkit.GetCommandFlags(flagkit.Move),
+			Aliases:          []string{"mv"},
+			Description:      move.GetDescription(),
+			Arguments:        move.GetArguments(),
+			Action:           moveCmd,
+			Category:         filesCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:        "copy",
-			Flags:       flagkit.GetCommandFlags(flagkit.Copy),
-			Aliases:     []string{"cp"},
-			Description: copydocs.GetDescription(),
-			Arguments:   copydocs.GetArguments(),
-			Action:      copyCmd,
-			Category:    filesCategory,
+			Name:             "copy",
+			Flags:            flagkit.GetCommandFlags(flagkit.Copy),
+			Aliases:          []string{"cp"},
+			Description:      copydocs.GetDescription(),
+			Arguments:        copydocs.GetArguments(),
+			Action:           copyCmd,
+			Category:         filesCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:        "delete",
-			Flags:       flagkit.GetCommandFlags(flagkit.Delete),
-			Aliases:     []string{"del"},
-			Description: delete.GetDescription(),
-			Arguments:   delete.GetArguments(),
-			Action:      deleteCmd,
-			Category:    filesCategory,
+			Name:             "delete",
+			Flags:            flagkit.GetCommandFlags(flagkit.Delete),
+			Aliases:          []string{"del"},
+			Description:      delete.GetDescription(),
+			Arguments:        delete.GetArguments(),
+			Action:           deleteCmd,
+			Category:         filesCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:        "search",
-			Flags:       flagkit.GetCommandFlags(flagkit.Search),
-			Aliases:     []string{"s"},
-			Description: search.GetDescription(),
-			Arguments:   search.GetArguments(),
-			Action:      searchCmd,
-			Category:    filesCategory,
+			Name:             "search",
+			Flags:            flagkit.GetCommandFlags(flagkit.Search),
+			Aliases:          []string{"s"},
+			Description:      search.GetDescription(),
+			Arguments:        search.GetArguments(),
+			Action:           searchCmd,
+			Category:         filesCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
+			DefaultFormat:    coreformat.Json,
 		},
 		{
-			Name:        "set-props",
-			Flags:       flagkit.GetCommandFlags(flagkit.Properties),
-			Aliases:     []string{"sp"},
-			Description: setprops.GetDescription(),
-			Arguments:   setprops.GetArguments(),
-			Action:      setPropsCmd,
-			Category:    filesCategory,
+			Name:             "set-props",
+			Flags:            flagkit.GetCommandFlags(flagkit.Properties),
+			Aliases:          []string{"sp"},
+			Description:      setprops.GetDescription(),
+			Arguments:        setprops.GetArguments(),
+			Action:           setPropsCmd,
+			Category:         filesCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:        "delete-props",
-			Flags:       flagkit.GetCommandFlags(flagkit.Properties),
-			Aliases:     []string{"delp"},
-			Description: deleteprops.GetDescription(),
-			Arguments:   deleteprops.GetArguments(),
-			Action:      deletePropsCmd,
-			Category:    filesCategory,
+			Name:             "delete-props",
+			Flags:            flagkit.GetCommandFlags(flagkit.Properties),
+			Aliases:          []string{"delp"},
+			Description:      deleteprops.GetDescription(),
+			Arguments:        deleteprops.GetArguments(),
+			Action:           deletePropsCmd,
+			Category:         filesCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:        "build-publish",
-			Flags:       flagkit.GetCommandFlags(flagkit.BuildPublish),
-			Aliases:     []string{"bp"},
-			Description: buildpublish.GetDescription(),
-			Arguments:   buildpublish.GetArguments(),
-			Action:      buildPublishCmd,
-			Category:    buildCategory,
+			Name:             "build-publish",
+			Flags:            flagkit.GetCommandFlags(flagkit.BuildPublish),
+			Aliases:          []string{"bp"},
+			Description:      buildpublish.GetDescription(),
+			Arguments:        buildpublish.GetArguments(),
+			Action:           buildPublishCmd,
+			Category:         buildCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
 			Name:        "build-collect-env",
@@ -203,13 +214,14 @@ func GetCommands() []components.Command {
 			Category:    buildCategory,
 		},
 		{
-			Name:        "build-add-dependencies",
-			Flags:       flagkit.GetCommandFlags(flagkit.BuildAddDependencies),
-			Aliases:     []string{"bad"},
-			Description: buildadddependencies.GetDescription(),
-			Arguments:   buildadddependencies.GetArguments(),
-			Action:      buildAddDependenciesCmd,
-			Category:    buildCategory,
+			Name:             "build-add-dependencies",
+			Flags:            flagkit.GetCommandFlags(flagkit.BuildAddDependencies),
+			Aliases:          []string{"bad"},
+			Description:      buildadddependencies.GetDescription(),
+			Arguments:        buildadddependencies.GetArguments(),
+			Action:           buildAddDependenciesCmd,
+			Category:         buildCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
 			Name:        "build-add-git",
@@ -240,80 +252,88 @@ func GetCommands() []components.Command {
 			Category:    buildCategory,
 		},
 		{
-			Name:        "build-promote",
-			Flags:       flagkit.GetCommandFlags(flagkit.BuildPromote),
-			Aliases:     []string{"bpr"},
-			Description: buildpromote.GetDescription(),
-			Arguments:   buildpromote.GetArguments(),
-			Action:      buildPromoteCmd,
-			Category:    buildCategory,
+			Name:             "build-promote",
+			Flags:            flagkit.GetCommandFlags(flagkit.BuildPromote),
+			Aliases:          []string{"bpr"},
+			Description:      buildpromote.GetDescription(),
+			Arguments:        buildpromote.GetArguments(),
+			Action:           buildPromoteCmd,
+			Category:         buildCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json},
 		},
 		{
-			Name:        "build-discard",
-			Flags:       flagkit.GetCommandFlags(flagkit.BuildDiscard),
-			Aliases:     []string{"bdi"},
-			Description: builddiscard.GetDescription(),
-			Arguments:   builddiscard.GetArguments(),
-			Action:      buildDiscardCmd,
-			Category:    buildCategory,
+			Name:             "build-discard",
+			Flags:            flagkit.GetCommandFlags(flagkit.BuildDiscard),
+			Aliases:          []string{"bdi"},
+			Description:      builddiscard.GetDescription(),
+			Arguments:        builddiscard.GetArguments(),
+			Action:           buildDiscardCmd,
+			Category:         buildCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json},
 		},
 		{
-			Name:        "git-lfs-clean",
-			Flags:       flagkit.GetCommandFlags(flagkit.GitLfsClean),
-			Aliases:     []string{"glc"},
-			Description: gitlfsclean.GetDescription(),
-			Arguments:   gitlfsclean.GetArguments(),
-			Action:      gitLfsCleanCmd,
-			Category:    otherCategory,
+			Name:             "git-lfs-clean",
+			Flags:            flagkit.GetCommandFlags(flagkit.GitLfsClean),
+			Aliases:          []string{"glc"},
+			Description:      gitlfsclean.GetDescription(),
+			Arguments:        gitlfsclean.GetArguments(),
+			Action:           gitLfsCleanCmd,
+			Category:         otherCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:        "docker-promote",
-			Flags:       flagkit.GetCommandFlags(flagkit.DockerPromote),
-			Aliases:     []string{"dpr"},
-			Description: dockerpromote.GetDescription(),
-			Arguments:   dockerpromote.GetArguments(),
-			Action:      dockerPromoteCmd,
-			Category:    buildCategory,
+			Name:             "docker-promote",
+			Flags:            flagkit.GetCommandFlags(flagkit.DockerPromote),
+			Aliases:          []string{"dpr"},
+			Description:      dockerpromote.GetDescription(),
+			Arguments:        dockerpromote.GetArguments(),
+			Action:           dockerPromoteCmd,
+			Category:         buildCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json},
 		},
 		{
-			Name:        "docker-push",
-			Hidden:      true,
-			Flags:       flagkit.GetCommandFlags(flagkit.ContainerPush),
-			Aliases:     []string{"dp"},
-			Description: dockerpush.GetDescription(),
-			Arguments:   dockerpush.GetArguments(),
+			Name:             "docker-push",
+			Hidden:           true,
+			Flags:            flagkit.GetCommandFlags(flagkit.ContainerPush),
+			Aliases:          []string{"dp"},
+			Description:      dockerpush.GetDescription(),
+			Arguments:        dockerpush.GetArguments(),
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 			Action: func(c *components.Context) error {
 				return containerPushCmd(c, containerutils.DockerClient)
 			},
 		},
 		{
-			Name:        "docker-pull",
-			Hidden:      true,
-			Flags:       flagkit.GetCommandFlags(flagkit.ContainerPull),
-			Aliases:     []string{"dpl"},
-			Description: dockerpull.GetDescription(),
-			Arguments:   dockerpull.GetArguments(),
+			Name:             "docker-pull",
+			Hidden:           true,
+			Flags:            flagkit.GetCommandFlags(flagkit.ContainerPull),
+			Aliases:          []string{"dpl"},
+			Description:      dockerpull.GetDescription(),
+			Arguments:        dockerpull.GetArguments(),
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 			Action: func(c *components.Context) error {
 				return containerPullCmd(c, containerutils.DockerClient)
 			},
 		},
 		{
-			Name:        "podman-push",
-			Flags:       flagkit.GetCommandFlags(flagkit.ContainerPush),
-			Aliases:     []string{"pp"},
-			Description: podmanpush.GetDescription(),
-			Arguments:   podmanpush.GetArguments(),
+			Name:             "podman-push",
+			Flags:            flagkit.GetCommandFlags(flagkit.ContainerPush),
+			Aliases:          []string{"pp"},
+			Description:      podmanpush.GetDescription(),
+			Arguments:        podmanpush.GetArguments(),
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 			Action: func(c *components.Context) error {
 				return containerPushCmd(c, containerutils.Podman)
 			},
 			Category: otherCategory,
 		},
 		{
-			Name:        "podman-pull",
-			Flags:       flagkit.GetCommandFlags(flagkit.ContainerPull),
-			Aliases:     []string{"ppl"},
-			Description: podmanpull.GetDescription(),
-			Arguments:   podmanpull.GetArguments(),
+			Name:             "podman-pull",
+			Flags:            flagkit.GetCommandFlags(flagkit.ContainerPull),
+			Aliases:          []string{"ppl"},
+			Description:      podmanpull.GetDescription(),
+			Arguments:        podmanpull.GetArguments(),
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 			Action: func(c *components.Context) error {
 				return containerPullCmd(c, containerutils.Podman)
 			},
@@ -338,19 +358,22 @@ func GetCommands() []components.Command {
 			Category:        otherCategory,
 		},
 		{
-			Name:        "nuget-deps-tree",
-			Aliases:     []string{"ndt"},
-			Flags:       flagkit.GetCommandFlags(flagkit.NugetDepsTree),
-			Description: nugettree.GetDescription(),
-			Action:      nugetDepsTreeCmd,
-			Category:    otherCategory,
+			Name:             "nuget-deps-tree",
+			Aliases:          []string{"ndt"},
+			Flags:            flagkit.GetCommandFlags(flagkit.NugetDepsTree),
+			Description:      nugettree.GetDescription(),
+			Action:           nugetDepsTreeCmd,
+			Category:         otherCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
+			DefaultFormat:    coreformat.Json,
 		},
 		{
-			Name:        "ping",
-			Flags:       flagkit.GetCommandFlags(flagkit.Ping),
-			Aliases:     []string{"p"},
-			Description: ping.GetDescription(),
-			Action:      pingCmd,
+			Name:             "ping",
+			Flags:            flagkit.GetCommandFlags(flagkit.Ping),
+			Aliases:          []string{"p"},
+			Description:      ping.GetDescription(),
+			Action:           pingCmd,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
 			Name:            "curl",
@@ -370,22 +393,24 @@ func GetCommands() []components.Command {
 			Category:    repoCategory,
 		},
 		{
-			Name:        "repo-create",
-			Aliases:     []string{"rc"},
-			Flags:       flagkit.GetCommandFlags(flagkit.RepoCreate),
-			Description: repocreate.GetDescription(),
-			Arguments:   repocreate.GetArguments(),
-			Action:      repoCreateCmd,
-			Category:    repoCategory,
+			Name:             "repo-create",
+			Aliases:          []string{"rc"},
+			Flags:            flagkit.GetCommandFlags(flagkit.RepoCreate),
+			Description:      repocreate.GetDescription(),
+			Arguments:        repocreate.GetArguments(),
+			Action:           repoCreateCmd,
+			Category:         repoCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json},
 		},
 		{
-			Name:        "repo-update",
-			Aliases:     []string{"ru"},
-			Flags:       flagkit.GetCommandFlags(flagkit.RepoUpdate),
-			Description: repoupdate.GetDescription(),
-			Arguments:   repoupdate.GetArguments(),
-			Action:      repoUpdateCmd,
-			Category:    repoCategory,
+			Name:             "repo-update",
+			Aliases:          []string{"ru"},
+			Flags:            flagkit.GetCommandFlags(flagkit.RepoUpdate),
+			Description:      repoupdate.GetDescription(),
+			Arguments:        repoupdate.GetArguments(),
+			Action:           repoUpdateCmd,
+			Category:         repoCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json},
 		},
 		{
 			Name:        "repo-delete",
@@ -406,13 +431,14 @@ func GetCommands() []components.Command {
 			Category:    replicCategory,
 		},
 		{
-			Name:        "replication-create",
-			Aliases:     []string{"rplc"},
-			Flags:       flagkit.GetCommandFlags(flagkit.ReplicationCreate),
-			Description: replicationcreate.GetDescription(),
-			Arguments:   replicationcreate.GetArguments(),
-			Action:      replicationCreateCmd,
-			Category:    replicCategory,
+			Name:             "replication-create",
+			Aliases:          []string{"rplc"},
+			Flags:            flagkit.GetCommandFlags(flagkit.ReplicationCreate),
+			Description:      replicationcreate.GetDescription(),
+			Arguments:        replicationcreate.GetArguments(),
+			Action:           replicationCreateCmd,
+			Category:         replicCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json},
 		},
 		{
 			Name:        "replication-delete",
@@ -476,26 +502,14 @@ func getRetryWaitTimeVerificationError() error {
 	return errorutils.CheckError(errors.New("The '--retry-wait-time' option should have a numeric value with 's'/'ms' suffix. " + common.GetDocumentationMessage()))
 }
 
-// getOutputFormatWithDefault reads the --format flag and returns the resolved output format.
-// When the flag is not set the function returns defaultFormat, preserving the caller's
-// previous behaviour.  Callers that previously emitted JSON by default pass coreformat.Json;
-// callers that previously produced non-structured output pass coreformat.None.
-func getOutputFormatWithDefault(c *components.Context, defaultFormat coreformat.OutputFormat) (coreformat.OutputFormat, error) {
-	if !c.IsFlagSet(flagkit.Format) {
-		return defaultFormat, nil
-	}
-	return common.ExtractOutputFormat(c, []coreformat.OutputFormat{coreformat.Json, coreformat.Table})
-}
-
 func dockerPromoteCmd(c *components.Context) error {
 	if c.GetNumberOfArgs() != 3 {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
 
-	if c.IsFlagSet(flagkit.Format) {
-		if _, fmtErr := coreformat.ParseOutputFormat(c.GetStringFlagValue(flagkit.Format), []coreformat.OutputFormat{coreformat.Json}); fmtErr != nil {
-			return fmtErr
-		}
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
 	}
 
 	artDetails, err := common.CreateArtifactoryDetailsByFlags(c)
@@ -517,7 +531,7 @@ func dockerPromoteCmd(c *components.Context) error {
 	// error == nil guarantees the server responded with 200.
 	// The client layer discards the body, so we pass nil and let the helper
 	// synthesize {"status_code": 200, "message": "OK"}.
-	if c.IsFlagSet(flagkit.Format) {
+	if outputFormat != coreformat.None {
 		printStatusJSON(200, "OK")
 	}
 	return nil
@@ -572,7 +586,7 @@ func containerPushCmd(c *components.Context, containerManagerType containerutils
 	if err != nil {
 		return
 	}
-	outputFormat, err := getOutputFormatWithDefault(c, coreformat.None)
+	outputFormat, err := c.GetOutputFormat()
 	if err != nil {
 		return
 	}
@@ -655,7 +669,7 @@ func containerPullCmd(c *components.Context, containerManagerType containerutils
 	if err != nil {
 		return err
 	}
-	outputFormat, err := getOutputFormatWithDefault(c, coreformat.None)
+	outputFormat, err := c.GetOutputFormat()
 	if err != nil {
 		return err
 	}
@@ -792,7 +806,7 @@ func nugetDepsTreeCmd(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-	outputFormat, err := getOutputFormatWithDefault(c, coreformat.Json)
+	outputFormat, err := c.GetOutputFormat()
 	if err != nil {
 		return err
 	}
@@ -853,7 +867,7 @@ func pingCmd(c *components.Context) error {
 	if err != nil {
 		return errors.New(err.Error() + "\n" + resString)
 	}
-	outputFormat, fmtErr := getOutputFormatWithDefault(c, coreformat.None)
+	outputFormat, fmtErr := c.GetOutputFormat()
 	if fmtErr != nil {
 		return fmtErr
 	}
@@ -1040,7 +1054,7 @@ func directDownloadCmd(c *components.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	outputFormat, err := getOutputFormatWithDefault(c, coreformat.None)
+	outputFormat, err := c.GetOutputFormat()
 	if err != nil {
 		return err
 	}
@@ -1100,7 +1114,7 @@ func downloadCmd(c *components.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	outputFormat, err := getOutputFormatWithDefault(c, coreformat.None)
+	outputFormat, err := c.GetOutputFormat()
 	if err != nil {
 		return err
 	}
@@ -1315,7 +1329,7 @@ func uploadCmd(c *components.Context) (err error) {
 	if err != nil {
 		return
 	}
-	outputFormat, err := getOutputFormatWithDefault(c, coreformat.None)
+	outputFormat, err := c.GetOutputFormat()
 	if err != nil {
 		return
 	}
@@ -1442,7 +1456,7 @@ func moveCmd(c *components.Context) error {
 	err = commands.Exec(mvCmd)
 	result := mvCmd.Result()
 
-	outputFormat, fmtErr := getOutputFormatWithDefault(c, coreformat.None)
+	outputFormat, fmtErr := c.GetOutputFormat()
 	if fmtErr != nil {
 		return fmtErr
 	}
@@ -1499,7 +1513,7 @@ func copyCmd(c *components.Context) error {
 	err = commands.Exec(copyCommand)
 	result := copyCommand.Result()
 
-	outputFormat, fmtErr := getOutputFormatWithDefault(c, coreformat.None)
+	outputFormat, fmtErr := c.GetOutputFormat()
 	if fmtErr != nil {
 		return fmtErr
 	}
@@ -1588,7 +1602,7 @@ func deleteCmd(c *components.Context) error {
 	err = commands.Exec(deleteCommand)
 	result := deleteCommand.Result()
 
-	outputFormat, fmtErr := getOutputFormatWithDefault(c, coreformat.None)
+	outputFormat, fmtErr := c.GetOutputFormat()
 	if fmtErr != nil {
 		return fmtErr
 	}
@@ -1680,7 +1694,7 @@ func searchCmd(c *components.Context) (err error) {
 		log.Output(length)
 		return nil
 	}
-	outputFormat, err := getOutputFormatWithDefault(c, coreformat.Json)
+	outputFormat, err := c.GetOutputFormat()
 	if err != nil {
 		return err
 	}
@@ -1793,7 +1807,7 @@ func setPropsCmd(c *components.Context) error {
 	err = commands.Exec(propsCmd)
 	result := propsCmd.Result()
 
-	outputFormat, fmtErr := getOutputFormatWithDefault(c, coreformat.None)
+	outputFormat, fmtErr := c.GetOutputFormat()
 	if fmtErr != nil {
 		return fmtErr
 	}
@@ -1841,7 +1855,7 @@ func deletePropsCmd(c *components.Context) error {
 	err = commands.Exec(propsCmd)
 	result := propsCmd.Result()
 
-	outputFormat, fmtErr := getOutputFormatWithDefault(c, coreformat.None)
+	outputFormat, fmtErr := c.GetOutputFormat()
 	if fmtErr != nil {
 		return fmtErr
 	}
@@ -1885,7 +1899,7 @@ func buildPublishCmd(c *components.Context) error {
 		return err
 	}
 
-	outputFormat, fmtErr := getOutputFormatWithDefault(c, coreformat.None)
+	outputFormat, fmtErr := c.GetOutputFormat()
 	if fmtErr != nil {
 		return fmtErr
 	}
@@ -2035,7 +2049,7 @@ func buildAddDependenciesCmd(c *components.Context) error {
 	err = commands.Exec(buildAddDependenciesCmd)
 	result := buildAddDependenciesCmd.Result()
 
-	outputFormat, fmtErr := getOutputFormatWithDefault(c, coreformat.None)
+	outputFormat, fmtErr := c.GetOutputFormat()
 	if fmtErr != nil {
 		return fmtErr
 	}
@@ -2143,10 +2157,9 @@ func buildPromoteCmd(c *components.Context) error {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
 
-	if c.IsFlagSet(flagkit.Format) {
-		if _, fmtErr := coreformat.ParseOutputFormat(c.GetStringFlagValue(flagkit.Format), []coreformat.OutputFormat{coreformat.Json}); fmtErr != nil {
-			return fmtErr
-		}
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
 	}
 
 	configuration := createBuildPromoteConfiguration(c)
@@ -2166,7 +2179,7 @@ func buildPromoteCmd(c *components.Context) error {
 	// error == nil guarantees the server responded with 200.
 	// The client layer discards the body, so we pass nil and let the helper
 	// synthesize {"status_code": 200, "message": "OK"}.
-	if c.IsFlagSet(flagkit.Format) {
+	if outputFormat != coreformat.None {
 		printStatusJSON(200, "OK")
 	}
 	return nil
@@ -2177,10 +2190,9 @@ func buildDiscardCmd(c *components.Context) error {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
 
-	if c.IsFlagSet(flagkit.Format) {
-		if _, fmtErr := coreformat.ParseOutputFormat(c.GetStringFlagValue(flagkit.Format), []coreformat.OutputFormat{coreformat.Json}); fmtErr != nil {
-			return fmtErr
-		}
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
 	}
 
 	configuration := createBuildDiscardConfiguration(c)
@@ -2201,7 +2213,7 @@ func buildDiscardCmd(c *components.Context) error {
 	// error == nil guarantees the server responded with 204 No Content.
 	// The client layer discards the body, so we pass nil and let the helper
 	// synthesize {"status_code": 204, "message": "No Content"}.
-	if c.IsFlagSet(flagkit.Format) {
+	if outputFormat != coreformat.None {
 		printStatusJSON(204, "No Content")
 	}
 	return nil
@@ -2231,7 +2243,7 @@ func gitLfsCleanCmd(c *components.Context) error {
 	succeeded, total := gitLfsCmd.Result()
 	failed := total - succeeded
 
-	outputFormat, fmtErr := getOutputFormatWithDefault(c, coreformat.None)
+	outputFormat, fmtErr := c.GetOutputFormat()
 	if fmtErr != nil {
 		return fmtErr
 	}
@@ -2314,10 +2326,9 @@ func repoCreateCmd(c *components.Context) error {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
 
-	if c.IsFlagSet(flagkit.Format) {
-		if _, fmtErr := coreformat.ParseOutputFormat(c.GetStringFlagValue(flagkit.Format), []coreformat.OutputFormat{coreformat.Json}); fmtErr != nil {
-			return fmtErr
-		}
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
 	}
 
 	rtDetails, err := common.CreateArtifactoryDetailsByFlags(c)
@@ -2335,7 +2346,7 @@ func repoCreateCmd(c *components.Context) error {
 	// error == nil guarantees the server responded with 200.
 	// The client layer discards the body, so we pass nil and let the helper
 	// synthesize {"status_code": 200, "message": "OK"}.
-	if c.IsFlagSet(flagkit.Format) {
+	if outputFormat != coreformat.None {
 		printStatusJSON(200, "OK")
 	}
 	return nil
@@ -2346,10 +2357,9 @@ func repoUpdateCmd(c *components.Context) error {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
 
-	if c.IsFlagSet(flagkit.Format) {
-		if _, fmtErr := coreformat.ParseOutputFormat(c.GetStringFlagValue(flagkit.Format), []coreformat.OutputFormat{coreformat.Json}); fmtErr != nil {
-			return fmtErr
-		}
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
 	}
 
 	rtDetails, err := common.CreateArtifactoryDetailsByFlags(c)
@@ -2367,7 +2377,7 @@ func repoUpdateCmd(c *components.Context) error {
 	// error == nil guarantees the server responded with 200.
 	// The client layer discards the body, so we pass nil and let the helper
 	// synthesize {"status_code": 200, "message": "OK"}.
-	if c.IsFlagSet(flagkit.Format) {
+	if outputFormat != coreformat.None {
 		printStatusJSON(200, "OK")
 	}
 	return nil
@@ -2402,10 +2412,9 @@ func replicationCreateCmd(c *components.Context) error {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
 
-	if c.IsFlagSet(flagkit.Format) {
-		if _, fmtErr := coreformat.ParseOutputFormat(c.GetStringFlagValue(flagkit.Format), []coreformat.OutputFormat{coreformat.Json}); fmtErr != nil {
-			return fmtErr
-		}
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
 	}
 
 	rtDetails, err := common.CreateArtifactoryDetailsByFlags(c)
@@ -2421,7 +2430,7 @@ func replicationCreateCmd(c *components.Context) error {
 	// error == nil guarantees the server responded with 200.
 	// The client layer discards the body, so we pass nil and let the helper
 	// synthesize {"status_code": 200, "message": "OK"}.
-	if c.IsFlagSet(flagkit.Format) {
+	if outputFormat != coreformat.None {
 		printStatusJSON(200, "OK")
 	}
 	return nil
