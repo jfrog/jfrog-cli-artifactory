@@ -9,10 +9,20 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/publish"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
+)
+
+const (
+	sortByUpdated   = "updated"
+	sortByDownloads = "downloads"
+	sortByName      = "name"
+	sortOrderAsc    = "asc"
+	sortOrderDesc   = "desc"
 )
 
 type listResult struct {
@@ -130,7 +140,7 @@ func (lc *ListCommand) listLocalSkills() error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			fmt.Printf("No skills directory found for agent %q (expected: %s)\n", lc.agentName, dir)
+			log.Info(fmt.Sprintf("No skills directory found for agent %q (expected: %s)", lc.agentName, dir))
 			return nil
 		}
 		return fmt.Errorf("failed to read skills directory %s: %w", dir, err)
@@ -142,20 +152,21 @@ func (lc *ListCommand) listLocalSkills() error {
 			continue
 		}
 		skillDir := filepath.Join(dir, e.Name())
-		meta, err := readSkillMeta(skillDir)
+		meta, err := publish.ParseSkillMeta(skillDir)
 		if err != nil {
+			log.Warn(fmt.Sprintf("Skipping skill '%s':\n %s", e.Name(), err.Error()))
 			continue
 		}
 		results = append(results, listResult{
 			Name:        e.Name(),
-			Version:     meta.version,
-			Description: meta.description,
+			Version:     meta.Version,
+			Description: meta.Description,
 			Source:      filepath.Join(dir, e.Name()),
 		})
 	}
 
 	// Sort by name (only supported sort for local skills)
-	desc := strings.ToLower(lc.sortOrder) == "desc"
+	desc := strings.ToLower(lc.sortOrder) == sortOrderDesc
 	sort.Slice(results, func(i, j int) bool {
 		ni, nj := strings.ToLower(results[i].Name), strings.ToLower(results[j].Name)
 		if desc {
@@ -174,7 +185,7 @@ func (lc *ListCommand) listLocalSkills() error {
 
 func (lc *ListCommand) printResults(results []listResult) error {
 	if len(results) == 0 {
-		fmt.Println("No skills found.")
+		log.Info("No skills found.")
 		return nil
 	}
 	if strings.EqualFold(lc.format, "json") {
@@ -182,59 +193,10 @@ func (lc *ListCommand) printResults(results []listResult) error {
 		if err != nil {
 			return fmt.Errorf("failed to marshal results: %w", err)
 		}
-		fmt.Println(string(data))
+		log.Info("\n" + string(data))
 		return nil
 	}
 	return coreutils.PrintTable(results, "Skills", "No skills found", false)
-}
-
-// skillMeta holds the fields we care about from SKILL.md frontmatter.
-type skillMeta struct {
-	name        string
-	version     string
-	description string
-}
-
-func readSkillMeta(skillDir string) (skillMeta, error) {
-	skillMdPath := filepath.Join(skillDir, "SKILL.md")
-	data, err := os.ReadFile(skillMdPath)
-	if err != nil {
-		return skillMeta{}, err
-	}
-	return parseFrontmatter(string(data)), nil
-}
-
-// parseFrontmatter extracts name, version, description from YAML frontmatter between --- delimiters.
-func parseFrontmatter(content string) skillMeta {
-	var meta skillMeta
-	lines := strings.Split(content, "\n")
-	inFrontmatter := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "---" {
-			if !inFrontmatter {
-				inFrontmatter = true
-				continue
-			}
-			break
-		}
-		if !inFrontmatter {
-			continue
-		}
-		if kv := strings.SplitN(trimmed, ":", 2); len(kv) == 2 {
-			key := strings.TrimSpace(kv[0])
-			val := strings.Trim(strings.TrimSpace(kv[1]), `"'`)
-			switch key {
-			case "name":
-				meta.name = val
-			case "version":
-				meta.version = val
-			case "description":
-				meta.description = val
-			}
-		}
-	}
-	return meta
 }
 
 func expandHome(path string) string {
@@ -257,8 +219,8 @@ func RunList(c *components.Context) error {
 	}
 
 	format := "table"
-	if f := c.GetStringFlagValue("format"); f != "" {
-		format = f
+	if c.GetStringFlagValue("format") != "" {
+		format = c.GetStringFlagValue("format")
 	}
 
 	limit := 0
@@ -275,42 +237,39 @@ func RunList(c *components.Context) error {
 
 	if repoKey != "" {
 		// --repo: sort-by accepts updated (default) or downloads; sort-order not supported
-		if o := c.GetStringFlagValue("sort-order"); o != "" {
+		if c.GetStringFlagValue("sort-order") != "" {
 			return fmt.Errorf("--sort-order is not supported with --repo")
 		}
-		sortBy = "updated"
-		if s := c.GetStringFlagValue("sort-by"); s != "" {
-			s = strings.ToLower(s)
-			if s != "updated" && s != "downloads" {
-				return fmt.Errorf("--sort-by for --repo accepts 'updated' or 'downloads', got: %q", s)
+		sortBy = sortByUpdated
+		if rawSortBy := strings.ToLower(c.GetStringFlagValue("sort-by")); rawSortBy != "" {
+			if rawSortBy != sortByUpdated && rawSortBy != sortByDownloads {
+				return fmt.Errorf("--sort-by for --repo accepts 'updated' or 'downloads', got: %q", rawSortBy)
 			}
-			sortBy = s
+			sortBy = rawSortBy
 		}
 	} else {
 		// --agent / --project-dir: sort-by accepts name (default); sort-order asc/desc
-		sortBy = "name"
-		if s := c.GetStringFlagValue("sort-by"); s != "" {
-			s = strings.ToLower(s)
-			if s != "name" {
-				return fmt.Errorf("--sort-by for --agent only accepts 'name', got: %q", s)
+		sortBy = sortByName
+		if rawSortBy := strings.ToLower(c.GetStringFlagValue("sort-by")); rawSortBy != "" {
+			if rawSortBy != sortByName {
+				return fmt.Errorf("--sort-by for --agent only accepts 'name', got: %q", rawSortBy)
 			}
-			sortBy = s
+			sortBy = rawSortBy
 		}
-		sortOrder = "asc"
-		if o := c.GetStringFlagValue("sort-order"); o != "" {
-			o = strings.ToLower(o)
-			if o != "asc" && o != "desc" {
-				return fmt.Errorf("--sort-order must be 'asc' or 'desc', got: %q", o)
+		sortOrder = sortOrderAsc
+		if rawSortOrder := strings.ToLower(c.GetStringFlagValue("sort-order")); rawSortOrder != "" {
+			if rawSortOrder != sortOrderAsc && rawSortOrder != sortOrderDesc {
+				return fmt.Errorf("--sort-order must be 'asc' or 'desc', got: %q", rawSortOrder)
 			}
-			sortOrder = o
+			sortOrder = rawSortOrder
 		}
 	}
 
-	projectDir := ""
-	if pd := c.GetStringFlagValue("project-dir"); pd != "" {
-		absPath, err := filepath.Abs(pd)
+	projectDir := c.GetStringFlagValue("project-dir")
+	if projectDir != "" {
+		absPath, err := filepath.Abs(projectDir)
 		if err != nil {
-			return fmt.Errorf("invalid --project-dir path %q: %w", pd, err)
+			return fmt.Errorf("invalid --project-dir path %q: %w", projectDir, err)
 		}
 		projectDir = absPath
 	}

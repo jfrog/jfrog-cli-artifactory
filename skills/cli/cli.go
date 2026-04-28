@@ -17,6 +17,7 @@ func GetCommands() []components.Command {
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsList),
 			Description: "List skills from an Artifactory repository (--repo) or from a local AI agent's skills directory (--agent). Exactly one of --repo or --agent must be specified.",
 			Action:      skillslist.RunList,
+			Hidden:      true,
 		},
 		{
 			Name:        "publish",

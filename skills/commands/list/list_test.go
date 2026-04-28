@@ -13,77 +13,6 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// parseFrontmatter
-// ---------------------------------------------------------------------------
-
-func TestParseFrontmatter_AllFields(t *testing.T) {
-	content := `---
-name: my-skill
-version: 1.2.3
-description: Does something useful
----
-# Body
-`
-	meta := parseFrontmatter(content)
-	assert.Equal(t, "my-skill", meta.name)
-	assert.Equal(t, "1.2.3", meta.version)
-	assert.Equal(t, "Does something useful", meta.description)
-}
-
-func TestParseFrontmatter_MultilineDescription(t *testing.T) {
-	content := `---
-name: autoresearch
-version: 1.4.2
-description: >-
-  Self-improving prompt optimization.
-  Runs an autonomous loop.
----
-`
-	meta := parseFrontmatter(content)
-	assert.Equal(t, "autoresearch", meta.name)
-	assert.Equal(t, "1.4.2", meta.version)
-	// Multi-line value: only the first line after the key is captured
-	assert.NotEmpty(t, meta.description)
-}
-
-func TestParseFrontmatter_NoVersion(t *testing.T) {
-	content := `---
-name: no-version-skill
-description: A skill without a version field
----
-`
-	meta := parseFrontmatter(content)
-	assert.Equal(t, "no-version-skill", meta.name)
-	assert.Equal(t, "", meta.version)
-}
-
-func TestParseFrontmatter_QuotedValues(t *testing.T) {
-	content := `---
-name: "quoted-skill"
-version: '2.0.0'
-description: "Quoted description"
----
-`
-	meta := parseFrontmatter(content)
-	assert.Equal(t, "quoted-skill", meta.name)
-	assert.Equal(t, "2.0.0", meta.version)
-	assert.Equal(t, "Quoted description", meta.description)
-}
-
-func TestParseFrontmatter_NoFrontmatter(t *testing.T) {
-	content := "# Just a markdown file\nNo frontmatter here.\n"
-	meta := parseFrontmatter(content)
-	assert.Equal(t, "", meta.name)
-	assert.Equal(t, "", meta.version)
-	assert.Equal(t, "", meta.description)
-}
-
-func TestParseFrontmatter_EmptyContent(t *testing.T) {
-	meta := parseFrontmatter("")
-	assert.Equal(t, skillMeta{}, meta)
-}
-
-// ---------------------------------------------------------------------------
 // expandHome
 // ---------------------------------------------------------------------------
 
@@ -146,22 +75,13 @@ func makeSkillDir(t *testing.T, parent, slug, version, description string) {
 }
 
 func TestListLocalSkills_ReadsVersionFromSKILLMd(t *testing.T) {
-	tmpDir := t.TempDir()
-	makeSkillDir(t, tmpDir, "skill-alpha", "1.0.0", "Alpha skill")
-	makeSkillDir(t, tmpDir, "skill-beta", "2.3.1", "Beta skill")
-
-	cmd := &ListCommand{agentName: "cursor", projectDir: ""}
-	// Override the directory lookup by using projectDir + agent path pattern
-	// We test via listLocalSkills directly using a stub dir approach.
-	// Since we can't inject the dir, use projectDir with a known relative path.
-	// Set up: projectDir/cursor-relative-path = tmpDir
-	// agentProjectSkillsDir["cursor"] = ".cursor/skills"
 	projectRoot := t.TempDir()
 	skillsPath := filepath.Join(projectRoot, ".cursor", "skills")
 	require.NoError(t, os.MkdirAll(skillsPath, 0o755))
 	makeSkillDir(t, skillsPath, "skill-alpha", "1.0.0", "Alpha skill")
 	makeSkillDir(t, skillsPath, "skill-beta", "2.3.1", "Beta skill")
 
+	cmd := &ListCommand{agentName: "cursor"}
 	cmd.SetProjectDir(projectRoot).SetFormat("json")
 
 	old := os.Stdout
@@ -293,6 +213,69 @@ func TestListLocalSkills_LimitApplied(t *testing.T) {
 	var results []listResult
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &results))
 	assert.Len(t, results, 2)
+}
+
+func TestListLocalSkills_GlobalDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	makeSkillDir(t, tmpDir, "global-skill", "3.0.0", "Global skill")
+
+	original := common.Agents["cursor"]
+	common.Agents["cursor"] = common.AgentConfig{GlobalDir: tmpDir, ProjectDir: original.ProjectDir}
+	t.Cleanup(func() { common.Agents["cursor"] = original })
+
+	cmd := &ListCommand{}
+	cmd.SetAgentName("cursor").SetFormat("json")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := cmd.Run()
+
+	_ = w.Close()
+	os.Stdout = old
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+
+	var results []listResult
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &results))
+	require.Len(t, results, 1)
+	assert.Equal(t, "global-skill", results[0].Name)
+	assert.Equal(t, "3.0.0", results[0].Version)
+}
+
+func TestListLocalSkills_SortAscending(t *testing.T) {
+	projectRoot := t.TempDir()
+	skillsPath := filepath.Join(projectRoot, ".cursor", "skills")
+	require.NoError(t, os.MkdirAll(skillsPath, 0o755))
+	makeSkillDir(t, skillsPath, "zzz", "1.0.0", "Z")
+	makeSkillDir(t, skillsPath, "aaa", "1.0.0", "A")
+	makeSkillDir(t, skillsPath, "mmm", "1.0.0", "M")
+
+	cmd := &ListCommand{}
+	cmd.SetAgentName("cursor").SetProjectDir(projectRoot).SetFormat("json").SetSortOrder("asc")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := cmd.Run()
+
+	_ = w.Close()
+	os.Stdout = old
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+
+	var results []listResult
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &results))
+	require.Len(t, results, 3)
+	assert.Equal(t, "aaa", results[0].Name)
+	assert.Equal(t, "mmm", results[1].Name)
+	assert.Equal(t, "zzz", results[2].Name)
 }
 
 func TestListLocalSkills_SortDescending(t *testing.T) {
