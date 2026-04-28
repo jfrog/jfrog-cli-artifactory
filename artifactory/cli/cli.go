@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,7 +13,6 @@ import (
 
 	ioutils "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/buildinfo"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/formats"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/container"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/curl"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
@@ -1898,9 +1898,10 @@ func buildPublishCmd(c *components.Context) error {
 	cmd.SetDepExcludeScopes(c.GetStringsArrFlagValue("dep-exclude-scopes"))
 
 	// When --format is set, suppress the internal logJsonOutput call so that the
-	// CLI layer can render the URL itself.
+	// CLI layer can render the URL itself, and collect sha256.
 	if outputFormat != coreformat.None {
 		cmd.SetSuppressOutput(true)
+		cmd.SetCollectSha256(true)
 	}
 
 	err = commands.Exec(cmd)
@@ -1919,25 +1920,46 @@ func buildPublishCmd(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-	return printBuildPublishResponse(cmd.GetBuildInfoUiUrl(), outputFormat, os.Stdout)
+	var sha256 string
+	if s := cmd.GetSummary(); s != nil {
+		sha256 = s.GetSha256()
+	}
+	return printBuildPublishResponse(cmd.GetBuildInfoUiUrl(), sha256, outputFormat, os.Stdout)
 }
 
 // printBuildPublishResponse renders the build-publish result in the requested output format.
-func printBuildPublishResponse(buildInfoUiUrl string, outputFormat coreformat.OutputFormat, w io.Writer) error {
+func printBuildPublishResponse(buildInfoUiUrl, sha256 string, outputFormat coreformat.OutputFormat, w io.Writer) error {
 	switch outputFormat {
 	case coreformat.Json:
-		return printBuildPublishJSON(buildInfoUiUrl)
+		return printBuildPublishJSON(buildInfoUiUrl, sha256)
 	case coreformat.Table:
-		return printBuildPublishTable(buildInfoUiUrl, w)
+		return printBuildPublishTable(buildInfoUiUrl, sha256, w)
 	default:
 		return errorutils.CheckErrorf("unsupported format '%s' for rt build-publish. Acceptable values are: json, table", outputFormat)
 	}
 }
 
+// buildPublishFormatOutput is the structured output for --format json/table.
+// Separate from the stable formats.BuildPublishOutput API struct to allow adding fields.
+type buildPublishFormatOutput struct {
+	BuildInfoUiUrl string `json:"buildInfoUiUrl"`
+	Sha256         string `json:"sha256,omitempty"`
+}
+
+func (o *buildPublishFormatOutput) json() ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(o); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
 // printBuildPublishJSON emits the build-publish result as indented JSON.
-func printBuildPublishJSON(buildInfoUiUrl string) error {
-	output := formats.BuildPublishOutput{BuildInfoUiUrl: buildInfoUiUrl}
-	data, err := output.JSON()
+func printBuildPublishJSON(buildInfoUiUrl, sha256 string) error {
+	output := &buildPublishFormatOutput{BuildInfoUiUrl: buildInfoUiUrl, Sha256: sha256}
+	data, err := output.json()
 	if err != nil {
 		return errorutils.CheckError(err)
 	}
@@ -1946,10 +1968,13 @@ func printBuildPublishJSON(buildInfoUiUrl string) error {
 }
 
 // printBuildPublishTable renders the build-publish result as a two-column tabwriter table.
-func printBuildPublishTable(buildInfoUiUrl string, w io.Writer) error {
+func printBuildPublishTable(buildInfoUiUrl, sha256 string, w io.Writer) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
 	_, _ = fmt.Fprintf(tw, "buildInfoUiUrl\t%s\n", buildInfoUiUrl)
+	if sha256 != "" {
+		_, _ = fmt.Fprintf(tw, "sha256\t%s\n", sha256)
+	}
 	return tw.Flush()
 }
 

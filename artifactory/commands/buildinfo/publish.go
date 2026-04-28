@@ -42,6 +42,9 @@ type BuildPublishCommand struct {
 	// suppressOutput prevents Run() from printing the buildInfoUiUrl JSON to
 	// stdout.  Set this to true when the CLI layer will handle output formatting.
 	suppressOutput bool
+	// collectSha256 causes Run() to store the Sha256Summary even when
+	// detailedSummary is false, so the CLI format layer can include the sha256.
+	collectSha256 bool
 	BuildAddGitCommand
 }
 
@@ -92,6 +95,13 @@ func (bpc *BuildPublishCommand) GetBuildInfoUiUrl() string {
 // stdout.  Use this when the CLI layer will handle output formatting.
 func (bpc *BuildPublishCommand) SetSuppressOutput(suppress bool) *BuildPublishCommand {
 	bpc.suppressOutput = suppress
+	return bpc
+}
+
+// SetCollectSha256 causes Run() to store the Sha256Summary even when
+// detailedSummary is false, so the CLI format layer can include the sha256.
+func (bpc *BuildPublishCommand) SetCollectSha256(collect bool) *BuildPublishCommand {
+	bpc.collectSha256 = collect
 	return bpc
 }
 
@@ -219,7 +229,7 @@ func (bpc *BuildPublishCommand) Run() error {
 		}
 	}
 	summary, err := servicesManager.PublishBuildInfo(buildInfo, bpc.buildConfiguration.GetProject())
-	if bpc.IsDetailedSummary() {
+	if bpc.IsDetailedSummary() || bpc.collectSha256 {
 		bpc.SetSummary(summary)
 	}
 	if err != nil || bpc.config.DryRun {

@@ -801,25 +801,47 @@ func TestGetBuildPublishOutputFormat_Invalid(t *testing.T) {
 func TestPrintBuildPublishResponse_JSON(t *testing.T) {
 	var buf bytes.Buffer
 	// printBuildPublishJSON writes to log.Output (stdout); we verify no error.
-	err := printBuildPublishResponse("https://example.jfrog.io/ui/builds/myapp/1/123/published", coreformat.Json, &buf)
+	err := printBuildPublishResponse("https://example.jfrog.io/ui/builds/myapp/1/123/published", "", coreformat.Json, &buf)
+	require.NoError(t, err)
+}
+
+func TestPrintBuildPublishResponse_JSON_WithSha256(t *testing.T) {
+	var buf bytes.Buffer
+	const testURL = "https://example.jfrog.io/ui/builds/myapp/1/123/published"
+	const testSha256 = "abc123def456"
+	err := printBuildPublishResponse(testURL, testSha256, coreformat.Json, &buf)
 	require.NoError(t, err)
 }
 
 func TestPrintBuildPublishResponse_Table(t *testing.T) {
 	var buf bytes.Buffer
 	const testURL = "https://example.jfrog.io/ui/builds/myapp/1/123/published"
-	err := printBuildPublishResponse(testURL, coreformat.Table, &buf)
+	err := printBuildPublishResponse(testURL, "", coreformat.Table, &buf)
 	require.NoError(t, err)
 	out := buf.String()
 	assert.Contains(t, out, "FIELD")
 	assert.Contains(t, out, "VALUE")
 	assert.Contains(t, out, "buildInfoUiUrl")
 	assert.Contains(t, out, testURL)
+	assert.NotContains(t, out, "sha256")
+}
+
+func TestPrintBuildPublishResponse_Table_WithSha256(t *testing.T) {
+	var buf bytes.Buffer
+	const testURL = "https://example.jfrog.io/ui/builds/myapp/1/123/published"
+	const testSha256 = "deadbeef1234"
+	err := printBuildPublishResponse(testURL, testSha256, coreformat.Table, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "buildInfoUiUrl")
+	assert.Contains(t, out, testURL)
+	assert.Contains(t, out, "sha256")
+	assert.Contains(t, out, testSha256)
 }
 
 func TestPrintBuildPublishResponse_Table_EmptyURL(t *testing.T) {
 	var buf bytes.Buffer
-	err := printBuildPublishResponse("", coreformat.Table, &buf)
+	err := printBuildPublishResponse("", "", coreformat.Table, &buf)
 	require.NoError(t, err)
 	out := buf.String()
 	assert.Contains(t, out, "FIELD")
@@ -828,7 +850,7 @@ func TestPrintBuildPublishResponse_Table_EmptyURL(t *testing.T) {
 
 func TestPrintBuildPublishResponse_UnsupportedFormat(t *testing.T) {
 	var buf bytes.Buffer
-	err := printBuildPublishResponse("https://example.jfrog.io/ui/builds/myapp/1", coreformat.Sarif, &buf)
+	err := printBuildPublishResponse("https://example.jfrog.io/ui/builds/myapp/1", "", coreformat.Sarif, &buf)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported format")
 	assert.Contains(t, err.Error(), "rt build-publish")
@@ -841,7 +863,7 @@ func TestPrintBuildPublishResponse_UnsupportedFormat(t *testing.T) {
 func TestPrintBuildPublishTable_ContainsHeaderAndURL(t *testing.T) {
 	var buf bytes.Buffer
 	const testURL = "https://myrt.example.com/ui/builds/my-build/42/1234/published"
-	err := printBuildPublishTable(testURL, &buf)
+	err := printBuildPublishTable(testURL, "", &buf)
 	require.NoError(t, err)
 	out := buf.String()
 	// tabwriter replaces tabs with spaces; check for rendered tokens
@@ -849,6 +871,19 @@ func TestPrintBuildPublishTable_ContainsHeaderAndURL(t *testing.T) {
 	assert.Contains(t, out, "VALUE")
 	assert.Contains(t, out, "buildInfoUiUrl")
 	assert.Contains(t, out, testURL)
+	assert.NotContains(t, out, "sha256")
+}
+
+func TestPrintBuildPublishTable_WithSha256(t *testing.T) {
+	var buf bytes.Buffer
+	const testURL = "https://myrt.example.com/ui/builds/my-build/42/1234/published"
+	const testSha256 = "cafebabe5678"
+	err := printBuildPublishTable(testURL, testSha256, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	assert.Contains(t, out, "buildInfoUiUrl")
+	assert.Contains(t, out, "sha256")
+	assert.Contains(t, out, testSha256)
 }
 
 // ---------------------------------------------------------------------------
@@ -857,7 +892,12 @@ func TestPrintBuildPublishTable_ContainsHeaderAndURL(t *testing.T) {
 
 func TestPrintBuildPublishJSON_ValidURL(t *testing.T) {
 	// Output goes to log.Output; we just verify no error is returned.
-	err := printBuildPublishJSON("https://example.jfrog.io/ui/builds/myapp/1/123/published")
+	err := printBuildPublishJSON("https://example.jfrog.io/ui/builds/myapp/1/123/published", "")
+	require.NoError(t, err)
+}
+
+func TestPrintBuildPublishJSON_WithSha256(t *testing.T) {
+	err := printBuildPublishJSON("https://example.jfrog.io/ui/builds/myapp/1/123/published", "abc123")
 	require.NoError(t, err)
 }
 
