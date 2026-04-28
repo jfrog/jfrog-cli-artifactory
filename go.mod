@@ -11,7 +11,7 @@ require (
 	github.com/jfrog/gofrog v1.7.6
 	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260414083544-243b4d55328b
 	github.com/jfrog/jfrog-cli-evidence v0.9.0
-	github.com/jfrog/jfrog-client-go v1.55.1-0.20260416101832-c47c1246283b
+	github.com/jfrog/jfrog-client-go v1.55.1-0.20260427094327-087e98a5304d
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
@@ -197,6 +197,8 @@ require (
 	k8s.io/klog/v2 v2.140.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+replace github.com/jfrog/jfrog-client-go => ../jfrog-client-go
 
 // replace github.com/jfrog/jfrog-cli-core/v2 => github.com/reshmifrog/jfrog-cli-core/v2 v2.58.5-0.20260414075418-fe058b1664b7
 

@@ -502,12 +502,14 @@ const (
 	// Skills commands keys
 	SkillsPublish = "skills-publish"
 	SkillsInstall = "skills-install"
+	SkillsUpdate  = "skills-update"
 	SkillsSearch  = "skills-search"
 	SkillsDelete  = "skills-delete"
 
 	// Skills-specific flags
 	version             = "version"
 	installPath         = "path"
+	skillsForce         = "force"
 	signingKey          = "signing-key"
 	keyAlias            = "key-alias"
 	skillsQuiet         = "skills-" + quiet
@@ -848,6 +850,9 @@ var commandFlags = map[string][]string{
 	SkillsInstall: {
 		url, user, password, accessToken, serverId, repo, version, installPath, skillsQuiet,
 	},
+	SkillsUpdate: {
+		url, user, password, accessToken, serverId, repo, version, installPath, dryRun, skillsForce, skillsQuiet,
+	},
 	SkillsDelete: {
 		url, user, password, accessToken, serverId, repo, version, dryRun,
 	},
@@ -1158,7 +1163,8 @@ var flagsMap = map[string]components.Flag{
 	// Skills-specific flags
 	repo:                components.NewStringFlag(repo, "Skills repository key in Artifactory.", components.SetMandatoryFalse()),
 	version:             components.NewStringFlag(version, "Skill version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
-	installPath:         components.NewStringFlag(installPath, "Custom install path for the skill. Default: current directory.", components.SetMandatoryFalse()),
+	installPath:         components.NewStringFlag(installPath, "Base directory where the skill is installed. Default: current directory.", components.SetMandatoryFalse()),
+	skillsForce:         components.NewBoolFlag(skillsForce, "Re-download and reinstall even if the skill is already at the target version.", components.WithBoolDefaultValueFalse()),
 	signingKey:          components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
 	keyAlias:            components.NewStringFlag(keyAlias, "Alias for the signing key. Overrides EVD_KEY_ALIAS env var.", components.SetMandatoryFalse()),
 	skillsQuiet:         components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
