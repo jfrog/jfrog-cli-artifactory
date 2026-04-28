@@ -5,12 +5,34 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jfrog/jfrog-cli-artifactory/skills/common"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// captureLog redirects the jfrog logger to a buffer for the duration of the test.
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	prev := log.GetLogger()
+	log.SetLogger(log.NewLogger(log.INFO, buf))
+	t.Cleanup(func() { log.SetLogger(prev) })
+	return buf
+}
+
+// extractJSON finds the last "[Info] \n" log prefix and returns the trimmed JSON after it.
+func extractJSON(data []byte) []byte {
+	const infoPrefix = "[Info] \n"
+	s := string(data)
+	if idx := strings.LastIndex(s, infoPrefix); idx >= 0 {
+		s = s[idx+len(infoPrefix):]
+	}
+	return []byte(strings.TrimSpace(s))
+}
 
 // ---------------------------------------------------------------------------
 // expandHome
@@ -81,24 +103,16 @@ func TestListLocalSkills_ReadsVersionFromSKILLMd(t *testing.T) {
 	makeSkillDir(t, skillsPath, "skill-alpha", "1.0.0", "Alpha skill")
 	makeSkillDir(t, skillsPath, "skill-beta", "2.3.1", "Beta skill")
 
+	buf := captureLog(t)
 	cmd := &ListCommand{agentName: "cursor"}
 	cmd.SetProjectDir(projectRoot).SetFormat("json")
 
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
 	err := cmd.Run()
 
-	_ = w.Close()
-	os.Stdout = old
-
 	require.NoError(t, err)
-	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(r)
 
 	var results []listResult
-	require.NoError(t, json.Unmarshal(buf.Bytes(), &results))
+	require.NoError(t, json.Unmarshal(extractJSON(buf.Bytes()), &results))
 	assert.Len(t, results, 2)
 
 	// Sorted alphabetically by name (default)
@@ -113,30 +127,17 @@ func TestListLocalSkills_SkipsMissingSKILLMd(t *testing.T) {
 	skillsPath := filepath.Join(projectRoot, ".cursor", "skills")
 	require.NoError(t, os.MkdirAll(skillsPath, 0o755))
 
-	// Skill with SKILL.md
 	makeSkillDir(t, skillsPath, "with-meta", "1.0.0", "Has metadata")
-	// Skill directory without SKILL.md — should be skipped
 	require.NoError(t, os.MkdirAll(filepath.Join(skillsPath, "no-meta"), 0o755))
 
+	buf := captureLog(t)
 	cmd := &ListCommand{}
 	cmd.SetAgentName("cursor").SetProjectDir(projectRoot).SetFormat("json")
 
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	err := cmd.Run()
-
-	_ = w.Close()
-	os.Stdout = old
-	require.NoError(t, err)
-
-	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(r)
+	require.NoError(t, cmd.Run())
 
 	var results []listResult
-	require.NoError(t, json.Unmarshal(buf.Bytes(), &results))
-	// only the skill with SKILL.md is returned
+	require.NoError(t, json.Unmarshal(extractJSON(buf.Bytes()), &results))
 	assert.Len(t, results, 1)
 	assert.Equal(t, "with-meta", results[0].Name)
 }
@@ -146,43 +147,22 @@ func TestListLocalSkills_EmptyDirectory(t *testing.T) {
 	skillsPath := filepath.Join(projectRoot, ".cursor", "skills")
 	require.NoError(t, os.MkdirAll(skillsPath, 0o755))
 
+	buf := captureLog(t)
 	cmd := &ListCommand{}
 	cmd.SetAgentName("cursor").SetProjectDir(projectRoot)
 
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	err := cmd.Run()
-
-	_ = w.Close()
-	os.Stdout = old
-	require.NoError(t, err)
-
-	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(r)
+	require.NoError(t, cmd.Run())
 	assert.Contains(t, buf.String(), "No skills found")
 }
 
 func TestListLocalSkills_NonExistentDirectory(t *testing.T) {
 	projectRoot := t.TempDir()
-	// Don't create .cursor/skills — directory does not exist
 
+	buf := captureLog(t)
 	cmd := &ListCommand{}
 	cmd.SetAgentName("cursor").SetProjectDir(projectRoot)
 
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	err := cmd.Run()
-
-	_ = w.Close()
-	os.Stdout = old
-	require.NoError(t, err) // should not error, just print message
-
-	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(r)
+	require.NoError(t, cmd.Run())
 	assert.Contains(t, buf.String(), "No skills directory found")
 }
 
@@ -194,24 +174,14 @@ func TestListLocalSkills_LimitApplied(t *testing.T) {
 	makeSkillDir(t, skillsPath, "bbb", "1.0.0", "Second")
 	makeSkillDir(t, skillsPath, "ccc", "1.0.0", "Third")
 
+	buf := captureLog(t)
 	cmd := &ListCommand{}
 	cmd.SetAgentName("cursor").SetProjectDir(projectRoot).SetFormat("json").SetLimit(2)
 
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	err := cmd.Run()
-
-	_ = w.Close()
-	os.Stdout = old
-	require.NoError(t, err)
-
-	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(r)
+	require.NoError(t, cmd.Run())
 
 	var results []listResult
-	require.NoError(t, json.Unmarshal(buf.Bytes(), &results))
+	require.NoError(t, json.Unmarshal(extractJSON(buf.Bytes()), &results))
 	assert.Len(t, results, 2)
 }
 
@@ -223,24 +193,14 @@ func TestListLocalSkills_GlobalDir(t *testing.T) {
 	common.Agents["cursor"] = common.AgentConfig{GlobalDir: tmpDir, ProjectDir: original.ProjectDir}
 	t.Cleanup(func() { common.Agents["cursor"] = original })
 
+	buf := captureLog(t)
 	cmd := &ListCommand{}
 	cmd.SetAgentName("cursor").SetFormat("json")
 
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	err := cmd.Run()
-
-	_ = w.Close()
-	os.Stdout = old
-	require.NoError(t, err)
-
-	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(r)
+	require.NoError(t, cmd.Run())
 
 	var results []listResult
-	require.NoError(t, json.Unmarshal(buf.Bytes(), &results))
+	require.NoError(t, json.Unmarshal(extractJSON(buf.Bytes()), &results))
 	require.Len(t, results, 1)
 	assert.Equal(t, "global-skill", results[0].Name)
 	assert.Equal(t, "3.0.0", results[0].Version)
@@ -254,24 +214,14 @@ func TestListLocalSkills_SortAscending(t *testing.T) {
 	makeSkillDir(t, skillsPath, "aaa", "1.0.0", "A")
 	makeSkillDir(t, skillsPath, "mmm", "1.0.0", "M")
 
+	buf := captureLog(t)
 	cmd := &ListCommand{}
 	cmd.SetAgentName("cursor").SetProjectDir(projectRoot).SetFormat("json").SetSortOrder("asc")
 
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	err := cmd.Run()
-
-	_ = w.Close()
-	os.Stdout = old
-	require.NoError(t, err)
-
-	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(r)
+	require.NoError(t, cmd.Run())
 
 	var results []listResult
-	require.NoError(t, json.Unmarshal(buf.Bytes(), &results))
+	require.NoError(t, json.Unmarshal(extractJSON(buf.Bytes()), &results))
 	require.Len(t, results, 3)
 	assert.Equal(t, "aaa", results[0].Name)
 	assert.Equal(t, "mmm", results[1].Name)
@@ -286,24 +236,14 @@ func TestListLocalSkills_SortDescending(t *testing.T) {
 	makeSkillDir(t, skillsPath, "zzz", "2.0.0", "Z")
 	makeSkillDir(t, skillsPath, "mmm", "1.5.0", "M")
 
+	buf := captureLog(t)
 	cmd := &ListCommand{}
 	cmd.SetAgentName("cursor").SetProjectDir(projectRoot).SetFormat("json").SetSortOrder("desc")
 
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	err := cmd.Run()
-
-	_ = w.Close()
-	os.Stdout = old
-	require.NoError(t, err)
-
-	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(r)
+	require.NoError(t, cmd.Run())
 
 	var results []listResult
-	require.NoError(t, json.Unmarshal(buf.Bytes(), &results))
+	require.NoError(t, json.Unmarshal(extractJSON(buf.Bytes()), &results))
 	require.Len(t, results, 3)
 	assert.Equal(t, "zzz", results[0].Name)
 	assert.Equal(t, "mmm", results[1].Name)
@@ -340,46 +280,26 @@ func TestPrintResults_Table(t *testing.T) {
 }
 
 func TestPrintResults_JSON(t *testing.T) {
+	buf := captureLog(t)
 	cmd := &ListCommand{format: "json"}
 	results := []listResult{
 		{Name: "skill-a", Version: "2.0.0", Description: "Desc", Source: "/some/path/skill-a"},
 	}
 
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	err := cmd.printResults(results)
-
-	_ = w.Close()
-	os.Stdout = old
-	require.NoError(t, err)
-
-	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(r)
+	require.NoError(t, cmd.printResults(results))
 
 	var parsed []listResult
-	require.NoError(t, json.Unmarshal(buf.Bytes(), &parsed))
+	require.NoError(t, json.Unmarshal(extractJSON(buf.Bytes()), &parsed))
 	assert.Len(t, parsed, 1)
 	assert.Equal(t, "skill-a", parsed[0].Name)
 	assert.Equal(t, "2.0.0", parsed[0].Version)
 }
 
 func TestPrintResults_Empty(t *testing.T) {
+	buf := captureLog(t)
 	cmd := &ListCommand{}
 
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	err := cmd.printResults([]listResult{})
-
-	_ = w.Close()
-	os.Stdout = old
-	require.NoError(t, err)
-
-	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(r)
+	require.NoError(t, cmd.printResults([]listResult{}))
 	assert.Contains(t, buf.String(), "No skills found")
 }
 
