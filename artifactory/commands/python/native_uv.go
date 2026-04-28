@@ -919,14 +919,14 @@ func uvEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, di
 			continue
 		}
 		for _, e := range entries {
-			if deps[e.idx].Checksum.Sha1 != "" {
+			if deps[e.idx].Sha1 != "" {
 				continue // already enriched
 			}
 			if strings.HasPrefix(r.Name, e.prefix+"-") || strings.HasPrefix(r.Name, e.prefix+".") {
-				deps[e.idx].Checksum.Sha1 = r.ActualSha1
-				deps[e.idx].Checksum.Md5 = r.ActualMd5
-				if r.Sha256 != "" && deps[e.idx].Checksum.Sha256 == "" {
-					deps[e.idx].Checksum.Sha256 = r.Sha256
+				deps[e.idx].Sha1 = r.ActualSha1
+				deps[e.idx].Md5 = r.ActualMd5
+				if r.Sha256 != "" && deps[e.idx].Sha256 == "" {
+					deps[e.idx].Sha256 = r.Sha256
 				}
 				enriched++
 				break
