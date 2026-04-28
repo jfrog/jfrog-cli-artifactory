@@ -78,8 +78,7 @@ func RunUpdate(c *components.Context) error {
 		SetSlug(slug).
 		SetVersion(targetVersion).
 		SetInstallPath(installBase).
-		SetQuiet(quiet).
-		SetRemoveExisting(true)
+		SetQuiet(quiet)
 
 	return cmd.Run()
 }

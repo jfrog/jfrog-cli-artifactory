@@ -67,30 +67,6 @@ func TestGetDestDir(t *testing.T) {
 	assert.Equal(t, filepath.Join("/custom/path", "my-skill"), cmd.getDestDir())
 }
 
-func TestCopyDir_RemoveExisting_ClearsStaleFiles(t *testing.T) {
-	base := t.TempDir()
-	destDir := filepath.Join(base, "my-skill")
-
-	// Simulate an existing installation with a stale file.
-	require.NoError(t, os.MkdirAll(destDir, 0755))
-	staleFile := filepath.Join(destDir, "stale.py")
-	require.NoError(t, os.WriteFile(staleFile, []byte("old"), 0644))
-
-	// New version source has only SKILL.md.
-	srcDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(srcDir, "SKILL.md"), []byte("---\nname: my-skill\n---"), 0644))
-
-	// Remove destination then copy — stale file must be gone.
-	require.NoError(t, os.RemoveAll(destDir))
-	require.NoError(t, copyDir(srcDir, destDir))
-
-	_, err := os.Stat(staleFile)
-	assert.True(t, os.IsNotExist(err), "stale file should have been removed")
-
-	_, err = os.Stat(filepath.Join(destDir, "SKILL.md"))
-	require.NoError(t, err, "new SKILL.md should be present")
-}
-
 func createTestZip(t *testing.T, zipPath string, files map[string]string) {
 	t.Helper()
 
