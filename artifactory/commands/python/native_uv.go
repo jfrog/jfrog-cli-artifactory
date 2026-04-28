@@ -186,8 +186,8 @@ func (c *NativeUVCommand) injectCredentials(workingDir, deployerRepo string, ser
 			hostMatches := uvHostMatchesServer(idx.URL, serverDetails.ArtifactoryUrl)
 			explicitServerID := c.serverID != ""
 			if hostMatches || explicitServerID {
-				os.Setenv(userKey, user)
-				os.Setenv("UV_INDEX_"+envName+"_PASSWORD", pass)
+				_ = os.Setenv(userKey, user)
+				_ = os.Setenv("UV_INDEX_"+envName+"_PASSWORD", pass)
 				injectedAny = true
 				if explicitServerID && !hostMatches {
 					log.Info(fmt.Sprintf("UV auth [index %q]: injecting credentials from --server-id (host override)", idx.Name))
@@ -205,7 +205,7 @@ func (c *NativeUVCommand) injectCredentials(workingDir, deployerRepo string, ser
 	}
 
 	if injectedAny {
-		os.Setenv("UV_KEYRING_PROVIDER", "disabled")
+		_ = os.Setenv("UV_KEYRING_PROVIDER", "disabled")
 	}
 
 	if c.commandName == "publish" {
@@ -270,7 +270,7 @@ func uvScriptPath(cmdName string, args []string) string {
 //
 // This gives accurate dependency tracking for the script's isolated environment
 // rather than reporting the surrounding project's dependencies.
-func uvGetScriptBuildInfo(scriptPath string, buildConfiguration *buildUtils.BuildConfiguration, serverDetails *coreConfig.ServerDetails) error {
+func uvGetScriptBuildInfo(scriptPath string, buildConfiguration *buildUtils.BuildConfiguration, _ *coreConfig.ServerDetails) error {
 	lockPath := scriptPath + ".lock"
 	if _, err := os.Stat(lockPath); os.IsNotExist(err) {
 		log.Info(fmt.Sprintf("UV script: creating lock file at %s", lockPath))
@@ -444,9 +444,6 @@ func parseUvPyproject(workingDir string) uvPyprojectToml {
 	return p
 }
 
-func uvPublishURLFromToml(workingDir string) string {
-	return parseUvPyproject(workingDir).Tool.Uv.PublishURL
-}
 
 func uvReadIndexesFromToml(workingDir string) []uvIndexEntry {
 	p := parseUvPyproject(workingDir)
@@ -607,16 +604,16 @@ func uvApplyPublishAuth(publishURL, workingDir string, serverDetails *coreConfig
 // or the jf server config. When explicitServerID is true, the host-mismatch check is skipped.
 func uvInjectPublishCredentials(publishURL, workingDir string, serverDetails *coreConfig.ServerDetails, user, pass string, explicitServerID bool) {
 	if idxUser, idxPass := uvMatchingIndexCredentials(publishURL, workingDir); idxUser != "" {
-		os.Setenv("UV_PUBLISH_USERNAME", idxUser)
-		os.Setenv("UV_PUBLISH_PASSWORD", idxPass)
-		os.Setenv("UV_KEYRING_PROVIDER", "disabled")
+		_ = os.Setenv("UV_PUBLISH_USERNAME", idxUser)
+		_ = os.Setenv("UV_PUBLISH_PASSWORD", idxPass)
+		_ = os.Setenv("UV_KEYRING_PROVIDER", "disabled")
 		log.Info("UV auth [publish]: reusing same-host index credentials for publish")
 		return
 	}
 	if uvHostMatchesServer(publishURL, serverDetails.ArtifactoryUrl) || explicitServerID {
-		os.Setenv("UV_PUBLISH_USERNAME", user)
-		os.Setenv("UV_PUBLISH_PASSWORD", pass)
-		os.Setenv("UV_KEYRING_PROVIDER", "disabled")
+		_ = os.Setenv("UV_PUBLISH_USERNAME", user)
+		_ = os.Setenv("UV_PUBLISH_PASSWORD", pass)
+		_ = os.Setenv("UV_KEYRING_PROVIDER", "disabled")
 		if explicitServerID && !uvHostMatchesServer(publishURL, serverDetails.ArtifactoryUrl) {
 			log.Info("UV auth [publish]: injecting credentials from --server-id (host override)")
 		} else {
@@ -798,7 +795,7 @@ func uvIndexURLFromToml(workingDir string) string {
 func uvEnrichDirectURLChecksums(deps []buildinfo.Dependency, directURLDeps map[string]string) {
 	for i, dep := range deps {
 		sourceURL, ok := directURLDeps[dep.Id]
-		if !ok || dep.Checksum.Sha1 != "" {
+		if !ok || dep.Sha1 != "" {
 			continue
 		}
 		// Skip git URLs — no deterministic archive to download
@@ -820,13 +817,13 @@ func uvEnrichDirectURLChecksums(deps []buildinfo.Dependency, directURLDeps map[s
 		sha1w := sha1.New()   //nolint:gosec
 		md5w := md5.New()     //nolint:gosec
 		_, copyErr := io.Copy(io.MultiWriter(sha1w, md5w), resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if copyErr != nil {
 			log.Info(fmt.Sprintf("UV build-info: dep %s could not stream URL — sha256 only", dep.Id))
 			continue
 		}
-		deps[i].Checksum.Sha1 = fmt.Sprintf("%x", sha1w.Sum(nil))
-		deps[i].Checksum.Md5 = fmt.Sprintf("%x", md5w.Sum(nil))
+		deps[i].Sha1 = fmt.Sprintf("%x", sha1w.Sum(nil))
+		deps[i].Md5 = fmt.Sprintf("%x", md5w.Sum(nil))
 		log.Info(fmt.Sprintf("UV build-info: dep %s enriched sha1/md5 from direct URL", dep.Id))
 	}
 }
@@ -898,7 +895,7 @@ func uvEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, di
 		return
 	}
 	raw, _ := io.ReadAll(stream)
-	stream.Close()
+	_ = stream.Close()
 
 	var aqlResult struct {
 		Results []struct {
