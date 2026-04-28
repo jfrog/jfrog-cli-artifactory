@@ -1,9 +1,12 @@
 package python
 
 import (
+	"crypto/md5"   //nolint:gosec
+	"crypto/sha1"  //nolint:gosec
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -72,6 +75,13 @@ func (c *NativeUVCommand) ServerDetails() (*coreConfig.ServerDetails, error) {
 
 // Run executes the UV command with auth injection and optional build info collection.
 func (c *NativeUVCommand) Run() error {
+	// Help flags (-h / --help) and the bare "help" sub-command must bypass all auth
+	// injection and Artifactory calls. Injecting credential env vars before calling uv
+	// causes uv to print them in its help output, exposing secrets.
+	if isHelpRequest(c.commandName, c.args) {
+		return runUvBinary(append([]string{c.commandName}, c.args...))
+	}
+
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)
@@ -92,11 +102,16 @@ func (c *NativeUVCommand) Run() error {
 		}
 	}
 
+	// For --script, also read [[tool.uv.index]] from the script's inline PEP 723 metadata.
+	// The script runs in an isolated temp env separate from the project, so its own
+	// index config must be used for credential injection.
+	scriptIndexes := uvScriptInlineIndexes(c.commandName, c.args)
+
 	serverDetails, credErr := uvResolveServerDetails(c.serverID)
 	if credErr != nil {
 		log.Warn("UV auth: could not load jf server config — " + credErr.Error())
 	} else if serverDetails != nil {
-		c.injectCredentials(workingDir, deployerRepo, serverDetails)
+		c.injectCredentials(workingDir, deployerRepo, serverDetails, scriptIndexes)
 	}
 
 	log.Info(fmt.Sprintf("Running UV %s.", c.commandName))
@@ -107,17 +122,34 @@ func (c *NativeUVCommand) Run() error {
 	if c.buildConfiguration != nil {
 		buildName, err := c.buildConfiguration.GetBuildName()
 		if err == nil && buildName != "" {
-			if biErr := uvGetBuildInfo(workingDir, c.buildConfiguration, deployerRepo, c.commandName, serverDetails); biErr != nil {
+			// PEP 723 inline scripts get their own build-info from the adjacent .lock file.
+			if scriptPath := uvScriptPath(c.commandName, c.args); scriptPath != "" {
+				if biErr := uvGetScriptBuildInfo(scriptPath, c.buildConfiguration, serverDetails); biErr != nil {
+					log.Warn("Failed to collect UV script build info: " + biErr.Error())
+				}
+			} else {
+			// For commands that modify the venv, capture exactly what was installed.
+			var installed map[string]string
+			if uvModifiesVenv(c.commandName) {
+				installed = uvInstalledPackages()
+			}
+			if biErr := uvGetBuildInfo(workingDir, c.buildConfiguration, deployerRepo, c.commandName, c.args, installed, serverDetails); biErr != nil {
 				log.Warn("Failed to collect UV build info: " + biErr.Error())
 			}
+			} // end else (not a --script invocation)
 		}
 	}
 	return nil
 }
 
-// injectCredentials sets UV_INDEX_* and UV_PUBLISH_* env vars from jf config,
-// only when native UV mechanisms (env vars, embedded URL, netrc) don't already cover the host.
-func (c *NativeUVCommand) injectCredentials(workingDir, deployerRepo string, serverDetails *coreConfig.ServerDetails) {
+// injectCredentials sets UV_INDEX_* and UV_PUBLISH_* env vars from jf config.
+// When the user explicitly specified --server-id, credentials are injected regardless of
+// URL hostname — the explicit choice overrides the host-mismatch safety check.
+// Without --server-id (using the default server), credentials are only injected when
+// the index URL hostname matches the jf server to prevent cross-instance credential leakage.
+// scriptIndexes are additional index entries parsed from a PEP 723 inline script's metadata;
+// when non-nil they are used instead of the project's pyproject.toml entries.
+func (c *NativeUVCommand) injectCredentials(workingDir, deployerRepo string, serverDetails *coreConfig.ServerDetails, scriptIndexes []uvIndexEntry) {
 	user := serverDetails.User
 	pass := serverDetails.Password
 	if serverDetails.AccessToken != "" {
@@ -132,25 +164,36 @@ func (c *NativeUVCommand) injectCredentials(workingDir, deployerRepo string, ser
 
 	injectedAny := false
 
-	// UV_INDEX_URL is UV's legacy global index env var. We log it for visibility but
-	// still proceed with per-index injection below, because UV_INDEX_URL only affects
-	// the default index and does not supply credentials for named [[tool.uv.index]] entries.
-	if os.Getenv("UV_INDEX_URL") != "" {
-		log.Info("UV auth: UV_INDEX_URL is set globally (native); per-index credential injection still proceeds below")
+	// UV_INDEX_URL and UV_DEFAULT_INDEX are UV's global default index env vars.
+	// Log them for visibility; per-named-index injection still proceeds because
+	// these vars only affect the default/fallback index, not named [[tool.uv.index]] entries.
+	if os.Getenv("UV_INDEX_URL") != "" || os.Getenv("UV_DEFAULT_INDEX") != "" {
+		log.Info("UV auth: global index env var set (UV_INDEX_URL or UV_DEFAULT_INDEX); per-index credential injection still proceeds below")
 	}
 
-	for _, idx := range uvReadIndexesFromToml(workingDir) {
+	// Use script inline indexes when --script is active; fall back to pyproject.toml entries.
+	indexes := scriptIndexes
+	if len(indexes) == 0 {
+		indexes = uvReadIndexesFromToml(workingDir)
+	}
+	for _, idx := range indexes {
 		envName := uvIndexEnvName(idx.Name)
 		userKey := "UV_INDEX_" + envName + "_USERNAME"
 		switch {
 		case uvIndexHasNativeCredentials(idx.URL, userKey):
 			log.Info(fmt.Sprintf("UV auth [index %q]: native credentials already present (env var, embedded URL, or netrc)", idx.Name))
 		default:
-			if uvHostMatchesServer(idx.URL, serverDetails.ArtifactoryUrl) {
+			hostMatches := uvHostMatchesServer(idx.URL, serverDetails.ArtifactoryUrl)
+			explicitServerID := c.serverID != ""
+			if hostMatches || explicitServerID {
 				os.Setenv(userKey, user)
 				os.Setenv("UV_INDEX_"+envName+"_PASSWORD", pass)
 				injectedAny = true
-				log.Info(fmt.Sprintf("UV auth [index %q]: using jf server config (user: %s, fallback)", idx.Name, user))
+				if explicitServerID && !hostMatches {
+					log.Info(fmt.Sprintf("UV auth [index %q]: injecting credentials from --server-id (host override)", idx.Name))
+				} else {
+					log.Info(fmt.Sprintf("UV auth [index %q]: using jf server config (fallback)", idx.Name))
+				}
 			} else {
 				log.Warn(fmt.Sprintf(
 					"UV auth [index %q]: index host (%s) differs from jf server config host (%s) — "+
@@ -166,11 +209,201 @@ func (c *NativeUVCommand) injectCredentials(workingDir, deployerRepo string, ser
 	}
 
 	if c.commandName == "publish" {
-		uvApplyPublishAuth(deployerRepo, workingDir, serverDetails, user, pass)
+		uvApplyPublishAuth(deployerRepo, workingDir, serverDetails, user, pass, c.serverID != "")
 	}
 }
 
 // runUvBinary executes the uv binary with stdio pass-through.
+// uvModifiesVenv returns true for uv sub-commands that install packages into the venv,
+// meaning uv pip list will reflect exactly what those flags resolved.
+func uvModifiesVenv(cmdName string) bool {
+	switch cmdName {
+	case "sync", "install", "add", "remove":
+		return true
+	}
+	return false
+}
+
+// uvInstalledPackages runs `uv pip list --format=json` and returns the installed set as
+// normalisedName → version. Returns nil on any error (caller falls back to lock-file logic).
+func uvInstalledPackages() map[string]string {
+	out, err := exec.Command("uv", "pip", "list", "--format=json").Output()
+	if err != nil {
+		log.Debug(fmt.Sprintf("uv pip list failed, falling back to lock-file dep resolution: %v", err))
+		return nil
+	}
+	var list []struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(out, &list); err != nil {
+		log.Debug(fmt.Sprintf("failed to parse uv pip list output: %v", err))
+		return nil
+	}
+	installed := make(map[string]string, len(list))
+	for _, p := range list {
+		installed[strings.ToLower(strings.ReplaceAll(p.Name, "_", "-"))] = p.Version
+	}
+	return installed
+}
+
+// uvScriptPath returns the script file path when --script <path> is present in
+// a "run" invocation, or "" for all other commands.
+func uvScriptPath(cmdName string, args []string) string {
+	if cmdName != "run" {
+		return ""
+	}
+	for i, a := range args {
+		if a == "--script" && i+1 < len(args) {
+			return args[i+1]
+		}
+		if strings.HasPrefix(a, "--script=") {
+			return strings.TrimPrefix(a, "--script=")
+		}
+	}
+	return ""
+}
+
+// uvGetScriptBuildInfo collects build-info for a PEP 723 inline script by:
+//  1. Ensuring a <script>.lock file exists (runs `uv lock --script` if needed).
+//  2. Parsing that lock file with UVFlexPack using the script name as module ID.
+//
+// This gives accurate dependency tracking for the script's isolated environment
+// rather than reporting the surrounding project's dependencies.
+func uvGetScriptBuildInfo(scriptPath string, buildConfiguration *buildUtils.BuildConfiguration, serverDetails *coreConfig.ServerDetails) error {
+	lockPath := scriptPath + ".lock"
+	if _, err := os.Stat(lockPath); os.IsNotExist(err) {
+		log.Info(fmt.Sprintf("UV script: creating lock file at %s", lockPath))
+		if err := runUvBinary([]string{"lock", "--script", scriptPath}); err != nil {
+			return fmt.Errorf("uv lock --script failed: %w", err)
+		}
+	}
+	buildName, err := buildConfiguration.GetBuildName()
+	if err != nil {
+		return fmt.Errorf("GetBuildName failed: %w", err)
+	}
+	buildNumber, err := buildConfiguration.GetBuildNumber()
+	if err != nil {
+		return fmt.Errorf("GetBuildNumber failed: %w", err)
+	}
+	scriptName := strings.TrimSuffix(filepath.Base(scriptPath), filepath.Ext(scriptPath))
+	collector, err := flexpack.NewUVFlexPack(flexpack.UVConfig{
+		WorkingDirectory:       filepath.Dir(scriptPath),
+		LockFilePath:           lockPath,
+		ProjectName:            scriptName,
+		IncludeDevDependencies: true, // scripts have no dev/main distinction
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create UV FlexPack for script: %w", err)
+	}
+	bi, err := collector.CollectBuildInfo(buildName, buildNumber)
+	if err != nil {
+		return fmt.Errorf("failed to collect script build info: %w", err)
+	}
+	directURLDeps := collector.GetDirectURLDeps()
+	if len(directURLDeps) > 0 && len(bi.Modules) > 0 {
+		uvEnrichDirectURLChecksums(bi.Modules[0].Dependencies, directURLDeps)
+	}
+	service := buildUtils.CreateBuildInfoService()
+	bld, err := service.GetOrCreateBuildWithProject(bi.Name, bi.Number, buildConfiguration.GetProject())
+	if err != nil {
+		return fmt.Errorf("failed to create build: %w", err)
+	}
+	if err := bld.SaveBuildInfo(bi); err != nil {
+		return err
+	}
+	log.Info(fmt.Sprintf("UV script build info collected. Use 'jf rt bp %s %s' to publish.", buildName, buildNumber))
+	return nil
+}
+
+// uvScriptInlineIndexes returns [[tool.uv.index]] entries parsed from the PEP 723
+// inline metadata block (# /// script ... ///) of the script file referenced by
+// the --script flag in args. Returns nil when not a --script invocation or on any error.
+func uvScriptInlineIndexes(cmdName string, args []string) []uvIndexEntry {
+	if cmdName != "run" {
+		return nil
+	}
+	// Find --script <path> in args
+	scriptPath := ""
+	for i, a := range args {
+		if a == "--script" && i+1 < len(args) {
+			scriptPath = args[i+1]
+			break
+		}
+		if strings.HasPrefix(a, "--script=") {
+			scriptPath = strings.TrimPrefix(a, "--script=")
+			break
+		}
+	}
+	if scriptPath == "" {
+		return nil
+	}
+	data, err := os.ReadFile(scriptPath)
+	if err != nil {
+		return nil
+	}
+	content := string(data)
+	// Locate # /// script ... # /// block
+	const startMarker = "# /// script"
+	startIdx := strings.Index(content, startMarker)
+	if startIdx == -1 {
+		return nil
+	}
+	afterStart := content[startIdx+len(startMarker):]
+	endIdx := strings.Index(afterStart, "# ///")
+	if endIdx == -1 {
+		return nil
+	}
+	// Strip leading "# " from each line to get raw TOML
+	var tomlLines []string
+	for _, line := range strings.Split(afterStart[:endIdx], "\n") {
+		stripped := strings.TrimPrefix(line, "# ")
+		if stripped == "#" {
+			stripped = ""
+		}
+		tomlLines = append(tomlLines, stripped)
+	}
+	var meta uvPyprojectToml
+	if err := toml.Unmarshal([]byte(strings.Join(tomlLines, "\n")), &meta); err != nil {
+		return nil
+	}
+	return meta.Tool.Uv.Index
+}
+
+// uvShouldIncludeDevDeps mirrors uv's own default: dev dependencies are installed
+// unless --no-dev is explicitly passed. Only commands that resolve the environment
+// (sync/install/lock/add/remove) have a dev/group concept; others default to false.
+func uvShouldIncludeDevDeps(cmdName string, args []string) bool {
+	switch cmdName {
+	case "sync", "install", "lock", "add", "remove":
+		// uv's default: dev deps are included unless the caller opts out
+	default:
+		return false
+	}
+	for _, a := range args {
+		if a == "--no-dev" {
+			return false
+		}
+	}
+	// --only-dev, --group, --only-group, --all-groups all still resolve dev deps
+	return true
+}
+
+// isHelpRequest returns true when the user is asking for uv help (-h / --help anywhere
+// in the args, or bare "help" sub-command). In these cases we must skip all auth injection
+// so that credential env vars are never set — uv prints their values in help output.
+func isHelpRequest(cmdName string, args []string) bool {
+	if cmdName == "help" || cmdName == "" {
+		return true
+	}
+	for _, a := range args {
+		if a == "-h" || a == "--help" {
+			return true
+		}
+	}
+	return false
+}
+
 func runUvBinary(args []string) error {
 	cmd := exec.Command("uv", args...)
 	cmd.Stdin = os.Stdin
@@ -353,7 +586,9 @@ func uvResolveServerDetails(serverID string) (*coreConfig.ServerDetails, error) 
 }
 
 // uvApplyPublishAuth selects and applies publish credentials following UV's priority chain.
-func uvApplyPublishAuth(publishURL, workingDir string, serverDetails *coreConfig.ServerDetails, user, pass string) {
+// explicitServerID is true when the user passed --server-id explicitly; in that case the
+// host-mismatch check is bypassed so credentials are always injected for the publish URL.
+func uvApplyPublishAuth(publishURL, workingDir string, serverDetails *coreConfig.ServerDetails, user, pass string, explicitServerID bool) {
 	switch {
 	case os.Getenv("UV_PUBLISH_TOKEN") != "":
 		log.Info("UV auth [publish]: using UV_PUBLISH_TOKEN (native, step 2a)")
@@ -364,25 +599,29 @@ func uvApplyPublishAuth(publishURL, workingDir string, serverDetails *coreConfig
 	case uvNetrcHasCredentials(publishURL):
 		log.Info(fmt.Sprintf("UV auth [publish]: using %s (native, step 4)", uvNetrcPath()))
 	default:
-		uvInjectPublishCredentials(publishURL, workingDir, serverDetails, user, pass)
+		uvInjectPublishCredentials(publishURL, workingDir, serverDetails, user, pass, explicitServerID)
 	}
 }
 
 // uvInjectPublishCredentials injects publish credentials from same-host index credentials
-// or the jf server config (in that priority order).
-func uvInjectPublishCredentials(publishURL, workingDir string, serverDetails *coreConfig.ServerDetails, user, pass string) {
+// or the jf server config. When explicitServerID is true, the host-mismatch check is skipped.
+func uvInjectPublishCredentials(publishURL, workingDir string, serverDetails *coreConfig.ServerDetails, user, pass string, explicitServerID bool) {
 	if idxUser, idxPass := uvMatchingIndexCredentials(publishURL, workingDir); idxUser != "" {
 		os.Setenv("UV_PUBLISH_USERNAME", idxUser)
 		os.Setenv("UV_PUBLISH_PASSWORD", idxPass)
 		os.Setenv("UV_KEYRING_PROVIDER", "disabled")
-		log.Info("UV auth [publish]: using same-host index credentials (native, step 4b)")
+		log.Info("UV auth [publish]: reusing same-host index credentials for publish")
 		return
 	}
-	if uvHostMatchesServer(publishURL, serverDetails.ArtifactoryUrl) {
+	if uvHostMatchesServer(publishURL, serverDetails.ArtifactoryUrl) || explicitServerID {
 		os.Setenv("UV_PUBLISH_USERNAME", user)
 		os.Setenv("UV_PUBLISH_PASSWORD", pass)
 		os.Setenv("UV_KEYRING_PROVIDER", "disabled")
-		log.Info(fmt.Sprintf("UV auth [publish]: using jf server config (user: %s, fallback)", user))
+		if explicitServerID && !uvHostMatchesServer(publishURL, serverDetails.ArtifactoryUrl) {
+			log.Info("UV auth [publish]: injecting credentials from --server-id (host override)")
+		} else {
+			log.Info("UV auth [publish]: using jf server config (fallback)")
+		}
 		return
 	}
 	log.Warn(fmt.Sprintf(
@@ -394,7 +633,7 @@ func uvInjectPublishCredentials(publishURL, workingDir string, serverDetails *co
 // ── Build info collection ────────────────────────────────────────────────────
 
 // uvGetBuildInfo collects build info for UV projects using the FlexPack native implementation.
-func uvGetBuildInfo(workingDir string, buildConfiguration *buildUtils.BuildConfiguration, deployerRepo, cmdName string, serverDetails *coreConfig.ServerDetails) error {
+func uvGetBuildInfo(workingDir string, buildConfiguration *buildUtils.BuildConfiguration, deployerRepo, cmdName string, args []string, installed map[string]string, serverDetails *coreConfig.ServerDetails) error {
 	log.Debug(fmt.Sprintf("Collecting UV build info for command '%s' in: %s", cmdName, workingDir))
 
 	buildName, err := buildConfiguration.GetBuildName()
@@ -408,7 +647,8 @@ func uvGetBuildInfo(workingDir string, buildConfiguration *buildUtils.BuildConfi
 
 	uvConfig := flexpack.UVConfig{
 		WorkingDirectory:       workingDir,
-		IncludeDevDependencies: false,
+		InstalledPackages:      installed, // nil for lock/build/publish → fallback to flag-based logic
+		IncludeDevDependencies: uvShouldIncludeDevDeps(cmdName, args),
 	}
 	collector, err := flexpack.NewUVFlexPack(uvConfig)
 	if err != nil {
@@ -424,38 +664,54 @@ func uvGetBuildInfo(workingDir string, buildConfiguration *buildUtils.BuildConfi
 		bi.Modules[0].Id = customModule
 	}
 
+	// Collect direct-URL deps (source = { url = "..." } in uv.lock) — these are not in
+	// Artifactory so AQL enrichment must skip them; sha256 from the lock file is sufficient.
+	directURLDeps := collector.GetDirectURLDeps()
+	if len(directURLDeps) > 0 && len(bi.Modules) > 0 {
+		uvEnrichDirectURLChecksums(bi.Modules[0].Dependencies, directURLDeps)
+	}
+
 	switch cmdName {
 	case "sync", "install", "lock", "add", "remove", "run":
 		if len(bi.Modules) > 0 && len(bi.Modules[0].Dependencies) > 0 {
-			if repoKey := uvResolverRepoFromToml(workingDir); repoKey != "" {
+			// Resolve enrichment repo: prefer [[tool.uv.index]] in pyproject.toml,
+			// fall back to UV_DEFAULT_INDEX / UV_INDEX_URL env vars (used when no
+			// pyproject.toml index is configured, e.g. CI workflows that inject creds
+			// via environment).
+			repoKey := uvResolverRepoFromToml(workingDir)
+			indexURL := uvIndexURLFromToml(workingDir)
+			if repoKey == "" {
+				for _, envVar := range []string{"UV_DEFAULT_INDEX", "UV_INDEX_URL"} {
+					if val := os.Getenv(envVar); val != "" {
+						repoKey = uvExtractRepoKeyFromURL(val)
+						indexURL = val
+						if repoKey != "" {
+							log.Debug(fmt.Sprintf("UV build-info: using %s for dependency enrichment repo: %s", envVar, repoKey))
+							break
+						}
+					}
+				}
+			}
+			if repoKey != "" {
 				sd := serverDetails
 				if sd == nil {
 					sd, _ = coreConfig.GetDefaultServerConf()
 				}
 				if sd != nil {
-					if indexURL := uvIndexURLFromToml(workingDir); indexURL != "" && !uvHostMatchesServer(indexURL, sd.ArtifactoryUrl) {
+					if indexURL != "" && !uvHostMatchesServer(indexURL, sd.ArtifactoryUrl) {
 						log.Warn(fmt.Sprintf(
 							"UV build-info: jf server config host (%s) differs from index URL host (%s) — "+
 								"dependency checksum enrichment (sha1/md5) will be skipped. "+
 								"Use --server-id to specify the Artifactory instance that hosts your uv packages.",
 							uvHostOf(sd.ArtifactoryUrl), uvHostOf(indexURL)))
 					}
-					uvEnrichDepsFromArtifactory(bi.Modules[0].Dependencies, repoKey, sd)
+					uvEnrichDepsFromArtifactory(bi.Modules[0].Dependencies, repoKey, directURLDeps, sd)
 				}
 			}
 		}
 	}
 
 	switch cmdName {
-	case "build":
-		if artifacts, scanErr := uvCollectDistArtifacts(workingDir); scanErr == nil && len(artifacts) > 0 {
-			if len(bi.Modules) > 0 {
-				bi.Modules[0].Artifacts = artifacts
-				log.Info(fmt.Sprintf("Collected %d artifact(s) from dist/", len(artifacts)))
-			}
-		} else if scanErr != nil {
-			log.Warn("Could not scan dist/ for artifacts: " + scanErr.Error())
-		}
 	case "publish":
 		repoKey := uvExtractRepoKeyFromURL(deployerRepo)
 		sd := serverDetails
@@ -530,9 +786,58 @@ func uvIndexURLFromToml(workingDir string) string {
 	return ""
 }
 
-// uvEnrichDepsFromArtifactory searches each dependency by filename in the given Artifactory repo
-// and updates the dependency's sha1 and md5 checksums.
-func uvEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, serverDetails *coreConfig.ServerDetails) {
+// uvEnrichDepsFromArtifactory fetches sha1/md5 for all dependencies in a single batched AQL call.
+//
+// Dep IDs are in "name:version" format; actual filenames use "name-version[-platform].whl" or
+// "name-version.tar.gz" with either hyphens or underscores in the name. We search both variants
+// so platform-specific wheels (e.g. macos arm64) and universal wheels both resolve correctly.
+// uvEnrichDirectURLChecksums computes sha1/md5 for direct URL deps (source = { url = "..." })
+// by streaming the file from its URL. Git deps (source = { git = "..." }) are skipped because
+// rebuilding from source would be required to produce a deterministic archive.
+// If a URL is inaccessible (network error, auth required) the dep retains sha256-only — no error.
+func uvEnrichDirectURLChecksums(deps []buildinfo.Dependency, directURLDeps map[string]string) {
+	for i, dep := range deps {
+		sourceURL, ok := directURLDeps[dep.Id]
+		if !ok || dep.Checksum.Sha1 != "" {
+			continue
+		}
+		// Skip git URLs — no deterministic archive to download
+		if strings.HasPrefix(sourceURL, "git+") || strings.Contains(sourceURL, ".git") ||
+			strings.HasPrefix(sourceURL, "git://") {
+			log.Info(fmt.Sprintf("UV build-info: dep %s is a git dep (%s) — sha256 available, sha1/md5 not computable without rebuilding", dep.Id, sourceURL))
+			continue
+		}
+		if !strings.HasPrefix(sourceURL, "http://") && !strings.HasPrefix(sourceURL, "https://") {
+			log.Info(fmt.Sprintf("UV build-info: dep %s is from a direct URL (%s) — sha256 available, sha1/md5 not enrichable from Artifactory", dep.Id, sourceURL))
+			continue
+		}
+		// Stream the file and compute sha1 + md5 in a single pass — no disk write needed.
+		resp, err := http.Get(sourceURL) //nolint:gosec
+		if err != nil {
+			log.Info(fmt.Sprintf("UV build-info: dep %s direct URL not reachable (%v) — sha256 only", dep.Id, err))
+			continue
+		}
+		sha1w := sha1.New()   //nolint:gosec
+		md5w := md5.New()     //nolint:gosec
+		_, copyErr := io.Copy(io.MultiWriter(sha1w, md5w), resp.Body)
+		resp.Body.Close()
+		if copyErr != nil {
+			log.Info(fmt.Sprintf("UV build-info: dep %s could not stream URL — sha256 only", dep.Id))
+			continue
+		}
+		deps[i].Checksum.Sha1 = fmt.Sprintf("%x", sha1w.Sum(nil))
+		deps[i].Checksum.Md5 = fmt.Sprintf("%x", md5w.Sum(nil))
+		log.Info(fmt.Sprintf("UV build-info: dep %s enriched sha1/md5 from direct URL", dep.Id))
+	}
+}
+
+// uvEnrichDepsFromArtifactory fetches sha1/md5 for all registry-based dependencies in a single
+// batched AQL call. directURLDeps maps dep ID → source URL for deps that were installed from
+// a direct URL — these are skipped since they are not in Artifactory.
+func uvEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, directURLDeps map[string]string, serverDetails *coreConfig.ServerDetails) {
+	if len(deps) == 0 {
+		return
+	}
 	servicesManager, err := utils.CreateServiceManager(serverDetails, -1, 0, false)
 	if err != nil {
 		log.Warn("Could not create services manager for dependency enrichment: " + err.Error())
@@ -544,44 +849,98 @@ func uvEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, se
 		searchRepo = repoKey
 	}
 
-	enriched := 0
+	// Build (depIndex, filePrefix) pairs. dep.Id is "name:version"; filename prefix is "name-version".
+	// We add both the hyphenated and underscored variants to catch all PyPI normalisation forms.
+	type depEntry struct {
+		idx    int
+		prefix string // "name-version" used to match result filenames
+	}
+	var entries []depEntry
 	for i, dep := range deps {
 		if dep.Id == "" {
 			continue
 		}
-		aqlQuery := specutils.CreateAqlQueryForPypi(searchRepo, dep.Id)
-		stream, err := servicesManager.Aql(aqlQuery)
-		if err != nil {
-			log.Debug(fmt.Sprintf("AQL search failed for %s: %v", dep.Id, err))
-			continue
+		if _, isDirectURL := directURLDeps[dep.Id]; isDirectURL {
+			continue // not in Artifactory — sha256 from uv.lock is the only available checksum
 		}
-		result, err := io.ReadAll(stream)
-		stream.Close()
-		if err != nil {
-			continue
+		hyphen := strings.ReplaceAll(dep.Id, ":", "-")
+		underscore := strings.ReplaceAll(hyphen, "-", "_")
+		entries = append(entries, depEntry{i, hyphen})
+		if underscore != hyphen {
+			entries = append(entries, depEntry{i, underscore})
 		}
-		var aql struct {
-			Results []struct {
-				ActualSha1 string `json:"actual_sha1"`
-				ActualMd5  string `json:"actual_md5"`
-				Sha256     string `json:"sha256"`
-			} `json:"results"`
-		}
-		if err := json.Unmarshal(result, &aql); err != nil || len(aql.Results) == 0 {
-			log.Debug(fmt.Sprintf("Dependency %s not found in repo %s", dep.Id, searchRepo))
-			continue
-		}
-		r := aql.Results[0]
-		deps[i].Checksum.Sha1 = r.ActualSha1
-		deps[i].Checksum.Md5 = r.ActualMd5
-		if r.Sha256 != "" {
-			deps[i].Checksum.Sha256 = r.Sha256
-		}
-		enriched++
-		log.Debug(fmt.Sprintf("Enriched %s with sha1=%s md5=%s", dep.Id, r.ActualSha1, r.ActualMd5))
 	}
+	if len(entries) == 0 {
+		return
+	}
+
+	// One AQL query: $or of wildcard name patterns, one per (name, version) variant.
+	var orClauses []string
+	seen := make(map[string]bool)
+	for _, e := range entries {
+		if seen[e.prefix] {
+			continue
+		}
+		seen[e.prefix] = true
+		orClauses = append(orClauses, fmt.Sprintf(
+			`{"$and":[{"path":{"$match":"*"},"name":{"$match":%q}}]}`,
+			e.prefix+"*",
+		))
+	}
+	aqlQuery := fmt.Sprintf(
+		`items.find({"repo":%q,"$or":[%s]}).include("name","actual_sha1","actual_md5","sha256")`,
+		searchRepo, strings.Join(orClauses, ","),
+	)
+
+	stream, err := servicesManager.Aql(aqlQuery)
+	if err != nil {
+		log.Debug(fmt.Sprintf("Batch AQL enrichment failed for repo %s: %v", searchRepo, err))
+		return
+	}
+	raw, _ := io.ReadAll(stream)
+	stream.Close()
+
+	var aqlResult struct {
+		Results []struct {
+			Name       string `json:"name"`
+			ActualSha1 string `json:"actual_sha1"`
+			ActualMd5  string `json:"actual_md5"`
+			Sha256     string `json:"sha256"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(raw, &aqlResult); err != nil {
+		log.Debug(fmt.Sprintf("Failed to parse AQL enrichment response: %v", err))
+		return
+	}
+
+	// Match each result back to its dep by filename prefix. A result file like
+	// "certifi-2026.4.22-py3-none-any.whl" starts with prefix "certifi-2026.4.22"
+	// followed by "-" (wheel) or "." (sdist).
+	enriched := 0
+	for _, r := range aqlResult.Results {
+		if r.ActualSha1 == "" {
+			continue
+		}
+		for _, e := range entries {
+			if deps[e.idx].Checksum.Sha1 != "" {
+				continue // already enriched
+			}
+			if strings.HasPrefix(r.Name, e.prefix+"-") || strings.HasPrefix(r.Name, e.prefix+".") {
+				deps[e.idx].Checksum.Sha1 = r.ActualSha1
+				deps[e.idx].Checksum.Md5 = r.ActualMd5
+				if r.Sha256 != "" && deps[e.idx].Checksum.Sha256 == "" {
+					deps[e.idx].Checksum.Sha256 = r.Sha256
+				}
+				enriched++
+				break
+			}
+		}
+	}
+
 	if enriched > 0 {
 		log.Info(fmt.Sprintf("Enriched %d/%d UV dependencies with Artifactory checksums (repo: %s)", enriched, len(deps), searchRepo))
+	} else {
+		log.Debug(fmt.Sprintf("No UV dependencies enriched from repo %s — packages may not be cached yet", searchRepo))
 	}
 }
 
