@@ -178,16 +178,15 @@ func (c *NativeUVCommand) injectCredentials(workingDir, deployerRepo string, ser
 	}
 	for _, idx := range indexes {
 		envName := uvIndexEnvName(idx.Name)
-		userKey := "UV_INDEX_" + envName + "_USERNAME"
-		switch {
-		case uvIndexHasNativeCredentials(idx.URL, userKey):
+		userKey := uvIndexUsernameKey(envName)
+		if uvIndexHasNativeCredentials(idx.URL, userKey) {
 			log.Info(fmt.Sprintf("UV auth [index %q]: native credentials already present (env var, embedded URL, or netrc)", idx.Name))
-		default:
+		} else {
 			hostMatches := uvHostMatchesServer(idx.URL, serverDetails.ArtifactoryUrl)
 			explicitServerID := c.serverID != ""
 			if hostMatches || explicitServerID {
 				_ = os.Setenv(userKey, user)
-				_ = os.Setenv("UV_INDEX_"+envName+"_PASSWORD", pass)
+				_ = os.Setenv(uvIndexPasswordKey(envName), pass)
 				injectedAny = true
 				if explicitServerID && !hostMatches {
 					log.Info(fmt.Sprintf("UV auth [index %q]: injecting credentials from --server-id (host override)", idx.Name))
@@ -501,8 +500,8 @@ func uvMatchingIndexCredentials(publishURL, workingDir string) (username, passwo
 			continue
 		}
 		envName := uvIndexEnvName(idx.Name)
-		u := os.Getenv("UV_INDEX_" + envName + "_USERNAME")
-		p := os.Getenv("UV_INDEX_" + envName + "_PASSWORD")
+		u := os.Getenv(uvIndexUsernameKey(envName))
+		p := os.Getenv(uvIndexPasswordKey(envName))
 		if u != "" {
 			return u, p
 		}
@@ -573,6 +572,12 @@ func uvIndexEnvName(name string) string {
 	return strings.NewReplacer("-", "_", ".", "_", " ", "_").Replace(upper)
 }
 
+// uvIndexUsernameKey returns the UV_INDEX_<NAME>_USERNAME env var name for a given index env suffix.
+func uvIndexUsernameKey(envName string) string { return "UV_INDEX_" + envName + "_USERNAME" }
+
+// uvIndexPasswordKey returns the UV_INDEX_<NAME>_PASSWORD env var name for a given index env suffix.
+func uvIndexPasswordKey(envName string) string { return "UV_INDEX_" + envName + "_PASSWORD" }
+
 // uvResolveServerDetails returns server details for the given server ID.
 // If serverID is empty, the default configured server is used.
 func uvResolveServerDetails(serverID string) (*coreConfig.ServerDetails, error) {
@@ -588,9 +593,9 @@ func uvResolveServerDetails(serverID string) (*coreConfig.ServerDetails, error) 
 func uvApplyPublishAuth(publishURL, workingDir string, serverDetails *coreConfig.ServerDetails, user, pass string, explicitServerID bool) {
 	switch {
 	case os.Getenv("UV_PUBLISH_TOKEN") != "":
-		log.Info("UV auth [publish]: using UV_PUBLISH_TOKEN (native, step 2a)")
+		log.Debug("UV auth [publish]: using UV_PUBLISH_TOKEN")
 	case os.Getenv("UV_PUBLISH_USERNAME") != "" || os.Getenv("UV_PUBLISH_PASSWORD") != "":
-		log.Info("UV auth [publish]: using UV_PUBLISH_USERNAME/PASSWORD (native, step 2b)")
+		log.Debug("UV auth [publish]: using UV_PUBLISH_USERNAME/PASSWORD")
 	case uvURLHasEmbeddedCredentials(publishURL):
 		log.Info("UV auth [publish]: using credentials embedded in publish URL (native, step 3)")
 	case uvNetrcHasCredentials(publishURL):
@@ -785,13 +790,8 @@ func uvIndexURLFromToml(workingDir string) string {
 
 // uvEnrichDepsFromArtifactory fetches sha1/md5 for all dependencies in a single batched AQL call.
 //
-// Dep IDs are in "name:version" format; actual filenames use "name-version[-platform].whl" or
-// "name-version.tar.gz" with either hyphens or underscores in the name. We search both variants
-// so platform-specific wheels (e.g. macos arm64) and universal wheels both resolve correctly.
-// uvEnrichDirectURLChecksums computes sha1/md5 for direct URL deps (source = { url = "..." })
-// by streaming the file from its URL. Git deps (source = { git = "..." }) are skipped because
-// rebuilding from source would be required to produce a deterministic archive.
-// If a URL is inaccessible (network error, auth required) the dep retains sha256-only — no error.
+// uvEnrichDirectURLChecksums fetches sha1/md5 for direct-URL deps by streaming each file.
+// Git deps are skipped (no downloadable archive). Unreachable URLs retain sha256-only.
 func uvEnrichDirectURLChecksums(deps []buildinfo.Dependency, directURLDeps map[string]string) {
 	for i, dep := range deps {
 		sourceURL, ok := directURLDeps[dep.Id]
@@ -1062,6 +1062,10 @@ func uvAddArtifactsToBuildInfo(bi *buildinfo.BuildInfo, serverDetails *coreConfi
 		}
 	}
 
+	// Modules[0] is safe: guarded by the len(bi.Modules)==0 check at function entry.
+	if len(bi.Modules) == 0 {
+		return nil
+	}
 	bi.Modules[0].Artifacts = artifacts
 	log.Info(fmt.Sprintf("Added %d artifacts to build info", len(artifacts)))
 	return nil
