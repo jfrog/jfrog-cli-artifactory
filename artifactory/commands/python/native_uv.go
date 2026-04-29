@@ -846,8 +846,15 @@ func uvEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, di
 		searchRepo = repoKey
 	}
 
-	// Build (depIndex, filePrefix) pairs. dep.Id is "name:version"; filename prefix is "name-version".
-	// We add both the hyphenated and underscored variants to catch all PyPI normalisation forms.
+	// Build (depIndex, filePrefix) pairs. dep.Id is "name:version".
+	//
+	// PyPI wheel filename format: <name>-<version>-<python>-<abi>-<platform>.whl
+	// The name portion normalises hyphens/dots to underscores (PEP 427), but the
+	// separator between name and version is ALWAYS a hyphen. So for:
+	//   charset-normalizer:3.4.7  →  prefix "charset-normalizer-3.4.7"   (hyphenated name)
+	//                               prefix "charset_normalizer-3.4.7"   (underscored name, correct!)
+	// Replacing ALL hyphens (the old approach) produced "charset_normalizer_3.4.7"
+	// which never matches any real filename.
 	type depEntry struct {
 		idx    int
 		prefix string // "name-version" used to match result filenames
@@ -860,11 +867,20 @@ func uvEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, di
 		if _, isDirectURL := directURLDeps[dep.Id]; isDirectURL {
 			continue // not in Artifactory — sha256 from uv.lock is the only available checksum
 		}
-		hyphen := strings.ReplaceAll(dep.Id, ":", "-")
-		underscore := strings.ReplaceAll(hyphen, "-", "_")
-		entries = append(entries, depEntry{i, hyphen})
-		if underscore != hyphen {
-			entries = append(entries, depEntry{i, underscore})
+		// Split "name:version" — version separator is always ":"
+		colonIdx := strings.Index(dep.Id, ":")
+		if colonIdx < 0 {
+			continue
+		}
+		name, version := dep.Id[:colonIdx], dep.Id[colonIdx+1:]
+		// Prefix with original name (e.g. "charset-normalizer-3.4.7")
+		prefixHyphen := name + "-" + version
+		// Prefix with underscored name only (e.g. "charset_normalizer-3.4.7")
+		// The version separator before the version tag is always "-", never "_".
+		prefixUnderscore := strings.ReplaceAll(name, "-", "_") + "-" + version
+		entries = append(entries, depEntry{i, prefixHyphen})
+		if prefixUnderscore != prefixHyphen {
+			entries = append(entries, depEntry{i, prefixUnderscore})
 		}
 	}
 	if len(entries) == 0 {
