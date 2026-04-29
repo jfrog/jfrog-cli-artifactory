@@ -1,7 +1,9 @@
 package update
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +25,10 @@ func RunUpdate(c *components.Context) error {
 	}
 
 	slug := c.GetArgumentAt(0)
+	if err := publish.ValidateSlug(slug); err != nil {
+		return err
+	}
+
 	installBase := c.GetStringFlagValue("path")
 	if installBase == "" {
 		installBase = "."
@@ -72,21 +78,64 @@ func RunUpdate(c *components.Context) error {
 		return nil
 	}
 
+	backupPath, err := reserveUpdateBackupPath(installBase, slug)
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(skillDir, backupPath); err != nil {
+		return fmt.Errorf("could not move current skill aside for update: %w", err)
+	}
+
 	cmd := install.NewInstallCommand().
 		SetServerDetails(serverDetails).
 		SetRepoKey(repoKey).
 		SetSlug(slug).
 		SetVersion(targetVersion).
 		SetInstallPath(installBase).
-		SetQuiet(quiet).
-		SetRemoveExisting(true)
+		SetQuiet(quiet)
 
-	return cmd.Run()
+	runErr := cmd.Run()
+	if runErr != nil {
+		_ = os.RemoveAll(skillDir)
+		if rerr := os.Rename(backupPath, skillDir); rerr != nil {
+			return fmt.Errorf("update failed (%w); could not restore previous install at %s: %w", runErr, skillDir, rerr)
+		}
+		return runErr
+	}
+
+	if err := os.RemoveAll(backupPath); err != nil {
+		log.Warn(fmt.Sprintf("Update succeeded but previous copy at %s could not be deleted: %s", backupPath, err.Error()))
+	}
+
+	if currentVersion == "" {
+		log.Info(fmt.Sprintf("Skill '%s' update completed: version '%s' at %s", slug, targetVersion, skillDir))
+	} else {
+		log.Info(fmt.Sprintf("Skill '%s' update completed: version '%s' -> '%s' at %s", slug, currentVersion, targetVersion, skillDir))
+	}
+	return nil
+}
+
+// reserveUpdateBackupPath returns a non-existent path under installBase used to hold the previous skill tree during update.
+func reserveUpdateBackupPath(installBase, slug string) (string, error) {
+	pattern := fmt.Sprintf(".%s.jfrog-update-backup-*", slug)
+	d, err := os.MkdirTemp(installBase, pattern)
+	if err != nil {
+		return "", fmt.Errorf("could not reserve update backup path: %w", err)
+	}
+	if err := os.Remove(d); err != nil {
+		return "", fmt.Errorf("could not prepare update backup path: %w", err)
+	}
+	return d, nil
 }
 
 func validateInstallBase(path string) error {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return fmt.Errorf("path '%s' does not exist", path)
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("invalid install path: %w", err)
+	}
+	info, err := os.Stat(absPath)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("install path '%s' is not a valid directory", path)
 	}
 	return nil
 }
@@ -94,7 +143,7 @@ func validateInstallBase(path string) error {
 func readInstalledVersion(skillDir string) (string, error) {
 	meta, err := publish.ParseSkillMeta(skillDir)
 	if err != nil {
-		if os.IsNotExist(err) || strings.Contains(err.Error(), "failed to read SKILL.md") {
+		if errors.Is(err, fs.ErrNotExist) {
 			return "", fmt.Errorf(
 				"skill '%s' is not installed at '%s'.\n"+
 					"To install it, run: jf skills install %s --path %s",
@@ -102,8 +151,7 @@ func readInstalledVersion(skillDir string) (string, error) {
 				filepath.Base(skillDir), filepath.Dir(skillDir),
 			)
 		}
-		log.Warn(fmt.Sprintf("Could not read current version from %s/SKILL.md: %s", skillDir, err.Error()))
-		return "", nil
+		return "", fmt.Errorf("could not read installed skill metadata from %s: %w", skillDir, err)
 	}
 	return meta.Version, nil
 }
@@ -156,7 +204,7 @@ func selectVersion(available []string, requested, repoKey string, quiet bool) (s
 	}
 	selected := ioutils.AskFromListWithMismatchConfirmation(
 		"Select a version:",
-		fmt.Sprintf("'%%s' is not in the list of available versions."),
+		fmt.Sprintf("'%s' is not in the list of available versions.", requested),
 		options,
 	)
 	return selected, nil

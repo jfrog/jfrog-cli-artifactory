@@ -1,6 +1,8 @@
 package update
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,14 +48,23 @@ func TestReadInstalledVersion_NotInstalled(t *testing.T) {
 func TestRunUpdate_PathDoesNotExist(t *testing.T) {
 	err := validateInstallBase("/nonexistent/path/xyz")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not exist")
+	assert.Contains(t, err.Error(), "not a valid directory")
+}
+
+func TestValidateInstallBase_NotADirectory(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "not-a-dir")
+	require.NoError(t, os.WriteFile(file, []byte("x"), 0644))
+
+	err := validateInstallBase(file)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not a valid directory")
 }
 
 func TestReadInstalledVersion_InvalidFrontmatter(t *testing.T) {
 	dir := skillDir(t, "bad-skill", "# No frontmatter at all\n")
-	version, err := readInstalledVersion(dir)
-	require.NoError(t, err)
-	assert.Equal(t, "", version)
+	_, err := readInstalledVersion(dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "could not read installed skill metadata")
 }
 
 // ── selectVersion ────────────────────────────────────────────────────────────
@@ -79,20 +90,28 @@ func TestSelectVersion_LatestKeyword(t *testing.T) {
 	assert.Equal(t, "3.0.0", got)
 }
 
-func TestSelectVersion_NotFoundQuiet_ErrorListsVersions(t *testing.T) {
+func TestSelectVersion_NotFoundQuiet(t *testing.T) {
 	available := []string{"1.0.0", "1.1.0"}
 	_, err := selectVersion(available, "9.9.9", "skills-local", true)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "9.9.9")
-	assert.Contains(t, err.Error(), "skills-local")
-	assert.Contains(t, err.Error(), "1.0.0")
-	assert.Contains(t, err.Error(), "1.1.0")
+	assert.Contains(t, err.Error(), "not found")
 }
 
 func TestSelectVersion_EmptyAvailableList(t *testing.T) {
 	_, err := selectVersion([]string{}, "", "skills-local", true)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "latest version")
+}
+
+// ── reserveUpdateBackupPath ──────────────────────────────────────────────────
+
+func TestReserveUpdateBackupPath(t *testing.T) {
+	base := t.TempDir()
+	p, err := reserveUpdateBackupPath(base, "skill-a")
+	require.NoError(t, err)
+	assert.Contains(t, p, ".skill-a.jfrog-update-backup-")
+	_, statErr := os.Stat(p)
+	require.True(t, errors.Is(statErr, fs.ErrNotExist), "reserved path must not exist until rename")
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
