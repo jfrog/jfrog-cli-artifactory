@@ -680,7 +680,7 @@ func TestSetupCommand_UV(t *testing.T) {
 			uvLoginCmd.serverDetails.SetPassword(testCase.password)
 			uvLoginCmd.serverDetails.SetAccessToken(testCase.accessToken)
 
-			require.NoError(t, uvLoginCmd.configureUV())
+			require.NoError(t, uvLoginCmd.Run())
 
 			// Validate that the index entry was written to uv.toml
 			uvConfigContentBytes, err := os.ReadFile(uvConfigPath)

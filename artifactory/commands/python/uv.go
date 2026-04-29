@@ -1,7 +1,6 @@
 package python
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -313,7 +312,7 @@ func writeUVConfig(path string, fullCfg map[string]any, indexes []uvIndex) error
 	}
 
 	if err := os.WriteFile(path, []byte(b.String()), 0600); err != nil {
-		return fmt.Errorf("failed to write uv config at %s: %w", path, err)
+		return errorutils.CheckErrorf("failed to write uv config at %s: %w", path, err)
 	}
 
 	log.Debug("Wrote uv configuration to", path)
