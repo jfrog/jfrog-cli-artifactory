@@ -6,7 +6,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/install"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/publish"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/search"
-	skillsupdate "github.com/jfrog/jfrog-cli-artifactory/skills/commands/update"
+	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/update"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 )
 
@@ -32,7 +32,7 @@ func GetCommands() []components.Command {
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsUpdate),
 			Description: "Update an installed skill to the latest (or a specific) version. Use --path to specify where the skill is installed (default: current directory). Use --dry-run to preview and --force to re-download even if already up to date.",
 			Arguments:   getUpdateArguments(),
-			Action:      skillsupdate.RunUpdate,
+			Action:      update.RunUpdate,
 		},
 		{
 			Name:        "search",
