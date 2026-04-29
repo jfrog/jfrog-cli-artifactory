@@ -502,11 +502,13 @@ func (sc *SetupCommand) configureGradle() error {
 //
 //	uv auth login <artifactory-domain> --username <user> --password <token>
 //
-// 2. Writes a [[index]] entry to the user-level uv.toml (~/.config/uv/uv.toml)
-// pointing to the Artifactory PyPI simple API:
+// 2. Writes a [[index]] entry and a global publish-url to the user-level uv.toml
+// (~/.config/uv/uv.toml) pointing to the Artifactory PyPI repository:
+//
+//	publish-url = "https://<your-artifactory-url>/artifactory/api/pypi/<repo-name>"
 //
 //	[[index]]
-//	name = "fly-pypi"
+//	name = "jfrog-pypi"
 //	url = "https://<your-artifactory-url>/artifactory/api/pypi/<repo-name>/simple"
 //	default = true
 func (sc *SetupCommand) configureUV() error {

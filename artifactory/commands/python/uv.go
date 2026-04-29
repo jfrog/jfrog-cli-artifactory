@@ -84,10 +84,10 @@ func (pc *UvCommand) GetErrWriter() io.WriteCloser {
 	return nil
 }
 
-// ── Fly setup helpers ────────────────────────────────────────────────────────
+// ── Setup helpers ────────────────────────────────────────────────────────────
 
 const (
-	uvIndexName = "fly-pypi"
+	uvIndexName = "jfrog-pypi"
 )
 
 type uvIndex struct {
@@ -126,7 +126,9 @@ func RunUVAuthLogout(serviceURL, username string) error {
 	return nil
 }
 
-// ConfigureUVIndex writes a [[index]] entry to the user-level uv.toml.
+// ConfigureUVIndex writes a [[index]] entry and a global publish-url to the
+// user-level uv.toml. The publish-url is derived from the index URL by stripping
+// the /simple suffix, so bare `uv publish` uploads to the configured registry.
 // If the file already exists, it adds or updates the entry with the given name
 // while preserving all other settings in the file.
 func ConfigureUVIndex(indexURL string) error {
@@ -157,11 +159,13 @@ func ConfigureUVIndex(indexURL string) error {
 		})
 	}
 
+	fullCfg["publish-url"] = strings.TrimSuffix(indexURL, "/simple")
+
 	return writeUVConfig(configPath, fullCfg, indexes)
 }
 
-// RemoveUVIndex removes the Fly index entry from the user-level uv.toml.
-// If the config file doesn't exist, this is a no-op.
+// RemoveUVIndex removes the JFrog index entry and the global publish-url from
+// the user-level uv.toml. If the config file doesn't exist, this is a no-op.
 func RemoveUVIndex() error {
 	configPath, err := getUserUVConfigPath()
 	if err != nil {
@@ -184,11 +188,13 @@ func RemoveUVIndex() error {
 		}
 	}
 
+	delete(fullCfg, "publish-url")
+
 	return writeUVConfig(configPath, fullCfg, filtered)
 }
 
 // GetConfiguredUVIndexURL reads the user-level uv.toml and returns the URL
-// for the Fly index entry, or empty string if not found.
+// for the JFrog index entry, or empty string if not found.
 func GetConfiguredUVIndexURL() (string, error) {
 	configPath, err := getUserUVConfigPath()
 	if err != nil {

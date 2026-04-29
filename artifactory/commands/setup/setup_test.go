@@ -687,9 +687,10 @@ func TestSetupCommand_UV(t *testing.T) {
 			require.NoError(t, err)
 			uvConfigContent := string(uvConfigContentBytes)
 
-			assert.Contains(t, uvConfigContent, `name = "fly-pypi"`)
+			assert.Contains(t, uvConfigContent, `name = "jfrog-pypi"`)
 			assert.Contains(t, uvConfigContent, "acme.jfrog.io/artifactory/api/pypi/test-repo/simple")
 			assert.Contains(t, uvConfigContent, "default = true")
+			assert.Contains(t, uvConfigContent, `publish-url = "https://acme.jfrog.io/artifactory/api/pypi/test-repo"`)
 
 			// Clean up: remove stored credentials and config file
 			_ = exec.Command("uv", "auth", "logout", "https://acme.jfrog.io").Run()

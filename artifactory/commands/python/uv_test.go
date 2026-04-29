@@ -76,7 +76,7 @@ func TestLoadUVConfig_WithIndexes(t *testing.T) {
 compile-bytecode = true
 
 [[index]]
-name = "fly-pypi"
+name = "jfrog-pypi"
 url = "https://example.com/api/pypi/simple"
 default = true
 
@@ -90,7 +90,7 @@ url = "https://other.example.com/simple"
 	require.NoError(t, err)
 	assert.Contains(t, fullCfg, "pip")
 	assert.Len(t, indexes, 2)
-	assert.Equal(t, "fly-pypi", indexes[0].Name)
+	assert.Equal(t, "jfrog-pypi", indexes[0].Name)
 	assert.Equal(t, "https://example.com/api/pypi/simple", indexes[0].URL)
 	assert.True(t, indexes[0].Default)
 	assert.Equal(t, "other", indexes[1].Name)
@@ -101,15 +101,16 @@ func TestConfigureUVIndex_NewFile(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config", "uv", "uv.toml")
 	t.Setenv("UV_CONFIG_FILE", configPath)
 
-	err := ConfigureUVIndex("https://example.com/api/pypi/simple")
+	err := ConfigureUVIndex("https://example.com/api/pypi/repo/simple")
 	require.NoError(t, err)
 
-	_, indexes, err := loadUVConfig(configPath)
+	fullCfg, indexes, err := loadUVConfig(configPath)
 	require.NoError(t, err)
 	require.Len(t, indexes, 1)
 	assert.Equal(t, uvIndexName, indexes[0].Name)
-	assert.Equal(t, "https://example.com/api/pypi/simple", indexes[0].URL)
+	assert.Equal(t, "https://example.com/api/pypi/repo/simple", indexes[0].URL)
 	assert.True(t, indexes[0].Default)
+	assert.Equal(t, "https://example.com/api/pypi/repo", fullCfg["publish-url"])
 }
 
 func TestConfigureUVIndex_UpdateExisting(t *testing.T) {
@@ -118,7 +119,7 @@ func TestConfigureUVIndex_UpdateExisting(t *testing.T) {
 	t.Setenv("UV_CONFIG_FILE", configPath)
 
 	content := `[[index]]
-name = "fly-pypi"
+name = "jfrog-pypi"
 url = "https://old.example.com/simple"
 default = true
 `
@@ -127,10 +128,11 @@ default = true
 	err := ConfigureUVIndex("https://new.example.com/simple")
 	require.NoError(t, err)
 
-	_, indexes, err := loadUVConfig(configPath)
+	fullCfg, indexes, err := loadUVConfig(configPath)
 	require.NoError(t, err)
 	require.Len(t, indexes, 1)
 	assert.Equal(t, "https://new.example.com/simple", indexes[0].URL)
+	assert.Equal(t, "https://new.example.com", fullCfg["publish-url"])
 }
 
 func TestConfigureUVIndex_PreservesOtherSettings(t *testing.T) {
@@ -147,28 +149,29 @@ url = "https://other.example.com/simple"
 `
 	require.NoError(t, os.WriteFile(configPath, []byte(content), 0600))
 
-	err := ConfigureUVIndex("https://fly.example.com/simple")
+	err := ConfigureUVIndex("https://jfrog.example.com/api/pypi/repo/simple")
 	require.NoError(t, err)
 
 	fullCfg, indexes, err := loadUVConfig(configPath)
 	require.NoError(t, err)
 	assert.Contains(t, fullCfg, "pip")
+	assert.Equal(t, "https://jfrog.example.com/api/pypi/repo", fullCfg["publish-url"])
 	require.Len(t, indexes, 2)
 
-	var otherFound, flyFound bool
+	var otherFound, jfrogFound bool
 	for _, idx := range indexes {
 		if idx.Name == "other-index" {
 			otherFound = true
 			assert.Equal(t, "https://other.example.com/simple", idx.URL)
 		}
 		if idx.Name == uvIndexName {
-			flyFound = true
-			assert.Equal(t, "https://fly.example.com/simple", idx.URL)
+			jfrogFound = true
+			assert.Equal(t, "https://jfrog.example.com/api/pypi/repo/simple", idx.URL)
 			assert.True(t, idx.Default)
 		}
 	}
 	assert.True(t, otherFound, "other-index should be preserved")
-	assert.True(t, flyFound, "fly-pypi index should be added")
+	assert.True(t, jfrogFound, "jfrog-pypi index should be added")
 }
 
 func TestRemoveUVIndex(t *testing.T) {
@@ -176,9 +179,11 @@ func TestRemoveUVIndex(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "uv.toml")
 	t.Setenv("UV_CONFIG_FILE", configPath)
 
-	content := `[[index]]
-name = "fly-pypi"
-url = "https://fly.example.com/simple"
+	content := `publish-url = "https://jfrog.example.com/api/pypi/repo"
+
+[[index]]
+name = "jfrog-pypi"
+url = "https://jfrog.example.com/api/pypi/repo/simple"
 default = true
 
 [[index]]
@@ -190,10 +195,12 @@ url = "https://other.example.com/simple"
 	err := RemoveUVIndex()
 	require.NoError(t, err)
 
-	_, indexes, err := loadUVConfig(configPath)
+	fullCfg, indexes, err := loadUVConfig(configPath)
 	require.NoError(t, err)
 	require.Len(t, indexes, 1)
 	assert.Equal(t, "other-index", indexes[0].Name)
+	_, hasPublishURL := fullCfg["publish-url"]
+	assert.False(t, hasPublishURL, "publish-url should be removed")
 }
 
 func TestRemoveUVIndex_NoFile(t *testing.T) {
@@ -212,15 +219,15 @@ func TestGetConfiguredUVIndexURL(t *testing.T) {
 
 	t.Run("returns URL when configured", func(t *testing.T) {
 		content := `[[index]]
-name = "fly-pypi"
-url = "https://fly.example.com/simple"
+name = "jfrog-pypi"
+url = "https://jfrog.example.com/simple"
 default = true
 `
 		require.NoError(t, os.WriteFile(configPath, []byte(content), 0600))
 
 		url, err := GetConfiguredUVIndexURL()
 		require.NoError(t, err)
-		assert.Equal(t, "https://fly.example.com/simple", url)
+		assert.Equal(t, "https://jfrog.example.com/simple", url)
 	})
 
 	t.Run("returns empty when not configured", func(t *testing.T) {
