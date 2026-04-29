@@ -674,7 +674,7 @@ func TestSetupCommand_UV(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Pre-create empty config file (uv auth login reads UV_CONFIG_FILE)
-			require.NoError(t, os.WriteFile(uvConfigPath, []byte{}, 0644))
+			require.NoError(t, os.WriteFile(uvConfigPath, []byte{}, 0600))
 
 			uvLoginCmd.serverDetails.SetUser(testCase.user)
 			uvLoginCmd.serverDetails.SetPassword(testCase.password)

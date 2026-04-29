@@ -235,7 +235,7 @@ func writeUVConfig(path string, fullCfg map[string]any, indexes []uvIndex) error
 		return errorutils.CheckErrorf("failed to encode uv config: %w", err)
 	}
 
-	if err := os.WriteFile(path, []byte(b.String()), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(b.String()), 0600); err != nil {
 		return fmt.Errorf("failed to write uv config at %s: %w", path, err)
 	}
 

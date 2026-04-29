@@ -3,6 +3,7 @@ package python
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,6 +20,9 @@ func TestGetUserUVConfigPath(t *testing.T) {
 	})
 
 	t.Run("uses XDG_CONFIG_HOME when set", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("XDG_CONFIG_HOME is not used on Windows")
+		}
 		t.Setenv("UV_CONFIG_FILE", "")
 		t.Setenv("XDG_CONFIG_HOME", "/custom/xdg")
 		path, err := getUserUVConfigPath()
@@ -27,12 +31,29 @@ func TestGetUserUVConfigPath(t *testing.T) {
 	})
 
 	t.Run("falls back to ~/.config/uv/uv.toml", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("~/.config fallback is not used on Windows")
+		}
 		t.Setenv("UV_CONFIG_FILE", "")
 		t.Setenv("XDG_CONFIG_HOME", "")
 		path, err := getUserUVConfigPath()
 		require.NoError(t, err)
 		home, _ := os.UserHomeDir()
 		assert.Equal(t, filepath.Join(home, ".config", "uv", "uv.toml"), path)
+	})
+
+	t.Run("uses APPDATA on Windows", func(t *testing.T) {
+		if runtime.GOOS != "windows" {
+			t.Skip("APPDATA is only used on Windows")
+		}
+		t.Setenv("UV_CONFIG_FILE", "")
+		appData := os.Getenv("APPDATA")
+		if appData == "" {
+			t.Skip("APPDATA not set")
+		}
+		path, err := getUserUVConfigPath()
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(appData, "uv", "uv.toml"), path)
 	})
 }
 
@@ -63,7 +84,7 @@ default = true
 name = "other"
 url = "https://other.example.com/simple"
 `
-	require.NoError(t, os.WriteFile(configPath, []byte(content), 0644))
+	require.NoError(t, os.WriteFile(configPath, []byte(content), 0600))
 
 	fullCfg, indexes, err := loadUVConfig(configPath)
 	require.NoError(t, err)
@@ -101,7 +122,7 @@ name = "fly-pypi"
 url = "https://old.example.com/simple"
 default = true
 `
-	require.NoError(t, os.WriteFile(configPath, []byte(content), 0644))
+	require.NoError(t, os.WriteFile(configPath, []byte(content), 0600))
 
 	err := ConfigureUVIndex("https://new.example.com/simple")
 	require.NoError(t, err)
@@ -124,7 +145,7 @@ compile-bytecode = true
 name = "other-index"
 url = "https://other.example.com/simple"
 `
-	require.NoError(t, os.WriteFile(configPath, []byte(content), 0644))
+	require.NoError(t, os.WriteFile(configPath, []byte(content), 0600))
 
 	err := ConfigureUVIndex("https://fly.example.com/simple")
 	require.NoError(t, err)
@@ -164,7 +185,7 @@ default = true
 name = "other-index"
 url = "https://other.example.com/simple"
 `
-	require.NoError(t, os.WriteFile(configPath, []byte(content), 0644))
+	require.NoError(t, os.WriteFile(configPath, []byte(content), 0600))
 
 	err := RemoveUVIndex()
 	require.NoError(t, err)
@@ -195,7 +216,7 @@ name = "fly-pypi"
 url = "https://fly.example.com/simple"
 default = true
 `
-		require.NoError(t, os.WriteFile(configPath, []byte(content), 0644))
+		require.NoError(t, os.WriteFile(configPath, []byte(content), 0600))
 
 		url, err := GetConfiguredUVIndexURL()
 		require.NoError(t, err)
@@ -207,7 +228,7 @@ default = true
 name = "other-index"
 url = "https://other.example.com/simple"
 `
-		require.NoError(t, os.WriteFile(configPath, []byte(content), 0644))
+		require.NoError(t, os.WriteFile(configPath, []byte(content), 0600))
 
 		url, err := GetConfiguredUVIndexURL()
 		require.NoError(t, err)
