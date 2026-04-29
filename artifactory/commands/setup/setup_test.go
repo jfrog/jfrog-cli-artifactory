@@ -659,6 +659,45 @@ func TestSetupCommand_Twine(t *testing.T) {
 	}
 }
 
+func TestSetupCommand_UV(t *testing.T) {
+	// Skip if uv binary is not available
+	if _, err := exec.LookPath("uv"); err != nil {
+		t.Skip("uv binary not found in PATH")
+	}
+
+	uvConfigDir := t.TempDir()
+	uvConfigPath := filepath.Join(uvConfigDir, "uv.toml")
+	t.Setenv("UV_CONFIG_FILE", uvConfigPath)
+
+	uvLoginCmd := createTestSetupCommand(project.UV)
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Pre-create empty config file (uv auth login reads UV_CONFIG_FILE)
+			require.NoError(t, os.WriteFile(uvConfigPath, []byte{}, 0644))
+
+			uvLoginCmd.serverDetails.SetUser(testCase.user)
+			uvLoginCmd.serverDetails.SetPassword(testCase.password)
+			uvLoginCmd.serverDetails.SetAccessToken(testCase.accessToken)
+
+			require.NoError(t, uvLoginCmd.configureUV())
+
+			// Validate that the index entry was written to uv.toml
+			uvConfigContentBytes, err := os.ReadFile(uvConfigPath)
+			require.NoError(t, err)
+			uvConfigContent := string(uvConfigContentBytes)
+
+			assert.Contains(t, uvConfigContent, `name = "fly-pypi"`)
+			assert.Contains(t, uvConfigContent, "acme.jfrog.io/artifactory/api/pypi/test-repo/simple")
+			assert.Contains(t, uvConfigContent, "default = true")
+
+			// Clean up: remove stored credentials and config file
+			_ = exec.Command("uv", "auth", "logout", "https://acme.jfrog.io").Run()
+			_ = os.Remove(uvConfigPath)
+		})
+	}
+}
+
 func TestSetupCommand_Helm(t *testing.T) {
 	// Create a mock server to simulate Helm registry login
 	mockServer := setupMockHelmServer()
