@@ -669,6 +669,10 @@ func TestSetupCommand_UV(t *testing.T) {
 	uvConfigPath := filepath.Join(uvConfigDir, "uv.toml")
 	t.Setenv("UV_CONFIG_FILE", uvConfigPath)
 
+	// Isolate uv's credential store so tests don't pollute the developer's real credentials
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("APPDATA", t.TempDir())
+
 	uvLoginCmd := createTestSetupCommand(project.UV)
 
 	for _, testCase := range testCases {
@@ -691,10 +695,6 @@ func TestSetupCommand_UV(t *testing.T) {
 			assert.Contains(t, uvConfigContent, "acme.jfrog.io/artifactory/api/pypi/test-repo/simple")
 			assert.Contains(t, uvConfigContent, "default = true")
 			assert.Contains(t, uvConfigContent, `publish-url = "https://acme.jfrog.io/artifactory/api/pypi/test-repo"`)
-
-			// Clean up: remove stored credentials and config file
-			_ = exec.Command("uv", "auth", "logout", "https://acme.jfrog.io").Run()
-			_ = os.Remove(uvConfigPath)
 		})
 	}
 }

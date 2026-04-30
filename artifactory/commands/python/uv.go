@@ -85,19 +85,22 @@ func (pc *UvCommand) GetErrWriter() io.WriteCloser {
 
 // ── Setup helpers ────────────────────────────────────────────────────────────
 
+// uvIndexName is the fixed name for the JFrog index entry in uv.toml.
+// Re-running setup against a different server overwrites the previous entry
+// (same single-instance design as pip global.index-url and twine's [pypi] section).
 const (
 	uvIndexName = "jfrog-pypi"
 )
 
-type uvIndex struct {
-	Name    string `toml:"name"`
-	URL     string `toml:"url"`
-	Default bool   `toml:"default,omitempty"`
-}
-
 // RunUVAuthLogin stores credentials in UV's native credential store.
 //
 //	uv auth login <service-url> --username <user> --password <password>
+//
+// Uses --username + --password (not --token) because --token stores username as
+// "__token__" (a PyPI convention Artifactory doesn't recognize), and --username
+// with --token is rejected as mutually exclusive by uv.
+//
+// TODO: switch to --password-stdin once supported by uv to avoid brief ps exposure.
 func RunUVAuthLogin(serviceURL, username, password string) error {
 	log.Debug("Running uv auth login for", serviceURL)
 	cmd := exec.Command("uv", "auth", "login", serviceURL, "--username", username, "--password", password)
@@ -109,6 +112,7 @@ func RunUVAuthLogin(serviceURL, username, password string) error {
 }
 
 // RunUVAuthLogout removes credentials from UV's native credential store.
+// Called by fly-desktop's UV handler during teardown.
 //
 //	uv auth logout <service-url> --username <user>
 func RunUVAuthLogout(serviceURL, username string) error {
@@ -147,11 +151,15 @@ func ConfigureUVIndex(indexURL string) error {
 			indexes[i].URL = indexURL
 			indexes[i].Default = true
 			found = true
-			break
+		} else {
+			indexes[i].Default = false
 		}
 	}
 	if !found {
-		indexes = append(indexes, uvIndex{
+		for i := range indexes {
+			indexes[i].Default = false
+		}
+		indexes = append(indexes, uvIndexEntry{
 			Name:    uvIndexName,
 			URL:     indexURL,
 			Default: true,
@@ -165,6 +173,7 @@ func ConfigureUVIndex(indexURL string) error {
 
 // RemoveUVIndex removes the JFrog index entry and the global publish-url from
 // the user-level uv.toml. If the config file doesn't exist, this is a no-op.
+// Called by fly-desktop's UV handler during teardown.
 func RemoveUVIndex() error {
 	configPath, err := getUserUVConfigPath()
 	if err != nil {
@@ -180,7 +189,7 @@ func RemoveUVIndex() error {
 		return err
 	}
 
-	filtered := make([]uvIndex, 0, len(indexes))
+	filtered := make([]uvIndexEntry, 0, len(indexes))
 	for _, idx := range indexes {
 		if idx.Name != uvIndexName {
 			filtered = append(filtered, idx)
@@ -194,6 +203,7 @@ func RemoveUVIndex() error {
 
 // GetConfiguredUVIndexURL reads the user-level uv.toml and returns the URL
 // for the JFrog index entry, or empty string if not found.
+// Called by fly-desktop's UV handler during status checks.
 func GetConfiguredUVIndexURL() (string, error) {
 	configPath, err := getUserUVConfigPath()
 	if err != nil {
@@ -222,7 +232,7 @@ func getUserUVConfigPath() (string, error) {
 	if runtime.GOOS == "windows" {
 		configDir = os.Getenv("APPDATA")
 		if configDir == "" {
-			return "", errorutils.CheckErrorf("%%APPDATA%% not set")
+			return "", errorutils.CheckErrorf("APPDATA environment variable not set")
 		}
 		configDir = filepath.Join(configDir, "uv")
 	} else {
@@ -243,7 +253,7 @@ func getUserUVConfigPath() (string, error) {
 // loadUVConfig reads the uv.toml at path.
 // Returns the full config as a generic map (to preserve unknown keys on write)
 // and the parsed [[index]] entries separately.
-func loadUVConfig(path string) (map[string]any, []uvIndex, error) {
+func loadUVConfig(path string) (map[string]any, []uvIndexEntry, error) {
 	fullCfg := map[string]any{}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -256,14 +266,14 @@ func loadUVConfig(path string) (map[string]any, []uvIndex, error) {
 		return nil, nil, errorutils.CheckErrorf("failed to parse uv config at %s: %w", path, err)
 	}
 
-	var indexes []uvIndex
+	var indexes []uvIndexEntry
 	if rawIndexes, ok := fullCfg["index"]; ok {
 		indexSlice, ok := rawIndexes.([]map[string]any)
 		if !ok {
-			return fullCfg, nil, nil
+			return nil, nil, errorutils.CheckErrorf("unexpected type for 'index' in uv config at %s: expected [[index]] array of tables", path)
 		}
 		for _, entry := range indexSlice {
-			idx := uvIndex{}
+			idx := uvIndexEntry{}
 			if name, ok := entry["name"].(string); ok {
 				idx.Name = name
 			}
@@ -282,7 +292,7 @@ func loadUVConfig(path string) (map[string]any, []uvIndex, error) {
 
 // writeUVConfig writes the full config map back to disk, replacing the "index"
 // key with the provided entries while preserving all other settings.
-func writeUVConfig(path string, fullCfg map[string]any, indexes []uvIndex) error {
+func writeUVConfig(path string, fullCfg map[string]any, indexes []uvIndexEntry) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return errorutils.CheckErrorf("failed to create uv config directory: %w", err)
 	}

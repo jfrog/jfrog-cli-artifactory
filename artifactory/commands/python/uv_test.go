@@ -163,6 +163,7 @@ url = "https://other.example.com/simple"
 		if idx.Name == "other-index" {
 			otherFound = true
 			assert.Equal(t, "https://other.example.com/simple", idx.URL)
+			assert.False(t, idx.Default, "other-index default should be demoted")
 		}
 		if idx.Name == uvIndexName {
 			jfrogFound = true
@@ -172,6 +173,50 @@ url = "https://other.example.com/simple"
 	}
 	assert.True(t, otherFound, "other-index should be preserved")
 	assert.True(t, jfrogFound, "jfrog-pypi index should be added")
+}
+
+func TestConfigureUVIndex_DemotesOtherDefaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "uv.toml")
+	t.Setenv("UV_CONFIG_FILE", configPath)
+
+	content := `[[index]]
+name = "user-default"
+url = "https://user.example.com/simple"
+default = true
+`
+	require.NoError(t, os.WriteFile(configPath, []byte(content), 0600))
+
+	err := ConfigureUVIndex("https://jfrog.example.com/api/pypi/repo/simple")
+	require.NoError(t, err)
+
+	_, indexes, err := loadUVConfig(configPath)
+	require.NoError(t, err)
+	require.Len(t, indexes, 2)
+
+	for _, idx := range indexes {
+		if idx.Name == "user-default" {
+			assert.False(t, idx.Default, "previous default should be demoted")
+		}
+		if idx.Name == uvIndexName {
+			assert.True(t, idx.Default, "jfrog index should be the new default")
+		}
+	}
+}
+
+func TestLoadUVConfig_InvalidIndexType(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "uv.toml")
+
+	content := `[index]
+name = "single-table"
+url = "https://example.com/simple"
+`
+	require.NoError(t, os.WriteFile(configPath, []byte(content), 0600))
+
+	_, _, err := loadUVConfig(configPath)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unexpected type for 'index'")
 }
 
 func TestRemoveUVIndex(t *testing.T) {

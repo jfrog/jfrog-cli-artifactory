@@ -128,14 +128,14 @@ func (c *NativeUVCommand) Run() error {
 					log.Warn("Failed to collect UV script build info: " + biErr.Error())
 				}
 			} else {
-			// For commands that modify the venv, capture exactly what was installed.
-			var installed map[string]string
-			if uvModifiesVenv(c.commandName) {
-				installed = uvInstalledPackages()
-			}
-			if biErr := uvGetBuildInfo(workingDir, c.buildConfiguration, deployerRepo, c.commandName, c.args, installed, serverDetails); biErr != nil {
-				log.Warn("Failed to collect UV build info: " + biErr.Error())
-			}
+				// For commands that modify the venv, capture exactly what was installed.
+				var installed map[string]string
+				if uvModifiesVenv(c.commandName) {
+					installed = uvInstalledPackages()
+				}
+				if biErr := uvGetBuildInfo(workingDir, c.buildConfiguration, deployerRepo, c.commandName, c.args, installed, serverDetails); biErr != nil {
+					log.Warn("Failed to collect UV build info: " + biErr.Error())
+				}
 			} // end else (not a --script invocation)
 		}
 	}
@@ -414,8 +414,9 @@ func runUvBinary(args []string) error {
 // ── TOML types ───────────────────────────────────────────────────────────────
 
 type uvIndexEntry struct {
-	Name string `toml:"name"`
-	URL  string `toml:"url"`
+	Name    string `toml:"name"`
+	URL     string `toml:"url"`
+	Default bool   `toml:"default,omitempty"`
 }
 
 type uvToolUv struct {
@@ -442,7 +443,6 @@ func parseUvPyproject(workingDir string) uvPyprojectToml {
 	}
 	return p
 }
-
 
 func uvReadIndexesFromToml(workingDir string) []uvIndexEntry {
 	p := parseUvPyproject(workingDir)

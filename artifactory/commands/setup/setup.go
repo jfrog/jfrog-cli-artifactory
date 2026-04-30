@@ -517,9 +517,14 @@ func (sc *SetupCommand) configureUV() error {
 		return fmt.Errorf("failed to get PyPI repository URL with credentials: %w", err)
 	}
 
+	serviceURL := repoUrl.Scheme + "://" + repoUrl.Host
+
+	// Best-effort: remove any stale credentials for this service URL before (re-)configuring.
+	// Prevents leftover tokens from a previous setup from being used when switching to anonymous.
+	_ = python.RunUVAuthLogout(serviceURL, username)
+
 	// Store credentials only when authentication is configured (skip for anonymous access)
 	if username != "" && password != "" {
-		serviceURL := repoUrl.Scheme + "://" + repoUrl.Host
 		if err := python.RunUVAuthLogin(serviceURL, username, password); err != nil {
 			return fmt.Errorf("failed to store UV credentials: %w", err)
 		}
