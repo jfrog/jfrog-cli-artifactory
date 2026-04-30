@@ -156,9 +156,6 @@ func ConfigureUVIndex(indexURL string) error {
 		}
 	}
 	if !found {
-		for i := range indexes {
-			indexes[i].Default = false
-		}
 		indexes = append(indexes, uvIndexEntry{
 			Name:    uvIndexName,
 			URL:     indexURL,
