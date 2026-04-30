@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/jfrog/build-info-go/build"
@@ -100,8 +102,13 @@ func (pic *PnpmInstallCommand) collectAndSaveBuildInfo() error {
 	}
 	log.Debug("Server details. Artifactory URL:", pic.serverDetails.ArtifactoryUrl)
 
+	scopeToCurrentPackage := isPnpmWorkspaceSubPackage(pic.workingDirectory)
+	if scopeToCurrentPackage && userRequestedWorkspaceRoot(pic.pnpmArgs) {
+		log.Debug("--workspace-root/-w specified; collecting build-info for the entire workspace despite sub-package cwd.")
+		scopeToCurrentPackage = false
+	}
 	log.Debug("Running pnpm ls to collect dependency tree...")
-	projects, err := runPnpmLs(pic.workingDirectory)
+	projects, err := runPnpmLs(pic.workingDirectory, extractLsForwardFlags(pic.pnpmArgs), scopeToCurrentPackage)
 	if err != nil {
 		return err
 	}
@@ -114,8 +121,185 @@ func (pic *PnpmInstallCommand) collectAndSaveBuildInfo() error {
 	return saveBuildInfo(modules, pic.buildConfiguration)
 }
 
-func runPnpmLs(workingDir string) ([]pnpmLsProject, error) {
-	pnpmLsArgs := []string{"ls", "-r", "--depth", "Infinity", "--json"}
+// isPnpmWorkspaceSubPackage returns true when workingDir is inside a pnpm workspace
+// but is NOT the workspace root (i.e. the user invoked the command from a single
+// workspace package). When true, build-info should be scoped to that package only.
+//
+// Detection is delegated to pnpm itself via `pnpm root -w`, which prints the
+// workspace root's node_modules path when inside a workspace and errors with a
+// non-zero exit code otherwise. Any error (not a workspace, pnpm missing, etc.)
+// is logged at debug level and treated as "not a sub-package" — in that case
+// the caller keeps the existing recursive behavior.
+func isPnpmWorkspaceSubPackage(workingDir string) bool {
+	cmd := exec.Command("pnpm", "root", "-w")
+	cmd.Dir = workingDir
+	// Split stdout/stderr so future pnpm warnings/deprecations on stderr can't
+	// corrupt the path we parse from stdout. Both streams are surfaced in the
+	// debug log on failure to preserve diagnostic coverage when the real error
+	// reason can be on either stream.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		log.Debug(fmt.Sprintf("pnpm workspace detection skipped (%s; stdout: %q; stderr: %q); falling back to recursive pnpm ls.",
+			err.Error(),
+			strings.TrimSpace(stdout.String()),
+			strings.TrimSpace(stderr.String())))
+		return false
+	}
+	workspaceRoot := filepath.Dir(strings.TrimSpace(stdout.String()))
+	// filepath.Dir collapses "" / single-segment input to ".", so "." is the
+	// only "no usable path" sentinel we need to guard against.
+	if workspaceRoot == "." {
+		log.Debug("pnpm root -w returned no usable path; falling back to recursive pnpm ls.")
+		return false
+	}
+	// pnpm resolves symlinks in its output (e.g. on macOS /var → /private/var), so
+	// compare canonicalized paths to avoid false "sub-package" detection when the
+	// working directory happens to contain a symlink.
+	if samePath(workspaceRoot, workingDir) {
+		log.Debug("Invoked at pnpm workspace root; collecting build-info for all workspace packages.")
+		return false
+	}
+	log.Debug(fmt.Sprintf("Invoked inside workspace sub-package (workspace root: %s); scoping build-info to current package.", workspaceRoot))
+	return true
+}
+
+// samePath reports whether a and b refer to the same directory after resolving
+// symlinks. If symlink resolution fails on either side (e.g. one path no longer
+// exists on disk), it falls back to direct string equality — i.e. it returns
+// false unless a == b verbatim. No further inference is attempted.
+func samePath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	resolvedA, errA := filepath.EvalSymlinks(a)
+	resolvedB, errB := filepath.EvalSymlinks(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return resolvedA == resolvedB
+}
+
+// lsForwardFlags maps `pnpm install` flags that affect the resolved dependency
+// tree to whether the flag carries a value. Boolean flags (false) are forwarded
+// as-is. Value-bearing flags (true) accept either `--flag value` or `--flag=value`.
+// Anything not in this map is dropped — install-only flags (e.g. --frozen-lockfile)
+// would just confuse `pnpm ls`.
+//
+// Notably absent: --no-optional. The build-info parser currently does not read
+// pnpm ls's `optionalDependencies` JSON key (only `dependencies` and
+// `devDependencies`), so forwarding --no-optional has no observable effect on
+// build-info. Tracked as a follow-up to extend the parser; once that lands,
+// --no-optional should be added back here.
+var lsForwardFlags = map[string]bool{
+	"--ignore-workspace": false,
+	"--prod":             false,
+	"-P":                 false,
+	"--production":       false,
+	"--dev":              false,
+	"-D":                 false,
+	"--workspace-root":   false,
+	"-w":                 false,
+	"--filter":           true,
+	"-F":                 true,
+}
+
+// userRequestedWorkspaceRoot reports whether the user asked pnpm install to
+// operate at the workspace root (via --workspace-root or its alias -w). When
+// true, build-info must reflect the entire workspace even if invoked from a
+// sub-package, so the cwd-based scope heuristic must be overridden. Conflict
+// resolution between this and other flags (e.g. --ignore-workspace) is left
+// to pnpm itself via the forwarded flags.
+func userRequestedWorkspaceRoot(installArgs []string) bool {
+	for _, arg := range installArgs {
+		if arg == "--workspace-root" || arg == "-w" {
+			return true
+		}
+	}
+	return false
+}
+
+// extractLsForwardFlags returns flags from the user's pnpm install args that must
+// be forwarded to `pnpm ls` so the dependency tree respects the same scope and
+// dep-group filtering as the install command. Both `--flag=value` and
+// `--flag value` forms are recognized for value-bearing flags.
+func extractLsForwardFlags(installArgs []string) []string {
+	var forwarded []string
+	for i := 0; i < len(installArgs); i++ {
+		arg := installArgs[i]
+
+		if takesValue, ok := lsForwardFlags[arg]; ok {
+			if !takesValue {
+				forwarded = append(forwarded, arg)
+				continue
+			}
+			// `--flag value` form — capture the next arg as the value when present.
+			if i+1 < len(installArgs) {
+				forwarded = append(forwarded, arg, installArgs[i+1])
+				i++
+			}
+			continue
+		}
+
+		// `--flag=value` form — split on the first '=' and check the prefix.
+		if eq := strings.IndexByte(arg, '='); eq > 0 {
+			key, val := arg[:eq], arg[eq+1:]
+			if takesValue, ok := lsForwardFlags[key]; ok {
+				// Value-bearing flags (e.g. --filter=foo) always forward as-is.
+				if takesValue {
+					forwarded = append(forwarded, arg)
+					continue
+				}
+				// Boolean flags with =value (e.g. --prod=true, --ignore-workspace=0):
+				// drop only when strconv.ParseBool recognizes a falsy value
+				// (false / 0 / F). Anything unparseable is forwarded as-is so pnpm
+				// can decide. This matches jfrog-cli-core's FindBooleanFlag semantics.
+				if parsed, err := strconv.ParseBool(val); err != nil || parsed {
+					forwarded = append(forwarded, arg)
+				}
+			}
+		}
+	}
+	return forwarded
+}
+
+// buildPnpmLsArgs assembles the argument list for `pnpm ls`. The `-r` flag is omitted
+// when either (a) we are scoping output to the current working directory's package, or
+// (b) the user forwarded --ignore-workspace — in that case pnpm emits one JSON array
+// per project concatenated on stdout, which is not parseable as a single array.
+func buildPnpmLsArgs(extraArgs []string, scopeToCurrentPackage bool) []string {
+	args := []string{"ls"}
+	if !scopeToCurrentPackage && !hasIgnoreWorkspace(extraArgs) {
+		args = append(args, "-r")
+	}
+	args = append(args, "--depth", "Infinity", "--json")
+	args = append(args, extraArgs...)
+	return args
+}
+
+// hasIgnoreWorkspace reports whether `--ignore-workspace` is present in args,
+// matching both the bare flag and the `--ignore-workspace=<value>` form. The
+// value is parsed via strconv.ParseBool to match jfrog-cli-core's bool flag
+// semantics; an unparseable value is conservatively treated as enabled and
+// left to pnpm to validate.
+func hasIgnoreWorkspace(args []string) bool {
+	const prefix = "--ignore-workspace="
+	for _, a := range args {
+		if a == "--ignore-workspace" {
+			return true
+		}
+		if strings.HasPrefix(a, prefix) {
+			if parsed, err := strconv.ParseBool(a[len(prefix):]); err != nil || parsed {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func runPnpmLs(workingDir string, extraArgs []string, scopeToCurrentPackage bool) ([]pnpmLsProject, error) {
+	pnpmLsArgs := buildPnpmLsArgs(extraArgs, scopeToCurrentPackage)
 	log.Info("Collecting dependency tree information. This may take a few minutes for large projects...")
 	log.Debug("Running command: pnpm", strings.Join(pnpmLsArgs, " "))
 	command := exec.Command("pnpm", pnpmLsArgs...)
