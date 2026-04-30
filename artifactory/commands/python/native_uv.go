@@ -814,8 +814,8 @@ func uvEnrichDirectURLChecksums(deps []buildinfo.Dependency, directURLDeps map[s
 			log.Info(fmt.Sprintf("UV build-info: dep %s direct URL not reachable (%v) — sha256 only", dep.Id, err))
 			continue
 		}
-		sha1w := sha1.New() // #nosec G401 -- sha1 used for Artifactory build-info checksums, not security
-		md5w := md5.New()   // #nosec G401
+		sha1w := sha1.New() // #nosec G401 // jfrog-ignore - sha1 used for Artifactory build-info checksums, not security
+		md5w := md5.New()   // #nosec G401 // jfrog-ignore - md5 used for Artifactory build-info checksums, not security
 		_, copyErr := io.Copy(io.MultiWriter(sha1w, md5w), resp.Body)
 		_ = resp.Body.Close()
 		if copyErr != nil {
