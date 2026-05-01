@@ -128,14 +128,14 @@ func (c *NativeUVCommand) Run() error {
 					log.Warn("Failed to collect UV script build info: " + biErr.Error())
 				}
 			} else {
-			// For commands that modify the venv, capture exactly what was installed.
-			var installed map[string]string
-			if uvModifiesVenv(c.commandName) {
-				installed = uvInstalledPackages()
-			}
-			if biErr := uvGetBuildInfo(workingDir, c.buildConfiguration, deployerRepo, c.commandName, c.args, installed, serverDetails); biErr != nil {
-				log.Warn("Failed to collect UV build info: " + biErr.Error())
-			}
+				// For commands that modify the venv, capture exactly what was installed.
+				var installed map[string]string
+				if uvModifiesVenv(c.commandName) {
+					installed = uvInstalledPackages()
+				}
+				if biErr := uvGetBuildInfo(workingDir, c.buildConfiguration, deployerRepo, c.commandName, c.args, installed, serverDetails); biErr != nil {
+					log.Warn("Failed to collect UV build info: " + biErr.Error())
+				}
 			} // end else (not a --script invocation)
 		}
 	}
@@ -414,8 +414,9 @@ func runUvBinary(args []string) error {
 // ── TOML types ───────────────────────────────────────────────────────────────
 
 type uvIndexEntry struct {
-	Name string `toml:"name"`
-	URL  string `toml:"url"`
+	Name    string `toml:"name"`
+	URL     string `toml:"url"`
+	Default bool   `toml:"default,omitempty"`
 }
 
 type uvToolUv struct {
@@ -442,7 +443,6 @@ func parseUvPyproject(workingDir string) uvPyprojectToml {
 	}
 	return p
 }
-
 
 func uvReadIndexesFromToml(workingDir string) []uvIndexEntry {
 	p := parseUvPyproject(workingDir)
@@ -814,8 +814,10 @@ func uvEnrichDirectURLChecksums(deps []buildinfo.Dependency, directURLDeps map[s
 			log.Info(fmt.Sprintf("UV build-info: dep %s direct URL not reachable (%v) — sha256 only", dep.Id, err))
 			continue
 		}
-		sha1w := sha1.New() // #nosec G401 -- sha1 used for Artifactory build-info checksums, not security
-		md5w := md5.New()   // #nosec G401
+		// jfrog-ignore - sha1 used for Artifactory build-info checksums, not security
+		sha1w := sha1.New() // #nosec G401
+		// jfrog-ignore - md5 used for Artifactory build-info checksums, not security
+		md5w := md5.New() // #nosec G401
 		_, copyErr := io.Copy(io.MultiWriter(sha1w, md5w), resp.Body)
 		_ = resp.Body.Close()
 		if copyErr != nil {

@@ -45,6 +45,7 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	project.Pipenv: repository.Pypi,
 	project.Poetry: repository.Pypi,
 	project.Twine:  repository.Pypi,
+	project.UV:     repository.Pypi,
 
 	// Nuget package managers
 	project.Nuget:  repository.Nuget,
@@ -62,7 +63,7 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	project.Maven:  repository.Maven,
 }
 
-// SetupCommand configures registries and authentication for various package manager (npm, Yarn, Pip, Pipenv, Poetry, Go)
+// SetupCommand configures registries and authentication for various package manager (npm, Yarn, Pip, Pipenv, Poetry, UV, Go)
 type SetupCommand struct {
 	// packageManager represents the type of package manager (e.g., NPM, Yarn).
 	packageManager project.ProjectType
@@ -181,6 +182,8 @@ func (sc *SetupCommand) Run() (err error) {
 		err = sc.configureGradle()
 	case project.Maven:
 		err = sc.configureMaven()
+	case project.UV:
+		err = sc.configureUV()
 	default:
 		err = errorutils.CheckErrorf("unsupported package manager: %s", sc.packageManager)
 	}
@@ -490,6 +493,47 @@ func (sc *SetupCommand) configureGradle() error {
 
 	if err := gradle.WriteInitScript(initScript); err != nil {
 		return fmt.Errorf("failed to write Gradle init script: %w", err)
+	}
+	return nil
+}
+
+// configureUV configures UV to use the Artifactory PyPI repository.
+// 1. Stores credentials via UV's native credential store:
+//
+//	uv auth login <artifactory-domain> --username <user> --password <token>
+//
+// 2. Writes a [[index]] entry and a global publish-url to the user-level uv.toml
+// (~/.config/uv/uv.toml) pointing to the Artifactory PyPI repository:
+//
+//	publish-url = "https://<your-artifactory-url>/artifactory/api/pypi/<repo-name>"
+//
+//	[[index]]
+//	name = "jfrog-pypi"
+//	url = "https://<your-artifactory-url>/artifactory/api/pypi/<repo-name>/simple"
+//	default = true
+func (sc *SetupCommand) configureUV() error {
+	repoUrl, username, password, err := python.GetPypiRepoUrlWithCredentials(sc.serverDetails, sc.repoName, false)
+	if err != nil {
+		return fmt.Errorf("failed to get PyPI repository URL with credentials: %w", err)
+	}
+
+	serviceURL := repoUrl.Scheme + "://" + repoUrl.Host
+
+	// Best-effort: remove any stale credentials for this service URL before (re-)configuring.
+	// Prevents leftover tokens from a previous setup from being used when switching to anonymous.
+	_ = python.RunUVAuthLogout(serviceURL, username)
+
+	// Store credentials only when authentication is configured (skip for anonymous access)
+	if username != "" && password != "" {
+		if err := python.RunUVAuthLogin(serviceURL, username, password); err != nil {
+			return fmt.Errorf("failed to store UV credentials: %w", err)
+		}
+	}
+
+	// Write the index entry to user-level uv.toml (URL without credentials)
+	indexURL := repoUrl.String()
+	if err := python.ConfigureUVIndex(indexURL); err != nil {
+		return fmt.Errorf("failed to configure UV index: %w", err)
 	}
 	return nil
 }
