@@ -109,6 +109,40 @@ version: '1.5.0'
 	assert.Equal(t, "1.5.0", meta.Version)
 }
 
+func TestParseSkillMeta_FoldedBlockDescription(t *testing.T) {
+	dir := t.TempDir()
+	skillMD := `---
+name: my-skill
+version: 1.0.0
+description: >
+  Generates a structured test plan for a new package type.
+  Use this skill whenever a developer wants test coverage.
+---
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillMD), 0644))
+
+	meta, err := ParseSkillMeta(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "Generates a structured test plan for a new package type. Use this skill whenever a developer wants test coverage.", meta.Description)
+}
+
+func TestParseSkillMeta_LiteralBlockDescription(t *testing.T) {
+	dir := t.TempDir()
+	skillMD := `---
+name: my-skill
+version: 1.0.0
+description: |-
+  First line.
+  Second line.
+---
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillMD), 0644))
+
+	meta, err := ParseSkillMeta(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "First line. Second line.", meta.Description)
+}
+
 func TestUpdateSkillMetaVersion_ReplacesExisting(t *testing.T) {
 	dir := t.TempDir()
 	skillMD := `---
