@@ -20,12 +20,13 @@ import (
 const defaultInstallBase = "."
 
 type InstallCommand struct {
-	serverDetails *config.ServerDetails
-	repoKey       string
-	slug          string
-	version       string
-	installPath   string
-	quiet         bool
+	serverDetails  *config.ServerDetails
+	repoKey        string
+	slug           string
+	version        string
+	installPath    string
+	quiet          bool
+	removeExisting bool
 }
 
 func NewInstallCommand() *InstallCommand {
@@ -59,6 +60,11 @@ func (ic *InstallCommand) SetInstallPath(path string) *InstallCommand {
 
 func (ic *InstallCommand) SetQuiet(quiet bool) *InstallCommand {
 	ic.quiet = quiet
+	return ic
+}
+
+func (ic *InstallCommand) SetRemoveExisting(v bool) *InstallCommand {
+	ic.removeExisting = v
 	return ic
 }
 
@@ -115,6 +121,11 @@ func (ic *InstallCommand) Run() error {
 	}
 
 	destDir := ic.getDestDir()
+	if ic.removeExisting {
+		if err := os.RemoveAll(destDir); err != nil {
+			return fmt.Errorf("failed to remove existing skill directory '%s': %w", destDir, err)
+		}
+	}
 	if err := copyDir(unzipDir, destDir); err != nil {
 		return fmt.Errorf("failed to copy skill files: %w", err)
 	}
