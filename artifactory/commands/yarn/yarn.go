@@ -7,7 +7,6 @@ import (
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/build-info-go/flexpack"
 	gofrogio "github.com/jfrog/gofrog/io"
-	"github.com/jfrog/jfrog-cli-core/v2/common/format"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
@@ -125,9 +124,8 @@ func (yc *YarnCommand) Run() (err error) {
 // Server details for checksum collection are resolved from --server-id or the default server.
 func (yc *YarnCommand) runNative() (err error) {
 	var filteredYarnArgs []string
-	yc.threads, _, _, _, filteredYarnArgs, yc.buildConfiguration, err = extractYarnOptionsFromArgs(yc.yarnArgs)
+	yc.threads, filteredYarnArgs, yc.buildConfiguration, err = extractYarnOptionsFromArgs(yc.yarnArgs)
 	if err != nil {
-		log.Debug("Error occurred while extracting yarn opts: ", err)
 		return
 	}
 
@@ -172,7 +170,6 @@ func (yc *YarnCommand) runNative() (err error) {
 		printMissingDependencies(missingDependencies)
 	}
 
-	log.Info("Yarn finished successfully.")
 	return
 }
 
@@ -186,9 +183,8 @@ func (yc *YarnCommand) runWithConfiguredRegistry() (err error) {
 	}
 
 	var filteredYarnArgs []string
-	yc.threads, _, _, _, filteredYarnArgs, yc.buildConfiguration, err = extractYarnOptionsFromArgs(yc.yarnArgs)
+	yc.threads, filteredYarnArgs, yc.buildConfiguration, err = extractYarnOptionsFromArgs(yc.yarnArgs)
 	if err != nil {
-		log.Debug("Error occurred while extracting yarn opts: ", err)
 		return
 	}
 
@@ -233,7 +229,6 @@ func (yc *YarnCommand) runWithConfiguredRegistry() (err error) {
 		return
 	}
 
-	log.Info("Yarn finished successfully.")
 	return
 }
 
@@ -269,12 +264,12 @@ func (yc *YarnCommand) validateSupportedCommand() error {
 
 // validateSetVersion checks that the requested yarn version in 'yarn set version X.Y.Z'
 // does not exceed the maximum supported major version.
-func validateSetVersion(requestedVersion string) error {
-	v := version.NewVersion(requestedVersion)
+func validateSetVersion(setVersion string) error {
+	v := version.NewVersion(setVersion)
 	if v.AtLeast(nextMajorYarnVersion) {
 		return errorutils.CheckErrorf(
 			"Yarn version %s is not supported. The maximum supported major version is %s.",
-			requestedVersion, maxSupportedYarnVersion)
+			setVersion, maxSupportedYarnVersion)
 	}
 	return nil
 }
@@ -591,7 +586,7 @@ func getDependencyInfo(name, ver string, previousBuildDependencies map[string]*e
 	return
 }
 
-func extractYarnOptionsFromArgs(args []string) (threads int, detailedSummary, xrayScan bool, scanOutputFormat format.OutputFormat, cleanArgs []string, buildConfig *buildUtils.BuildConfiguration, err error) {
+func extractYarnOptionsFromArgs(args []string) (threads int, cleanArgs []string, buildConfig *buildUtils.BuildConfiguration, err error) {
 	threads = 3
 	// Extract threads information from the args.
 	flagIndex, valueIndex, numOfThreads, err := coreutils.FindFlag("--threads", args)
@@ -606,7 +601,7 @@ func extractYarnOptionsFromArgs(args []string) (threads int, detailedSummary, xr
 			return
 		}
 	}
-	detailedSummary, xrayScan, scanOutputFormat, cleanArgs, buildConfig, err = commandUtils.ExtractNpmOptionsFromArgs(args)
+	_, _, _, cleanArgs, buildConfig, err = commandUtils.ExtractNpmOptionsFromArgs(args)
 	return
 }
 
