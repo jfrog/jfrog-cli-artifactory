@@ -1170,7 +1170,6 @@ func printDownloadResponse(result *commandUtils.Result, outputFormat coreformat.
 type downloadTableRow struct {
 	Source string `col-name:"SOURCE"`
 	Target string `col-name:"TARGET"`
-	Sha256 string `col-name:"SHA256"`
 }
 
 // printDownloadTable renders downloaded files as a human-readable table.
@@ -1184,7 +1183,6 @@ func printDownloadTable(result *commandUtils.Result, w io.Writer) error {
 		rows = append(rows, downloadTableRow{
 			Source: item.RtUrl + item.SourcePath,
 			Target: item.TargetPath,
-			Sha256: item.Sha256,
 		})
 	}
 	if err := reader.GetError(); err != nil {
@@ -1219,7 +1217,6 @@ func printDirectDownloadResponse(result *commandUtils.Result, outputFormat coref
 type directDownloadTableRow struct {
 	Source string `col-name:"SOURCE"`
 	Target string `col-name:"TARGET"`
-	Sha256 string `col-name:"SHA256"`
 }
 
 // printDirectDownloadTable renders directly downloaded files as a human-readable table.
@@ -1233,7 +1230,6 @@ func printDirectDownloadTable(result *commandUtils.Result, w io.Writer) error {
 		rows = append(rows, directDownloadTableRow{
 			Source: item.RtUrl + item.SourcePath,
 			Target: item.TargetPath,
-			Sha256: item.Sha256,
 		})
 	}
 	if err := reader.GetError(); err != nil {
