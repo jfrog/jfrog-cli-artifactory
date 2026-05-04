@@ -81,9 +81,13 @@ const (
 	PipenvInstall          = "pipenv-install"
 	PoetryConfig           = "poetry-config"
 	Poetry                 = "poetry"
-	Ping                   = "ping"
-	RtCurl                 = "rt-curl"
+	Ping           = "ping"
+	NugetDepsTree  = "nuget-deps-tree"
+	RtCurl         = "rt-curl"
 	TemplateConsumer       = "template-consumer"
+	ReplicationCreate      = "replication-create"
+	RepoCreate             = "repo-create"
+	RepoUpdate             = "repo-update"
 	RepoDelete             = "repo-delete"
 	ReplicationDelete      = "replication-delete"
 	PermissionTargetDelete = "permission-target-delete"
@@ -219,8 +223,8 @@ const (
 	downloadSyncDeletes  = downloadPrefix + syncDeletes
 	downloadMinSplit     = downloadPrefix + MinSplit
 	downloadSplitCount   = downloadPrefix + SplitCount
-	validateSymlinks     = "validate-symlinks"
-	skipChecksum         = "skip-checksum"
+	validateSymlinks      = "validate-symlinks"
+	skipChecksum          = "skip-checksum"
 
 	// Unique move flags
 	movePrefix       = "move-"
@@ -313,11 +317,11 @@ const (
 	repo = "repo"
 
 	// Unique git-lfs-clean flags
-	glcPrefix = "glc-"
-	glcDryRun = glcPrefix + dryRun
-	glcQuiet  = glcPrefix + quiet
-	glcRepo   = glcPrefix + repo
-	refs      = "refs"
+	glcPrefix  = "glc-"
+	glcDryRun  = glcPrefix + dryRun
+	glcQuiet   = glcPrefix + quiet
+	glcRepo    = glcPrefix + repo
+	refs       = "refs"
 
 	// Build tool config flags
 	global          = "global"
@@ -776,6 +780,7 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
 		ClientCertKeyPath, InsecureTls,
 	},
+	NugetDepsTree: {},
 	RtCurl: {
 		serverId,
 	},
@@ -798,6 +803,18 @@ var commandFlags = map[string][]string{
 		BuildName, BuildNumber, module, Project,
 	},
 	TemplateConsumer: {
+		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
+		ClientCertKeyPath, vars,
+	},
+	ReplicationCreate: {
+		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
+		ClientCertKeyPath, vars,
+	},
+	RepoCreate: {
+		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
+		ClientCertKeyPath, vars,
+	},
+	RepoUpdate: {
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, ClientCertPath,
 		ClientCertKeyPath, vars,
 	},

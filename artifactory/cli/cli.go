@@ -1,9 +1,15 @@
 package cli
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"text/tabwriter"
 
 	ioutils "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/buildinfo"
@@ -55,11 +61,13 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/commandWrappers"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	coregeneric "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/generic"
+	commandUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/cliutils/summary"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
+	coreformat "github.com/jfrog/jfrog-cli-core/v2/common/format"
 	"github.com/jfrog/jfrog-cli-core/v2/common/progressbar"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/common"
@@ -70,6 +78,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/pkg/errors"
 )
@@ -86,94 +95,105 @@ const (
 func GetCommands() []components.Command {
 	commands := []components.Command{
 		{
-			Name:        "upload",
-			Flags:       flagkit.GetCommandFlags(flagkit.Upload),
-			Aliases:     []string{"u"},
-			Description: upload.GetDescription(),
-			Arguments:   upload.GetArguments(),
-			Action:      uploadCmd,
-			Category:    filesCategory,
+			Name:             "upload",
+			Flags:            flagkit.GetCommandFlags(flagkit.Upload),
+			Aliases:          []string{"u"},
+			Description:      upload.GetDescription(),
+			Arguments:        upload.GetArguments(),
+			Action:           uploadCmd,
+			Category:         filesCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:        "download",
-			Flags:       flagkit.GetCommandFlags(flagkit.Download),
-			Aliases:     []string{"dl"},
-			Description: download.GetDescription(),
-			Arguments:   download.GetArguments(),
-			Action:      downloadCmd,
-			Category:    filesCategory,
+			Name:             "download",
+			Flags:            flagkit.GetCommandFlags(flagkit.Download),
+			Aliases:          []string{"dl"},
+			Description:      download.GetDescription(),
+			Arguments:        download.GetArguments(),
+			Action:           downloadCmd,
+			Category:         filesCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:        "direct-download",
-			Flags:       flagkit.GetCommandFlags(flagkit.DirectDownload),
-			Aliases:     []string{"ddl"},
-			Description: directdownload.GetDescription(),
-			Arguments:   directdownload.GetArguments(),
-			Action:      directDownloadCmd,
-			Category:    filesCategory,
+			Name:             "direct-download",
+			Flags:            flagkit.GetCommandFlags(flagkit.DirectDownload),
+			Aliases:          []string{"ddl"},
+			Description:      directdownload.GetDescription(),
+			Arguments:        directdownload.GetArguments(),
+			Action:           directDownloadCmd,
+			Category:         filesCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:        "move",
-			Flags:       flagkit.GetCommandFlags(flagkit.Move),
-			Aliases:     []string{"mv"},
-			Description: move.GetDescription(),
-			Arguments:   move.GetArguments(),
-			Action:      moveCmd,
-			Category:    filesCategory,
+			Name:             "move",
+			Flags:            flagkit.GetCommandFlags(flagkit.Move),
+			Aliases:          []string{"mv"},
+			Description:      move.GetDescription(),
+			Arguments:        move.GetArguments(),
+			Action:           moveCmd,
+			Category:         filesCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:        "copy",
-			Flags:       flagkit.GetCommandFlags(flagkit.Copy),
-			Aliases:     []string{"cp"},
-			Description: copydocs.GetDescription(),
-			Arguments:   copydocs.GetArguments(),
-			Action:      copyCmd,
-			Category:    filesCategory,
+			Name:             "copy",
+			Flags:            flagkit.GetCommandFlags(flagkit.Copy),
+			Aliases:          []string{"cp"},
+			Description:      copydocs.GetDescription(),
+			Arguments:        copydocs.GetArguments(),
+			Action:           copyCmd,
+			Category:         filesCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:        "delete",
-			Flags:       flagkit.GetCommandFlags(flagkit.Delete),
-			Aliases:     []string{"del"},
-			Description: delete.GetDescription(),
-			Arguments:   delete.GetArguments(),
-			Action:      deleteCmd,
-			Category:    filesCategory,
+			Name:             "delete",
+			Flags:            flagkit.GetCommandFlags(flagkit.Delete),
+			Aliases:          []string{"del"},
+			Description:      delete.GetDescription(),
+			Arguments:        delete.GetArguments(),
+			Action:           deleteCmd,
+			Category:         filesCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:        "search",
-			Flags:       flagkit.GetCommandFlags(flagkit.Search),
-			Aliases:     []string{"s"},
-			Description: search.GetDescription(),
-			Arguments:   search.GetArguments(),
-			Action:      searchCmd,
-			Category:    filesCategory,
+			Name:             "search",
+			Flags:            flagkit.GetCommandFlags(flagkit.Search),
+			Aliases:          []string{"s"},
+			Description:      search.GetDescription(),
+			Arguments:        search.GetArguments(),
+			Action:           searchCmd,
+			Category:         filesCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
+			DefaultFormat:    coreformat.Json,
 		},
 		{
-			Name:        "set-props",
-			Flags:       flagkit.GetCommandFlags(flagkit.Properties),
-			Aliases:     []string{"sp"},
-			Description: setprops.GetDescription(),
-			Arguments:   setprops.GetArguments(),
-			Action:      setPropsCmd,
-			Category:    filesCategory,
+			Name:             "set-props",
+			Flags:            flagkit.GetCommandFlags(flagkit.Properties),
+			Aliases:          []string{"sp"},
+			Description:      setprops.GetDescription(),
+			Arguments:        setprops.GetArguments(),
+			Action:           setPropsCmd,
+			Category:         filesCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:        "delete-props",
-			Flags:       flagkit.GetCommandFlags(flagkit.Properties),
-			Aliases:     []string{"delp"},
-			Description: deleteprops.GetDescription(),
-			Arguments:   deleteprops.GetArguments(),
-			Action:      deletePropsCmd,
-			Category:    filesCategory,
+			Name:             "delete-props",
+			Flags:            flagkit.GetCommandFlags(flagkit.Properties),
+			Aliases:          []string{"delp"},
+			Description:      deleteprops.GetDescription(),
+			Arguments:        deleteprops.GetArguments(),
+			Action:           deletePropsCmd,
+			Category:         filesCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:        "build-publish",
-			Flags:       flagkit.GetCommandFlags(flagkit.BuildPublish),
-			Aliases:     []string{"bp"},
-			Description: buildpublish.GetDescription(),
-			Arguments:   buildpublish.GetArguments(),
-			Action:      buildPublishCmd,
-			Category:    buildCategory,
+			Name:             "build-publish",
+			Flags:            flagkit.GetCommandFlags(flagkit.BuildPublish),
+			Aliases:          []string{"bp"},
+			Description:      buildpublish.GetDescription(),
+			Arguments:        buildpublish.GetArguments(),
+			Action:           buildPublishCmd,
+			Category:         buildCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
 			Name:        "build-collect-env",
@@ -194,13 +214,14 @@ func GetCommands() []components.Command {
 			Category:    buildCategory,
 		},
 		{
-			Name:        "build-add-dependencies",
-			Flags:       flagkit.GetCommandFlags(flagkit.BuildAddDependencies),
-			Aliases:     []string{"bad"},
-			Description: buildadddependencies.GetDescription(),
-			Arguments:   buildadddependencies.GetArguments(),
-			Action:      buildAddDependenciesCmd,
-			Category:    buildCategory,
+			Name:             "build-add-dependencies",
+			Flags:            flagkit.GetCommandFlags(flagkit.BuildAddDependencies),
+			Aliases:          []string{"bad"},
+			Description:      buildadddependencies.GetDescription(),
+			Arguments:        buildadddependencies.GetArguments(),
+			Action:           buildAddDependenciesCmd,
+			Category:         buildCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
 			Name:        "build-add-git",
@@ -231,80 +252,88 @@ func GetCommands() []components.Command {
 			Category:    buildCategory,
 		},
 		{
-			Name:        "build-promote",
-			Flags:       flagkit.GetCommandFlags(flagkit.BuildPromote),
-			Aliases:     []string{"bpr"},
-			Description: buildpromote.GetDescription(),
-			Arguments:   buildpromote.GetArguments(),
-			Action:      buildPromoteCmd,
-			Category:    buildCategory,
+			Name:             "build-promote",
+			Flags:            flagkit.GetCommandFlags(flagkit.BuildPromote),
+			Aliases:          []string{"bpr"},
+			Description:      buildpromote.GetDescription(),
+			Arguments:        buildpromote.GetArguments(),
+			Action:           buildPromoteCmd,
+			Category:         buildCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json},
 		},
 		{
-			Name:        "build-discard",
-			Flags:       flagkit.GetCommandFlags(flagkit.BuildDiscard),
-			Aliases:     []string{"bdi"},
-			Description: builddiscard.GetDescription(),
-			Arguments:   builddiscard.GetArguments(),
-			Action:      buildDiscardCmd,
-			Category:    buildCategory,
+			Name:             "build-discard",
+			Flags:            flagkit.GetCommandFlags(flagkit.BuildDiscard),
+			Aliases:          []string{"bdi"},
+			Description:      builddiscard.GetDescription(),
+			Arguments:        builddiscard.GetArguments(),
+			Action:           buildDiscardCmd,
+			Category:         buildCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json},
 		},
 		{
-			Name:        "git-lfs-clean",
-			Flags:       flagkit.GetCommandFlags(flagkit.GitLfsClean),
-			Aliases:     []string{"glc"},
-			Description: gitlfsclean.GetDescription(),
-			Arguments:   gitlfsclean.GetArguments(),
-			Action:      gitLfsCleanCmd,
-			Category:    otherCategory,
+			Name:             "git-lfs-clean",
+			Flags:            flagkit.GetCommandFlags(flagkit.GitLfsClean),
+			Aliases:          []string{"glc"},
+			Description:      gitlfsclean.GetDescription(),
+			Arguments:        gitlfsclean.GetArguments(),
+			Action:           gitLfsCleanCmd,
+			Category:         otherCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:        "docker-promote",
-			Flags:       flagkit.GetCommandFlags(flagkit.DockerPromote),
-			Aliases:     []string{"dpr"},
-			Description: dockerpromote.GetDescription(),
-			Arguments:   dockerpromote.GetArguments(),
-			Action:      dockerPromoteCmd,
-			Category:    buildCategory,
+			Name:             "docker-promote",
+			Flags:            flagkit.GetCommandFlags(flagkit.DockerPromote),
+			Aliases:          []string{"dpr"},
+			Description:      dockerpromote.GetDescription(),
+			Arguments:        dockerpromote.GetArguments(),
+			Action:           dockerPromoteCmd,
+			Category:         buildCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json},
 		},
 		{
-			Name:        "docker-push",
-			Hidden:      true,
-			Flags:       flagkit.GetCommandFlags(flagkit.ContainerPush),
-			Aliases:     []string{"dp"},
-			Description: dockerpush.GetDescription(),
-			Arguments:   dockerpush.GetArguments(),
+			Name:             "docker-push",
+			Hidden:           true,
+			Flags:            flagkit.GetCommandFlags(flagkit.ContainerPush),
+			Aliases:          []string{"dp"},
+			Description:      dockerpush.GetDescription(),
+			Arguments:        dockerpush.GetArguments(),
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 			Action: func(c *components.Context) error {
 				return containerPushCmd(c, containerutils.DockerClient)
 			},
 		},
 		{
-			Name:        "docker-pull",
-			Hidden:      true,
-			Flags:       flagkit.GetCommandFlags(flagkit.ContainerPull),
-			Aliases:     []string{"dpl"},
-			Description: dockerpull.GetDescription(),
-			Arguments:   dockerpull.GetArguments(),
+			Name:             "docker-pull",
+			Hidden:           true,
+			Flags:            flagkit.GetCommandFlags(flagkit.ContainerPull),
+			Aliases:          []string{"dpl"},
+			Description:      dockerpull.GetDescription(),
+			Arguments:        dockerpull.GetArguments(),
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 			Action: func(c *components.Context) error {
 				return containerPullCmd(c, containerutils.DockerClient)
 			},
 		},
 		{
-			Name:        "podman-push",
-			Flags:       flagkit.GetCommandFlags(flagkit.ContainerPush),
-			Aliases:     []string{"pp"},
-			Description: podmanpush.GetDescription(),
-			Arguments:   podmanpush.GetArguments(),
+			Name:             "podman-push",
+			Flags:            flagkit.GetCommandFlags(flagkit.ContainerPush),
+			Aliases:          []string{"pp"},
+			Description:      podmanpush.GetDescription(),
+			Arguments:        podmanpush.GetArguments(),
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 			Action: func(c *components.Context) error {
 				return containerPushCmd(c, containerutils.Podman)
 			},
 			Category: otherCategory,
 		},
 		{
-			Name:        "podman-pull",
-			Flags:       flagkit.GetCommandFlags(flagkit.ContainerPull),
-			Aliases:     []string{"ppl"},
-			Description: podmanpull.GetDescription(),
-			Arguments:   podmanpull.GetArguments(),
+			Name:             "podman-pull",
+			Flags:            flagkit.GetCommandFlags(flagkit.ContainerPull),
+			Aliases:          []string{"ppl"},
+			Description:      podmanpull.GetDescription(),
+			Arguments:        podmanpull.GetArguments(),
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 			Action: func(c *components.Context) error {
 				return containerPullCmd(c, containerutils.Podman)
 			},
@@ -329,18 +358,22 @@ func GetCommands() []components.Command {
 			Category:        otherCategory,
 		},
 		{
-			Name:        "nuget-deps-tree",
-			Aliases:     []string{"ndt"},
-			Description: nugettree.GetDescription(),
-			Action:      nugetDepsTreeCmd,
-			Category:    otherCategory,
+			Name:             "nuget-deps-tree",
+			Aliases:          []string{"ndt"},
+			Flags:            flagkit.GetCommandFlags(flagkit.NugetDepsTree),
+			Description:      nugettree.GetDescription(),
+			Action:           nugetDepsTreeCmd,
+			Category:         otherCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
+			DefaultFormat:    coreformat.Json,
 		},
 		{
-			Name:        "ping",
-			Flags:       flagkit.GetCommandFlags(flagkit.Ping),
-			Aliases:     []string{"p"},
-			Description: ping.GetDescription(),
-			Action:      pingCmd,
+			Name:             "ping",
+			Flags:            flagkit.GetCommandFlags(flagkit.Ping),
+			Aliases:          []string{"p"},
+			Description:      ping.GetDescription(),
+			Action:           pingCmd,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
 			Name:            "curl",
@@ -360,22 +393,24 @@ func GetCommands() []components.Command {
 			Category:    repoCategory,
 		},
 		{
-			Name:        "repo-create",
-			Aliases:     []string{"rc"},
-			Flags:       flagkit.GetCommandFlags(flagkit.TemplateConsumer),
-			Description: repocreate.GetDescription(),
-			Arguments:   repocreate.GetArguments(),
-			Action:      repoCreateCmd,
-			Category:    repoCategory,
+			Name:             "repo-create",
+			Aliases:          []string{"rc"},
+			Flags:            flagkit.GetCommandFlags(flagkit.RepoCreate),
+			Description:      repocreate.GetDescription(),
+			Arguments:        repocreate.GetArguments(),
+			Action:           repoCreateCmd,
+			Category:         repoCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json},
 		},
 		{
-			Name:        "repo-update",
-			Aliases:     []string{"ru"},
-			Flags:       flagkit.GetCommandFlags(flagkit.TemplateConsumer),
-			Description: repoupdate.GetDescription(),
-			Arguments:   repoupdate.GetArguments(),
-			Action:      repoUpdateCmd,
-			Category:    repoCategory,
+			Name:             "repo-update",
+			Aliases:          []string{"ru"},
+			Flags:            flagkit.GetCommandFlags(flagkit.RepoUpdate),
+			Description:      repoupdate.GetDescription(),
+			Arguments:        repoupdate.GetArguments(),
+			Action:           repoUpdateCmd,
+			Category:         repoCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json},
 		},
 		{
 			Name:        "repo-delete",
@@ -396,13 +431,14 @@ func GetCommands() []components.Command {
 			Category:    replicCategory,
 		},
 		{
-			Name:        "replication-create",
-			Aliases:     []string{"rplc"},
-			Flags:       flagkit.GetCommandFlags(flagkit.TemplateConsumer),
-			Description: replicationcreate.GetDescription(),
-			Arguments:   replicationcreate.GetArguments(),
-			Action:      replicationCreateCmd,
-			Category:    replicCategory,
+			Name:             "replication-create",
+			Aliases:          []string{"rplc"},
+			Flags:            flagkit.GetCommandFlags(flagkit.ReplicationCreate),
+			Description:      replicationcreate.GetDescription(),
+			Arguments:        replicationcreate.GetArguments(),
+			Action:           replicationCreateCmd,
+			Category:         replicCategory,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json},
 		},
 		{
 			Name:        "replication-delete",
@@ -470,6 +506,12 @@ func dockerPromoteCmd(c *components.Context) error {
 	if c.GetNumberOfArgs() != 3 {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
+
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
+	}
+
 	artDetails, err := common.CreateArtifactoryDetailsByFlags(c)
 	if err != nil {
 		return err
@@ -482,8 +524,45 @@ func dockerPromoteCmd(c *components.Context) error {
 	dockerPromoteCommand := container.NewDockerPromoteCommand()
 	dockerPromoteCommand.SetParams(params).SetServerDetails(artDetails)
 
-	return commands.Exec(dockerPromoteCommand)
+	if err = commands.Exec(dockerPromoteCommand); err != nil {
+		return err
+	}
+
+	// error == nil guarantees the server responded with 200.
+	// The client layer discards the body, so we pass nil and let the helper
+	// synthesize {"status_code": 200, "message": "OK"}.
+	if outputFormat != coreformat.None {
+		printStatusJSON(200, "OK")
+	}
+	return nil
 }
+
+// printStatusJSON emits a synthetic JSON response with the given HTTP status code and message.
+func printStatusJSON(statusCode int, message string) {
+	data, _ := json.Marshal(map[string]interface{}{"status_code": statusCode, "message": message})
+	log.Output(clientutils.IndentJson(data))
+}
+
+// printCountsTable writes a two-row FIELD/VALUE tabwriter table with success and failure counts.
+func printCountsTable(succeeded, failed int, w io.Writer) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
+	_, _ = fmt.Fprintf(tw, "success\t%d\n", succeeded)
+	_, _ = fmt.Fprintf(tw, "failure\t%d\n", failed)
+	return tw.Flush()
+}
+
+// printSummaryJSON marshals a summary report to indented JSON and writes it to the log output.
+func printSummaryJSON(succeeded, failed int, failNoOp bool, originalErr error) error {
+	summaryReport := summary.GetSummaryReport(succeeded, failed, failNoOp, originalErr)
+	data, err := summaryReport.Marshal()
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	log.Output(clientutils.IndentJson(data))
+	return nil
+}
+
 
 func containerPushCmd(c *components.Context, containerManagerType containerutils.ContainerManagerType) (err error) {
 	if c.GetNumberOfArgs() != 2 {
@@ -507,8 +586,15 @@ func containerPushCmd(c *components.Context, containerManagerType containerutils
 	if err != nil {
 		return
 	}
+	outputFormat, err := c.GetOutputFormat()
+	if err != nil {
+		return
+	}
 	printDeploymentView, detailedSummary := log.IsStdErrTerminal(), c.GetBoolFlagValue("detailed-summary")
-	dockerPushCommand.SetThreads(threads).SetDetailedSummary(detailedSummary || printDeploymentView).SetCmdParams([]string{"push", imageTag}).SetSkipLogin(skipLogin).SetBuildConfiguration(buildConfiguration).SetRepo(targetRepo).SetServerDetails(artDetails).SetImageTag(imageTag).SetValidateSha(validateSha)
+	// When a structured format is requested we need the per-layer transfer details reader,
+	// so force detailed-summary mode regardless of the explicit flag.
+	needDetailedReader := outputFormat != coreformat.None
+	dockerPushCommand.SetThreads(threads).SetDetailedSummary(detailedSummary || printDeploymentView || needDetailedReader).SetCmdParams([]string{"push", imageTag}).SetSkipLogin(skipLogin).SetBuildConfiguration(buildConfiguration).SetRepo(targetRepo).SetServerDetails(artDetails).SetImageTag(imageTag).SetValidateSha(validateSha)
 	err = commandWrappers.ShowDockerDeprecationMessageIfNeeded(containerManagerType, dockerPushCommand.IsGetRepoSupported)
 	if err != nil {
 		return
@@ -518,8 +604,54 @@ func containerPushCmd(c *components.Context, containerManagerType containerutils
 
 	// Cleanup.
 	defer common.CleanupResult(result, &err)
-	err = common.PrintCommandSummary(dockerPushCommand.Result(), detailedSummary, printDeploymentView, false, err)
+	if outputFormat == coreformat.None {
+		err = common.PrintCommandSummary(dockerPushCommand.Result(), detailedSummary, printDeploymentView, false, err)
+		return
+	}
+	err = printContainerPushResponse(result, outputFormat, os.Stdout, err)
 	return
+}
+
+// printContainerPushResponse renders the container push result in the requested output format.
+func printContainerPushResponse(result *commandUtils.Result, outputFormat coreformat.OutputFormat, w io.Writer, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		return common.PrintCommandSummary(result, true, false, false, originalErr)
+	case coreformat.Table:
+		err := printContainerPushTable(result, w)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, result.SuccessCount(), result.FailCount(), false)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt podman-push. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// containerPushTableRow is a table-printable representation of a pushed layer.
+type containerPushTableRow struct {
+	Target string `col-name:"TARGET"`
+	Sha256 string `col-name:"SHA256"`
+}
+
+// printContainerPushTable renders pushed layers as a human-readable table.
+func printContainerPushTable(result *commandUtils.Result, w io.Writer) error {
+	reader := result.Reader()
+	if reader == nil {
+		return printCountsTable(result.SuccessCount(), result.FailCount(), w)
+	}
+	var rows []containerPushTableRow
+	for item := new(clientutils.FileTransferDetails); reader.NextRecord(item) == nil; item = new(clientutils.FileTransferDetails) {
+		rows = append(rows, containerPushTableRow{
+			Target: item.RtUrl + item.TargetPath,
+			Sha256: item.Sha256,
+		})
+	}
+	if err := reader.GetError(); err != nil {
+		return err
+	}
+	reader.Reset()
+	return coreutils.PrintTable(rows, "Push Results", "No layers were pushed.", false)
 }
 
 func containerPullCmd(c *components.Context, containerManagerType containerutils.ContainerManagerType) error {
@@ -537,13 +669,60 @@ func containerPullCmd(c *components.Context, containerManagerType containerutils
 	if err != nil {
 		return err
 	}
+	outputFormat, err := c.GetOutputFormat()
+	if err != nil {
+		return err
+	}
 	dockerPullCommand := container.NewPullCommand(containerManagerType)
 	dockerPullCommand.SetCmdParams([]string{"pull", imageTag}).SetSkipLogin(skipLogin).SetImageTag(imageTag).SetRepo(sourceRepo).SetServerDetails(artDetails).SetBuildConfiguration(buildConfiguration)
 	err = commandWrappers.ShowDockerDeprecationMessageIfNeeded(containerManagerType, dockerPullCommand.IsGetRepoSupported)
 	if err != nil {
 		return err
 	}
-	return commands.Exec(dockerPullCommand)
+	if err = commands.Exec(dockerPullCommand); err != nil {
+		return err
+	}
+	if outputFormat == coreformat.None {
+		return nil
+	}
+	return printContainerPullResponse(imageTag, sourceRepo, outputFormat, os.Stdout)
+}
+
+// printContainerPullResponse renders the container pull result in the requested output format.
+func printContainerPullResponse(imageTag, sourceRepo string, outputFormat coreformat.OutputFormat, w io.Writer) error {
+	switch outputFormat {
+	case coreformat.Json:
+		return printContainerPullJSON(imageTag, sourceRepo)
+	case coreformat.Table:
+		return printContainerPullTable(imageTag, sourceRepo, w)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt podman-pull. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// printContainerPullJSON emits a JSON summary of the container pull operation to stdout via log.Output.
+func printContainerPullJSON(imageTag, sourceRepo string) error {
+	result := map[string]interface{}{
+		"status": "ok",
+		"image":  imageTag,
+		"repo":   sourceRepo,
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	log.Output(clientutils.IndentJson(data))
+	return nil
+}
+
+// printContainerPullTable renders a FIELD/VALUE table for the container pull operation.
+func printContainerPullTable(imageTag, sourceRepo string, w io.Writer) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
+	_, _ = fmt.Fprintf(tw, "status\t%s\n", "ok")
+	_, _ = fmt.Fprintf(tw, "image\t%s\n", imageTag)
+	_, _ = fmt.Fprintf(tw, "repo\t%s\n", sourceRepo)
+	return tw.Flush()
 }
 
 func BuildDockerCreateCmd(c *components.Context) error {
@@ -623,7 +802,53 @@ func nugetDepsTreeCmd(c *components.Context) error {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
 
-	return dotnet.DependencyTreeCmd()
+	content, err := dotnet.DependencyTreeCmd()
+	if err != nil {
+		return err
+	}
+	outputFormat, err := c.GetOutputFormat()
+	if err != nil {
+		return err
+	}
+	return printNugetDepsTreeResponse(content, outputFormat, os.Stdout)
+}
+
+// printNugetDepsTreeResponse renders the dependency tree in the requested output format.
+func printNugetDepsTreeResponse(data []byte, outputFormat coreformat.OutputFormat, w io.Writer) error {
+	switch outputFormat {
+	case coreformat.Json:
+		log.Output(clientutils.IndentJson(data))
+		return nil
+	case coreformat.Table:
+		return printNugetDepsTreeTable(data, w)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt nuget-deps-tree. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// nugetDepsTreeProject is used to unmarshal the projects array from the solution JSON.
+type nugetDepsTreeProject struct {
+	Name         string                 `json:"name"`
+	Dependencies map[string]interface{} `json:"dependencies"`
+}
+
+// nugetDepsTreeSolution is the top-level structure returned by solution.Marshal().
+type nugetDepsTreeSolution struct {
+	Projects []nugetDepsTreeProject `json:"projects"`
+}
+
+// printNugetDepsTreeTable renders the dependency tree as a table with PROJECT and DEPENDENCY_COUNT columns.
+func printNugetDepsTreeTable(data []byte, w io.Writer) error {
+	var sol nugetDepsTreeSolution
+	if err := json.Unmarshal(data, &sol); err != nil {
+		return errorutils.CheckErrorf("failed to parse nuget-deps-tree response: %s", err.Error())
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "PROJECT\tDEPENDENCY_COUNT")
+	for _, p := range sol.Projects {
+		_, _ = fmt.Fprintf(tw, "%s\t%d\n", p.Name, len(p.Dependencies))
+	}
+	return tw.Flush()
 }
 
 func pingCmd(c *components.Context) error {
@@ -634,16 +859,73 @@ func pingCmd(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-	pingCmd := coregeneric.NewPingCommand()
-	pingCmd.SetServerDetails(artDetails)
-	err = commands.Exec(pingCmd)
-	resString := clientutils.IndentJson(pingCmd.Response())
+	cmd := coregeneric.NewPingCommand()
+	cmd.SetServerDetails(artDetails)
+	err = commands.Exec(cmd)
+	resBody := cmd.Response()
+	resString := clientutils.IndentJson(resBody)
 	if err != nil {
 		return errors.New(err.Error() + "\n" + resString)
 	}
-	log.Output(resString)
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
+	}
+	return printPingResponse(resBody, outputFormat, os.Stdout)
+}
 
-	return err
+// printPingResponse renders the raw ping body in the requested output format.
+func printPingResponse(body []byte, outputFormat coreformat.OutputFormat, w io.Writer) error {
+	switch outputFormat {
+	case coreformat.None:
+		// Backward-compatible: print the raw (or indented) response as before.
+		log.Output(clientutils.IndentJson(body))
+		return nil
+	case coreformat.Json:
+		return printPingJSON(body)
+	case coreformat.Table:
+		return printPingTable(body, w)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt ping. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// pingResponse is the structured representation emitted for --format json / table.
+type pingResponse struct {
+	StatusCode int    `json:"status_code"`
+	Message    string `json:"message"`
+}
+
+// pingResponseFromBody builds a pingResponse from the raw HTTP body.
+// The body is expected to be plain text (e.g. "OK"). A 200 status is assumed
+// because error responses are handled before this function is called.
+func pingResponseFromBody(body []byte) pingResponse {
+	msg := http.StatusText(http.StatusOK)
+	if len(body) > 0 {
+		msg = strings.TrimSpace(string(body))
+	}
+	return pingResponse{StatusCode: http.StatusOK, Message: msg}
+}
+
+// printPingJSON emits the ping result as indented JSON.
+func printPingJSON(body []byte) error {
+	resp := pingResponseFromBody(body)
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	log.Output(clientutils.IndentJson(data))
+	return nil
+}
+
+// printPingTable renders the ping result as a two-column tabwriter table.
+func printPingTable(body []byte, w io.Writer) error {
+	resp := pingResponseFromBody(body)
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
+	_, _ = fmt.Fprintf(tw, "status_code\t%d\n", resp.StatusCode)
+	_, _ = fmt.Fprintf(tw, "message\t%s\n", resp.Message)
+	return tw.Flush()
 }
 
 func prepareDownloadCommand(c *components.Context) (*spec.SpecFiles, error) {
@@ -746,7 +1028,7 @@ func parseStringToBool(value string) (bool, error) {
 	return boolValue, nil
 }
 
-func directDownloadCmd(c *components.Context) error {
+func directDownloadCmd(c *components.Context) (err error) {
 	downloadSpec, err := prepareDirectDownloadCommand(c)
 	if err != nil {
 		return err
@@ -772,27 +1054,40 @@ func directDownloadCmd(c *components.Context) error {
 	if err != nil {
 		return err
 	}
+	outputFormat, err := c.GetOutputFormat()
+	if err != nil {
+		return err
+	}
+	detailedSummary := common.GetDetailedSummary(c)
+	// When a structured format is requested we need the per-file transfer details reader,
+	// so force detailed-summary mode regardless of the explicit flag.
+	needDetailedReader := outputFormat != coreformat.None
 
 	directDownloadCommand := generic.NewDirectDownloadCommand()
-	directDownloadCommand.SetConfiguration(configuration).SetBuildConfiguration(buildConfiguration).SetSpec(downloadSpec).SetServerDetails(serverDetails).SetDryRun(c.GetBoolFlagValue("dry-run")).SetSyncDeletesPath(c.GetStringFlagValue("sync-deletes")).SetQuiet(common.GetQuietValue(c)).SetDetailedSummary(c.GetBoolFlagValue("detailed-summary")).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
+	directDownloadCommand.SetConfiguration(configuration).SetBuildConfiguration(buildConfiguration).SetSpec(downloadSpec).SetServerDetails(serverDetails).SetDryRun(c.GetBoolFlagValue("dry-run")).SetSyncDeletesPath(c.GetStringFlagValue("sync-deletes")).SetQuiet(common.GetQuietValue(c)).SetDetailedSummary(detailedSummary || needDetailedReader).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
 
 	if directDownloadCommand.ShouldPrompt() && !coreutils.AskYesNo("Sync-deletes may delete some files in your local file system. Are you sure you want to continue?\n"+
 		"You can avoid this confirmation message by adding --quiet to the command.", false) {
 		return nil
 	}
 
+	// This error is being checked later on because we need to generate summary report before return.
 	err = progressbar.ExecWithProgress(directDownloadCommand)
 	result := directDownloadCommand.Result()
 	defer common.CleanupResult(result, &err)
-	basicSummary, err := common.CreateSummaryReportString(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
-	if err != nil {
-		return err
+	if outputFormat == coreformat.None {
+		basicSummary, sErr := common.CreateSummaryReportString(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+		if sErr != nil {
+			return sErr
+		}
+		err = common.PrintDetailedSummaryReport(basicSummary, result.Reader(), false, err)
+		return common.GetCliError(err, result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c))
 	}
-	err = common.PrintDetailedSummaryReport(basicSummary, result.Reader(), false, err)
-	return common.GetCliError(err, result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c))
+	err = printDirectDownloadResponse(result, outputFormat, os.Stdout, common.IsFailNoOp(c), err)
+	return
 }
 
-func downloadCmd(c *components.Context) error {
+func downloadCmd(c *components.Context) (err error) {
 	downloadSpec, err := prepareDownloadCommand(c)
 	if err != nil {
 		return err
@@ -819,8 +1114,16 @@ func downloadCmd(c *components.Context) error {
 	if err != nil {
 		return err
 	}
+	outputFormat, err := c.GetOutputFormat()
+	if err != nil {
+		return err
+	}
+	detailedSummary := common.GetDetailedSummary(c)
+	// When a structured format is requested we need the per-file transfer details reader,
+	// so force detailed-summary mode regardless of the explicit flag.
+	needDetailedReader := outputFormat != coreformat.None
 	downloadCommand := generic.NewDownloadCommand()
-	downloadCommand.SetConfiguration(configuration).SetBuildConfiguration(buildConfiguration).SetSpec(downloadSpec).SetServerDetails(serverDetails).SetDryRun(c.GetBoolFlagValue("dry-run")).SetSyncDeletesPath(c.GetStringFlagValue("sync-deletes")).SetQuiet(common.GetQuietValue(c)).SetDetailedSummary(c.GetBoolFlagValue("detailed-summary")).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
+	downloadCommand.SetConfiguration(configuration).SetBuildConfiguration(buildConfiguration).SetSpec(downloadSpec).SetServerDetails(serverDetails).SetDryRun(c.GetBoolFlagValue("dry-run")).SetSyncDeletesPath(c.GetStringFlagValue("sync-deletes")).SetQuiet(common.GetQuietValue(c)).SetDetailedSummary(detailedSummary || needDetailedReader).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
 
 	if downloadCommand.ShouldPrompt() && !coreutils.AskYesNo("Sync-deletes may delete some files in your local file system. Are you sure you want to continue?\n"+
 		"You can avoid this confirmation message by adding --quiet to the command.", false) {
@@ -830,12 +1133,110 @@ func downloadCmd(c *components.Context) error {
 	err = progressbar.ExecWithProgress(downloadCommand)
 	result := downloadCommand.Result()
 	defer common.CleanupResult(result, &err)
-	basicSummary, err := common.CreateSummaryReportString(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
-	if err != nil {
+	if outputFormat == coreformat.None {
+		basicSummary, sErr := common.CreateSummaryReportString(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+		if sErr != nil {
+			return sErr
+		}
+		err = common.PrintDetailedSummaryReport(basicSummary, result.Reader(), false, err)
+		return common.GetCliError(err, result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c))
+	}
+	err = printDownloadResponse(result, outputFormat, os.Stdout, common.IsFailNoOp(c), err)
+	return
+}
+
+// printDownloadResponse renders the download result in the requested output format.
+// It preserves the fail-no-op and error-accounting semantics of PrintDetailedSummaryReport.
+func printDownloadResponse(result *commandUtils.Result, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		basicSummary, err := common.CreateSummaryReportString(result.SuccessCount(), result.FailCount(), failNoOp, originalErr)
+		if err != nil {
+			return err
+		}
+		return common.PrintDetailedSummaryReport(basicSummary, result.Reader(), false, originalErr)
+	case coreformat.Table:
+		err := printDownloadTable(result, w)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, result.SuccessCount(), result.FailCount(), failNoOp)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt download. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// downloadTableRow is a table-printable representation of a downloaded file.
+type downloadTableRow struct {
+	Source string `col-name:"SOURCE"`
+	Target string `col-name:"TARGET"`
+}
+
+// printDownloadTable renders downloaded files as a human-readable table.
+func printDownloadTable(result *commandUtils.Result, w io.Writer) error {
+	reader := result.Reader()
+	if reader == nil {
+		return printCountsTable(result.SuccessCount(), result.FailCount(), w)
+	}
+	var rows []downloadTableRow
+	for item := new(clientutils.FileTransferDetails); reader.NextRecord(item) == nil; item = new(clientutils.FileTransferDetails) {
+		rows = append(rows, downloadTableRow{
+			Source: item.RtUrl + item.SourcePath,
+			Target: item.TargetPath,
+		})
+	}
+	if err := reader.GetError(); err != nil {
 		return err
 	}
-	err = common.PrintDetailedSummaryReport(basicSummary, result.Reader(), false, err)
-	return common.GetCliError(err, result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c))
+	reader.Reset()
+	return coreutils.PrintTable(rows, "Download Results", "No files were downloaded.", false)
+}
+
+// printDirectDownloadResponse renders the direct-download result in the requested output format.
+// It preserves the fail-no-op and error-accounting semantics of PrintDetailedSummaryReport.
+func printDirectDownloadResponse(result *commandUtils.Result, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		basicSummary, err := common.CreateSummaryReportString(result.SuccessCount(), result.FailCount(), failNoOp, originalErr)
+		if err != nil {
+			return err
+		}
+		return common.PrintDetailedSummaryReport(basicSummary, result.Reader(), false, originalErr)
+	case coreformat.Table:
+		err := printDirectDownloadTable(result, w)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, result.SuccessCount(), result.FailCount(), failNoOp)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt direct-download. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// directDownloadTableRow is a table-printable representation of a directly downloaded file.
+type directDownloadTableRow struct {
+	Source string `col-name:"SOURCE"`
+	Target string `col-name:"TARGET"`
+}
+
+// printDirectDownloadTable renders directly downloaded files as a human-readable table.
+func printDirectDownloadTable(result *commandUtils.Result, w io.Writer) error {
+	reader := result.Reader()
+	if reader == nil {
+		return printCountsTable(result.SuccessCount(), result.FailCount(), w)
+	}
+	var rows []directDownloadTableRow
+	for item := new(clientutils.FileTransferDetails); reader.NextRecord(item) == nil; item = new(clientutils.FileTransferDetails) {
+		rows = append(rows, directDownloadTableRow{
+			Source: item.RtUrl + item.SourcePath,
+			Target: item.TargetPath,
+		})
+	}
+	if err := reader.GetError(); err != nil {
+		return err
+	}
+	reader.Reset()
+	return coreutils.PrintTable(rows, "Direct Download Results", "No files were downloaded.", false)
 }
 
 func checkRbExistenceInV2(c *components.Context) (bool, error) {
@@ -924,13 +1325,20 @@ func uploadCmd(c *components.Context) (err error) {
 	if err != nil {
 		return
 	}
+	outputFormat, err := c.GetOutputFormat()
+	if err != nil {
+		return
+	}
 	uploadCmd := generic.NewUploadCommand()
 	rtDetails, err := common.CreateArtifactoryDetailsByFlags(c)
 	if err != nil {
 		return
 	}
 	printDeploymentView, detailedSummary := log.IsStdErrTerminal(), common.GetDetailedSummary(c)
-	uploadCmd.SetUploadConfiguration(configuration).SetBuildConfiguration(buildConfiguration).SetSpec(uploadSpec).SetServerDetails(rtDetails).SetDryRun(c.GetBoolFlagValue("dry-run")).SetSyncDeletesPath(c.GetStringFlagValue("sync-deletes")).SetQuiet(common.GetQuietValue(c)).SetDetailedSummary(detailedSummary || printDeploymentView).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
+	// When a structured format is requested we need the per-file transfer details reader,
+	// so force detailed-summary mode regardless of the explicit flag.
+	needDetailedReader := outputFormat != coreformat.None
+	uploadCmd.SetUploadConfiguration(configuration).SetBuildConfiguration(buildConfiguration).SetSpec(uploadSpec).SetServerDetails(rtDetails).SetDryRun(c.GetBoolFlagValue("dry-run")).SetSyncDeletesPath(c.GetStringFlagValue("sync-deletes")).SetQuiet(common.GetQuietValue(c)).SetDetailedSummary(detailedSummary || printDeploymentView || needDetailedReader).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
 
 	if uploadCmd.ShouldPrompt() && !coreutils.AskYesNo("Sync-deletes may delete some artifacts in Artifactory. Are you sure you want to continue?\n"+
 		"You can avoid this confirmation message by adding --quiet to the command.", false) {
@@ -940,8 +1348,57 @@ func uploadCmd(c *components.Context) (err error) {
 	err = progressbar.ExecWithProgress(uploadCmd)
 	result := uploadCmd.Result()
 	defer common.CleanupResult(result, &err)
-	err = common.PrintCommandSummary(uploadCmd.Result(), detailedSummary, printDeploymentView, common.IsFailNoOp(c), err)
+	if outputFormat == coreformat.None {
+		err = common.PrintCommandSummary(uploadCmd.Result(), detailedSummary, printDeploymentView, common.IsFailNoOp(c), err)
+		return
+	}
+	err = printUploadResponse(result, outputFormat, os.Stdout, common.IsFailNoOp(c), err)
 	return
+}
+
+// printUploadResponse renders the upload result in the requested output format.
+// It preserves the fail-no-op and error-accounting semantics of PrintCommandSummary.
+func printUploadResponse(result *commandUtils.Result, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		return common.PrintCommandSummary(result, true, false, failNoOp, originalErr)
+	case coreformat.Table:
+		err := printUploadTable(result, w)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, result.SuccessCount(), result.FailCount(), failNoOp)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt upload. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// uploadTableRow is a table-printable representation of an uploaded file.
+type uploadTableRow struct {
+	Source string `col-name:"SOURCE"`
+	Target string `col-name:"TARGET"`
+	Sha256 string `col-name:"SHA256"`
+}
+
+// printUploadTable renders uploaded files as a human-readable table.
+func printUploadTable(result *commandUtils.Result, w io.Writer) error {
+	reader := result.Reader()
+	if reader == nil {
+		return printCountsTable(result.SuccessCount(), result.FailCount(), w)
+	}
+	var rows []uploadTableRow
+	for item := new(clientutils.FileTransferDetails); reader.NextRecord(item) == nil; item = new(clientutils.FileTransferDetails) {
+		rows = append(rows, uploadTableRow{
+			Source: item.SourcePath,
+			Target: item.RtUrl + item.TargetPath,
+			Sha256: item.Sha256,
+		})
+	}
+	if err := reader.GetError(); err != nil {
+		return err
+	}
+	reader.Reset()
+	return coreutils.PrintTable(rows, "Upload Results", "No files were uploaded.", false)
 }
 
 func prepareCopyMoveCommand(c *components.Context) (*spec.SpecFiles, error) {
@@ -974,7 +1431,7 @@ func moveCmd(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-	moveCmd := generic.NewMoveCommand()
+	mvCmd := generic.NewMoveCommand()
 	rtDetails, err := common.CreateArtifactoryDetailsByFlags(c)
 	if err != nil {
 		return err
@@ -991,10 +1448,38 @@ func moveCmd(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-	moveCmd.SetThreads(threads).SetDryRun(c.GetBoolFlagValue("dry-run")).SetServerDetails(rtDetails).SetSpec(moveSpec).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
-	err = commands.Exec(moveCmd)
-	result := moveCmd.Result()
-	return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+	mvCmd.SetThreads(threads).SetDryRun(c.GetBoolFlagValue("dry-run")).SetServerDetails(rtDetails).SetSpec(moveSpec).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
+	err = commands.Exec(mvCmd)
+	result := mvCmd.Result()
+
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
+	}
+	if outputFormat == coreformat.None {
+		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+	}
+	return printMoveResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
+}
+
+// printMoveResponse renders the move result in the requested output format.
+func printMoveResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		err := printSummaryJSON(succeeded, failed, failNoOp, originalErr)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	case coreformat.Table:
+		err := printCountsTable(succeeded, failed, w)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt move. Acceptable values are: json, table", outputFormat)
+	}
 }
 
 func copyCmd(c *components.Context) error {
@@ -1023,7 +1508,35 @@ func copyCmd(c *components.Context) error {
 	copyCommand.SetThreads(threads).SetSpec(copySpec).SetDryRun(c.GetBoolFlagValue("dry-run")).SetServerDetails(rtDetails).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
 	err = commands.Exec(copyCommand)
 	result := copyCommand.Result()
-	return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
+	}
+	if outputFormat == coreformat.None {
+		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+	}
+	return printCopyResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
+}
+
+// printCopyResponse renders the copy result in the requested output format.
+func printCopyResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		err := printSummaryJSON(succeeded, failed, failNoOp, originalErr)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	case coreformat.Table:
+		err := printCountsTable(succeeded, failed, w)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt copy. Acceptable values are: json, table", outputFormat)
+	}
 }
 
 // Prints a 'brief' (not detailed) summary and returns the appropriate exit error.
@@ -1084,7 +1597,35 @@ func deleteCmd(c *components.Context) error {
 	deleteCommand.SetThreads(threads).SetQuiet(common.GetQuietValue(c)).SetDryRun(c.GetBoolFlagValue("dry-run")).SetServerDetails(rtDetails).SetSpec(deleteSpec).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
 	err = commands.Exec(deleteCommand)
 	result := deleteCommand.Result()
-	return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
+	}
+	if outputFormat == coreformat.None {
+		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+	}
+	return printDeleteResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
+}
+
+// printDeleteResponse renders the delete result in the requested output format.
+func printDeleteResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		err := printSummaryJSON(succeeded, failed, failNoOp, originalErr)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	case coreformat.Table:
+		err := printCountsTable(succeeded, failed, w)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt delete. Acceptable values are: json, table", outputFormat)
+	}
 }
 
 func prepareSearchCommand(c *components.Context) (*spec.SpecFiles, error) {
@@ -1129,13 +1670,13 @@ func searchCmd(c *components.Context) (err error) {
 	if err != nil {
 		return
 	}
-	searchCmd := generic.NewSearchCommand()
-	searchCmd.SetServerDetails(artDetails).SetSpec(searchSpec).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
-	err = commands.Exec(searchCmd)
+	cmd := generic.NewSearchCommand()
+	cmd.SetServerDetails(artDetails).SetSpec(searchSpec).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
+	err = commands.Exec(cmd)
 	if err != nil {
 		return
 	}
-	reader := searchCmd.Result().Reader()
+	reader := cmd.Result().Reader()
 	defer ioutils.Close(reader, &err)
 	length, err := reader.Length()
 	if err != nil {
@@ -1145,11 +1686,57 @@ func searchCmd(c *components.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	if !c.GetBoolFlagValue("count") {
-		return utils.PrintSearchResults(reader)
+	if c.GetBoolFlagValue("count") {
+		log.Output(length)
+		return nil
 	}
-	log.Output(length)
-	return nil
+	outputFormat, err := c.GetOutputFormat()
+	if err != nil {
+		return err
+	}
+	return printSearchResponse(reader, outputFormat)
+}
+
+// searchTableRow is a table-printable representation of a search result item.
+type searchTableRow struct {
+	Path     string `col-name:"PATH"`
+	Type     string `col-name:"TYPE"`
+	Size     string `col-name:"SIZE"`
+	Created  string `col-name:"CREATED"`
+	Modified string `col-name:"MODIFIED"`
+	Sha256   string `col-name:"SHA256"`
+}
+
+// printSearchResponse renders ContentReader results in the requested output format.
+func printSearchResponse(reader *content.ContentReader, outputFormat coreformat.OutputFormat) error {
+	switch outputFormat {
+	case coreformat.Json:
+		return utils.PrintSearchResults(reader)
+	case coreformat.Table:
+		return printSearchTable(reader)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt search. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// printSearchTable prints search results as a human-readable table using coreutils.PrintTable.
+func printSearchTable(reader *content.ContentReader) error {
+	var rows []searchTableRow
+	for item := new(utils.SearchResult); reader.NextRecord(item) == nil; item = new(utils.SearchResult) {
+		rows = append(rows, searchTableRow{
+			Path:     item.Path,
+			Type:     item.Type,
+			Size:     fmt.Sprintf("%d", item.Size),
+			Created:  item.Created,
+			Modified: item.Modified,
+			Sha256:   item.Sha256,
+		})
+	}
+	if err := reader.GetError(); err != nil {
+		return err
+	}
+	reader.Reset()
+	return coreutils.PrintTable(rows, "Search Results", "No artifacts found.", false)
 }
 
 func preparePropsCmd(c *components.Context) (*generic.PropsCommand, error) {
@@ -1215,7 +1802,35 @@ func setPropsCmd(c *components.Context) error {
 	propsCmd.SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
 	err = commands.Exec(propsCmd)
 	result := propsCmd.Result()
-	return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
+	}
+	if outputFormat == coreformat.None {
+		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+	}
+	return printSetPropsResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
+}
+
+// printSetPropsResponse renders the set-props result in the requested output format.
+func printSetPropsResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		err := printSummaryJSON(succeeded, failed, failNoOp, originalErr)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	case coreformat.Table:
+		err := printCountsTable(succeeded, failed, w)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt set-props. Acceptable values are: json, table", outputFormat)
+	}
 }
 
 func deletePropsCmd(c *components.Context) error {
@@ -1235,7 +1850,35 @@ func deletePropsCmd(c *components.Context) error {
 	propsCmd.SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
 	err = commands.Exec(propsCmd)
 	result := propsCmd.Result()
-	return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
+	}
+	if outputFormat == coreformat.None {
+		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+	}
+	return printDeletePropsResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
+}
+
+// printDeletePropsResponse renders the delete-props result in the requested output format.
+func printDeletePropsResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		err := printSummaryJSON(succeeded, failed, failNoOp, originalErr)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	case coreformat.Table:
+		err := printCountsTable(succeeded, failed, w)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt delete-props. Acceptable values are: json, table", outputFormat)
+	}
 }
 
 func buildPublishCmd(c *components.Context) error {
@@ -1251,20 +1894,98 @@ func buildPublishCmd(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-	buildPublishCmd := buildinfo.NewBuildPublishCommand().SetServerDetails(rtDetails).SetBuildConfiguration(buildConfiguration).SetConfig(buildInfoConfiguration).SetDetailedSummary(common.GetDetailedSummary(c))
-	buildPublishCmd.SetCollectEnv(c.GetBoolFlagValue("collect-env"))
-	buildPublishCmd.SetCollectGitInfo(c.GetBoolFlagValue("collect-git-info"))
-	buildPublishCmd.SetDotGitPath(c.GetStringFlagValue("dot-git-path"))
-	buildPublishCmd.SetConfigFilePath(c.GetStringFlagValue("git-config-file-path"))
-	buildPublishCmd.SetDepExcludeScopes(c.GetStringsArrFlagValue("dep-exclude-scopes"))
 
-	err = commands.Exec(buildPublishCmd)
-	if buildPublishCmd.IsDetailedSummary() {
-		if publishedSummary := buildPublishCmd.GetSummary(); publishedSummary != nil {
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
+	}
+
+	cmd := buildinfo.NewBuildPublishCommand().SetServerDetails(rtDetails).SetBuildConfiguration(buildConfiguration).SetConfig(buildInfoConfiguration).SetDetailedSummary(common.GetDetailedSummary(c))
+	cmd.SetCollectEnv(c.GetBoolFlagValue("collect-env"))
+	cmd.SetCollectGitInfo(c.GetBoolFlagValue("collect-git-info"))
+	cmd.SetDotGitPath(c.GetStringFlagValue("dot-git-path"))
+	cmd.SetConfigFilePath(c.GetStringFlagValue("git-config-file-path"))
+	cmd.SetDepExcludeScopes(c.GetStringsArrFlagValue("dep-exclude-scopes"))
+
+	// When --format is set, suppress the internal logJsonOutput call so that the
+	// CLI layer can render the URL itself, and collect sha256.
+	if outputFormat != coreformat.None {
+		cmd.SetSuppressOutput(true)
+		cmd.SetCollectSha256(true)
+	}
+
+	err = commands.Exec(cmd)
+
+	// When --detailed-summary is set and --format is NOT set, keep the
+	// existing SHA-256 summary behaviour.
+	if cmd.IsDetailedSummary() && outputFormat == coreformat.None {
+		if publishedSummary := cmd.GetSummary(); publishedSummary != nil {
 			return summary.PrintBuildInfoSummaryReport(publishedSummary.IsSucceeded(), publishedSummary.GetSha256(), err)
 		}
 	}
-	return err
+
+	if outputFormat == coreformat.None {
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	var sha256 string
+	if s := cmd.GetSummary(); s != nil {
+		sha256 = s.GetSha256()
+	}
+	return printBuildPublishResponse(cmd.GetBuildInfoUiUrl(), sha256, outputFormat, os.Stdout)
+}
+
+// printBuildPublishResponse renders the build-publish result in the requested output format.
+func printBuildPublishResponse(buildInfoUiUrl, sha256 string, outputFormat coreformat.OutputFormat, w io.Writer) error {
+	switch outputFormat {
+	case coreformat.Json:
+		return printBuildPublishJSON(buildInfoUiUrl, sha256)
+	case coreformat.Table:
+		return printBuildPublishTable(buildInfoUiUrl, sha256, w)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt build-publish. Acceptable values are: json, table", outputFormat)
+	}
+}
+
+// buildPublishFormatOutput is the structured output for --format json/table.
+// Separate from the stable formats.BuildPublishOutput API struct to allow adding fields.
+type buildPublishFormatOutput struct {
+	BuildInfoUiUrl string `json:"buildInfoUiUrl"`
+	Sha256         string `json:"sha256,omitempty"`
+}
+
+func (o *buildPublishFormatOutput) json() ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(o); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// printBuildPublishJSON emits the build-publish result as indented JSON.
+func printBuildPublishJSON(buildInfoUiUrl, sha256 string) error {
+	output := &buildPublishFormatOutput{BuildInfoUiUrl: buildInfoUiUrl, Sha256: sha256}
+	data, err := output.json()
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	log.Output(clientutils.IndentJson(data))
+	return nil
+}
+
+// printBuildPublishTable renders the build-publish result as a two-column tabwriter table.
+func printBuildPublishTable(buildInfoUiUrl, sha256 string, w io.Writer) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE")
+	_, _ = fmt.Fprintf(tw, "buildInfoUiUrl\t%s\n", buildInfoUiUrl)
+	if sha256 != "" {
+		_, _ = fmt.Fprintf(tw, "sha256\t%s\n", sha256)
+	}
+	return tw.Flush()
 }
 
 func buildAppendCmd(c *components.Context) error {
@@ -1323,7 +2044,35 @@ func buildAddDependenciesCmd(c *components.Context) error {
 	buildAddDependenciesCmd := buildinfo.NewBuildAddDependenciesCommand().SetDryRun(c.GetBoolFlagValue("dry-run")).SetBuildConfiguration(buildConfiguration).SetDependenciesSpec(dependenciesSpec).SetServerDetails(rtDetails)
 	err = commands.Exec(buildAddDependenciesCmd)
 	result := buildAddDependenciesCmd.Result()
-	return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
+	}
+	if outputFormat == coreformat.None {
+		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
+	}
+	return printBuildAddDependenciesResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
+}
+
+// printBuildAddDependenciesResponse renders the build-add-dependencies result in the requested output format.
+func printBuildAddDependenciesResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		err := printSummaryJSON(succeeded, failed, failNoOp, originalErr)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	case coreformat.Table:
+		err := printCountsTable(succeeded, failed, w)
+		if err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt build-add-dependencies. Acceptable values are: json, table", outputFormat)
+	}
 }
 
 func buildCollectEnvCmd(c *components.Context) error {
@@ -1403,6 +2152,12 @@ func buildPromoteCmd(c *components.Context) error {
 	if c.GetNumberOfArgs() > 3 {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
+
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
+	}
+
 	configuration := createBuildPromoteConfiguration(c)
 	rtDetails, err := common.CreateArtifactoryDetailsByFlags(c)
 	if err != nil {
@@ -1413,25 +2168,51 @@ func buildPromoteCmd(c *components.Context) error {
 		return err
 	}
 	buildPromotionCmd := buildinfo.NewBuildPromotionCommand().SetDryRun(c.GetBoolFlagValue("dry-run")).SetServerDetails(rtDetails).SetPromotionParams(configuration).SetBuildConfiguration(buildConfiguration)
-	return commands.Exec(buildPromotionCmd)
+	if err = commands.Exec(buildPromotionCmd); err != nil {
+		return err
+	}
+
+	// error == nil guarantees the server responded with 200.
+	// The client layer discards the body, so we pass nil and let the helper
+	// synthesize {"status_code": 200, "message": "OK"}.
+	if outputFormat != coreformat.None {
+		printStatusJSON(200, "OK")
+	}
+	return nil
 }
 
 func buildDiscardCmd(c *components.Context) error {
 	if c.GetNumberOfArgs() > 1 {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
+
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
+	}
+
 	configuration := createBuildDiscardConfiguration(c)
 	if configuration.BuildName == "" {
 		return common.PrintHelpAndReturnError("Build name is expected as a command argument or environment variable.", c)
 	}
-	buildDiscardCmd := buildinfo.NewBuildDiscardCommand()
+	buildDiscardCommand := buildinfo.NewBuildDiscardCommand()
 	rtDetails, err := common.CreateArtifactoryDetailsByFlags(c)
 	if err != nil {
 		return err
 	}
-	buildDiscardCmd.SetServerDetails(rtDetails).SetDiscardBuildsParams(configuration)
+	buildDiscardCommand.SetServerDetails(rtDetails).SetDiscardBuildsParams(configuration)
 
-	return commands.Exec(buildDiscardCmd)
+	if err = commands.Exec(buildDiscardCommand); err != nil {
+		return err
+	}
+
+	// error == nil guarantees the server responded with 204 No Content.
+	// The client layer discards the body, so we pass nil and let the helper
+	// synthesize {"status_code": 204, "message": "No Content"}.
+	if outputFormat != coreformat.None {
+		printStatusJSON(204, "No Content")
+	}
+	return nil
 }
 
 func gitLfsCleanCmd(c *components.Context) error {
@@ -1454,7 +2235,33 @@ func gitLfsCleanCmd(c *components.Context) error {
 	}
 	gitLfsCmd.SetConfiguration(configuration).SetServerDetails(rtDetails).SetDryRun(c.GetBoolFlagValue("dry-run")).SetRetries(retries).SetRetryWaitMilliSecs(retryWaitTime)
 
-	return commands.Exec(gitLfsCmd)
+	err = commands.Exec(gitLfsCmd)
+	succeeded, total := gitLfsCmd.Result()
+	failed := total - succeeded
+
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
+	}
+	if outputFormat == coreformat.None {
+		return err
+	}
+	return printGitLfsCleanResponse(succeeded, failed, outputFormat, os.Stdout, err)
+}
+
+// printGitLfsCleanResponse renders the git-lfs-clean result in the requested output format.
+func printGitLfsCleanResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		if err := printSummaryJSON(succeeded, failed, false, originalErr); err != nil {
+			return err
+		}
+		return originalErr
+	case coreformat.Table:
+		return printCountsTable(succeeded, failed, w)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt git-lfs-clean. Acceptable values are: json, table", outputFormat)
+	}
 }
 
 func curlCmd(c *components.Context) error {
@@ -1515,15 +2322,30 @@ func repoCreateCmd(c *components.Context) error {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
 
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
+	}
+
 	rtDetails, err := common.CreateArtifactoryDetailsByFlags(c)
 	if err != nil {
 		return err
 	}
 
 	// Run command.
-	repoCreateCmd := repository.NewRepoCreateCommand()
-	repoCreateCmd.SetTemplatePath(c.GetArgumentAt(0)).SetServerDetails(rtDetails).SetVars(c.GetStringFlagValue("vars"))
-	return commands.Exec(repoCreateCmd)
+	repoCreateCommand := repository.NewRepoCreateCommand()
+	repoCreateCommand.SetTemplatePath(c.GetArgumentAt(0)).SetServerDetails(rtDetails).SetVars(c.GetStringFlagValue("vars"))
+	if err = commands.Exec(repoCreateCommand); err != nil {
+		return err
+	}
+
+	// error == nil guarantees the server responded with 200.
+	// The client layer discards the body, so we pass nil and let the helper
+	// synthesize {"status_code": 200, "message": "OK"}.
+	if outputFormat != coreformat.None {
+		printStatusJSON(200, "OK")
+	}
+	return nil
 }
 
 func repoUpdateCmd(c *components.Context) error {
@@ -1531,15 +2353,30 @@ func repoUpdateCmd(c *components.Context) error {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
 
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
+	}
+
 	rtDetails, err := common.CreateArtifactoryDetailsByFlags(c)
 	if err != nil {
 		return err
 	}
 
 	// Run command.
-	repoUpdateCmd := repository.NewRepoUpdateCommand()
-	repoUpdateCmd.SetTemplatePath(c.GetArgumentAt(0)).SetServerDetails(rtDetails).SetVars(c.GetStringFlagValue("vars"))
-	return commands.Exec(repoUpdateCmd)
+	repoUpdateCommand := repository.NewRepoUpdateCommand()
+	repoUpdateCommand.SetTemplatePath(c.GetArgumentAt(0)).SetServerDetails(rtDetails).SetVars(c.GetStringFlagValue("vars"))
+	if err = commands.Exec(repoUpdateCommand); err != nil {
+		return err
+	}
+
+	// error == nil guarantees the server responded with 200.
+	// The client layer discards the body, so we pass nil and let the helper
+	// synthesize {"status_code": 200, "message": "OK"}.
+	if outputFormat != coreformat.None {
+		printStatusJSON(200, "OK")
+	}
+	return nil
 }
 
 func repoDeleteCmd(c *components.Context) error {
@@ -1570,13 +2407,29 @@ func replicationCreateCmd(c *components.Context) error {
 	if c.GetNumberOfArgs() != 1 {
 		return common.WrongNumberOfArgumentsHandler(c)
 	}
+
+	outputFormat, fmtErr := c.GetOutputFormat()
+	if fmtErr != nil {
+		return fmtErr
+	}
+
 	rtDetails, err := common.CreateArtifactoryDetailsByFlags(c)
 	if err != nil {
 		return err
 	}
-	replicationCreateCmd := replication.NewReplicationCreateCommand()
-	replicationCreateCmd.SetTemplatePath(c.GetArgumentAt(0)).SetServerDetails(rtDetails).SetVars(c.GetStringFlagValue("vars"))
-	return commands.Exec(replicationCreateCmd)
+	replicationCreateCommand := replication.NewReplicationCreateCommand()
+	replicationCreateCommand.SetTemplatePath(c.GetArgumentAt(0)).SetServerDetails(rtDetails).SetVars(c.GetStringFlagValue("vars"))
+	if err = commands.Exec(replicationCreateCommand); err != nil {
+		return err
+	}
+
+	// error == nil guarantees the server responded with 200.
+	// The client layer discards the body, so we pass nil and let the helper
+	// synthesize {"status_code": 200, "message": "OK"}.
+	if outputFormat != coreformat.None {
+		printStatusJSON(200, "OK")
+	}
+	return nil
 }
 
 func replicationDeleteCmd(c *components.Context) error {

@@ -142,6 +142,9 @@ func TestPrintBuildInfoLink(t *testing.T) {
 			false,
 			false,
 			nil,
+			"",
+			false,
+			false,
 			BuildAddGitCommand{},
 		}
 		buildPubComService, err := buildPubConf.getBuildInfoUiUrl(linkTypes[i].majorVersion, linkTypes[i].buildTime)
