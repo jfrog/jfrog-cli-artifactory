@@ -77,10 +77,12 @@ func (sc *SearchCommand) runSkillsAPISearch() error {
 	}
 
 	var results []searchResult
+	var failedRepos []string
 	for _, repo := range repos {
 		items, err := common.SearchSkills(sc.serverDetails, repo, sc.query, 50)
 		if err != nil {
-			log.Debug(fmt.Sprintf("Search failed for repo '%s': %s", repo, err.Error()))
+			log.Warn(fmt.Sprintf("Search failed for repo '%s': %s", repo, err.Error()))
+			failedRepos = append(failedRepos, repo)
 			continue
 		}
 		for _, item := range items {
@@ -91,6 +93,10 @@ func (sc *SearchCommand) runSkillsAPISearch() error {
 				Description: item.Description,
 			})
 		}
+	}
+
+	if len(results) == 0 && len(failedRepos) == len(repos) {
+		return fmt.Errorf("search failed for all %d repositories: %s", len(repos), strings.Join(failedRepos, ", "))
 	}
 
 	return sc.printResults(results)
