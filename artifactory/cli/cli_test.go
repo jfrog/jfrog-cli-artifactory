@@ -105,7 +105,11 @@ func TestPrintSearchTable_WithResults(t *testing.T) {
 		{"path": "my-repo/a/c/other.zip", "type": "file", "size": 999, "sha256": "cafebabe"},
 	}
 	reader := createSearchContentReader(t, items)
-	defer reader.Close()
+	defer func() {
+		if err := reader.Close(); err != nil {
+			t.Logf("reader.Close() error: %v", err)
+		}
+	}()
 
 	err := printSearchTable(reader)
 	assert.NoError(t, err)
@@ -113,7 +117,11 @@ func TestPrintSearchTable_WithResults(t *testing.T) {
 
 func TestPrintSearchTable_EmptyResults(t *testing.T) {
 	reader := createSearchContentReader(t, nil)
-	defer reader.Close()
+	defer func() {
+		if err := reader.Close(); err != nil {
+			t.Logf("reader.Close() error: %v", err)
+		}
+	}()
 
 	err := printSearchTable(reader)
 	assert.NoError(t, err)
@@ -388,7 +396,12 @@ func TestPrintDownloadTable_NoReader_FallsBackToCountsTable(t *testing.T) {
 
 func TestPrintDownloadTable_EmptyReader(t *testing.T) {
 	result := createDownloadResult(t, 0, 0, []clientutils.FileTransferDetails{})
-	defer result.Reader().Close()
+	r := result.Reader()
+	defer func() {
+		if err := r.Close(); err != nil {
+			t.Logf("reader.Close() error: %v", err)
+		}
+	}()
 
 	var buf bytes.Buffer
 	err := printDownloadTable(result, &buf)
@@ -624,7 +637,12 @@ func TestPrintContainerPushTable_WithResults(t *testing.T) {
 		{TargetPath: "myrepo/sha256:ddeeff", RtUrl: "https://myrt.example.com/", Sha256: "ddeeff"},
 	}
 	result := createContainerPushResult(t, 2, 0, transfers)
-	defer result.Reader().Close()
+	r := result.Reader()
+	defer func() {
+		if err := r.Close(); err != nil {
+			t.Logf("reader.Close() error: %v", err)
+		}
+	}()
 
 	var buf bytes.Buffer
 	err := printContainerPushTable(result, &buf)
@@ -650,7 +668,12 @@ func TestPrintContainerPushTable_NoReader_FallsBackToCountsTable(t *testing.T) {
 
 func TestPrintContainerPushTable_EmptyReader(t *testing.T) {
 	result := createContainerPushResult(t, 0, 0, []clientutils.FileTransferDetails{})
-	defer result.Reader().Close()
+	r := result.Reader()
+	defer func() {
+		if err := r.Close(); err != nil {
+			t.Logf("reader.Close() error: %v", err)
+		}
+	}()
 
 	var buf bytes.Buffer
 	err := printContainerPushTable(result, &buf)
@@ -1249,9 +1272,15 @@ func TestPrintSummaryJSONFailureStatus(t *testing.T) {
 }
 
 func TestPrintStatusJSONOK(t *testing.T) {
-	require.NotPanics(t, func() { printStatusJSON(200, "OK") })
+	require.NotPanics(t, func() {
+		err := printStatusJSON(200, "OK")
+		assert.NoError(t, err)
+	})
 }
 
 func TestPrintStatusJSONNoContent(t *testing.T) {
-	require.NotPanics(t, func() { printStatusJSON(204, "No Content") })
+	require.NotPanics(t, func() {
+		err := printStatusJSON(204, "No Content")
+		assert.NoError(t, err)
+	})
 }
