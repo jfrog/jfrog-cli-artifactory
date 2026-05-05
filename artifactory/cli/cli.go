@@ -532,15 +532,22 @@ func dockerPromoteCmd(c *components.Context) error {
 	// The client layer discards the body, so we pass nil and let the helper
 	// synthesize {"status_code": 200, "message": "OK"}.
 	if outputFormat != coreformat.None {
-		printStatusJSON(200, "OK")
+		return printStatusJSON(200, "OK")
 	}
 	return nil
 }
 
 // printStatusJSON emits a synthetic JSON response with the given HTTP status code and message.
-func printStatusJSON(statusCode int, message string) {
-	data, _ := json.Marshal(map[string]interface{}{"status_code": statusCode, "message": message})
+func printStatusJSON(statusCode int, message string) error {
+	data, err := json.Marshal(struct {
+		StatusCode int    `json:"status_code"`
+		Message    string `json:"message"`
+	}{StatusCode: statusCode, Message: message})
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
 	log.Output(clientutils.IndentJson(data))
+	return nil
 }
 
 // printCountsTable writes a two-row FIELD/VALUE tabwriter table with success and failure counts.
@@ -550,6 +557,24 @@ func printCountsTable(succeeded, failed int, w io.Writer) error {
 	_, _ = fmt.Fprintf(tw, "success\t%d\n", succeeded)
 	_, _ = fmt.Fprintf(tw, "failure\t%d\n", failed)
 	return tw.Flush()
+}
+
+// printCountBasedResponse renders a succeeded/failed count result in the requested output format.
+func printCountBasedResponse(cmdName string, succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
+	switch outputFormat {
+	case coreformat.Json:
+		if err := printSummaryJSON(succeeded, failed, failNoOp, originalErr); err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	case coreformat.Table:
+		if err := printCountsTable(succeeded, failed, w); err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
+	default:
+		return errorutils.CheckErrorf("unsupported format '%s' for rt %s. Acceptable values are: json, table", outputFormat, cmdName)
+	}
 }
 
 // printSummaryJSON marshals a summary report to indented JSON and writes it to the log output.
@@ -1213,21 +1238,15 @@ func printDirectDownloadResponse(result *commandUtils.Result, outputFormat coref
 	}
 }
 
-// directDownloadTableRow is a table-printable representation of a directly downloaded file.
-type directDownloadTableRow struct {
-	Source string `col-name:"SOURCE"`
-	Target string `col-name:"TARGET"`
-}
-
 // printDirectDownloadTable renders directly downloaded files as a human-readable table.
 func printDirectDownloadTable(result *commandUtils.Result, w io.Writer) error {
 	reader := result.Reader()
 	if reader == nil {
 		return printCountsTable(result.SuccessCount(), result.FailCount(), w)
 	}
-	var rows []directDownloadTableRow
+	var rows []downloadTableRow
 	for item := new(clientutils.FileTransferDetails); reader.NextRecord(item) == nil; item = new(clientutils.FileTransferDetails) {
-		rows = append(rows, directDownloadTableRow{
+		rows = append(rows, downloadTableRow{
 			Source: item.RtUrl + item.SourcePath,
 			Target: item.TargetPath,
 		})
@@ -1459,27 +1478,7 @@ func moveCmd(c *components.Context) error {
 	if outputFormat == coreformat.None {
 		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
 	}
-	return printMoveResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
-}
-
-// printMoveResponse renders the move result in the requested output format.
-func printMoveResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
-	switch outputFormat {
-	case coreformat.Json:
-		err := printSummaryJSON(succeeded, failed, failNoOp, originalErr)
-		if err != nil {
-			return err
-		}
-		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
-	case coreformat.Table:
-		err := printCountsTable(succeeded, failed, w)
-		if err != nil {
-			return err
-		}
-		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
-	default:
-		return errorutils.CheckErrorf("unsupported format '%s' for rt move. Acceptable values are: json, table", outputFormat)
-	}
+	return printCountBasedResponse("move", result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
 }
 
 func copyCmd(c *components.Context) error {
@@ -1516,27 +1515,7 @@ func copyCmd(c *components.Context) error {
 	if outputFormat == coreformat.None {
 		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
 	}
-	return printCopyResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
-}
-
-// printCopyResponse renders the copy result in the requested output format.
-func printCopyResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
-	switch outputFormat {
-	case coreformat.Json:
-		err := printSummaryJSON(succeeded, failed, failNoOp, originalErr)
-		if err != nil {
-			return err
-		}
-		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
-	case coreformat.Table:
-		err := printCountsTable(succeeded, failed, w)
-		if err != nil {
-			return err
-		}
-		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
-	default:
-		return errorutils.CheckErrorf("unsupported format '%s' for rt copy. Acceptable values are: json, table", outputFormat)
-	}
+	return printCountBasedResponse("copy", result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
 }
 
 // Prints a 'brief' (not detailed) summary and returns the appropriate exit error.
@@ -1605,27 +1584,7 @@ func deleteCmd(c *components.Context) error {
 	if outputFormat == coreformat.None {
 		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
 	}
-	return printDeleteResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
-}
-
-// printDeleteResponse renders the delete result in the requested output format.
-func printDeleteResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
-	switch outputFormat {
-	case coreformat.Json:
-		err := printSummaryJSON(succeeded, failed, failNoOp, originalErr)
-		if err != nil {
-			return err
-		}
-		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
-	case coreformat.Table:
-		err := printCountsTable(succeeded, failed, w)
-		if err != nil {
-			return err
-		}
-		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
-	default:
-		return errorutils.CheckErrorf("unsupported format '%s' for rt delete. Acceptable values are: json, table", outputFormat)
-	}
+	return printCountBasedResponse("delete", result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
 }
 
 func prepareSearchCommand(c *components.Context) (*spec.SpecFiles, error) {
@@ -1810,27 +1769,7 @@ func setPropsCmd(c *components.Context) error {
 	if outputFormat == coreformat.None {
 		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
 	}
-	return printSetPropsResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
-}
-
-// printSetPropsResponse renders the set-props result in the requested output format.
-func printSetPropsResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
-	switch outputFormat {
-	case coreformat.Json:
-		err := printSummaryJSON(succeeded, failed, failNoOp, originalErr)
-		if err != nil {
-			return err
-		}
-		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
-	case coreformat.Table:
-		err := printCountsTable(succeeded, failed, w)
-		if err != nil {
-			return err
-		}
-		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
-	default:
-		return errorutils.CheckErrorf("unsupported format '%s' for rt set-props. Acceptable values are: json, table", outputFormat)
-	}
+	return printCountBasedResponse("set-props", result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
 }
 
 func deletePropsCmd(c *components.Context) error {
@@ -1858,27 +1797,7 @@ func deletePropsCmd(c *components.Context) error {
 	if outputFormat == coreformat.None {
 		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
 	}
-	return printDeletePropsResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
-}
-
-// printDeletePropsResponse renders the delete-props result in the requested output format.
-func printDeletePropsResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
-	switch outputFormat {
-	case coreformat.Json:
-		err := printSummaryJSON(succeeded, failed, failNoOp, originalErr)
-		if err != nil {
-			return err
-		}
-		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
-	case coreformat.Table:
-		err := printCountsTable(succeeded, failed, w)
-		if err != nil {
-			return err
-		}
-		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
-	default:
-		return errorutils.CheckErrorf("unsupported format '%s' for rt delete-props. Acceptable values are: json, table", outputFormat)
-	}
+	return printCountBasedResponse("delete-props", result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
 }
 
 func buildPublishCmd(c *components.Context) error {
@@ -2052,29 +1971,10 @@ func buildAddDependenciesCmd(c *components.Context) error {
 	if outputFormat == coreformat.None {
 		return printBriefSummaryAndGetError(result.SuccessCount(), result.FailCount(), common.IsFailNoOp(c), err)
 	}
-	return printBuildAddDependenciesResponse(result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
+	return printCountBasedResponse("build-add-dependencies", result.SuccessCount(), result.FailCount(), outputFormat, os.Stdout, common.IsFailNoOp(c), err)
 }
 
 // printBuildAddDependenciesResponse renders the build-add-dependencies result in the requested output format.
-func printBuildAddDependenciesResponse(succeeded, failed int, outputFormat coreformat.OutputFormat, w io.Writer, failNoOp bool, originalErr error) error {
-	switch outputFormat {
-	case coreformat.Json:
-		err := printSummaryJSON(succeeded, failed, failNoOp, originalErr)
-		if err != nil {
-			return err
-		}
-		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
-	case coreformat.Table:
-		err := printCountsTable(succeeded, failed, w)
-		if err != nil {
-			return err
-		}
-		return common.GetCliError(originalErr, succeeded, failed, failNoOp)
-	default:
-		return errorutils.CheckErrorf("unsupported format '%s' for rt build-add-dependencies. Acceptable values are: json, table", outputFormat)
-	}
-}
-
 func buildCollectEnvCmd(c *components.Context) error {
 	if c.GetNumberOfArgs() > 2 {
 		return common.WrongNumberOfArgumentsHandler(c)
@@ -2176,7 +2076,7 @@ func buildPromoteCmd(c *components.Context) error {
 	// The client layer discards the body, so we pass nil and let the helper
 	// synthesize {"status_code": 200, "message": "OK"}.
 	if outputFormat != coreformat.None {
-		printStatusJSON(200, "OK")
+		return printStatusJSON(200, "OK")
 	}
 	return nil
 }
@@ -2210,7 +2110,7 @@ func buildDiscardCmd(c *components.Context) error {
 	// The client layer discards the body, so we pass nil and let the helper
 	// synthesize {"status_code": 204, "message": "No Content"}.
 	if outputFormat != coreformat.None {
-		printStatusJSON(204, "No Content")
+		return printStatusJSON(204, "No Content")
 	}
 	return nil
 }
@@ -2258,7 +2158,10 @@ func printGitLfsCleanResponse(succeeded, failed int, outputFormat coreformat.Out
 		}
 		return originalErr
 	case coreformat.Table:
-		return printCountsTable(succeeded, failed, w)
+		if err := printCountsTable(succeeded, failed, w); err != nil {
+			return err
+		}
+		return common.GetCliError(originalErr, succeeded, failed, false)
 	default:
 		return errorutils.CheckErrorf("unsupported format '%s' for rt git-lfs-clean. Acceptable values are: json, table", outputFormat)
 	}
@@ -2343,7 +2246,7 @@ func repoCreateCmd(c *components.Context) error {
 	// The client layer discards the body, so we pass nil and let the helper
 	// synthesize {"status_code": 200, "message": "OK"}.
 	if outputFormat != coreformat.None {
-		printStatusJSON(200, "OK")
+		return printStatusJSON(200, "OK")
 	}
 	return nil
 }
@@ -2374,7 +2277,7 @@ func repoUpdateCmd(c *components.Context) error {
 	// The client layer discards the body, so we pass nil and let the helper
 	// synthesize {"status_code": 200, "message": "OK"}.
 	if outputFormat != coreformat.None {
-		printStatusJSON(200, "OK")
+		return printStatusJSON(200, "OK")
 	}
 	return nil
 }
@@ -2427,7 +2330,7 @@ func replicationCreateCmd(c *components.Context) error {
 	// The client layer discards the body, so we pass nil and let the helper
 	// synthesize {"status_code": 200, "message": "OK"}.
 	if outputFormat != coreformat.None {
-		printStatusJSON(200, "OK")
+		return printStatusJSON(200, "OK")
 	}
 	return nil
 }

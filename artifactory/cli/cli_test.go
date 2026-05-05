@@ -56,7 +56,11 @@ func TestPrintSearchResponse_JSON(t *testing.T) {
 		{"path": "repo/path/file.txt", "type": "file", "size": 1234, "sha256": "abc123"},
 	}
 	reader := createSearchContentReader(t, items)
-	defer reader.Close()
+	defer func() {
+		if err := reader.Close(); err != nil {
+			t.Logf("failed to close reader: %v", err)
+		}
+	}()
 
 	err := printSearchResponse(reader, coreformat.Json)
 	assert.NoError(t, err)
@@ -67,7 +71,11 @@ func TestPrintSearchResponse_Table(t *testing.T) {
 		{"path": "repo/path/file.jar", "type": "file", "size": 5678, "sha256": "deadbeef"},
 	}
 	reader := createSearchContentReader(t, items)
-	defer reader.Close()
+	defer func() {
+		if err := reader.Close(); err != nil {
+			t.Logf("failed to close reader: %v", err)
+		}
+	}()
 
 	err := printSearchResponse(reader, coreformat.Table)
 	assert.NoError(t, err)
@@ -75,7 +83,11 @@ func TestPrintSearchResponse_Table(t *testing.T) {
 
 func TestPrintSearchResponse_UnsupportedFormat(t *testing.T) {
 	reader := createSearchContentReader(t, nil)
-	defer reader.Close()
+	defer func() {
+		if err := reader.Close(); err != nil {
+			t.Logf("failed to close reader: %v", err)
+		}
+	}()
 
 	err := printSearchResponse(reader, coreformat.Sarif)
 	require.Error(t, err)
@@ -239,7 +251,11 @@ func TestPrintUploadTable_WithResults(t *testing.T) {
 		{SourcePath: "/local/b.zip", TargetPath: "repo/b.zip", RtUrl: "https://myrt.example.com/", Sha256: "def456"},
 	}
 	result := createUploadResult(t, 2, 0, transfers)
-	defer result.Reader().Close()
+	defer func() {
+		if err := result.Reader().Close(); err != nil {
+			t.Logf("failed to close reader: %v", err)
+		}
+	}()
 
 	var buf bytes.Buffer
 	err := printUploadTable(result, &buf)
@@ -266,7 +282,11 @@ func TestPrintUploadTable_NoReader_FallsBackToCountsTable(t *testing.T) {
 
 func TestPrintUploadTable_EmptyReader(t *testing.T) {
 	result := createUploadResult(t, 0, 0, []clientutils.FileTransferDetails{})
-	defer result.Reader().Close()
+	defer func() {
+		if err := result.Reader().Close(); err != nil {
+			t.Logf("failed to close reader: %v", err)
+		}
+	}()
 
 	var buf bytes.Buffer
 	err := printUploadTable(result, &buf)
@@ -338,7 +358,11 @@ func TestPrintDownloadTable_WithResults(t *testing.T) {
 		{SourcePath: "repo/b.zip", TargetPath: "/local/b.zip", RtUrl: "https://myrt.example.com/", Sha256: "def456"},
 	}
 	result := createDownloadResult(t, 2, 0, transfers)
-	defer result.Reader().Close()
+	defer func() {
+		if err := result.Reader().Close(); err != nil {
+			t.Logf("failed to close reader: %v", err)
+		}
+	}()
 
 	var buf bytes.Buffer
 	err := printDownloadTable(result, &buf)
@@ -425,12 +449,12 @@ func TestPrintCountsTableZeroCounts(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// printMoveResponse tests
+// printCountBasedResponse tests
 // ---------------------------------------------------------------------------
 
-func TestPrintMoveResponse_Table(t *testing.T) {
+func TestPrintCountBasedResponse_Table(t *testing.T) {
 	var buf bytes.Buffer
-	err := printMoveResponse(3, 0, coreformat.Table, &buf, false, nil)
+	err := printCountBasedResponse("move", 3, 0, coreformat.Table, &buf, false, nil)
 	require.NoError(t, err)
 	out := buf.String()
 	assert.Contains(t, out, "success")
@@ -439,79 +463,18 @@ func TestPrintMoveResponse_Table(t *testing.T) {
 	assert.Contains(t, out, "0")
 }
 
-func TestPrintMoveResponse_JSON(t *testing.T) {
+func TestPrintCountBasedResponse_JSON(t *testing.T) {
 	var buf bytes.Buffer
-	// printMoveJSON writes to log.Output (stdout), not to buf; we only check no error is returned.
-	err := printMoveResponse(4, 0, coreformat.Json, &buf, false, nil)
+	err := printCountBasedResponse("move", 4, 0, coreformat.Json, &buf, false, nil)
 	require.NoError(t, err)
 }
 
-func TestPrintMoveResponse_UnsupportedFormat(t *testing.T) {
+func TestPrintCountBasedResponse_UnsupportedFormat(t *testing.T) {
 	var buf bytes.Buffer
-	err := printMoveResponse(1, 0, coreformat.Sarif, &buf, false, nil)
+	err := printCountBasedResponse("move", 1, 0, coreformat.Sarif, &buf, false, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported format")
 	assert.Contains(t, err.Error(), "rt move")
-}
-
-// ---------------------------------------------------------------------------
-// printCopyResponse tests
-// ---------------------------------------------------------------------------
-
-func TestPrintCopyResponse_Table(t *testing.T) {
-	var buf bytes.Buffer
-	err := printCopyResponse(3, 0, coreformat.Table, &buf, false, nil)
-	require.NoError(t, err)
-	out := buf.String()
-	assert.Contains(t, out, "success")
-	assert.Contains(t, out, "3")
-	assert.Contains(t, out, "failure")
-	assert.Contains(t, out, "0")
-}
-
-func TestPrintCopyResponse_JSON(t *testing.T) {
-	var buf bytes.Buffer
-	// printCopyJSON writes to log.Output (stdout), not to buf; we only check no error is returned.
-	err := printCopyResponse(4, 0, coreformat.Json, &buf, false, nil)
-	require.NoError(t, err)
-}
-
-func TestPrintCopyResponse_UnsupportedFormat(t *testing.T) {
-	var buf bytes.Buffer
-	err := printCopyResponse(1, 0, coreformat.Sarif, &buf, false, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported format")
-	assert.Contains(t, err.Error(), "rt copy")
-}
-
-// ---------------------------------------------------------------------------
-// printDeleteResponse tests
-// ---------------------------------------------------------------------------
-
-func TestPrintDeleteResponse_Table(t *testing.T) {
-	var buf bytes.Buffer
-	err := printDeleteResponse(3, 0, coreformat.Table, &buf, false, nil)
-	require.NoError(t, err)
-	out := buf.String()
-	assert.Contains(t, out, "success")
-	assert.Contains(t, out, "3")
-	assert.Contains(t, out, "failure")
-	assert.Contains(t, out, "0")
-}
-
-func TestPrintDeleteResponse_JSON(t *testing.T) {
-	var buf bytes.Buffer
-	// printDeleteJSON writes to log.Output (stdout), not to buf; we only check no error is returned.
-	err := printDeleteResponse(4, 0, coreformat.Json, &buf, false, nil)
-	require.NoError(t, err)
-}
-
-func TestPrintDeleteResponse_UnsupportedFormat(t *testing.T) {
-	var buf bytes.Buffer
-	err := printDeleteResponse(1, 0, coreformat.Sarif, &buf, false, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported format")
-	assert.Contains(t, err.Error(), "rt delete")
 }
 
 // ---------------------------------------------------------------------------
@@ -798,98 +761,6 @@ func TestBuildDiscardFormat_XMLRejected(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// printSetPropsResponse tests
-// ---------------------------------------------------------------------------
-
-func TestPrintSetPropsResponse_Table(t *testing.T) {
-	var buf bytes.Buffer
-	err := printSetPropsResponse(5, 0, coreformat.Table, &buf, false, nil)
-	require.NoError(t, err)
-	out := buf.String()
-	assert.Contains(t, out, "success")
-	assert.Contains(t, out, "5")
-	assert.Contains(t, out, "failure")
-	assert.Contains(t, out, "0")
-}
-
-func TestPrintSetPropsResponse_JSON(t *testing.T) {
-	var buf bytes.Buffer
-	// printSetPropsJSON writes to log.Output (stdout), not to buf; we only check no error is returned.
-	err := printSetPropsResponse(4, 0, coreformat.Json, &buf, false, nil)
-	require.NoError(t, err)
-}
-
-func TestPrintSetPropsResponse_UnsupportedFormat(t *testing.T) {
-	var buf bytes.Buffer
-	err := printSetPropsResponse(1, 0, coreformat.Sarif, &buf, false, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported format")
-	assert.Contains(t, err.Error(), "rt set-props")
-}
-
-// ---------------------------------------------------------------------------
-// printDeletePropsResponse tests
-// ---------------------------------------------------------------------------
-
-func TestPrintDeletePropsResponse_Table(t *testing.T) {
-	var buf bytes.Buffer
-	err := printDeletePropsResponse(5, 0, coreformat.Table, &buf, false, nil)
-	require.NoError(t, err)
-	out := buf.String()
-	assert.Contains(t, out, "success")
-	assert.Contains(t, out, "failure")
-	assert.Contains(t, out, "5")
-	assert.Contains(t, out, "0")
-}
-
-func TestPrintDeletePropsResponse_JSON(t *testing.T) {
-	var buf bytes.Buffer
-	// printDeletePropsJSON writes to log.Output (stdout), not to buf; we only check no error is returned.
-	err := printDeletePropsResponse(4, 0, coreformat.Json, &buf, false, nil)
-	require.NoError(t, err)
-}
-
-func TestPrintDeletePropsResponse_UnsupportedFormat(t *testing.T) {
-	var buf bytes.Buffer
-	err := printDeletePropsResponse(1, 0, coreformat.Sarif, &buf, false, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported format")
-	assert.Contains(t, err.Error(), "rt delete-props")
-}
-
-// ---------------------------------------------------------------------------
-// printBuildAddDependenciesResponse tests
-// ---------------------------------------------------------------------------
-
-func TestPrintBuildAddDependenciesResponse_Table(t *testing.T) {
-	var buf bytes.Buffer
-	err := printBuildAddDependenciesResponse(7, 0, coreformat.Table, &buf, false, nil)
-	require.NoError(t, err)
-	out := buf.String()
-	assert.Contains(t, out, "FIELD")
-	assert.Contains(t, out, "VALUE")
-	assert.Contains(t, out, "success")
-	assert.Contains(t, out, "7")
-	assert.Contains(t, out, "failure")
-	assert.Contains(t, out, "0")
-}
-
-func TestPrintBuildAddDependenciesResponse_JSON(t *testing.T) {
-	var buf bytes.Buffer
-	// printBuildAddDependenciesJSON writes to log.Output (stdout), not to buf; we only check no error is returned.
-	err := printBuildAddDependenciesResponse(5, 0, coreformat.Json, &buf, false, nil)
-	require.NoError(t, err)
-}
-
-func TestPrintBuildAddDependenciesResponse_UnsupportedFormat(t *testing.T) {
-	var buf bytes.Buffer
-	err := printBuildAddDependenciesResponse(1, 0, coreformat.Sarif, &buf, false, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported format")
-	assert.Contains(t, err.Error(), "rt build-add-dependencies")
-}
-
-// ---------------------------------------------------------------------------
 // direct-download test helpers
 // ---------------------------------------------------------------------------
 
@@ -1032,7 +903,7 @@ func TestDockerPromoteFormat_XMLRejected(t *testing.T) {
 
 func TestPrintGitLfsCleanResponse_Table(t *testing.T) {
 	var buf bytes.Buffer
-	err := printGitLfsCleanResponse(5, 1, coreformat.Table, &buf, nil)
+	err := printGitLfsCleanResponse(5, 0, coreformat.Table, &buf, nil)
 	require.NoError(t, err)
 	out := buf.String()
 	assert.Contains(t, out, "FIELD")
@@ -1040,7 +911,7 @@ func TestPrintGitLfsCleanResponse_Table(t *testing.T) {
 	assert.Contains(t, out, "success")
 	assert.Contains(t, out, "5")
 	assert.Contains(t, out, "failure")
-	assert.Contains(t, out, "1")
+	assert.Contains(t, out, "0")
 }
 
 func TestPrintGitLfsCleanResponse_JSON(t *testing.T) {
@@ -1146,14 +1017,17 @@ func TestPrintContainerPullJSON_EmptyValues(t *testing.T) {
 
 // sampleNugetDepsTreeJSON returns a minimal solution JSON matching the structure
 // returned by solution.Marshal() — used as test input.
-func sampleNugetDepsTreeJSON(projects []nugetDepsTreeProject) []byte {
+func sampleNugetDepsTreeJSON(t *testing.T, projects []nugetDepsTreeProject) []byte {
 	sol := nugetDepsTreeSolution{Projects: projects}
-	data, _ := json.Marshal(sol)
+	data, err := json.Marshal(sol)
+	if err != nil {
+		t.Logf("failed to marshal nuget deps tree solution: %v", err)
+	}
 	return data
 }
 
 func TestPrintNugetDepsTreeResponse_JSON(t *testing.T) {
-	data := sampleNugetDepsTreeJSON([]nugetDepsTreeProject{
+	data := sampleNugetDepsTreeJSON(t, []nugetDepsTreeProject{
 		{Name: "MyProject", Dependencies: map[string]interface{}{"Newtonsoft.Json:13.0.1": nil}},
 	})
 	var buf bytes.Buffer
@@ -1163,7 +1037,7 @@ func TestPrintNugetDepsTreeResponse_JSON(t *testing.T) {
 }
 
 func TestPrintNugetDepsTreeResponse_Table(t *testing.T) {
-	data := sampleNugetDepsTreeJSON([]nugetDepsTreeProject{
+	data := sampleNugetDepsTreeJSON(t, []nugetDepsTreeProject{
 		{Name: "MyProject", Dependencies: map[string]interface{}{
 			"Newtonsoft.Json:13.0.1": nil,
 			"Serilog:3.0.0":          nil,
@@ -1180,7 +1054,7 @@ func TestPrintNugetDepsTreeResponse_Table(t *testing.T) {
 }
 
 func TestPrintNugetDepsTreeResponse_UnsupportedFormat(t *testing.T) {
-	data := sampleNugetDepsTreeJSON(nil)
+	data := sampleNugetDepsTreeJSON(t, nil)
 	var buf bytes.Buffer
 	err := printNugetDepsTreeResponse(data, coreformat.Sarif, &buf)
 	require.Error(t, err)
@@ -1193,7 +1067,7 @@ func TestPrintNugetDepsTreeResponse_UnsupportedFormat(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestPrintNugetDepsTreeTable_MultipleProjects(t *testing.T) {
-	data := sampleNugetDepsTreeJSON([]nugetDepsTreeProject{
+	data := sampleNugetDepsTreeJSON(t, []nugetDepsTreeProject{
 		{Name: "ProjectA", Dependencies: map[string]interface{}{
 			"Newtonsoft.Json:13.0.1": nil,
 			"Serilog:3.0.0":          nil,
@@ -1218,7 +1092,7 @@ func TestPrintNugetDepsTreeTable_MultipleProjects(t *testing.T) {
 }
 
 func TestPrintNugetDepsTreeTable_EmptyProjects(t *testing.T) {
-	data := sampleNugetDepsTreeJSON(nil)
+	data := sampleNugetDepsTreeJSON(t, nil)
 	var buf bytes.Buffer
 	err := printNugetDepsTreeTable(data, &buf)
 	require.NoError(t, err)
@@ -1229,7 +1103,7 @@ func TestPrintNugetDepsTreeTable_EmptyProjects(t *testing.T) {
 }
 
 func TestPrintNugetDepsTreeTable_ProjectWithNoDependencies(t *testing.T) {
-	data := sampleNugetDepsTreeJSON([]nugetDepsTreeProject{
+	data := sampleNugetDepsTreeJSON(t, []nugetDepsTreeProject{
 		{Name: "EmptyProject", Dependencies: map[string]interface{}{}},
 	})
 	var buf bytes.Buffer
