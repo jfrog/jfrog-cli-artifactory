@@ -823,7 +823,11 @@ func TestPrintDirectDownloadTable_WithResults(t *testing.T) {
 		{SourcePath: "repo/b.zip", TargetPath: "/local/b.zip", RtUrl: "https://myrt.example.com/", Sha256: "def456"},
 	}
 	result := createDirectDownloadResult(t, 2, 0, transfers)
-	defer result.Reader().Close()
+	defer func() {
+		if err := result.Reader().Close(); err != nil {
+			t.Logf("failed to close reader: %v", err)
+		}
+	}()
 
 	var buf bytes.Buffer
 	err := printDirectDownloadTable(result, &buf)
@@ -849,7 +853,11 @@ func TestPrintDirectDownloadTable_NoReader_FallsBackToCountsTable(t *testing.T) 
 
 func TestPrintDirectDownloadTable_EmptyReader(t *testing.T) {
 	result := createDirectDownloadResult(t, 0, 0, []clientutils.FileTransferDetails{})
-	defer result.Reader().Close()
+	defer func() {
+		if err := result.Reader().Close(); err != nil {
+			t.Logf("failed to close reader: %v", err)
+		}
+	}()
 
 	var buf bytes.Buffer
 	err := printDirectDownloadTable(result, &buf)
