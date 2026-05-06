@@ -844,6 +844,7 @@ var commandFlags = map[string][]string{
 	},
 	SkillsPublish: {
 		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, skillsQuiet, skipScan, autoDeleteOnFailure,
+		BuildName, BuildNumber, module,
 	},
 	SkillsInstall: {
 		url, user, password, accessToken, serverId, repo, version, installPath, skillsQuiet,

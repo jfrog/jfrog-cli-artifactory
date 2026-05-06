@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -615,4 +616,42 @@ func TestCollectFiles_Sorted(t *testing.T) {
 		assert.True(t, files[i-1].relPath < files[i].relPath,
 			"files should be sorted: %s should come before %s", files[i-1].relPath, files[i].relPath)
 	}
+}
+
+func TestApplyDefaultBuildInfoModule(t *testing.T) {
+	t.Run("nil build configuration", func(t *testing.T) {
+		require.NoError(t, applyDefaultBuildInfoModule(nil, "my-skill"))
+	})
+
+	t.Run("no build-info collection", func(t *testing.T) {
+		buildCfg := build.NewBuildConfiguration("", "", "", "")
+		require.NoError(t, applyDefaultBuildInfoModule(buildCfg, "my-skill"))
+		assert.Empty(t, buildCfg.GetModule())
+	})
+
+	t.Run("collect from flags leaves module default to slug", func(t *testing.T) {
+		buildCfg := build.NewBuildConfiguration("pipeline", "42", "", "")
+		require.NoError(t, applyDefaultBuildInfoModule(buildCfg, "my-skill"))
+		assert.Equal(t, "my-skill", buildCfg.GetModule())
+	})
+
+	t.Run("collect from JFROG_CLI_BUILD env when struct fields empty", func(t *testing.T) {
+		t.Setenv("JFROG_CLI_BUILD_NAME", "ci-build")
+		t.Setenv("JFROG_CLI_BUILD_NUMBER", "55")
+		buildCfg := build.NewBuildConfiguration("", "", "", "")
+		require.NoError(t, applyDefaultBuildInfoModule(buildCfg, "my-skill"))
+		assert.Equal(t, "my-skill", buildCfg.GetModule())
+	})
+
+	t.Run("explicit --module unchanged", func(t *testing.T) {
+		buildCfg := build.NewBuildConfiguration("pipeline", "42", "custom-mod", "")
+		require.NoError(t, applyDefaultBuildInfoModule(buildCfg, "my-skill"))
+		assert.Equal(t, "custom-mod", buildCfg.GetModule())
+	})
+
+	t.Run("only build name no number", func(t *testing.T) {
+		buildCfg := build.NewBuildConfiguration("pipeline", "", "", "")
+		require.NoError(t, applyDefaultBuildInfoModule(buildCfg, "my-skill"))
+		assert.Empty(t, buildCfg.GetModule())
+	})
 }
