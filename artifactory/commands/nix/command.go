@@ -1,15 +1,12 @@
 package nix
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jfrog/build-info-go/entities"
 	nixflex "github.com/jfrog/build-info-go/flexpack/nix"
@@ -17,6 +14,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	specutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -26,21 +24,14 @@ import (
 // Follows the FlexPack native-first pattern:
 //   - No config command (like Conan, unlike npm/maven)
 //   - User configures Nix substituters to point to Artifactory (one-time setup)
-//   - JFrog CLI runs native nix commands and collects build info afterward
-//
-// Flow:
-//
-//	jf nix flake lock  → native nix flake lock  → collect deps from flake.lock
-//	jf nix build       → native nix build        → collect deps (flake.lock + runtime closure)
-//	jf nix copy        → native nix copy --to    → set build properties on uploaded artifacts
-//	jf rt bp X Y       → publish build-info
+//   - JFrog CLI handles auth via netrc and collects build info after native execution
 type NixCommand struct {
 	commandName        string
 	args               []string
 	serverDetails      *config.ServerDetails
 	buildConfiguration *buildUtils.BuildConfiguration
 	workingDir         string
-	repo               string // Target repo for substituter and property tagging (--repo flag)
+	repo               string // Target repo for artifact upload and substituter (--repo flag)
 	netrcPath          string // Temp netrc file, cleaned up after Run
 	nixConfPath        string // Path to user nix.conf (for restore)
 	originalNixConf    string // Original nix.conf content (for restore)
@@ -75,7 +66,7 @@ func (c *NixCommand) SetRepo(repo string) *NixCommand {
 	return c
 }
 
-// Commands that resolve dependencies → collect build-info from flake.lock
+// Commands that resolve dependencies and should trigger build-info collection.
 var commandsCollectingDeps = []string{
 	"build",
 	"develop",
@@ -94,28 +85,13 @@ func shouldCollectDeps(cmd string) bool {
 	return false
 }
 
-// Commands that produce ./result → also collect runtime closure deps
-var commandsWithRuntimeClosure = []string{
+// Commands that produce uploadable artifacts.
+var commandsProducingArtifacts = []string{
 	"build",
 }
 
-func hasRuntimeClosure(cmd string) bool {
-	for _, c := range commandsWithRuntimeClosure {
-		if c == cmd {
-			return true
-		}
-	}
-	return false
-}
-
-// Commands that upload to a remote → set build properties on uploaded artifacts
-// "copy" is the native nix command for uploading NARs to a binary cache
-var commandsUploading = []string{
-	"copy",
-}
-
-func isUploadCommand(cmd string) bool {
-	for _, c := range commandsUploading {
+func shouldCollectArtifacts(cmd string) bool {
+	for _, c := range commandsProducingArtifacts {
 		if c == cmd {
 			return true
 		}
@@ -130,13 +106,8 @@ func (c *NixCommand) Run() error {
 	}
 	c.workingDir = workingDir
 
-	// If --repo is not set, try to parse it from --to URL in the args.
-	// e.g. --to "https://server/artifactory/api/nix/nix-local" → repo = "nix-local"
-	if c.repo == "" {
-		c.repo = c.parseRepoFromToArg()
-	}
-
-	// Set up auth for Artifactory access (substituter for resolve, netrc for copy)
+	// Set up Artifactory substituter in nix.conf and create netrc for auth.
+	// Like npm modifying .npmrc or Conan's auto-login — everything is restored after.
 	if c.serverDetails != nil && c.repo != "" {
 		c.setupSubstituterAndAuth()
 		defer func() {
@@ -145,287 +116,29 @@ func (c *NixCommand) Run() error {
 				os.Remove(c.netrcPath)
 			}
 		}()
-	} else if c.serverDetails != nil && c.repo == "" && isUploadCommand(c.commandName) {
-		// Even without --repo, create netrc for auth if --to points to Artifactory
-		c.createNetrcFile()
-		defer func() {
-			if c.netrcPath != "" {
-				os.Remove(c.netrcPath)
-			}
-		}()
 	}
 
 	log.Info(fmt.Sprintf("Running Nix %s", c.commandName))
 
-	// Run the native nix command
 	if err := gofrogcmd.RunCmd(c); err != nil {
 		return fmt.Errorf("nix %s failed: %w", c.commandName, err)
 	}
 
-	// After native command completes, collect build info or set properties
-	if c.buildConfiguration != nil {
-		if shouldCollectDeps(c.commandName) {
-			return c.collectAndSaveBuildInfo()
-		}
-		if isUploadCommand(c.commandName) {
-			return c.tagUploadedArtifacts()
-		}
+	if c.buildConfiguration != nil && shouldCollectDeps(c.commandName) {
+		return c.collectAndSaveBuildInfo()
 	}
 
 	return nil
 }
 
-// collectAndSaveBuildInfo collects dependencies from flake.lock and optionally
-// from the runtime closure (after nix build), then saves build-info locally.
-func (c *NixCommand) collectAndSaveBuildInfo() error {
-	buildName, buildNumber, err := c.getBuildNameAndNumber()
-	if err != nil || buildName == "" || buildNumber == "" {
-		return nil
-	}
-
-	log.Info(fmt.Sprintf("Collecting build info for Nix project: %s/%s", buildName, buildNumber))
-
-	collector, err := nixflex.NewNixFlexPack(nixflex.NixConfig{
-		WorkingDirectory: c.workingDir,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create Nix FlexPack: %w", err)
-	}
-
-	buildInfo, err := collector.CollectBuildInfo(buildName, buildNumber)
-	if err != nil {
-		return fmt.Errorf("failed to collect Nix build info: %w", err)
-	}
-
-	// For build commands, also collect runtime closure dependencies
-	if hasRuntimeClosure(c.commandName) {
-		resultPath := filepath.Join(c.workingDir, "result")
-		if _, err := os.Lstat(resultPath); err == nil {
-			runtimeDeps, err := c.collectRuntimeClosure(resultPath)
-			if err != nil {
-				log.Warn("Failed to collect runtime closure: " + err.Error())
-			} else if len(runtimeDeps) > 0 && len(buildInfo.Modules) > 0 {
-				buildInfo.Modules[0].Dependencies = append(buildInfo.Modules[0].Dependencies, runtimeDeps...)
-				log.Info(fmt.Sprintf("Added %d runtime dependency(ies) from build closure", len(runtimeDeps)))
-			}
-		}
-	}
-
-	// Apply --module override if specified
-	moduleOverride := c.buildConfiguration.GetModule()
-	if moduleOverride != "" && len(buildInfo.Modules) > 0 {
-		buildInfo.Modules[0].Id = moduleOverride
-	}
-
-	projectKey := c.buildConfiguration.GetProject()
-	if err := saveBuildInfoLocally(buildInfo, projectKey); err != nil {
-		return fmt.Errorf("failed to save build info: %w", err)
-	}
-
-	log.Info(fmt.Sprintf("Nix build info collected. Use 'jf rt bp %s %s' to publish it.", buildName, buildNumber))
-	return nil
-}
-
-// nixPathInfo represents the JSON output of "nix path-info --json -r"
-type nixPathInfo struct {
-	Path       string   `json:"path"`
-	NarHash    string   `json:"narHash"`
-	NarSize    int64    `json:"narSize"`
-	References []string `json:"references"`
-	Deriver    string   `json:"deriver,omitempty"`
-}
-
-// collectRuntimeClosure runs "nix path-info --json -r ./result" and returns
-// the runtime closure as build-info dependencies with scope "runtime".
-func (c *NixCommand) collectRuntimeClosure(resultPath string) ([]entities.Dependency, error) {
-	storePath, err := os.Readlink(resultPath)
-	if err != nil {
-		return nil, fmt.Errorf("read result symlink: %w", err)
-	}
-
-	cmd := exec.Command("nix", "path-info", "--json", "--recursive", storePath)
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("nix path-info failed: %w", err)
-	}
-
-	// nix path-info --json outputs a map: { "/nix/store/...": { narHash, narSize, references, ... }, ... }
-	var pathInfoMap map[string]nixPathInfo
-	if err := json.Unmarshal(output, &pathInfoMap); err != nil {
-		return nil, fmt.Errorf("parse path-info output: %w", err)
-	}
-	// Fill in the Path field from the map key
-	for path, info := range pathInfoMap {
-		info.Path = path
-		pathInfoMap[path] = info
-	}
-
-	// Build requestedBy from references (invert the graph)
-	requestedBy := make(map[string][]string)
-	for parentPath, info := range pathInfoMap {
-		parentID := storePathToDepID(parentPath)
-		for _, refPath := range info.References {
-			if refPath == parentPath {
-				continue // skip self-references
-			}
-			childID := storePathToDepID(refPath)
-			requestedBy[childID] = append(requestedBy[childID], parentID)
-		}
-	}
-
-	// Convert to build-info dependencies, skip the root package itself.
-	rootID := storePathToDepID(storePath)
-	var deps []entities.Dependency
-	for path, info := range pathInfoMap {
-		depID := storePathToDepID(path)
-		if depID == rootID {
-			continue // skip root — it's the project, not a dep
-		}
-
-		dep := entities.Dependency{
-			Id:     depID,
-			Scopes: []string{"runtime"},
-			Checksum: entities.Checksum{
-				Sha256: info.NarHash,
-			},
-		}
-
-		if parents, ok := requestedBy[depID]; ok && len(parents) > 0 {
-			dep.RequestedBy = [][]string{parents}
-		}
-
-		deps = append(deps, dep)
-	}
-
-	return deps, nil
-}
-
-// storePathToDepID converts "/nix/store/<hash>-name-version" to "name:version"
-// e.g. "/nix/store/yalw...-hello-2.12.3" → "hello:2.12.3"
-func storePathToDepID(storePath string) string {
-	base := filepath.Base(storePath)
-	// Store path format: <hash>-<name>[-<version>]
-	if idx := strings.Index(base, "-"); idx != -1 {
-		nameVersion := base[idx+1:]
-		// Try to split name-version at the last dash before a digit
-		for i := len(nameVersion) - 1; i >= 0; i-- {
-			if nameVersion[i] == '-' && i+1 < len(nameVersion) && nameVersion[i+1] >= '0' && nameVersion[i+1] <= '9' {
-				return nameVersion[:i] + ":" + nameVersion[i+1:]
-			}
-		}
-		return nameVersion
-	}
-	return base
-}
-
-// tagUploadedArtifacts sets build properties on artifacts that were uploaded
-// by the native "nix copy --to" command. Also collects the uploaded artifacts
-// into build-info.
-func (c *NixCommand) tagUploadedArtifacts() error {
-	buildName, buildNumber, err := c.getBuildNameAndNumber()
-	if err != nil || buildName == "" || buildNumber == "" {
-		return nil
-	}
-
-	if c.repo == "" {
-		log.Warn("No --repo specified, skipping build property tagging")
-		return nil
-	}
-
-	log.Info(fmt.Sprintf("Tagging uploaded artifacts with build info: %s/%s", buildName, buildNumber))
-
-	// Find the store paths that were uploaded by looking at ./result closure
-	resultPath := filepath.Join(c.workingDir, "result")
-	storePath, err := os.Readlink(resultPath)
-	if err != nil {
-		return fmt.Errorf("no build output found (./result symlink missing): %w", err)
-	}
-
-	// Get all store paths in the closure
-	cmd := exec.Command("nix", "path-info", "--recursive", storePath)
-	output, err := cmd.Output()
-	if err != nil {
-		return fmt.Errorf("nix path-info failed: %w", err)
-	}
-
-	storePaths := strings.Fields(strings.TrimSpace(string(output)))
-	log.Info(fmt.Sprintf("Found %d store path(s) in closure", len(storePaths)))
-
-	// For each store path, read the narinfo from Artifactory to get the real NAR filename,
-	// then set build properties on all files and record artifacts with correct paths.
-	var artifacts []entities.Artifact
-	for _, sp := range storePaths {
-		storeHash := filepath.Base(sp)
-		if idx := strings.Index(storeHash, "-"); idx != -1 {
-			storeHash = storeHash[:idx]
-		}
-
-		dirPath := "binary-cache/" + storeHash
-
-		// Set build properties on ALL files in this directory (narinfo + nar.xz)
-		c.setBuildPropertiesInDir(c.repo, dirPath, "*", buildName, buildNumber)
-
-		// Find the actual NAR filename by listing files in the directory
-		narFileName, narFilePath := c.findNarFile(c.repo, dirPath)
-
-		baseName := filepath.Base(sp)
-		name := baseName
-		if idx := strings.Index(baseName, "-"); idx != -1 {
-			name = baseName[idx+1:]
-		}
-
-		if narFileName != "" {
-			// NAR archive artifact — fetch checksums from Artifactory
-			narChecksum := c.getArtifactChecksums(c.repo, narFilePath)
-			artifacts = append(artifacts, entities.Artifact{
-				Name:                   narFileName,
-				Type:                   "xz",
-				Path:                   narFilePath,
-				OriginalDeploymentRepo: c.repo,
-				Checksum:               narChecksum,
-			})
-		}
-
-		// narinfo metadata artifact — fetch checksums from Artifactory
-		narinfoName := storeHash + ".narinfo"
-		narinfoPath := dirPath + "/" + narinfoName
-		narinfoChecksum := c.getArtifactChecksums(c.repo, narinfoPath)
-		artifacts = append(artifacts, entities.Artifact{
-			Name:                   narinfoName,
-			Type:                   "narinfo",
-			Path:                   narinfoPath,
-			OriginalDeploymentRepo: c.repo,
-			Checksum:               narinfoChecksum,
-		})
-
-		log.Debug(fmt.Sprintf("Artifact: %s → %s/%s", name, c.repo, narFilePath))
-	}
-
-	// Save artifacts to build-info
-	if len(artifacts) > 0 {
-		buildInfo := &entities.BuildInfo{
-			Name:   buildName,
-			Number: buildNumber,
-			Modules: []entities.Module{
-				{
-					Id:        filepath.Base(c.workingDir),
-					Type:      entities.Nix,
-					Artifacts: artifacts,
-				},
-			},
-		}
-
-		projectKey := c.buildConfiguration.GetProject()
-		if err := saveBuildInfoLocally(buildInfo, projectKey); err != nil {
-			return fmt.Errorf("failed to save build info: %w", err)
-		}
-		log.Info(fmt.Sprintf("Tagged %d artifact(s) with build properties", len(artifacts)))
-	}
-
-	return nil
-}
-
-// setupSubstituterAndAuth configures Nix to resolve/upload through Artifactory.
+// setupSubstituterAndAuth configures Nix to resolve deps through Artifactory.
+// This is the Nix equivalent of npm modifying .npmrc or Conan's autoLoginToRemotes():
+//  1. Writes the Artifactory substituter URL to ~/.config/nix/nix.conf
+//  2. Creates a temporary netrc file for HTTP auth
+//  3. Passes --option netrc-file via CLI flags
+//
+// The original nix.conf is backed up and restored after the command completes.
+// Prerequisite: user must be in trusted-users in /etc/nix/nix.conf (one-time admin setup).
 func (c *NixCommand) setupSubstituterAndAuth() {
 	if c.serverDetails == nil || c.repo == "" {
 		return
@@ -433,64 +146,27 @@ func (c *NixCommand) setupSubstituterAndAuth() {
 
 	substituterURL := strings.TrimSuffix(c.serverDetails.ArtifactoryUrl, "/") + "/api/nix/" + c.repo
 
+	// Step 1: Write substituter to user nix.conf (like npm modifying .npmrc)
 	if err := c.addSubstituterToNixConf(substituterURL); err != nil {
 		log.Warn("Failed to configure Artifactory substituter in nix.conf: " + err.Error())
+		log.Warn("Nix will resolve deps from default substituters (cache.nixos.org)")
 	} else {
 		log.Info(fmt.Sprintf("Configured Artifactory substituter: %s", substituterURL))
 	}
 
+	// Step 2: Create netrc file for HTTP auth (like Conan's remote login)
 	c.createNetrcFile()
 
-	// For "nix copy --to", inject the Artifactory URL if the user provided --repo
-	// but didn't specify the full --to URL
-	if isUploadCommand(c.commandName) && c.repo != "" {
-		c.injectCopyTarget(substituterURL)
-	}
+	// Netrc file is passed via NIX_CONFIG env var in GetEnv(), not via CLI flags,
+	// because --option must precede the subcommand (e.g. nix --option X flake lock)
+	// but our command routing puts flags after the subcommand.
 }
 
-// parseRepoFromToArg extracts the repo name from a --to URL in the args.
-// e.g. --to "https://server/artifactory/api/nix/nix-local" → "nix-local"
-// e.g. --to "https://server/artifactory/api/nix/nix-virtual/" → "nix-virtual"
-func (c *NixCommand) parseRepoFromToArg() string {
-	for i, arg := range c.args {
-		var url string
-		if arg == "--to" && i+1 < len(c.args) {
-			url = c.args[i+1]
-		} else if strings.HasPrefix(arg, "--to=") {
-			url = strings.TrimPrefix(arg, "--to=")
-		}
-		if url != "" {
-			// Look for /api/nix/<repo> pattern
-			if idx := strings.Index(url, "/api/nix/"); idx != -1 {
-				repo := url[idx+len("/api/nix/"):]
-				repo = strings.TrimSuffix(repo, "/")
-				if repo != "" {
-					log.Info(fmt.Sprintf("Parsed repo '%s' from --to URL", repo))
-					return repo
-				}
-			}
-		}
-	}
-	return ""
-}
-
-// injectCopyTarget adds the --to argument for nix copy if not already present.
-// Authentication is handled via netrc file (set in NIX_CONFIG env var), not URL credentials.
-func (c *NixCommand) injectCopyTarget(substituterURL string) {
-	for _, arg := range c.args {
-		if strings.HasPrefix(arg, "--to") {
-			return // user already specified --to
-		}
-	}
-	// Use plain URL — auth comes from netrc file passed via NIX_CONFIG
-	// --refresh forces Nix to re-check the remote, ensuring upload happens even if
-	// Nix's local cache thinks the paths are already present on the remote.
-	c.args = append([]string{"--refresh", "--to", substituterURL}, c.args...)
-	log.Info(fmt.Sprintf("Injected --to target: %s", substituterURL))
-}
-
+// nixConfMarker is used to identify lines added by JFrog CLI, for clean restore.
 const nixConfMarker = "# jfrog-cli-managed"
 
+// addSubstituterToNixConf adds the Artifactory substituter URL to ~/.config/nix/nix.conf.
+// Backs up the original content so it can be restored after the command completes.
 func (c *NixCommand) addSubstituterToNixConf(substituterURL string) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -500,30 +176,43 @@ func (c *NixCommand) addSubstituterToNixConf(substituterURL string) error {
 	nixConfDir := filepath.Join(homeDir, ".config", "nix")
 	nixConfPath := filepath.Join(nixConfDir, "nix.conf")
 
+	// Read existing content
 	existingContent, _ := os.ReadFile(nixConfPath)
 	c.originalNixConf = string(existingContent)
 	c.nixConfPath = nixConfPath
 
+	// Check if substituter is already configured
 	if strings.Contains(string(existingContent), substituterURL) {
+		log.Debug("Artifactory substituter already configured in nix.conf")
 		return nil
 	}
 
+	// Ensure directory exists
 	if err := os.MkdirAll(nixConfDir, 0755); err != nil {
 		return fmt.Errorf("create nix config dir: %w", err)
 	}
 
+	// Append substituter lines
 	extraLines := fmt.Sprintf("\nextra-substituters = %s %s\n", substituterURL, nixConfMarker)
+
 	newContent := string(existingContent) + extraLines
 
-	return os.WriteFile(nixConfPath, []byte(newContent), 0644)
+	if err := os.WriteFile(nixConfPath, []byte(newContent), 0644); err != nil {
+		return fmt.Errorf("write nix.conf: %w", err)
+	}
+
+	return nil
 }
 
+// restoreNixConf restores the original ~/.config/nix/nix.conf content.
 func (c *NixCommand) restoreNixConf() {
 	if c.nixConfPath == "" {
 		return
 	}
+	// Remove only the lines we added (lines containing our marker)
 	currentContent, err := os.ReadFile(c.nixConfPath)
 	if err != nil {
+		log.Debug("Failed to read nix.conf for restore: " + err.Error())
 		return
 	}
 
@@ -533,10 +222,18 @@ func (c *NixCommand) restoreNixConf() {
 			cleanedLines = append(cleanedLines, line)
 		}
 	}
-	cleaned := strings.TrimRight(strings.Join(cleanedLines, "\n"), "\n") + "\n"
-	os.WriteFile(c.nixConfPath, []byte(cleaned), 0644)
+	cleaned := strings.Join(cleanedLines, "\n")
+	// Remove trailing empty lines we may have introduced
+	cleaned = strings.TrimRight(cleaned, "\n") + "\n"
+
+	if err := os.WriteFile(c.nixConfPath, []byte(cleaned), 0644); err != nil {
+		log.Debug("Failed to restore nix.conf: " + err.Error())
+	} else {
+		log.Debug("Restored nix.conf")
+	}
 }
 
+// createNetrcFile creates a temporary netrc file for Nix to authenticate to Artifactory.
 func (c *NixCommand) createNetrcFile() {
 	user := c.serverDetails.User
 	password := c.serverDetails.Password
@@ -557,125 +254,172 @@ func (c *NixCommand) createNetrcFile() {
 	}
 
 	netrcContent := fmt.Sprintf("machine %s\nlogin %s\npassword %s\n", host, user, password)
+
 	tmpFile, err := os.CreateTemp("", "nix-netrc-")
 	if err != nil {
+		log.Debug("Failed to create netrc file: " + err.Error())
 		return
 	}
-	tmpFile.WriteString(netrcContent)
+	if _, err := tmpFile.WriteString(netrcContent); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		log.Debug("Failed to write netrc file: " + err.Error())
+		return
+	}
 	tmpFile.Close()
+
 	c.netrcPath = tmpFile.Name()
+	log.Debug("Created netrc file for Artifactory auth")
 }
 
-// getArtifactChecksums fetches sha1/sha256/md5 for a file in Artifactory.
-func (c *NixCommand) getArtifactChecksums(repo, pathInRepo string) entities.Checksum {
-	servicesManager, err := utils.CreateServiceManager(c.serverDetails, -1, 0, false)
+func (c *NixCommand) collectAndSaveBuildInfo() error {
+	buildName, buildNumber, err := c.getBuildNameAndNumber()
+	if err != nil || buildName == "" || buildNumber == "" {
+		return nil
+	}
+
+	log.Info(fmt.Sprintf("Collecting build info for Nix project: %s/%s", buildName, buildNumber))
+
+	collector, err := nixflex.NewNixFlexPack(nixflex.NixConfig{
+		WorkingDirectory: c.workingDir,
+	})
 	if err != nil {
-		return entities.Checksum{}
+		return fmt.Errorf("failed to create Nix FlexPack: %w", err)
 	}
 
-	// Use AQL to find the file and get its checksums
-	searchQuery := fmt.Sprintf(`{"repo": "%s", "$or": [{"$and":[{"path": "%s","name": "%s"}]}]}`,
-		repo,
-		filepath.Dir(pathInRepo),
-		filepath.Base(pathInRepo))
-	searchParams := services.SearchParams{
-		CommonParams: &specutils.CommonParams{
-			Aql: specutils.Aql{ItemsFind: searchQuery},
-		},
-	}
-
-	reader, err := servicesManager.SearchFiles(searchParams)
+	buildInfo, err := collector.CollectBuildInfo(buildName, buildNumber)
 	if err != nil {
-		return entities.Checksum{}
+		return fmt.Errorf("failed to collect Nix build info: %w", err)
 	}
-	defer reader.Close()
 
-	for item := new(specutils.ResultItem); reader.NextRecord(item) == nil; item = new(specutils.ResultItem) {
-		return entities.Checksum{
-			Sha1:   item.Actual_Sha1,
-			Sha256: item.Sha256,
-			Md5:    item.Actual_Md5,
+	// Collect and upload artifacts for build commands
+	if shouldCollectArtifacts(c.commandName) && c.repo != "" {
+		artifacts, err := c.collectAndUploadArtifacts(buildName, buildNumber)
+		if err != nil {
+			log.Warn("Failed to collect artifacts: " + err.Error())
+		} else if len(artifacts) > 0 && len(buildInfo.Modules) > 0 {
+			buildInfo.Modules[0].Artifacts = artifacts
+			log.Info(fmt.Sprintf("Added %d artifact(s) to build info", len(artifacts)))
 		}
 	}
-	return entities.Checksum{}
+
+	// Apply --module override if specified
+	moduleOverride := c.buildConfiguration.GetModule()
+	if moduleOverride != "" && len(buildInfo.Modules) > 0 {
+		buildInfo.Modules[0].Id = moduleOverride
+	}
+
+	projectKey := c.buildConfiguration.GetProject()
+	if err := saveBuildInfoLocally(buildInfo, projectKey); err != nil {
+		return fmt.Errorf("failed to save build info: %w", err)
+	}
+
+	log.Info(fmt.Sprintf("Nix build info collected. Use 'jf rt bp %s %s' to publish it.", buildName, buildNumber))
+	return nil
 }
 
-// findNarFile searches for the .nar.xz file in a binary-cache directory.
-func (c *NixCommand) findNarFile(repo, dirPath string) (string, string) {
-	servicesManager, err := utils.CreateServiceManager(c.serverDetails, -1, 0, false)
+func (c *NixCommand) collectAndUploadArtifacts(buildName, buildNumber string) ([]entities.Artifact, error) {
+	// Read the ./result symlink to find the store path
+	resultLink := filepath.Join(c.workingDir, "result")
+	storePath, err := os.Readlink(resultLink)
 	if err != nil {
-		return "", ""
+		return nil, fmt.Errorf("no build output found (./result symlink missing): %w", err)
 	}
 
-	searchQuery := fmt.Sprintf(`{"repo": "%s", "$or": [{"$and":[{"path": "%s","name": {"$match": "*.nar.xz"}}]}]}`, repo, dirPath)
-	searchParams := services.SearchParams{
-		CommonParams: &specutils.CommonParams{
-			Aql: specutils.Aql{ItemsFind: searchQuery},
-		},
+	baseName := filepath.Base(storePath)
+	if idx := strings.Index(baseName, "-"); idx != -1 {
+		baseName = baseName[idx+1:]
 	}
+	narFileName := baseName + ".nar"
 
-	reader, err := servicesManager.SearchFiles(searchParams)
+	// Export the store path as NAR using nix nar dump-path
+	tmpDir, err := os.MkdirTemp("", "nix-nar-")
 	if err != nil {
-		return "", ""
+		return nil, fmt.Errorf("create temp dir: %w", err)
 	}
-	defer reader.Close()
+	defer os.RemoveAll(tmpDir)
 
-	// Read first result
-	for item := new(specutils.ResultItem); reader.NextRecord(item) == nil; item = new(specutils.ResultItem) {
-		// Build path relative to repo root: path/name
-		pathInRepo := item.Path + "/" + item.Name
-		if item.Path == "." {
-			pathInRepo = item.Name
+	narPath := filepath.Join(tmpDir, narFileName)
+	narFile, err := os.Create(narPath)
+	if err != nil {
+		return nil, fmt.Errorf("create NAR file: %w", err)
+	}
+
+	cmd := exec.Command("nix", "nar", "dump-path", storePath)
+	cmd.Stdout = narFile
+	if err := cmd.Run(); err != nil {
+		narFile.Close()
+		return nil, fmt.Errorf("nix nar dump-path failed: %w", err)
+	}
+	narFile.Close()
+	log.Info(fmt.Sprintf("Exported NAR: %s", narPath))
+
+	// Calculate checksums
+	fi, err := os.Stat(narPath)
+	if err != nil {
+		return nil, fmt.Errorf("stat NAR: %w", err)
+	}
+	_ = fi // NAR file exists
+
+	uploadPath := fmt.Sprintf("%s/%s", baseName, narFileName)
+
+	artifact := entities.Artifact{
+		Name:                   narFileName,
+		Type:                   "nar",
+		Path:                   uploadPath,
+		OriginalDeploymentRepo: c.repo,
+	}
+
+	// Upload to Artifactory if server details are available
+	if c.serverDetails != nil {
+		err := c.uploadNAR(narPath, c.repo, uploadPath)
+		if err != nil {
+			log.Warn(fmt.Sprintf("Failed to upload NAR to Artifactory: %v", err))
+		} else {
+			log.Info(fmt.Sprintf("Uploaded %s to %s/%s", narFileName, c.repo, uploadPath))
+			c.setBuildProperties(c.repo, narFileName, buildName, buildNumber)
 		}
-		return item.Name, pathInRepo
 	}
-	return "", ""
+
+	return []entities.Artifact{artifact}, nil
 }
 
-func (c *NixCommand) setBuildPropertiesInDir(repo, dirPath, namePattern, buildName, buildNumber string) {
+// uploadNAR uploads a NAR file to Artifactory using the client-go upload API.
+func (c *NixCommand) uploadNAR(localPath, repo, targetPath string) error {
 	servicesManager, err := utils.CreateServiceManager(c.serverDetails, -1, 0, false)
 	if err != nil {
-		log.Debug("Failed to create service manager: " + err.Error())
-		return
+		return fmt.Errorf("create service manager: %w", err)
 	}
 
-	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
-	props := fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp)
-
-	searchQuery := fmt.Sprintf(`{"repo": "%s", "$or": [{"$and":[{"path": "%s","name": {"$match": "%s"}}]}]}`, repo, dirPath, namePattern)
-	searchParams := services.SearchParams{
-		CommonParams: &specutils.CommonParams{
-			Aql: specutils.Aql{ItemsFind: searchQuery},
-		},
+	uploadParams := services.NewUploadParams()
+	uploadParams.CommonParams = &specutils.CommonParams{
+		Pattern: localPath,
+		Target:  repo + "/" + targetPath,
 	}
+	uploadParams.Flat = true
 
-	reader, err := servicesManager.SearchFiles(searchParams)
+	uploaded, failed, err := servicesManager.UploadFiles(artifactory.UploadServiceOptions{}, uploadParams)
 	if err != nil {
-		log.Debug("Failed to search for artifacts in " + dirPath + ": " + err.Error())
-		return
+		return err
 	}
-
-	propsParams := services.PropsParams{
-		Reader: reader,
-		Props:  props,
+	if failed > 0 {
+		return fmt.Errorf("failed to upload %d file(s)", failed)
 	}
-	_, err = servicesManager.SetProps(propsParams)
-	if err != nil {
-		log.Debug("Failed to set build properties in " + dirPath + ": " + err.Error())
-	}
+	log.Debug(fmt.Sprintf("Uploaded %d file(s)", uploaded))
+	return nil
 }
 
-func (c *NixCommand) setBuildProperties(repo, artifactPattern, buildName, buildNumber string) {
+// setBuildProperties sets build.name, build.number properties on uploaded artifacts.
+func (c *NixCommand) setBuildProperties(repo, artifactName, buildName, buildNumber string) {
 	servicesManager, err := utils.CreateServiceManager(c.serverDetails, -1, 0, false)
 	if err != nil {
-		log.Debug("Failed to create service manager: " + err.Error())
+		log.Debug("Failed to create service manager for properties: " + err.Error())
 		return
 	}
 
-	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
-	props := fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp)
+	props := fmt.Sprintf("build.name=%s;build.number=%s", buildName, buildNumber)
 
-	searchQuery := fmt.Sprintf(`{"repo": "%s", "$or": [{"$and":[{"path": {"$match": "*"},"name": {"$match": "%s"}}]}]}`, repo, artifactPattern)
+	searchQuery := fmt.Sprintf(`{"repo": "%s", "$or": [{"$and":[{"path": {"$match": "*"},"name": {"$match": "%s"}}]}]}`, repo, artifactName)
 	searchParams := services.SearchParams{
 		CommonParams: &specutils.CommonParams{
 			Aql: specutils.Aql{ItemsFind: searchQuery},
@@ -692,7 +436,10 @@ func (c *NixCommand) setBuildProperties(repo, artifactPattern, buildName, buildN
 		Reader: reader,
 		Props:  props,
 	}
-	servicesManager.SetProps(propsParams)
+	_, err = servicesManager.SetProps(propsParams)
+	if err != nil {
+		log.Debug("Failed to set build properties: " + err.Error())
+	}
 }
 
 func (c *NixCommand) getBuildNameAndNumber() (string, string, error) {
@@ -715,13 +462,21 @@ func (c *NixCommand) GetCmd() *exec.Cmd {
 func (c *NixCommand) GetEnv() map[string]string {
 	env := map[string]string{}
 	if c.netrcPath != "" {
+		// Pass netrc-file via NIX_CONFIG rather than --option flag.
+		// The --option flag must precede the subcommand in nix CLI,
+		// but our command routing places args after the subcommand.
 		env["NIX_CONFIG"] = "netrc-file = " + c.netrcPath
 	}
 	return env
 }
 
-func (c *NixCommand) GetStdWriter() io.WriteCloser { return nil }
-func (c *NixCommand) GetErrWriter() io.WriteCloser { return nil }
+func (c *NixCommand) GetStdWriter() io.WriteCloser {
+	return nil
+}
+
+func (c *NixCommand) GetErrWriter() io.WriteCloser {
+	return nil
+}
 
 func (c *NixCommand) CommandName() string {
 	return "rt_nix"
@@ -740,5 +495,6 @@ func saveBuildInfoLocally(buildInfo *entities.BuildInfo, projectKey string) erro
 	if err := buildInstance.SaveBuildInfo(buildInfo); err != nil {
 		return fmt.Errorf("save build info: %w", err)
 	}
+	log.Debug("Build info saved locally")
 	return nil
 }
