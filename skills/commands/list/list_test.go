@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/jfrog/jfrog-cli-artifactory/skills/common"
@@ -24,14 +23,18 @@ func captureLog(t *testing.T) *bytes.Buffer {
 	return buf
 }
 
-// extractJSON finds the last "[Info] \n" log prefix and returns the trimmed JSON after it.
-func extractJSON(data []byte) []byte {
-	const infoPrefix = "[Info] \n"
-	s := string(data)
-	if idx := strings.LastIndex(s, infoPrefix); idx >= 0 {
-		s = s[idx+len(infoPrefix):]
-	}
-	return []byte(strings.TrimSpace(s))
+// captureStdout runs fn with os.Stdout redirected to a pipe and returns captured bytes.
+func captureStdout(t *testing.T, fn func()) []byte {
+	t.Helper()
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	fn()
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	return bytes.TrimSpace(buf.Bytes())
 }
 
 // ---------------------------------------------------------------------------
@@ -103,16 +106,16 @@ func TestListLocalSkills_ReadsVersionFromSKILLMd(t *testing.T) {
 	makeSkillDir(t, skillsPath, "skill-alpha", "1.0.0", "Alpha skill")
 	makeSkillDir(t, skillsPath, "skill-beta", "2.3.1", "Beta skill")
 
-	buf := captureLog(t)
+	captureLog(t)
 	cmd := &ListCommand{agentName: "cursor"}
 	cmd.SetProjectDir(projectRoot).SetFormat("json")
 
-	err := cmd.Run()
-
-	require.NoError(t, err)
+	jsonOut := captureStdout(t, func() {
+		require.NoError(t, cmd.Run())
+	})
 
 	var results []listResult
-	require.NoError(t, json.Unmarshal(extractJSON(buf.Bytes()), &results))
+	require.NoError(t, json.Unmarshal(jsonOut, &results))
 	assert.Len(t, results, 2)
 
 	// Sorted alphabetically by name (default)
@@ -130,14 +133,16 @@ func TestListLocalSkills_SkipsMissingSKILLMd(t *testing.T) {
 	makeSkillDir(t, skillsPath, "with-meta", "1.0.0", "Has metadata")
 	require.NoError(t, os.MkdirAll(filepath.Join(skillsPath, "no-meta"), 0o755))
 
-	buf := captureLog(t)
+	captureLog(t)
 	cmd := &ListCommand{}
 	cmd.SetAgentName("cursor").SetProjectDir(projectRoot).SetFormat("json")
 
-	require.NoError(t, cmd.Run())
+	jsonOut := captureStdout(t, func() {
+		require.NoError(t, cmd.Run())
+	})
 
 	var results []listResult
-	require.NoError(t, json.Unmarshal(extractJSON(buf.Bytes()), &results))
+	require.NoError(t, json.Unmarshal(jsonOut, &results))
 	assert.Len(t, results, 1)
 	assert.Equal(t, "with-meta", results[0].Name)
 }
@@ -174,14 +179,16 @@ func TestListLocalSkills_LimitApplied(t *testing.T) {
 	makeSkillDir(t, skillsPath, "bbb", "1.0.0", "Second")
 	makeSkillDir(t, skillsPath, "ccc", "1.0.0", "Third")
 
-	buf := captureLog(t)
+	captureLog(t)
 	cmd := &ListCommand{}
 	cmd.SetAgentName("cursor").SetProjectDir(projectRoot).SetFormat("json").SetLimit(2)
 
-	require.NoError(t, cmd.Run())
+	jsonOut := captureStdout(t, func() {
+		require.NoError(t, cmd.Run())
+	})
 
 	var results []listResult
-	require.NoError(t, json.Unmarshal(extractJSON(buf.Bytes()), &results))
+	require.NoError(t, json.Unmarshal(jsonOut, &results))
 	assert.Len(t, results, 2)
 }
 
@@ -193,14 +200,16 @@ func TestListLocalSkills_GlobalDir(t *testing.T) {
 	common.Agents["cursor"] = common.AgentConfig{GlobalDir: tmpDir, ProjectDir: original.ProjectDir}
 	t.Cleanup(func() { common.Agents["cursor"] = original })
 
-	buf := captureLog(t)
+	captureLog(t)
 	cmd := &ListCommand{}
 	cmd.SetAgentName("cursor").SetFormat("json")
 
-	require.NoError(t, cmd.Run())
+	jsonOut := captureStdout(t, func() {
+		require.NoError(t, cmd.Run())
+	})
 
 	var results []listResult
-	require.NoError(t, json.Unmarshal(extractJSON(buf.Bytes()), &results))
+	require.NoError(t, json.Unmarshal(jsonOut, &results))
 	require.Len(t, results, 1)
 	assert.Equal(t, "global-skill", results[0].Name)
 	assert.Equal(t, "3.0.0", results[0].Version)
@@ -214,14 +223,16 @@ func TestListLocalSkills_SortAscending(t *testing.T) {
 	makeSkillDir(t, skillsPath, "aaa", "1.0.0", "A")
 	makeSkillDir(t, skillsPath, "mmm", "1.0.0", "M")
 
-	buf := captureLog(t)
+	captureLog(t)
 	cmd := &ListCommand{}
 	cmd.SetAgentName("cursor").SetProjectDir(projectRoot).SetFormat("json").SetSortOrder("asc")
 
-	require.NoError(t, cmd.Run())
+	jsonOut := captureStdout(t, func() {
+		require.NoError(t, cmd.Run())
+	})
 
 	var results []listResult
-	require.NoError(t, json.Unmarshal(extractJSON(buf.Bytes()), &results))
+	require.NoError(t, json.Unmarshal(jsonOut, &results))
 	require.Len(t, results, 3)
 	assert.Equal(t, "aaa", results[0].Name)
 	assert.Equal(t, "mmm", results[1].Name)
@@ -236,14 +247,16 @@ func TestListLocalSkills_SortDescending(t *testing.T) {
 	makeSkillDir(t, skillsPath, "zzz", "2.0.0", "Z")
 	makeSkillDir(t, skillsPath, "mmm", "1.5.0", "M")
 
-	buf := captureLog(t)
+	captureLog(t)
 	cmd := &ListCommand{}
 	cmd.SetAgentName("cursor").SetProjectDir(projectRoot).SetFormat("json").SetSortOrder("desc")
 
-	require.NoError(t, cmd.Run())
+	jsonOut := captureStdout(t, func() {
+		require.NoError(t, cmd.Run())
+	})
 
 	var results []listResult
-	require.NoError(t, json.Unmarshal(extractJSON(buf.Bytes()), &results))
+	require.NoError(t, json.Unmarshal(jsonOut, &results))
 	require.Len(t, results, 3)
 	assert.Equal(t, "zzz", results[0].Name)
 	assert.Equal(t, "mmm", results[1].Name)
@@ -280,27 +293,43 @@ func TestPrintResults_Table(t *testing.T) {
 }
 
 func TestPrintResults_JSON(t *testing.T) {
-	buf := captureLog(t)
 	cmd := &ListCommand{format: "json"}
 	results := []listResult{
 		{Name: "skill-a", Version: "2.0.0", Description: "Desc", Source: "/some/path/skill-a"},
 	}
 
-	require.NoError(t, cmd.printResults(results))
+	out := captureStdout(t, func() {
+		require.NoError(t, cmd.printResults(results))
+	})
 
 	var parsed []listResult
-	require.NoError(t, json.Unmarshal(extractJSON(buf.Bytes()), &parsed))
+	require.NoError(t, json.Unmarshal(out, &parsed))
 	assert.Len(t, parsed, 1)
 	assert.Equal(t, "skill-a", parsed[0].Name)
 	assert.Equal(t, "2.0.0", parsed[0].Version)
 }
 
-func TestPrintResults_Empty(t *testing.T) {
+func TestPrintResults_Empty_Table(t *testing.T) {
 	buf := captureLog(t)
 	cmd := &ListCommand{}
 
 	require.NoError(t, cmd.printResults([]listResult{}))
 	assert.Contains(t, buf.String(), "No skills found")
+}
+
+func TestPrintResults_Empty_JSON(t *testing.T) {
+	cmd := &ListCommand{}
+	cmd.SetFormat("json")
+
+	var nilResults []listResult
+	out := captureStdout(t, func() {
+		require.NoError(t, cmd.printResults(nilResults))
+	})
+
+	var parsed []listResult
+	require.NoError(t, json.Unmarshal(out, &parsed))
+	assert.Len(t, parsed, 0)
+	assert.Contains(t, string(out), "[]")
 }
 
 // ---------------------------------------------------------------------------

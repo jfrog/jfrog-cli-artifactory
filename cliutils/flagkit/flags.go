@@ -1176,7 +1176,7 @@ var flagsMap = map[string]components.Flag{
 	skipScan:            components.NewBoolFlag(skipScan, "Skip Xray security scan after publish. Can also be set via JFROG_CLI_SKIP_SKILLS_SCAN=true.", components.WithBoolDefaultValueFalse()),
 	autoDeleteOnFailure: components.NewBoolFlag(autoDeleteOnFailure, "Automatically delete the artifact if Xray scan identifies it as malicious.", components.WithBoolDefaultValueFalse()),
 	agent:               components.NewStringFlag(agent, "AI agent name to list locally installed skills for. Supported: claude-code, cursor, github-copilot, windsurf.", components.SetMandatoryFalse()),
-	projectDir:          components.NewStringFlag(projectDir, "Path to the project root for project-scoped skills. Use '.' for the current directory. Falls back to global agent skills if not found.", components.SetMandatoryFalse()),
+	projectDir:          components.NewStringFlag(projectDir, "Path to the project root for project-scoped skills. Use '.' for the current directory. When this flag is not set, the global agent skills directory is used as the fallback.", components.SetMandatoryFalse()),
 	skillsLimit:         components.NewStringFlag(limit, "Maximum number of skills to return. Fetches all by default.", components.SetMandatoryFalse()),
 	skillsSortBy:        components.NewStringFlag(sortBy, "Field to sort by. With --repo: updated (default), downloads. With --agent: name (default, only option).", components.SetMandatoryFalse()),
 	skillsSortOrder:     components.NewStringFlag(sortOrder, "Sort order for --agent. Supported: asc (default), desc. Not supported with --repo.", components.SetMandatoryFalse()),

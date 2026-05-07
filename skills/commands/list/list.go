@@ -2,6 +2,7 @@ package list
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -139,7 +140,7 @@ func (lc *ListCommand) listLocalSkills() error {
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			log.Info(fmt.Sprintf("No skills directory found for agent %q (expected: %s)", lc.agentName, dir))
 			return nil
 		}
@@ -184,16 +185,19 @@ func (lc *ListCommand) listLocalSkills() error {
 }
 
 func (lc *ListCommand) printResults(results []listResult) error {
-	if len(results) == 0 {
-		log.Info("No skills found.")
-		return nil
+	if results == nil {
+		results = []listResult{}
 	}
 	if strings.EqualFold(lc.format, "json") {
 		data, err := json.MarshalIndent(results, "", "  ")
 		if err != nil {
 			return fmt.Errorf("failed to marshal results: %w", err)
 		}
-		log.Info("\n" + string(data))
+		fmt.Println(string(data))
+		return nil
+	}
+	if len(results) == 0 {
+		log.Info("No skills found.")
 		return nil
 	}
 	return coreutils.PrintTable(results, "Skills", "No skills found", false)
@@ -213,10 +217,6 @@ func expandHome(path string) string {
 func RunList(c *components.Context) error {
 	repoKey := c.GetStringFlagValue("repo")
 	agentName := c.GetStringFlagValue("agent")
-
-	if repoKey == "" && agentName == "" {
-		return fmt.Errorf("either --repo <repository> or --agent <agent-name> must be specified.\nSupported agents: %s", common.SupportedAgentsList())
-	}
 
 	format := "table"
 	if c.GetStringFlagValue("format") != "" {

@@ -1,6 +1,9 @@
 package common
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // AgentConfig holds the skills directory paths for an AI agent.
 type AgentConfig struct {
@@ -22,5 +25,6 @@ func SupportedAgentsList() string {
 	for name := range Agents {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return strings.Join(names, ", ")
 }
