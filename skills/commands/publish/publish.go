@@ -101,8 +101,8 @@ func (pc *PublishCommand) SetAutoDeleteOnFailure(autoDelete bool) *PublishComman
 	return pc
 }
 
-func (pc *PublishCommand) SetBuildConfiguration(buildCfg *build.BuildConfiguration) *PublishCommand {
-	pc.buildConfiguration = buildCfg
+func (pc *PublishCommand) SetBuildConfiguration(buildConfig *build.BuildConfiguration) *PublishCommand {
+	pc.buildConfiguration = buildConfig
 	return pc
 }
 
@@ -173,8 +173,16 @@ func (pc *PublishCommand) Run() error {
 		return err
 	}
 
+	collectBuildInfo := false
+	if pc.buildConfiguration != nil {
+		collectBuildInfo, err = pc.buildConfiguration.IsCollectBuildInfo()
+		if err != nil {
+			return err
+		}
+	}
+
 	target := fmt.Sprintf("%s/%s/%s/", pc.repoKey, slug, version)
-	artifactsDetailsReader, err := pc.upload(zipPath, target)
+	artifactsDetailsReader, err := pc.upload(zipPath, target, collectBuildInfo)
 	if err != nil {
 		return fmt.Errorf("upload failed: %w", err)
 	}
@@ -503,23 +511,23 @@ func computeSHA256(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// applyDefaultBuildInfoModule sets the build-info module id from the skill slug when
-// --module is omitted. Otherwise an empty module id is merged using the build name.
-func applyDefaultBuildInfoModule(buildCfg *build.BuildConfiguration, slug string) error {
-	if buildCfg == nil || buildCfg.GetModule() != "" {
+// applyDefaultBuildInfoModule sets the build-info module id from the skill slug
+// when --module is omitted.
+func applyDefaultBuildInfoModule(buildConfig *build.BuildConfiguration, slug string) error {
+	if buildConfig == nil || buildConfig.GetModule() != "" {
 		return nil
 	}
-	toCollect, err := buildCfg.IsCollectBuildInfo()
+	toCollect, err := buildConfig.IsCollectBuildInfo()
 	if err != nil {
 		return err
 	}
 	if toCollect {
-		buildCfg.SetModule(slug)
+		buildConfig.SetModule(slug)
 	}
 	return nil
 }
 
-func (pc *PublishCommand) upload(zipPath, target string) (*content.ContentReader, error) {
+func (pc *PublishCommand) upload(zipPath, target string, collectBuildInfo bool) (*content.ContentReader, error) {
 	serviceManager, err := utils.CreateUploadServiceManager(pc.serverDetails, 1, 3, 0, false, nil)
 	if err != nil {
 		return nil, err
@@ -530,12 +538,10 @@ func (pc *PublishCommand) upload(zipPath, target string) (*content.ContentReader
 	uploadParams.Target = target
 	uploadParams.Flat = true
 
-	toCollect, err := pc.buildConfiguration.IsCollectBuildInfo()
-	if err != nil {
-		return nil, err
-	}
-
-	if toCollect {
+	if collectBuildInfo {
+		if pc.buildConfiguration == nil {
+			return nil, fmt.Errorf("build-info collection requested, but build configuration is nil")
+		}
 		buildProps, err := build.CreateBuildPropsFromConfiguration(pc.buildConfiguration)
 		if err != nil {
 			return nil, err
@@ -675,7 +681,7 @@ func RunPublish(c *components.Context) error {
 		return err
 	}
 
-	buildCfg, err := pluginsCommon.CreateBuildConfigurationWithModule(c)
+	buildConfig, err := pluginsCommon.CreateBuildConfigurationWithModule(c)
 	if err != nil {
 		return err
 	}
@@ -690,7 +696,7 @@ func RunPublish(c *components.Context) error {
 		SetQuiet(quiet).
 		SetSkipScan(c.GetBoolFlagValue("skip-scan")).
 		SetAutoDeleteOnFailure(c.GetBoolFlagValue("auto-delete-on-failure")).
-		SetBuildConfiguration(buildCfg)
+		SetBuildConfiguration(buildConfig)
 
 	return cmd.Run()
 }
