@@ -169,15 +169,14 @@ func (pc *PublishCommand) Run() error {
 		return fmt.Errorf("failed to compute SHA256: %w", err)
 	}
 
-	if err := applyDefaultBuildInfoModule(pc.buildConfiguration, slug); err != nil {
-		return err
-	}
-
 	collectBuildInfo := false
 	if pc.buildConfiguration != nil {
 		collectBuildInfo, err = pc.buildConfiguration.IsCollectBuildInfo()
 		if err != nil {
 			return err
+		}
+		if collectBuildInfo && pc.buildConfiguration.GetModule() == "" {
+			pc.buildConfiguration.SetModule(slug)
 		}
 	}
 
@@ -511,22 +510,6 @@ func computeSHA256(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// applyDefaultBuildInfoModule sets the build-info module id from the skill slug
-// when --module is omitted.
-func applyDefaultBuildInfoModule(buildConfig *build.BuildConfiguration, slug string) error {
-	if buildConfig == nil || buildConfig.GetModule() != "" {
-		return nil
-	}
-	toCollect, err := buildConfig.IsCollectBuildInfo()
-	if err != nil {
-		return err
-	}
-	if toCollect {
-		buildConfig.SetModule(slug)
-	}
-	return nil
-}
-
 func (pc *PublishCommand) upload(zipPath, target string, collectBuildInfo bool) (*content.ContentReader, error) {
 	serviceManager, err := utils.CreateUploadServiceManager(pc.serverDetails, 1, 3, 0, false, nil)
 	if err != nil {
@@ -548,15 +531,15 @@ func (pc *PublishCommand) upload(zipPath, target string, collectBuildInfo bool) 
 		}
 		uploadParams.BuildProps = buildProps
 
-		uploadSummary, err := serviceManager.UploadFilesWithSummary(artifactory.UploadServiceOptions{}, uploadParams)
+		summary, err := serviceManager.UploadFilesWithSummary(artifactory.UploadServiceOptions{}, uploadParams)
 		if err != nil {
 			return nil, err
 		}
-		if uploadSummary != nil {
-			if uploadSummary.TransferDetailsReader != nil {
-				_ = uploadSummary.TransferDetailsReader.Close()
+		if summary != nil {
+			if summary.TransferDetailsReader != nil {
+				_ = summary.TransferDetailsReader.Close()
 			}
-			return uploadSummary.ArtifactsDetailsReader, nil
+			return summary.ArtifactsDetailsReader, nil
 		}
 		return nil, nil
 	}
