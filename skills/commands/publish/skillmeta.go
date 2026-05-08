@@ -57,8 +57,9 @@ func parseFrontmatter(content string) (*SkillMeta, error) {
 	frontmatter := rest[:endIdx]
 	meta := &SkillMeta{}
 
-	for _, line := range strings.Split(frontmatter, "\n") {
-		line = strings.TrimSpace(line)
+	lines := strings.Split(frontmatter, "\n")
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -68,6 +69,20 @@ func parseFrontmatter(content string) (*SkillMeta, error) {
 		}
 		key := strings.TrimSpace(line[:colonIdx])
 		value := stripQuotes(strings.TrimSpace(line[colonIdx+1:]))
+
+		// Handle YAML block scalar indicators (> >- | |-): collect indented continuation lines.
+		if value == ">" || value == ">-" || value == "|" || value == "|-" {
+			var parts []string
+			for i+1 < len(lines) {
+				next := lines[i+1]
+				if next != "" && !strings.HasPrefix(next, " ") && !strings.HasPrefix(next, "\t") {
+					break
+				}
+				i++
+				parts = append(parts, strings.TrimSpace(next))
+			}
+			value = strings.TrimSpace(strings.Join(parts, " "))
+		}
 
 		switch key {
 		case "name":
