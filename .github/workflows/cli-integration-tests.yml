@@ -303,7 +303,7 @@ jobs:
             version: 24.04
           - name: windows
             version: 2022
-        pnpm-version: [10, latest]
+        pnpm-version: [10]
     runs-on: ${{ matrix.os.name }}-${{ matrix.os.version }}
     env:
       JFROG_CLI_LOG_LEVEL: DEBUG
