@@ -21,3 +21,4 @@
 
 .gradle
 **/gradle*/**/bin
+.fly/
