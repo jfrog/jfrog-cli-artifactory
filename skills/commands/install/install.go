@@ -192,7 +192,7 @@ func (ic *InstallCommand) downloadZip(tmpDir string) (string, error) {
 
 // diagnoseDownloadForbidden checks the Xray status API when a download returns 403.
 // If the artifact is blocked by Xray, it returns a specific error message.
-// Otherwise, it returns the original error.
+// Otherwise, it will return the original error.
 func (ic *InstallCommand) diagnoseDownloadForbidden(originalErr error) error {
 	artifactPath := fmt.Sprintf("%s/%s/%s-%s.zip", ic.slug, ic.version, ic.slug, ic.version)
 	sm, err := utils.CreateServiceManager(ic.serverDetails, 3, 0, false)
