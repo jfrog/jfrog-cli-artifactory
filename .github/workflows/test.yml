@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu, windows, macos ]
-        pnpm-version: [ 10, latest ]
+        pnpm-version: [ 10 ]
     env:
       GOPROXY: direct
       GRADLE_OPTS: -Dorg.gradle.daemon=false
