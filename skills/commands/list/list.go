@@ -38,6 +38,7 @@ type ListCommand struct {
 	repoKey       string
 	agentName     string
 	projectDir    string
+	global        bool
 	format        string
 	limit         int
 	sortBy        string
@@ -61,6 +62,11 @@ func (lc *ListCommand) SetAgentName(agentName string) *ListCommand {
 
 func (lc *ListCommand) SetProjectDir(projectDir string) *ListCommand {
 	lc.projectDir = projectDir
+	return lc
+}
+
+func (lc *ListCommand) SetGlobal(useGlobal bool) *ListCommand {
+	lc.global = useGlobal
 	return lc
 }
 
@@ -90,6 +96,9 @@ func (lc *ListCommand) Run() error {
 	}
 	if lc.repoKey != "" && lc.agentName != "" {
 		return fmt.Errorf("--repo and --agent are mutually exclusive; specify only one")
+	}
+	if lc.global && lc.projectDir != "" {
+		return fmt.Errorf("--global and --project-dir are mutually exclusive")
 	}
 
 	if lc.agentName != "" {
@@ -122,20 +131,18 @@ func (lc *ListCommand) listRepoSkills() error {
 }
 
 func (lc *ListCommand) listLocalSkills() error {
-	normalized := strings.ToLower(strings.TrimSpace(lc.agentName))
-
-	agent, known := common.Agents[normalized]
-	if !known {
-		return fmt.Errorf("unknown agent %q. Supported agents: %s", lc.agentName, common.SupportedAgentsList())
+	registry, err := common.LoadAgentRegistry()
+	if err != nil {
+		return err
+	}
+	spec, err := common.ResolveAgent(registry, lc.agentName)
+	if err != nil {
+		return err
 	}
 
-	var dir string
-	if lc.projectDir != "" {
-		// Project-scoped: only look in <projectDir>/<agent-relative-path>, no fallback
-		dir = filepath.Join(lc.projectDir, agent.ProjectDir)
-	} else {
-		// Global scope
-		dir = expandHome(agent.GlobalDir)
+	dir, err := common.ResolveAgentInstallDir(spec, lc.projectDir, lc.global)
+	if err != nil {
+		return err
 	}
 
 	entries, err := os.ReadDir(dir)
@@ -203,17 +210,6 @@ func (lc *ListCommand) printResults(results []listResult) error {
 	return coreutils.PrintTable(results, "Skills", "No skills found", false)
 }
 
-func expandHome(path string) string {
-	if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return path
-		}
-		return filepath.Join(home, path[2:])
-	}
-	return path
-}
-
 func RunList(c *components.Context) error {
 	repoKey := c.GetStringFlagValue("repo")
 	agentName := c.GetStringFlagValue("agent")
@@ -266,6 +262,14 @@ func RunList(c *components.Context) error {
 	}
 
 	projectDir := c.GetStringFlagValue("project-dir")
+	useGlobal := c.GetBoolFlagValue("global")
+	if useGlobal && projectDir != "" {
+		return fmt.Errorf("--global and --project-dir are mutually exclusive")
+	}
+	// --agent without --project-dir/--global: use cwd
+	if !useGlobal && projectDir == "" && agentName != "" {
+		projectDir = "."
+	}
 	if projectDir != "" {
 		absPath, err := filepath.Abs(projectDir)
 		if err != nil {
@@ -278,6 +282,7 @@ func RunList(c *components.Context) error {
 	cmd.SetRepoKey(repoKey).
 		SetAgentName(agentName).
 		SetProjectDir(projectDir).
+		SetGlobal(useGlobal).
 		SetFormat(format).
 		SetLimit(limit).
 		SetSortBy(sortBy).

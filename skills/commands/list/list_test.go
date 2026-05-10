@@ -38,27 +38,6 @@ func captureStdout(t *testing.T, fn func()) []byte {
 }
 
 // ---------------------------------------------------------------------------
-// expandHome
-// ---------------------------------------------------------------------------
-
-func TestExpandHome_Tilde(t *testing.T) {
-	home, err := os.UserHomeDir()
-	require.NoError(t, err)
-	expanded := expandHome("~/.claude/skills")
-	assert.Equal(t, filepath.Join(home, ".claude/skills"), expanded)
-}
-
-func TestExpandHome_NoTilde(t *testing.T) {
-	path := "/absolute/path/skills"
-	assert.Equal(t, path, expandHome(path))
-}
-
-func TestExpandHome_TildeOnly(t *testing.T) {
-	// "~" without slash should be returned as-is (not a valid prefix)
-	assert.Equal(t, "~", expandHome("~"))
-}
-
-// ---------------------------------------------------------------------------
 // ListCommand.Run — validation
 // ---------------------------------------------------------------------------
 
@@ -202,7 +181,7 @@ func TestListLocalSkills_GlobalDir(t *testing.T) {
 
 	captureLog(t)
 	cmd := &ListCommand{}
-	cmd.SetAgentName("cursor").SetFormat("json")
+	cmd.SetAgentName("cursor").SetGlobal(true).SetFormat("json")
 
 	jsonOut := captureStdout(t, func() {
 		require.NoError(t, cmd.Run())
@@ -337,7 +316,14 @@ func TestPrintResults_Empty_JSON(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestAgents_AllKnownAgents(t *testing.T) {
-	expected := []string{"claude-code", "cursor", "github-copilot", "windsurf"}
+	expected := []string{
+		"claude-code",
+		"codex",
+		"cross-agent",
+		"cursor",
+		"github-copilot",
+		"windsurf",
+	}
 	for _, name := range expected {
 		cfg, ok := common.Agents[name]
 		assert.True(t, ok, "expected agent %q to be in Agents", name)

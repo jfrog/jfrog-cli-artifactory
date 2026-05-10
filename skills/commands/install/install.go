@@ -2,8 +2,10 @@ package install
 
 import (
 	"archive/zip"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,19 +19,36 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-const defaultInstallBase = "."
+// scope is project (under project root) or global (agent home paths).
+type scope string
 
+const (
+	scopeProject scope = "project"
+	scopeGlobal  scope = "global"
+)
+
+// agentTarget is one agent plus absolute destination dir (includes slug).
+type agentTarget struct {
+	Agent   common.AgentSpec
+	DestDir string // absolute; ends with /<slug>
+}
+
+// InstallCommand installs a skill for configured agents or legacy --path (update).
 type InstallCommand struct {
 	serverDetails *config.ServerDetails
 	repoKey       string
 	slug          string
 	version       string
-	installPath   string
-	quiet         bool
+	agents        []common.AgentSpec
+	scope         scope
+	projectDir    string // absolute project root for project scope
+	// installPath: legacy base dir (e.g. skills update --path); wins over agents.
+	installPath string
+	quiet       bool
 }
 
 func NewInstallCommand() *InstallCommand {
-	return &InstallCommand{}
+	return &InstallCommand{scope: scopeProject}
 }
 
 func (ic *InstallCommand) SetServerDetails(details *config.ServerDetails) *InstallCommand {
@@ -52,13 +71,35 @@ func (ic *InstallCommand) SetVersion(version string) *InstallCommand {
 	return ic
 }
 
-func (ic *InstallCommand) SetInstallPath(path string) *InstallCommand {
-	ic.installPath = path
+func (ic *InstallCommand) SetAgents(agents []common.AgentSpec) *InstallCommand {
+	ic.agents = agents
+	return ic
+}
+
+// SetGlobal sets global vs project scope.
+func (ic *InstallCommand) SetGlobal(useGlobal bool) *InstallCommand {
+	if useGlobal {
+		ic.scope = scopeGlobal
+	} else {
+		ic.scope = scopeProject
+	}
+	return ic
+}
+
+// SetProjectDir sets absolute project root for project scope.
+func (ic *InstallCommand) SetProjectDir(projectRoot string) *InstallCommand {
+	ic.projectDir = projectRoot
 	return ic
 }
 
 func (ic *InstallCommand) SetQuiet(quiet bool) *InstallCommand {
 	ic.quiet = quiet
+	return ic
+}
+
+// SetInstallPath sets direct install base (same as skills update --path): skill at <base>/<slug>.
+func (ic *InstallCommand) SetInstallPath(installPath string) *InstallCommand {
+	ic.installPath = installPath
 	return ic
 }
 
@@ -71,13 +112,26 @@ func (ic *InstallCommand) CommandName() string {
 }
 
 func (ic *InstallCommand) Run() error {
-	version, err := ic.resolveVersion()
+	if ic.installPath == "" && len(ic.agents) == 0 {
+		return fmt.Errorf("at least one agent is required")
+	}
+
+	targets, err := ic.resolveTargets()
 	if err != nil {
 		return err
 	}
-	ic.version = version
 
-	log.Info(fmt.Sprintf("Installing skill '%s' version '%s'", ic.slug, ic.version))
+	resolvedVersion, err := ic.resolveVersion()
+	if err != nil {
+		return err
+	}
+	ic.version = resolvedVersion
+
+	if ic.installPath != "" {
+		log.Info(fmt.Sprintf("Installing skill '%s' version '%s' to %s", ic.slug, ic.version, targets[0].DestDir))
+	} else {
+		log.Info(fmt.Sprintf("Installing skill '%s' version '%s' for %d agent(s)", ic.slug, ic.version, len(targets)))
+	}
 
 	tmpDir, err := os.MkdirTemp("", "skill-install-*")
 	if err != nil {
@@ -114,51 +168,60 @@ func (ic *InstallCommand) Run() error {
 		}
 	}
 
-	destDir := ic.getDestDir()
-	if err := copyDir(unzipDir, destDir); err != nil {
-		return fmt.Errorf("failed to copy skill files: %w", err)
+	results := make([]installResult, 0, len(targets))
+	for _, target := range targets {
+		if err := ensureDestDir(target.DestDir); err != nil {
+			results = append(results, installResult{Agent: target.Agent.Name, Scope: string(ic.scope), Path: target.DestDir, Status: skillInstallStatusFailed, Detail: err.Error()})
+			continue
+		}
+		if err := copyDir(unzipDir, target.DestDir); err != nil {
+			results = append(results, installResult{Agent: target.Agent.Name, Scope: string(ic.scope), Path: target.DestDir, Status: skillInstallStatusFailed, Detail: err.Error()})
+			continue
+		}
+		results = append(results, installResult{Agent: target.Agent.Name, Scope: string(ic.scope), Path: target.DestDir, Status: skillInstallStatusOK, Detail: skillInstallDetailOK})
 	}
 
-	log.Info(fmt.Sprintf("Skill '%s' version '%s' installed to %s", ic.slug, ic.version, destDir))
+	printSummary(ic.slug, ic.version, results)
+
+	for _, result := range results {
+		if result.Status != skillInstallStatusOK {
+			return fmt.Errorf("installation failed for one or more agents (see summary above)")
+		}
+	}
 	return nil
 }
 
-func (ic *InstallCommand) resolveVersion() (string, error) {
-	if ic.version == "latest" || ic.version == "" {
-		versions, err := common.ListVersions(ic.serverDetails, ic.repoKey, ic.slug)
+// resolveTargets builds per-agent dest dirs, or one direct target if installPath is set (install/update --path).
+func (ic *InstallCommand) resolveTargets() ([]agentTarget, error) {
+	if ic.installPath != "" {
+		base, err := filepath.Abs(ic.installPath)
 		if err != nil {
-			if strings.Contains(err.Error(), "404 Not Found") {
-				return "", fmt.Errorf("skill '%s' not found in repository '%s'", ic.slug, ic.repoKey)
-			}
-			if ic.version == "" {
-				return "", fmt.Errorf("failed to list versions (provide --version explicitly): %w", err)
-			}
-			return "", fmt.Errorf("failed to list versions: %w", err)
+			return nil, fmt.Errorf("invalid install path %q: %w", ic.installPath, err)
 		}
-
-		versionStrs := make([]string, len(versions))
-		for i, v := range versions {
-			versionStrs[i] = v.Version
-		}
-
-		if ic.version == "latest" {
-			return common.LatestVersion(versionStrs)
-		}
-
-		if ic.quiet || common.IsNonInteractive() {
-			return "", fmt.Errorf("--version is required in non-interactive mode (use semver or \"latest\")")
-		}
-
-		latest, err := common.LatestVersion(versionStrs)
-		if err != nil {
-			return "", err
-		}
-		log.Info("Available versions:", versionStrs)
-		log.Info("Using latest version:", latest)
-		return latest, nil
+		return []agentTarget{{
+			Agent:   common.AgentSpec{Name: "(path)"},
+			DestDir: filepath.Join(base, ic.slug),
+		}}, nil
 	}
+	if ic.scope == scopeProject && ic.projectDir == "" {
+		return nil, fmt.Errorf("project directory is required for project-scoped install")
+	}
+	targets := make([]agentTarget, 0, len(ic.agents))
+	for _, agentSpec := range ic.agents {
+		base, err := common.ResolveAgentInstallDir(agentSpec, ic.projectDir, ic.scope == scopeGlobal)
+		if err != nil {
+			return nil, err
+		}
+		targets = append(targets, agentTarget{
+			Agent:   agentSpec,
+			DestDir: filepath.Join(base, ic.slug),
+		})
+	}
+	return targets, nil
+}
 
-	return ic.version, nil
+func (ic *InstallCommand) resolveVersion() (string, error) {
+	return common.ResolveSkillVersion(ic.serverDetails, ic.repoKey, ic.slug, ic.version, ic.quiet)
 }
 
 func (ic *InstallCommand) downloadZip(tmpDir string) (string, error) {
@@ -221,12 +284,23 @@ func (ic *InstallCommand) verifyEvidence() error {
 	})
 }
 
-func (ic *InstallCommand) getDestDir() string {
-	base := ic.installPath
-	if base == "" {
-		base = defaultInstallBase
+// ensureDestDir mkdirs if missing, errors if path exists and is not a dir.
+func ensureDestDir(dest string) error {
+	info, err := os.Stat(dest)
+	switch {
+	case err == nil && !info.IsDir():
+		return fmt.Errorf("install destination %q exists and is not a directory", dest)
+	case err == nil:
+		return nil
+	case errors.Is(err, fs.ErrNotExist):
+		// #nosec G301 -- skill files need to be readable across the user's tools.
+		if mkErr := os.MkdirAll(dest, 0750); mkErr != nil {
+			return fmt.Errorf("failed to create install destination %q: %w", dest, mkErr)
+		}
+		return nil
+	default:
+		return fmt.Errorf("install destination %q is not accessible: %w", dest, err)
 	}
-	return filepath.Join(base, ic.slug)
 }
 
 func unzipFile(src, dest string) error {
@@ -349,29 +423,112 @@ func copyFile(src, dst string) error {
 // RunInstall is the CLI action for `jf skills install`.
 func RunInstall(c *components.Context) error {
 	if c.GetNumberOfArgs() < 1 {
-		return fmt.Errorf("usage: jf skills install <slug> [--repo <repo>] [options]")
+		return fmt.Errorf("usage: jf skills install <slug> (--agent <name[,name...]> [--global] [--project-dir <dir>]] | --path <dir>) [--repo <repo>] [--version <ver>]")
 	}
 
 	slug := c.GetArgumentAt(0)
+
+	directBase := strings.TrimSpace(c.GetStringFlagValue("path"))
+	rawAgents := strings.TrimSpace(c.GetStringFlagValue("agent"))
+	useGlobal := c.GetBoolFlagValue("global")
+	projectDirFlag := strings.TrimSpace(c.GetStringFlagValue("project-dir"))
+
+	var pathInstallAbs string
+	var specs []common.AgentSpec
+	var projectDirAbs string
+
+	if directBase != "" {
+		if rawAgents != "" {
+			return fmt.Errorf("--path cannot be combined with --agent")
+		}
+		if useGlobal {
+			return fmt.Errorf("--path cannot be combined with --global")
+		}
+		if projectDirFlag != "" {
+			return fmt.Errorf("--path cannot be combined with --project-dir")
+		}
+		if err := common.ValidateExistingDir(directBase); err != nil {
+			return fmt.Errorf("--path: %w", err)
+		}
+		absBase, err := filepath.Abs(directBase)
+		if err != nil {
+			return fmt.Errorf("invalid --path %q: %w", directBase, err)
+		}
+		pathInstallAbs = absBase
+	} else {
+		registry, err := common.LoadAgentRegistry()
+		if err != nil {
+			return err
+		}
+		if rawAgents == "" {
+			return fmt.Errorf("--agent is required unless --path is set. Supported agents: %s", common.AgentNames(registry))
+		}
+
+		agentNames, err := common.ParseAgentList(rawAgents)
+		if err != nil {
+			return err
+		}
+
+		specs = make([]common.AgentSpec, 0, len(agentNames))
+		for _, name := range agentNames {
+			spec, err := common.ResolveAgent(registry, name)
+			if err != nil {
+				return err
+			}
+			specs = append(specs, spec)
+		}
+
+		if useGlobal && projectDirFlag != "" {
+			return fmt.Errorf("--global and --project-dir are mutually exclusive")
+		}
+
+		if !useGlobal {
+			dir := projectDirFlag
+			if dir == "" {
+				dir = "."
+			}
+			abs, err := filepath.Abs(dir)
+			if err != nil {
+				return fmt.Errorf("invalid --project-dir %q: %w", dir, err)
+			}
+			info, statErr := os.Stat(abs)
+			if statErr != nil || !info.IsDir() {
+				return fmt.Errorf("--project-dir %q is not an existing directory", dir)
+			}
+			projectDirAbs = abs
+		}
+	}
 
 	serverDetails, err := common.GetServerDetails(c)
 	if err != nil {
 		return err
 	}
-
 	quiet := common.IsQuiet(c)
 	repoKey, err := common.ResolveRepo(serverDetails, c.GetStringFlagValue("repo"), quiet)
 	if err != nil {
 		return err
 	}
 
-	cmd := NewInstallCommand().
+	version := c.GetStringFlagValue("version")
+	if pathInstallAbs != "" {
+		return NewInstallCommand().
+			SetServerDetails(serverDetails).
+			SetRepoKey(repoKey).
+			SetSlug(slug).
+			SetVersion(version).
+			SetInstallPath(pathInstallAbs).
+			SetQuiet(quiet).
+			Run()
+	}
+
+	return NewInstallCommand().
 		SetServerDetails(serverDetails).
 		SetRepoKey(repoKey).
 		SetSlug(slug).
-		SetVersion(c.GetStringFlagValue("version")).
-		SetInstallPath(c.GetStringFlagValue("path")).
-		SetQuiet(quiet)
-
-	return cmd.Run()
+		SetVersion(version).
+		SetAgents(specs).
+		SetGlobal(useGlobal).
+		SetProjectDir(projectDirAbs).
+		SetQuiet(quiet).
+		Run()
 }

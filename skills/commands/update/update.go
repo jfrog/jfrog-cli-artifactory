@@ -6,15 +6,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
-	prompt "github.com/c-bata/go-prompt"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/install"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/publish"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -59,7 +55,7 @@ func RunUpdate(c *components.Context) error {
 		return err
 	}
 
-	targetVersion, err = resolveTargetVersion(serverDetails, repoKey, slug, targetVersion, quiet)
+	targetVersion, err = common.ResolveSkillVersion(serverDetails, repoKey, slug, targetVersion, quiet)
 	if err != nil {
 		return err
 	}
@@ -129,13 +125,8 @@ func reserveUpdateBackupPath(installBase, slug string) (string, error) {
 }
 
 func validateInstallBase(path string) error {
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return fmt.Errorf("invalid install path: %w", err)
-	}
-	info, err := os.Stat(absPath)
-	if err != nil || !info.IsDir() {
-		return fmt.Errorf("install path '%s' is not a valid directory", path)
+	if err := common.ValidateExistingDir(path); err != nil {
+		return fmt.Errorf("install path %q: %w", path, err)
 	}
 	return nil
 }
@@ -154,58 +145,4 @@ func readInstalledVersion(skillDir string) (string, error) {
 		return "", fmt.Errorf("could not read installed skill metadata from %s: %w", skillDir, err)
 	}
 	return meta.Version, nil
-}
-
-func resolveTargetVersion(serverDetails *config.ServerDetails, repoKey, slug, version string, quiet bool) (string, error) {
-	versions, err := common.ListVersions(serverDetails, repoKey, slug)
-	if err != nil {
-		if strings.Contains(err.Error(), "404 Not Found") {
-			return "", fmt.Errorf("skill '%s' not found in repository '%s'", slug, repoKey)
-		}
-		return "", fmt.Errorf("failed to list versions: %w", err)
-	}
-
-	versionStrs := make([]string, len(versions))
-	for i, v := range versions {
-		versionStrs[i] = v.Version
-	}
-
-	return selectVersion(versionStrs, version, repoKey, quiet)
-}
-
-func selectVersion(available []string, requested, repoKey string, quiet bool) (string, error) {
-	if requested == "" || requested == "latest" {
-		latest, err := common.LatestVersion(available)
-		if err != nil {
-			return "", fmt.Errorf("failed to determine latest version: %w", err)
-		}
-		log.Info(fmt.Sprintf("Using latest version: %s", latest))
-		return latest, nil
-	}
-
-	for _, v := range available {
-		if v == requested {
-			return requested, nil
-		}
-	}
-
-	if quiet || common.IsNonInteractive() {
-		return "", fmt.Errorf(
-			"version '%s' not found in repository '%s'.\nAvailable versions: %s",
-			requested, repoKey, strings.Join(available, ", "),
-		)
-	}
-
-	log.Warn(fmt.Sprintf("Version '%s' not found. Please select from the available versions below.", requested))
-
-	options := make([]prompt.Suggest, len(available))
-	for i, v := range available {
-		options[i] = prompt.Suggest{Text: v}
-	}
-	selected := ioutils.AskFromListWithMismatchConfirmation(
-		"Select a version:",
-		fmt.Sprintf("'%s' is not in the list of available versions.", requested),
-		options,
-	)
-	return selected, nil
 }

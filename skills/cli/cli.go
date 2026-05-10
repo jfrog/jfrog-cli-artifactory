@@ -16,7 +16,7 @@ func GetCommands() []components.Command {
 		{
 			Name:        "list",
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsList),
-			Description: "List skills from an Artifactory repository (--repo) or from a local AI agent's skills directory (--agent). Exactly one of --repo or --agent must be specified.",
+			Description: "List skills from an Artifactory repository (--repo) or from a local agent install (--agent). Exactly one of --repo or --agent is required. With --agent, use --project-dir for the project root (default: current directory) or --global for each agent's global directory.",
 			Action:      skillslist.RunList,
 			Hidden:      true,
 		},
@@ -30,7 +30,7 @@ func GetCommands() []components.Command {
 		{
 			Name:        "install",
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsInstall),
-			Description: "Install a skill from Artifactory. Verifies evidence using Artifactory keys automatically.",
+			Description: "Install a skill from Artifactory. Use --agent (comma-separated names) with --project-dir (default: current directory) or --global, or use --path <dir> for a direct install to <dir>/<slug> (same layout as skills update). Agent paths use ~/.jfrog/agents/agent_config.json with built-in fallbacks. Verifies evidence when signing keys are configured.",
 			Arguments:   getInstallArguments(),
 			Action:      install.RunInstall,
 		},
