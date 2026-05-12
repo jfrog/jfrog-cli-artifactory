@@ -3,7 +3,6 @@ package dotnet
 import (
 	"github.com/jfrog/build-info-go/build/utils/dotnet"
 	"github.com/jfrog/build-info-go/build/utils/dotnet/solution"
-	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"os"
@@ -23,29 +22,31 @@ func (nc *NugetCommand) Run() error {
 	return nc.Exec()
 }
 
-func DependencyTreeCmd() error {
+// DependencyTreeCmd loads the NuGet solution from the current working directory,
+// builds the dependency tree for each project, and returns the marshalled JSON bytes.
+// The caller is responsible for rendering the output.
+func DependencyTreeCmd() ([]byte, error) {
 	workspace, err := os.Getwd()
 	if err != nil {
-		return errorutils.CheckError(err)
+		return nil, errorutils.CheckError(err)
 	}
 
 	sol, err := solution.Load(workspace, "", "", log.Logger)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Create the tree for each project
 	for _, project := range sol.GetProjects() {
 		err = project.CreateDependencyTree(log.Logger)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
-	// Build the tree.
+	// Build and return the tree JSON.
 	content, err := sol.Marshal()
 	if err != nil {
-		return errorutils.CheckError(err)
+		return nil, errorutils.CheckError(err)
 	}
-	log.Output(clientutils.IndentJson(content))
-	return nil
+	return content, nil
 }
