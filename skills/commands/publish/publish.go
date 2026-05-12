@@ -34,6 +34,7 @@ const evidenceLicenseErrFragment = "Enterprise+"
 
 var zipExcludes = map[string]bool{
 	".git":         true,
+	".jfrog":       true,
 	"__pycache__":  true,
 	"node_modules": true,
 	".DS_Store":    true,
@@ -229,8 +230,8 @@ func (pc *PublishCommand) resolveMissingVersion(slug string) (string, error) {
 	}
 
 	versionStrs := make([]string, len(versions))
-	for i, v := range versions {
-		versionStrs[i] = v.Version
+	for versionIndex, skillVersion := range versions {
+		versionStrs[versionIndex] = skillVersion.Version
 	}
 
 	if len(versionStrs) > 0 {

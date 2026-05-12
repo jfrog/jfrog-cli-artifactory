@@ -13,7 +13,7 @@ import (
 const (
 	SummaryStatusOK        = "ok"
 	SummaryStatusFailed    = "failed"
-	SummaryStatusUpToDate  = "up-to-date"
+	SummaryStatusSkipped   = "skipped"
 	SummaryDetailOKInstall = "Executed successfully with no issues."
 )
 

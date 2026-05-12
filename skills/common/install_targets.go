@@ -76,12 +76,12 @@ func ValidateInstallFlags(c *components.Context) (absoluteInstallBaseDir string,
 
 	specs = make([]AgentSpec, 0, len(agentNames))
 	for _, name := range agentNames {
-		spec, resolveErr := ResolveAgent(registry, name)
+		agentSpec, resolveErr := ResolveAgent(registry, name)
 		if resolveErr != nil {
 			err = resolveErr
 			return
 		}
-		specs = append(specs, spec)
+		specs = append(specs, agentSpec)
 	}
 
 	if isGlobal && projectDir != "" {
@@ -94,17 +94,17 @@ func ValidateInstallFlags(c *components.Context) (absoluteInstallBaseDir string,
 		if dir == "" {
 			dir = "."
 		}
-		abs, absErr := filepath.Abs(dir)
-		if absErr != nil {
-			err = fmt.Errorf("invalid --project-dir %q: %w", dir, absErr)
+		absoluteProjectDir, resolveErr := filepath.Abs(dir)
+		if resolveErr != nil {
+			err = fmt.Errorf("invalid --project-dir %q: %w", dir, resolveErr)
 			return
 		}
-		info, statErr := os.Stat(abs)
+		info, statErr := os.Stat(absoluteProjectDir)
 		if statErr != nil || !info.IsDir() {
 			err = fmt.Errorf("--project-dir %q is not an existing directory", dir)
 			return
 		}
-		projectDirAbs = abs
+		projectDirAbs = absoluteProjectDir
 	}
 	return
 }

@@ -16,7 +16,7 @@ func GetCommands() []components.Command {
 		{
 			Name:        "list",
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsList),
-			Description: "List skills from an Artifactory repository (--repo) or from a local agent install (--agent). Exactly one of --repo or --agent is required. With --agent, use --project-dir for the project root (default: current directory) or --global for each agent's global directory.",
+			Description: "List skills: registry (--repo), project-local (--agent [--project-dir], default .), or global-local (--agent --global). Use --check-updates with --agent to compare installs to the registry. --repo and --agent are mutually exclusive; --global and --project-dir are mutually exclusive.",
 			Action:      skillslist.RunList,
 			Hidden:      true,
 		},
@@ -38,7 +38,7 @@ func GetCommands() []components.Command {
 			Name:        "update",
 			Hidden:      true,
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsUpdate),
-			Description: "Update an installed skill to the latest (or a specific) version. Same targeting flags as install: use --agent (comma-separated) with --project-dir (default: current directory) or --global, or --path <dir> for a direct update at <dir>/<slug>. Preflight skips targets that are not installed or already at the target version (use --force to re-download). Logs skip and failure reasons when not quiet. Downloads once for all targets. Use --dry-run to preview, --format json for machine-readable summaries.",
+			Description: "Update an installed skill to the latest (or a specific) version. Same targeting flags as install: use --agent (comma-separated) with --project-dir (default: current directory) or --global, or --path <dir> for a direct update at <dir>/<slug>. Pre-update checks skip targets that are not installed or already at the target version (use --force to re-download). Logs skip and failure reasons when not quiet. Downloads once for all targets. Use --dry-run to preview, --format json for machine-readable summaries.",
 			Arguments:   getUpdateArguments(),
 			Action:      update.RunUpdate,
 		},

@@ -31,7 +31,7 @@ const (
 // agentSkillInstallDir pairs an agent (or path-mode sentinel) with the absolute skill install directory (includes slug).
 type agentSkillInstallDir struct {
 	Agent          common.AgentSpec
-	DestinationDir string
+	DestinationDir string // absolute; ends with /<slug>
 	Scope          string
 }
 
@@ -43,7 +43,7 @@ type InstallCommand struct {
 	version       string
 	agents        []common.AgentSpec
 	scope         scope
-	projectDir    string
+	projectDir    string // project root for project scope (--project-dir)
 	// installPath is the base directory for jf skills install --path. The skill is installed at
 	// <installPath>/<slug> and takes precedence over --agent / --project-dir / --skills-global.
 	installPath string
@@ -52,14 +52,6 @@ type InstallCommand struct {
 	// explicitTargets, when set, overrides resolveAgentTargetDirectories (used by skills update).
 	explicitTargets []common.AgentTarget
 	suppressSummary bool
-}
-
-// FetchExtractInvocationCount counts completed FetchAndExtractTo calls (for tests).
-var FetchExtractInvocationCount int
-
-// ResetFetchExtractInvocationCount resets FetchExtractInvocationCount (for tests).
-func ResetFetchExtractInvocationCount() {
-	FetchExtractInvocationCount = 0
 }
 
 func NewInstallCommand() *InstallCommand {
@@ -201,8 +193,6 @@ func (ic *InstallCommand) Run() error {
 // FetchAndExtractTo downloads the skill zip into tmpDir, extracts it, and runs evidence checks.
 // The returned unzipDir is under tmpDir; callers must keep tmpDir until copies finish.
 func (ic *InstallCommand) FetchAndExtractTo(tmpDir string) (unzipDir string, err error) {
-	FetchExtractInvocationCount++
-
 	zipPath, err := ic.downloadZip(tmpDir)
 	if err != nil {
 		if strings.Contains(err.Error(), "403") {
@@ -241,6 +231,16 @@ func (ic *InstallCommand) copyExtractedToTargets(unzipDir string, installTargets
 			continue
 		}
 		if err := copyDir(unzipDir, target.DestinationDir); err != nil {
+			results = append(results, SummaryRow{
+				Agent:  target.Agent.Name,
+				Scope:  target.Scope,
+				Path:   target.DestinationDir,
+				Status: SummaryStatusFailed,
+				Detail: err.Error(),
+			})
+			continue
+		}
+		if err := ic.writeSkillInfoManifest(target); err != nil {
 			results = append(results, SummaryRow{
 				Agent:  target.Agent.Name,
 				Scope:  target.Scope,
@@ -313,6 +313,26 @@ func agentDirsFromTargets(targets []common.AgentTarget) []agentSkillInstallDir {
 		}
 	}
 	return out
+}
+
+func (ic *InstallCommand) writeSkillInfoManifest(target agentSkillInstallDir) error {
+	dirName := filepath.Base(target.DestinationDir)
+	slug := ic.slug
+	if dirName != "" && dirName != slug {
+		log.Warn(fmt.Sprintf("Install directory name %q differs from slug %q; manifest will record slug %q for API consistency", dirName, slug, slug))
+	}
+	manifest := common.SkillInfoManifest{
+		SchemaVersion:    common.SkillInfoManifestSchemaVersion,
+		Repo:             ic.repoKey,
+		Slug:             slug,
+		InstalledVersion: ic.version,
+		Scope:            target.Scope,
+		Agent:            target.Agent.Name,
+	}
+	if target.Scope == string(common.ScopeProject) && ic.projectDir != "" {
+		manifest.ProjectDir = ic.projectDir
+	}
+	return common.WriteSkillInfoManifest(target.DestinationDir, manifest)
 }
 
 func (ic *InstallCommand) downloadZip(tmpDir string) (string, error) {

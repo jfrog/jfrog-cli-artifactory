@@ -339,6 +339,9 @@ func TestZipSkillFolder(t *testing.T) {
 	require.NoError(t, os.MkdirAll(subDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(subDir, "helper.py"), []byte("pass"), 0644))
 
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".jfrog"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".jfrog", "skill-info.json"), []byte(`{"schemaVersion":1}`), 0644))
+
 	// Create excludable files
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "test.pyc"), []byte("compiled"), 0644))
 
@@ -349,6 +352,13 @@ func TestZipSkillFolder(t *testing.T) {
 	info, err := os.Stat(zipPath)
 	require.NoError(t, err)
 	assert.True(t, info.Size() > 0)
+
+	r, err := zip.OpenReader(zipPath)
+	require.NoError(t, err)
+	defer func() { _ = r.Close() }()
+	for _, f := range r.File {
+		assert.False(t, strings.HasPrefix(filepath.ToSlash(f.Name), ".jfrog"), "zip must not include .jfrog: %s", f.Name)
+	}
 }
 
 func TestComputeSHA256(t *testing.T) {
@@ -373,6 +383,7 @@ func TestShouldExclude(t *testing.T) {
 		{"git dir", ".git", true, true},
 		{"pycache", "__pycache__", true, true},
 		{"node_modules", "node_modules", true, true},
+		{"jfrog dir", ".jfrog", true, true},
 		{"pyc file", "module.pyc", false, true},
 		{"normal file", "main.py", false, false},
 		{"ds store", ".DS_Store", false, true},
@@ -623,6 +634,8 @@ func TestCollectFiles_ExcludesCorrectly(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".DS_Store"), []byte("x"), 0644))
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "__pycache__"), 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "__pycache__", "mod.pyc"), []byte("x"), 0644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".jfrog"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".jfrog", "skill-info.json"), []byte("{}"), 0644))
 
 	files, _, err := collectFiles(dir)
 	require.NoError(t, err)
@@ -633,6 +646,7 @@ func TestCollectFiles_ExcludesCorrectly(t *testing.T) {
 		assert.NotContains(t, f.relPath, ".pyc", "should exclude .pyc files")
 		assert.NotContains(t, f.relPath, ".DS_Store", "should exclude .DS_Store")
 		assert.NotContains(t, f.relPath, "__pycache__", "should exclude __pycache__")
+		assert.NotContains(t, f.relPath, ".jfrog", "should exclude .jfrog")
 	}
 	assert.Contains(t, names, "SKILL.md")
 	assert.Contains(t, names, "main.py")

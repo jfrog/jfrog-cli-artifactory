@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/jfrog/jfrog-cli-artifactory/skills/common"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -132,18 +131,36 @@ func TestEnsureDestinationDir_RejectsFileAtDestination(t *testing.T) {
 	assert.Contains(t, err.Error(), "not a directory")
 }
 
-func TestFetchExtractInvocationCountIncrements(t *testing.T) {
-	ResetFetchExtractInvocationCount()
+func TestCopyExtractedToTargets_WritesInstallManifest(t *testing.T) {
+	src := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(src, "SKILL.md"), []byte("---\nname: x\nversion: 1.0.0\n---\n"), 0o644))
+	dest := filepath.Join(t.TempDir(), "my-skill")
+	projectRoot := t.TempDir()
+
 	ic := NewInstallCommand().
-		SetServerDetails(&config.ServerDetails{Url: "http://127.0.0.1:59999"}).
-		SetRepoKey("skills-local").
-		SetSlug("noop-skill").
-		SetVersion("1.0.0").
-		SetQuiet(true)
-	tmp := t.TempDir()
-	_, err := ic.FetchAndExtractTo(tmp)
-	require.Error(t, err)
-	assert.Equal(t, 1, FetchExtractInvocationCount)
+		SetRepoKey("skills-repo").
+		SetSlug("my-skill").
+		SetVersion("1.2.3").
+		SetProjectDir(projectRoot)
+
+	targets := []agentSkillInstallDir{{
+		Agent:          common.AgentSpec{Name: "cursor"},
+		DestinationDir: dest,
+		Scope:          "project",
+	}}
+	rows := ic.copyExtractedToTargets(src, targets)
+	require.Len(t, rows, 1)
+	assert.Equal(t, SummaryStatusOK, rows[0].Status)
+
+	got, err := common.ReadSkillInfoManifest(dest)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "skills-repo", got.Repo)
+	assert.Equal(t, "my-skill", got.Slug)
+	assert.Equal(t, "1.2.3", got.InstalledVersion)
+	assert.Equal(t, "project", got.Scope)
+	assert.Equal(t, "cursor", got.Agent)
+	assert.Equal(t, projectRoot, got.ProjectDir)
 }
 
 func createTestZip(t *testing.T, zipPath string, files map[string]string) {

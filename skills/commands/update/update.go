@@ -14,11 +14,11 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-type preflight struct {
-	target       common.AgentTarget
-	installedVer string
-	upToDate     bool
-	failure      string
+type preUpdate struct {
+	agentTarget            common.AgentTarget
+	installedVersion       string
+	alreadyAtTargetVersion bool
+	failureReason          string
 }
 
 // RunUpdate is the CLI action for `jf skills update`.
@@ -65,7 +65,7 @@ func RunUpdate(c *components.Context) error {
 		return err
 	}
 
-	checks := preflightTargets(targets, targetVersion, force, quiet)
+	checks := preUpdateTargets(targets, targetVersion, force, quiet)
 	results, updatable := initialResultsAndUpdatable(checks, targetVersion)
 
 	if dryRun {
@@ -88,21 +88,23 @@ func RunUpdate(c *components.Context) error {
 		_ = os.RemoveAll(tmpDir)
 	}()
 
-	ic := install.NewInstallCommand().
+	cmd := install.NewInstallCommand().
 		SetServerDetails(serverDetails).
 		SetRepoKey(repoKey).
 		SetSlug(slug).
 		SetVersion(targetVersion).
 		SetQuiet(quiet).
-		SetSuppressSummary(true)
+		SetSuppressSummary(true).
+		SetProjectDir(projectDirAbs).
+		SetGlobal(isGlobal)
 
-	unzipDir, err := ic.FetchAndExtractTo(tmpDir)
+	unzipDir, err := cmd.FetchAndExtractTo(tmpDir)
 	if err != nil {
 		return err
 	}
 
-	for _, check := range updatable {
-		results = append(results, updateOneWithPrepared(unzipDir, ic, check))
+	for _, preUpdateCheck := range updatable {
+		results = append(results, updateOneSkill(unzipDir, cmd, preUpdateCheck))
 	}
 
 	if err := install.PrintSummary(slug, targetVersion, results, format); err != nil {
@@ -111,101 +113,103 @@ func RunUpdate(c *components.Context) error {
 	return finalError(results)
 }
 
-func preflightTargets(targets []common.AgentTarget, targetVersion string, force, quiet bool) []preflight {
-	out := make([]preflight, 0, len(targets))
-	for _, target := range targets {
-		p := preflight{target: target}
-		installedVer, err := readInstalledVersion(target.DestinationDir)
+func preUpdateTargets(targets []common.AgentTarget, targetVersion string, force, quiet bool) []preUpdate {
+	out := make([]preUpdate, 0, len(targets))
+	for _, agentTarget := range targets {
+		record := preUpdate{agentTarget: agentTarget}
+		installedVersion, err := publish.ReadInstalledSkillVersion(agentTarget.DestinationDir)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
-				p.failure = fmt.Sprintf("skill not installed at %s; run 'jf skills install' first", target.DestinationDir)
+				record.failureReason = fmt.Sprintf("skill not installed at %s; run 'jf skills install' first", agentTarget.DestinationDir)
 			} else {
-				p.failure = err.Error()
+				record.failureReason = err.Error()
 			}
 			if !quiet {
-				log.Info(fmt.Sprintf("Skipping update for agent %s at %s: %s", target.Agent.Name, target.DestinationDir, p.failure))
+				log.Info(fmt.Sprintf("Skipping update for agent %s at %s: %s", agentTarget.Agent.Name, agentTarget.DestinationDir, record.failureReason))
 			}
-			out = append(out, p)
+			out = append(out, record)
 			continue
 		}
-		p.installedVer = installedVer
-		if installedVer == targetVersion && !force {
-			p.upToDate = true
+		record.installedVersion = installedVersion
+		if installedVersion == targetVersion && !force {
+			record.alreadyAtTargetVersion = true
 			if !quiet {
-				log.Info(fmt.Sprintf("Skipping update for agent %s at %s: already at version %s (use --force to re-download)", target.Agent.Name, target.DestinationDir, targetVersion))
+				log.Info(fmt.Sprintf("Skipping update for agent %s at %s: already at version %s (use --force to re-download)", agentTarget.Agent.Name, agentTarget.DestinationDir, targetVersion))
 			}
 		}
-		out = append(out, p)
+		out = append(out, record)
 	}
 	return out
 }
 
-func initialResultsAndUpdatable(checks []preflight, targetVersion string) ([]install.SummaryRow, []preflight) {
+func initialResultsAndUpdatable(checks []preUpdate, targetVersion string) ([]install.SummaryRow, []preUpdate) {
 	results := make([]install.SummaryRow, 0, len(checks))
-	updatable := make([]preflight, 0, len(checks))
-	for _, chk := range checks {
+	updatable := make([]preUpdate, 0, len(checks))
+	for _, preUpdateCheck := range checks {
 		switch {
-		case chk.failure != "":
-			results = append(results, summaryRowFor(chk.target, install.SummaryStatusFailed, chk.failure))
-		case chk.upToDate:
-			results = append(results, summaryRowFor(chk.target, install.SummaryStatusUpToDate, fmt.Sprintf("version already %s; use --force to reinstall", targetVersion)))
+		case preUpdateCheck.failureReason != "":
+			results = append(results, summaryRowFor(preUpdateCheck.agentTarget, install.SummaryStatusFailed, preUpdateCheck.failureReason))
+		case preUpdateCheck.alreadyAtTargetVersion:
+			results = append(results, summaryRowFor(preUpdateCheck.agentTarget, install.SummaryStatusSkipped, fmt.Sprintf("version already %s; use --force to reinstall", targetVersion)))
 		default:
-			updatable = append(updatable, chk)
+			updatable = append(updatable, preUpdateCheck)
 		}
 	}
 	return results, updatable
 }
 
-func summaryRowFor(target common.AgentTarget, status, detail string) install.SummaryRow {
+func summaryRowFor(agentTarget common.AgentTarget, status, detail string) install.SummaryRow {
 	return install.SummaryRow{
-		Agent:  target.Agent.Name,
-		Scope:  string(target.Scope),
-		Path:   target.DestinationDir,
+		Agent:  agentTarget.Agent.Name,
+		Scope:  string(agentTarget.Scope),
+		Path:   agentTarget.DestinationDir,
 		Status: status,
 		Detail: detail,
 	}
 }
 
-func logDryRun(slug, targetVersion string, checks []preflight) {
-	for _, c := range checks {
+func logDryRun(slug, targetVersion string, checks []preUpdate) {
+	for _, preUpdateCheck := range checks {
 		switch {
-		case c.failure != "":
-			log.Info(fmt.Sprintf("[dry-run] Would skip %s at %s: %s", slug, c.target.DestinationDir, c.failure))
-		case c.upToDate:
-			log.Info(fmt.Sprintf("[dry-run] Skill '%s' already at v%s at %s", slug, targetVersion, c.target.DestinationDir))
-		case c.installedVer == "":
-			log.Info(fmt.Sprintf("[dry-run] Would install skill '%s' v%s to %s", slug, targetVersion, c.target.DestinationDir))
+		case preUpdateCheck.failureReason != "":
+			log.Info(fmt.Sprintf("[dry-run] Would skip %s at %s: %s", slug, preUpdateCheck.agentTarget.DestinationDir, preUpdateCheck.failureReason))
+		case preUpdateCheck.alreadyAtTargetVersion:
+			log.Info(fmt.Sprintf("[dry-run] Skill '%s' already at v%s at %s", slug, targetVersion, preUpdateCheck.agentTarget.DestinationDir))
+		case preUpdateCheck.installedVersion == "":
+			log.Info(fmt.Sprintf("[dry-run] Would install skill '%s' v%s to %s", slug, targetVersion, preUpdateCheck.agentTarget.DestinationDir))
 		default:
-			log.Info(fmt.Sprintf("[dry-run] Would update skill '%s' from v%s -> v%s at %s", slug, c.installedVer, targetVersion, c.target.DestinationDir))
+			log.Info(fmt.Sprintf("[dry-run] Would update skill '%s' from v%s -> v%s at %s", slug, preUpdateCheck.installedVersion, targetVersion, preUpdateCheck.agentTarget.DestinationDir))
 		}
 	}
 }
 
-func updateOneWithPrepared(unzipDir string, ic *install.InstallCommand, check preflight) install.SummaryRow {
-	target := check.target
-	slugBase := filepath.Base(target.DestinationDir)
-	parent := filepath.Dir(target.DestinationDir)
+// updateOneSkill updates a single install target using the already-fetched tree in unzipDir:
+// it renames the live install aside, copies from unzipDir, restores the backup on failure, then removes the backup on success.
+func updateOneSkill(unzipDir string, installCommand *install.InstallCommand, check preUpdate) install.SummaryRow {
+	agentTarget := check.agentTarget
+	slugBase := filepath.Base(agentTarget.DestinationDir)
+	parent := filepath.Dir(agentTarget.DestinationDir)
 
 	backupPath, err := reserveUpdateBackupPath(parent, slugBase)
 	if err != nil {
-		return summaryRowFor(target, install.SummaryStatusFailed, err.Error())
+		return summaryRowFor(agentTarget, install.SummaryStatusFailed, err.Error())
 	}
-	if err := os.Rename(target.DestinationDir, backupPath); err != nil {
-		return summaryRowFor(target, install.SummaryStatusFailed, fmt.Sprintf("could not move current skill aside for update: %s", err.Error()))
+	if err := os.Rename(agentTarget.DestinationDir, backupPath); err != nil {
+		return summaryRowFor(agentTarget, install.SummaryStatusFailed, fmt.Sprintf("could not move current skill aside for update: %s", err.Error()))
 	}
 
-	rows := ic.CopyExtractedToAgentTargets(unzipDir, []common.AgentTarget{target})
+	rows := installCommand.CopyExtractedToAgentTargets(unzipDir, []common.AgentTarget{agentTarget})
 	if len(rows) != 1 {
-		_ = os.RemoveAll(target.DestinationDir)
-		if restoreErr := os.Rename(backupPath, target.DestinationDir); restoreErr != nil {
-			return summaryRowFor(target, install.SummaryStatusFailed, fmt.Sprintf("internal error: unexpected copy result count; restore failed: %s", restoreErr.Error()))
+		_ = os.RemoveAll(agentTarget.DestinationDir)
+		if restoreErr := os.Rename(backupPath, agentTarget.DestinationDir); restoreErr != nil {
+			return summaryRowFor(agentTarget, install.SummaryStatusFailed, fmt.Sprintf("internal error: unexpected copy result count; restore failed: %s", restoreErr.Error()))
 		}
-		return summaryRowFor(target, install.SummaryStatusFailed, "internal error: unexpected copy result count")
+		return summaryRowFor(agentTarget, install.SummaryStatusFailed, "internal error: unexpected copy result count")
 	}
 	row := rows[0]
 	if row.Status != install.SummaryStatusOK {
-		_ = os.RemoveAll(target.DestinationDir)
-		if restoreErr := os.Rename(backupPath, target.DestinationDir); restoreErr != nil {
+		_ = os.RemoveAll(agentTarget.DestinationDir)
+		if restoreErr := os.Rename(backupPath, agentTarget.DestinationDir); restoreErr != nil {
 			row.Detail = fmt.Sprintf("%s; could not restore previous install: %s", row.Detail, restoreErr.Error())
 		}
 		return row
@@ -215,15 +219,15 @@ func updateOneWithPrepared(unzipDir string, ic *install.InstallCommand, check pr
 		log.Warn(fmt.Sprintf("Update succeeded but previous copy at %s could not be deleted: %s", backupPath, err.Error()))
 	}
 
-	return summaryRowFor(target, install.SummaryStatusOK, install.SummaryDetailOKInstall)
+	return summaryRowFor(agentTarget, install.SummaryStatusOK, install.SummaryDetailOKInstall)
 }
 
 func finalError(results []install.SummaryRow) error {
 	if len(results) == 0 {
 		return nil
 	}
-	for _, r := range results {
-		if r.Status != install.SummaryStatusFailed {
+	for _, result := range results {
+		if result.Status != install.SummaryStatusFailed {
 			return nil
 		}
 	}
@@ -231,8 +235,12 @@ func finalError(results []install.SummaryRow) error {
 }
 
 func reserveUpdateBackupPath(installBase, slug string) (string, error) {
-	pattern := fmt.Sprintf(".%s.jfrog-update-backup-*", slug)
-	d, err := os.MkdirTemp(installBase, pattern)
+	backupRoot := filepath.Join(installBase, ".skill-backup")
+	if err := os.MkdirAll(backupRoot, 0o755); err != nil {
+		return "", fmt.Errorf("could not create .skill-backup directory: %w", err)
+	}
+	pattern := slug + "-backup-*"
+	d, err := os.MkdirTemp(backupRoot, pattern)
 	if err != nil {
 		return "", fmt.Errorf("could not reserve update backup path: %w", err)
 	}
@@ -240,12 +248,4 @@ func reserveUpdateBackupPath(installBase, slug string) (string, error) {
 		return "", fmt.Errorf("could not prepare update backup path: %w", err)
 	}
 	return d, nil
-}
-
-func readInstalledVersion(skillDir string) (string, error) {
-	meta, err := publish.ParseSkillMeta(skillDir)
-	if err != nil {
-		return "", err
-	}
-	return meta.Version, nil
 }

@@ -81,9 +81,9 @@ const (
 	PipenvInstall          = "pipenv-install"
 	PoetryConfig           = "poetry-config"
 	Poetry                 = "poetry"
-	Ping                   = "ping"
-	NugetDepsTree          = "nuget-deps-tree"
-	RtCurl                 = "rt-curl"
+	Ping           = "ping"
+	NugetDepsTree  = "nuget-deps-tree"
+	RtCurl         = "rt-curl"
 	TemplateConsumer       = "template-consumer"
 	ReplicationCreate      = "replication-create"
 	RepoCreate             = "repo-create"
@@ -223,8 +223,8 @@ const (
 	downloadSyncDeletes  = downloadPrefix + syncDeletes
 	downloadMinSplit     = downloadPrefix + MinSplit
 	downloadSplitCount   = downloadPrefix + SplitCount
-	validateSymlinks     = "validate-symlinks"
-	skipChecksum         = "skip-checksum"
+	validateSymlinks      = "validate-symlinks"
+	skipChecksum          = "skip-checksum"
 
 	// Unique move flags
 	movePrefix       = "move-"
@@ -317,11 +317,11 @@ const (
 	repo = "repo"
 
 	// Unique git-lfs-clean flags
-	glcPrefix = "glc-"
-	glcDryRun = glcPrefix + dryRun
-	glcQuiet  = glcPrefix + quiet
-	glcRepo   = glcPrefix + repo
-	refs      = "refs"
+	glcPrefix  = "glc-"
+	glcDryRun  = glcPrefix + dryRun
+	glcQuiet   = glcPrefix + quiet
+	glcRepo    = glcPrefix + repo
+	refs       = "refs"
 
 	// Build tool config flags
 	global          = "global"
@@ -528,6 +528,8 @@ const (
 	skillsLimit         = "skills-" + limit
 	skillsSortBy        = "skills-" + sortBy
 	skillsSortOrder     = "skills-" + sortOrder
+	skillsCheckUpdates  = "skills-check-updates"
+	checkUpdates        = "check-updates"
 )
 
 var commandFlags = map[string][]string{
@@ -885,7 +887,7 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, serverId, repo, skillsFormat, propSearch,
 	},
 	SkillsList: {
-		url, user, password, accessToken, serverId, repo, agent, projectDir, skillsGlobal, skillsFormat, skillsLimit, skillsSortBy, skillsSortOrder,
+		url, user, password, accessToken, serverId, repo, agent, projectDir, skillsGlobal, skillsFormat, skillsLimit, skillsSortBy, skillsSortOrder, skillsCheckUpdates,
 	},
 }
 
@@ -1206,6 +1208,7 @@ var flagsMap = map[string]components.Flag{
 	skillsLimit:         components.NewStringFlag(limit, "Maximum number of skills to return. Fetches all by default.", components.SetMandatoryFalse()),
 	skillsSortBy:        components.NewStringFlag(sortBy, "Field to sort by. With --repo: updated (default), downloads. With --agent: name (default, only option).", components.SetMandatoryFalse()),
 	skillsSortOrder:     components.NewStringFlag(sortOrder, "Sort order for --agent. Supported: asc (default), desc. Not supported with --repo.", components.SetMandatoryFalse()),
+	skillsCheckUpdates:  components.NewBoolFlag(checkUpdates, "With --agent only: compare installed skills to the registry (requires jf config server). Adds registry latest and status columns. Not supported with --repo.", components.WithBoolDefaultValueFalse()),
 }
 
 func GetCommandFlags(cmdKey string) []components.Flag {
