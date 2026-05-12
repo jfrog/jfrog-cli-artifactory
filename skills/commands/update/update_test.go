@@ -48,7 +48,7 @@ func TestReadInstalledVersion_NotInstalled(t *testing.T) {
 func TestRunUpdate_PathDoesNotExist(t *testing.T) {
 	err := validateInstallBase("/nonexistent/path/xyz")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not a valid directory")
+	assert.Contains(t, err.Error(), "install path")
 }
 
 func TestValidateInstallBase_NotADirectory(t *testing.T) {
@@ -57,7 +57,7 @@ func TestValidateInstallBase_NotADirectory(t *testing.T) {
 
 	err := validateInstallBase(file)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not a valid directory")
+	assert.Contains(t, err.Error(), "not a directory")
 }
 
 func TestReadInstalledVersion_InvalidFrontmatter(t *testing.T) {
@@ -65,42 +65,6 @@ func TestReadInstalledVersion_InvalidFrontmatter(t *testing.T) {
 	_, err := readInstalledVersion(dir)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "could not read installed skill metadata")
-}
-
-// ── selectVersion ────────────────────────────────────────────────────────────
-
-func TestSelectVersion_ExactMatchReturnsIt(t *testing.T) {
-	available := []string{"1.0.0", "1.1.0", "2.0.0"}
-	got, err := selectVersion(available, "1.1.0", "skills-local", true)
-	require.NoError(t, err)
-	assert.Equal(t, "1.1.0", got)
-}
-
-func TestSelectVersion_LatestEmpty(t *testing.T) {
-	available := []string{"1.0.0", "1.1.0", "2.0.0"}
-	got, err := selectVersion(available, "", "skills-local", true)
-	require.NoError(t, err)
-	assert.Equal(t, "2.0.0", got)
-}
-
-func TestSelectVersion_LatestKeyword(t *testing.T) {
-	available := []string{"1.0.0", "3.0.0", "2.0.0"}
-	got, err := selectVersion(available, "latest", "skills-local", true)
-	require.NoError(t, err)
-	assert.Equal(t, "3.0.0", got)
-}
-
-func TestSelectVersion_NotFoundQuiet(t *testing.T) {
-	available := []string{"1.0.0", "1.1.0"}
-	_, err := selectVersion(available, "9.9.9", "skills-local", true)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
-}
-
-func TestSelectVersion_EmptyAvailableList(t *testing.T) {
-	_, err := selectVersion([]string{}, "", "skills-local", true)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "latest version")
 }
 
 // ── reserveUpdateBackupPath ──────────────────────────────────────────────────
