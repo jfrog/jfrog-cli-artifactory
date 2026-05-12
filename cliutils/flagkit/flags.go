@@ -855,7 +855,7 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, skillsQuiet, skipScan, autoDeleteOnFailure,
 	},
 	SkillsInstall: {
-		url, user, password, accessToken, serverId, repo, version, agent, projectDir, skillsGlobal, installPath, skillsQuiet,
+		url, user, password, accessToken, serverId, repo, version, agent, projectDir, skillsGlobal, installPath, skillsFormat, skillsQuiet,
 	},
 	SkillsUpdate: {
 		url, user, password, accessToken, serverId, repo, version, installPath, dryRun, skillsForce, skillsQuiet,
@@ -1182,9 +1182,9 @@ var flagsMap = map[string]components.Flag{
 	propSearch:          components.NewBoolFlag(propSearch, "Use Artifactory property search (skill.name) instead of Skills API search.", components.WithBoolDefaultValueFalse()),
 	skipScan:            components.NewBoolFlag(skipScan, "Skip Xray security scan after publish. Can also be set via JFROG_CLI_SKIP_SKILLS_SCAN=true.", components.WithBoolDefaultValueFalse()),
 	autoDeleteOnFailure: components.NewBoolFlag(autoDeleteOnFailure, "Automatically delete the artifact if Xray scan identifies it as malicious.", components.WithBoolDefaultValueFalse()),
-	agent:               components.NewStringFlag(agent, "Comma-separated AI agent names for install; a single name for list. Resolved from ~/.jfrog/agents/agent_config.json first, then built-in fallbacks (claude-code, cursor, github-copilot, windsurf, codex, agents).", components.SetMandatoryFalse()),
+	agent:               components.NewStringFlag(agent, "Comma-separated AI agent names for install; a single name for list. Resolved from ~/.jfrog/agents/agent-config.json first, then built-in fallbacks (claude-code, cursor, github-copilot, windsurf, codex, agents).", components.SetMandatoryFalse()),
 	projectDir:          components.NewStringFlag(projectDir, "Project root directory combined with each agent's project path from config. Default: current directory when --global is not set. Mutually exclusive with --global.", components.SetMandatoryFalse()),
-	skillsGlobal:        components.NewBoolFlag(global, "[Default: false] Install or list under each agent's global directory from config instead of under the project root. Mutually exclusive with --project-dir.", components.WithBoolDefaultValueFalse()),
+	skillsGlobal:        components.NewBoolFlag(global, "Install or list under each agent's global directory from config instead of under the project root. Mutually exclusive with --project-dir.", components.WithBoolDefaultValueFalse()),
 	skillsLimit:         components.NewStringFlag(limit, "Maximum number of skills to return. Fetches all by default.", components.SetMandatoryFalse()),
 	skillsSortBy:        components.NewStringFlag(sortBy, "Field to sort by. With --repo: updated (default), downloads. With --agent: name (default, only option).", components.SetMandatoryFalse()),
 	skillsSortOrder:     components.NewStringFlag(sortOrder, "Sort order for --agent. Supported: asc (default), desc. Not supported with --repo.", components.SetMandatoryFalse()),

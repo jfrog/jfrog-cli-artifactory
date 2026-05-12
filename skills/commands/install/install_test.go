@@ -59,7 +59,7 @@ func TestCopyDir(t *testing.T) {
 	assert.Equal(t, "content2", string(data))
 }
 
-func TestResolveTargets_ProjectScope(t *testing.T) {
+func TestResolveAgentTargetDirectories_ProjectScope(t *testing.T) {
 	projectRoot := t.TempDir()
 	cmd := NewInstallCommand().
 		SetSlug("my-skill").
@@ -70,14 +70,14 @@ func TestResolveTargets_ProjectScope(t *testing.T) {
 		SetGlobal(false).
 		SetProjectDir(projectRoot)
 
-	targets, err := cmd.resolveTargets()
+	targets, err := cmd.resolveAgentTargetDirectories()
 	require.NoError(t, err)
 	require.Len(t, targets, 2)
-	assert.Equal(t, filepath.Join(projectRoot, ".cursor", "skills", "my-skill"), targets[0].DestDir)
-	assert.Equal(t, filepath.Join(projectRoot, ".claude", "skills", "my-skill"), targets[1].DestDir)
+	assert.Equal(t, filepath.Join(projectRoot, ".cursor", "skills", "my-skill"), targets[0].DestinationDir)
+	assert.Equal(t, filepath.Join(projectRoot, ".claude", "skills", "my-skill"), targets[1].DestinationDir)
 }
 
-func TestResolveTargets_GlobalScope(t *testing.T) {
+func TestResolveAgentTargetDirectories_GlobalScope(t *testing.T) {
 	globalBase := filepath.Join(t.TempDir(), "global", ".cursor", "skills")
 	wantBase, err := filepath.Abs(globalBase)
 	require.NoError(t, err)
@@ -89,44 +89,44 @@ func TestResolveTargets_GlobalScope(t *testing.T) {
 		}).
 		SetGlobal(true)
 
-	targets, err := cmd.resolveTargets()
+	targets, err := cmd.resolveAgentTargetDirectories()
 	require.NoError(t, err)
 	require.Len(t, targets, 1)
-	assert.Equal(t, filepath.Join(wantBase, "alpha"), targets[0].DestDir)
+	assert.Equal(t, filepath.Join(wantBase, "alpha"), targets[0].DestinationDir)
 }
 
-func TestResolveTargets_LegacyInstallPath(t *testing.T) {
+func TestResolveAgentTargetDirectories_LegacyInstallPath(t *testing.T) {
 	tmp := t.TempDir()
 	cmd := NewInstallCommand().SetSlug("legacy").SetInstallPath(tmp)
-	targets, err := cmd.resolveTargets()
+	targets, err := cmd.resolveAgentTargetDirectories()
 	require.NoError(t, err)
 	require.Len(t, targets, 1)
-	assert.Equal(t, filepath.Join(tmp, "legacy"), targets[0].DestDir)
+	assert.Equal(t, filepath.Join(tmp, "legacy"), targets[0].DestinationDir)
 }
 
-func TestEnsureDestDir_CreatesUnderExistingParent(t *testing.T) {
+func TestEnsureDestinationDir_CreatesUnderExistingParent(t *testing.T) {
 	parent := t.TempDir()
 	dest := filepath.Join(parent, "skill-x")
-	require.NoError(t, ensureDestDir(dest))
+	require.NoError(t, ensureDestinationDir(dest))
 	info, err := os.Stat(dest)
 	require.NoError(t, err)
 	assert.True(t, info.IsDir())
 }
 
-func TestEnsureDestDir_CreatesNestedPath(t *testing.T) {
+func TestEnsureDestinationDir_CreatesNestedPath(t *testing.T) {
 	root := t.TempDir()
 	dest := filepath.Join(root, ".cursor", "skills", "alpha")
-	require.NoError(t, ensureDestDir(dest))
+	require.NoError(t, ensureDestinationDir(dest))
 	info, err := os.Stat(dest)
 	require.NoError(t, err)
 	assert.True(t, info.IsDir())
 }
 
-func TestEnsureDestDir_RejectsFileAtDestination(t *testing.T) {
+func TestEnsureDestinationDir_RejectsFileAtDestination(t *testing.T) {
 	parent := t.TempDir()
 	dest := filepath.Join(parent, "blocker")
 	require.NoError(t, os.WriteFile(dest, []byte("hi"), 0o644))
-	err := ensureDestDir(dest)
+	err := ensureDestinationDir(dest)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not a directory")
 }
