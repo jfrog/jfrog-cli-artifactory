@@ -506,12 +506,15 @@ const (
 	// Skills commands keys
 	SkillsPublish = "skills-publish"
 	SkillsInstall = "skills-install"
+	SkillsUpdate  = "skills-update"
 	SkillsSearch  = "skills-search"
 	SkillsDelete  = "skills-delete"
+	SkillsList    = "skills-list"
 
 	// Skills-specific flags
 	version             = "version"
 	installPath         = "path"
+	skillsForce         = "force"
 	signingKey          = "signing-key"
 	keyAlias            = "key-alias"
 	skillsQuiet         = "skills-" + quiet
@@ -519,6 +522,11 @@ const (
 	skillsFormat        = "skills-" + Format
 	skipScan            = "skip-scan"
 	autoDeleteOnFailure = "auto-delete-on-failure"
+	agent         		= "agent"
+	projectDir    		= "project-dir"
+	skillsLimit         = "skills-" + limit
+	skillsSortBy        = "skills-" + sortBy
+	skillsSortOrder     = "skills-" + sortOrder
 )
 
 var commandFlags = map[string][]string{
@@ -861,15 +869,22 @@ var commandFlags = map[string][]string{
 	},
 	SkillsPublish: {
 		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, skillsQuiet, skipScan, autoDeleteOnFailure,
+		BuildName, BuildNumber, module,
 	},
 	SkillsInstall: {
 		url, user, password, accessToken, serverId, repo, version, installPath, skillsQuiet,
+	},
+	SkillsUpdate: {
+		url, user, password, accessToken, serverId, repo, version, installPath, dryRun, skillsForce, skillsQuiet,
 	},
 	SkillsDelete: {
 		url, user, password, accessToken, serverId, repo, version, dryRun,
 	},
 	SkillsSearch: {
 		url, user, password, accessToken, serverId, repo, skillsFormat, propSearch,
+	},
+	SkillsList: {
+		url, user, password, accessToken, serverId, repo, agent, projectDir, skillsFormat, skillsLimit, skillsSortBy, skillsSortOrder,
 	},
 }
 
@@ -1176,6 +1191,7 @@ var flagsMap = map[string]components.Flag{
 	repo:                components.NewStringFlag(repo, "Skills repository key in Artifactory.", components.SetMandatoryFalse()),
 	version:             components.NewStringFlag(version, "Skill version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
 	installPath:         components.NewStringFlag(installPath, "Custom install path for the skill. Default: current directory.", components.SetMandatoryFalse()),
+	skillsForce:         components.NewBoolFlag(skillsForce, "Re-download and reinstall even if the skill is already at the target version.", components.WithBoolDefaultValueFalse()),
 	signingKey:          components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
 	keyAlias:            components.NewStringFlag(keyAlias, "Alias for the signing key. Overrides EVD_KEY_ALIAS env var.", components.SetMandatoryFalse()),
 	skillsQuiet:         components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
@@ -1183,6 +1199,11 @@ var flagsMap = map[string]components.Flag{
 	propSearch:          components.NewBoolFlag(propSearch, "Use Artifactory property search (skill.name) instead of Skills API search.", components.WithBoolDefaultValueFalse()),
 	skipScan:            components.NewBoolFlag(skipScan, "Skip Xray security scan after publish. Can also be set via JFROG_CLI_SKIP_SKILLS_SCAN=true.", components.WithBoolDefaultValueFalse()),
 	autoDeleteOnFailure: components.NewBoolFlag(autoDeleteOnFailure, "Automatically delete the artifact if Xray scan identifies it as malicious.", components.WithBoolDefaultValueFalse()),
+	agent:               components.NewStringFlag(agent, "AI agent name to list locally installed skills for. Supported: claude-code, cursor, github-copilot, windsurf.", components.SetMandatoryFalse()),
+	projectDir:          components.NewStringFlag(projectDir, "Path to the project root for project-scoped skills. Use '.' for the current directory. When this flag is not set, the global agent skills directory is used as the fallback.", components.SetMandatoryFalse()),
+	skillsLimit:         components.NewStringFlag(limit, "Maximum number of skills to return. Fetches all by default.", components.SetMandatoryFalse()),
+	skillsSortBy:        components.NewStringFlag(sortBy, "Field to sort by. With --repo: updated (default), downloads. With --agent: name (default, only option).", components.SetMandatoryFalse()),
+	skillsSortOrder:     components.NewStringFlag(sortOrder, "Sort order for --agent. Supported: asc (default), desc. Not supported with --repo.", components.SetMandatoryFalse()),
 }
 
 func GetCommandFlags(cmdKey string) []components.Flag {
