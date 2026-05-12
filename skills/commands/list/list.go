@@ -98,7 +98,7 @@ func (lc *ListCommand) Run() error {
 		return fmt.Errorf("--repo and --agent are mutually exclusive; specify only one")
 	}
 	if lc.global && lc.projectDir != "" {
-		return fmt.Errorf("--global and --project-dir are mutually exclusive")
+		return fmt.Errorf("--global and --project-dir are mutually exclusive, please choose either --global or --project-dir")
 	}
 
 	if lc.agentName != "" {
@@ -263,9 +263,6 @@ func RunList(c *components.Context) error {
 
 	projectDir := c.GetStringFlagValue("project-dir")
 	useGlobal := c.GetBoolFlagValue("global")
-	if useGlobal && projectDir != "" {
-		return fmt.Errorf("--global and --project-dir are mutually exclusive")
-	}
 	// --agent without --project-dir/--global: use cwd
 	if !useGlobal && projectDir == "" && agentName != "" {
 		projectDir = "."

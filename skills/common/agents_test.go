@@ -32,7 +32,7 @@ func withJfrogHome(t *testing.T) string {
 
 func writeAgentConfig(t *testing.T, home, body string) {
 	t.Helper()
-	path := filepath.Join(home, "agents", "agent_config.json")
+	path := filepath.Join(home, "agents", "agent-config.json")
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
 }

@@ -27,6 +27,7 @@ type AgentSpec struct {
 }
 
 // Agents is built-in defaults; merged with ~/.jfrog/agents/agent_config.json.
+// Reference: https://github.com/vercel-labs/skills/pull/76/changes#diff-b335630551682c19a781afebcf4d07bf978fb1f8ac04c6bf87428ed5106870f5R172
 var Agents = map[string]AgentConfig{
 	"claude-code":    {GlobalDir: "~/.claude/skills", ProjectDir: ".claude/skills"},
 	"cursor":         {GlobalDir: "~/.cursor/skills", ProjectDir: ".cursor/skills"},
@@ -38,14 +39,14 @@ var Agents = map[string]AgentConfig{
 
 const (
 	agentsConfigSubdir = "agents"
-	agentsConfigFile   = "agent_config.json"
+	agentsConfigFile   = "agent-config.json"
 )
 
 type agentConfigDocument struct {
 	Agents map[string]AgentConfig `json:"agents"`
 }
 
-// AgentConfigPath is ~/.jfrog/agents/agent_config.json (file may be missing).
+// AgentConfigPath is ~/.jfrog/agents/agent-config.json (file may be missing).
 func AgentConfigPath() (string, error) {
 	home, err := coreutils.GetJfrogHomeDir()
 	if err != nil {
@@ -54,7 +55,8 @@ func AgentConfigPath() (string, error) {
 	return filepath.Join(home, agentsConfigSubdir, agentsConfigFile), nil
 }
 
-// LoadAgentRegistry merges agent_config.json over built-in Agents (keys lowercased).
+// LoadAgentRegistry merges agent-config.json over built-in Agents (keys lowercased).
+// A missing agent-config.json is not an error; built-in defaults are returned unchanged.
 func LoadAgentRegistry() (map[string]AgentSpec, error) {
 	registry := make(map[string]AgentSpec, len(Agents))
 	for name, config := range Agents {
@@ -151,7 +153,7 @@ func AgentNames(registry map[string]AgentSpec) string {
 	return strings.Join(names, ", ")
 }
 
-// AgentRegistryHelp lists agents/paths and how to edit agent_config.json.
+// AgentRegistryHelp lists agents/paths and how to edit agent-config.json.
 func AgentRegistryHelp(registry map[string]AgentSpec) string {
 	configPath, _ := AgentConfigPath()
 	keys := make([]string, 0, len(registry))

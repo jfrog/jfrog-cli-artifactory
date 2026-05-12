@@ -30,7 +30,7 @@ func GetCommands() []components.Command {
 		{
 			Name:        "install",
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsInstall),
-			Description: "Install a skill from Artifactory. Use --agent (comma-separated names) with --project-dir (default: current directory) or --global, or use --path <dir> for a direct install to <dir>/<slug> (same layout as skills update). Agent paths use ~/.jfrog/agents/agent_config.json with built-in fallbacks. Verifies evidence when signing keys are configured.",
+			Description: "Install a skill from Artifactory. Use --agent (comma-separated names) with --project-dir (default: current directory) or --global, or use --path <dir> for a direct install to <dir>/<slug> (same layout as skills update). Agent paths use ~/.jfrog/agents/agent-config.json with built-in fallbacks. Verifies evidence when signing keys are configured. Use --format json for machine-readable install summary.",
 			Arguments:   getInstallArguments(),
 			Action:      install.RunInstall,
 		},
