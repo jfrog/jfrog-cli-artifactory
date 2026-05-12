@@ -38,7 +38,7 @@ func GetCommands() []components.Command {
 			Name:        "update",
 			Hidden:      true,
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsUpdate),
-			Description: "Update an installed skill to the latest (or a specific) version. Use --path to specify where the skill is installed (default: current directory). Use --dry-run to preview and --force to re-download even if already up to date.",
+			Description: "Update an installed skill to the latest (or a specific) version. Same targeting flags as install: use --agent (comma-separated) with --project-dir (default: current directory) or --global, or --path <dir> for a direct update at <dir>/<slug>. Preflight skips targets that are not installed or already at the target version (use --force to re-download). Logs skip and failure reasons when not quiet. Downloads once for all targets. Use --dry-run to preview, --format json for machine-readable summaries.",
 			Arguments:   getUpdateArguments(),
 			Action:      update.RunUpdate,
 		},

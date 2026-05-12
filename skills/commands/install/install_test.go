@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jfrog/jfrog-cli-artifactory/skills/common"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -129,6 +130,20 @@ func TestEnsureDestinationDir_RejectsFileAtDestination(t *testing.T) {
 	err := ensureDestinationDir(dest)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not a directory")
+}
+
+func TestFetchExtractInvocationCountIncrements(t *testing.T) {
+	ResetFetchExtractInvocationCount()
+	ic := NewInstallCommand().
+		SetServerDetails(&config.ServerDetails{Url: "http://127.0.0.1:59999"}).
+		SetRepoKey("skills-local").
+		SetSlug("noop-skill").
+		SetVersion("1.0.0").
+		SetQuiet(true)
+	tmp := t.TempDir()
+	_, err := ic.FetchAndExtractTo(tmp)
+	require.Error(t, err)
+	assert.Equal(t, 1, FetchExtractInvocationCount)
 }
 
 func createTestZip(t *testing.T, zipPath string, files map[string]string) {
