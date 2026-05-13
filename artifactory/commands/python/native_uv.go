@@ -127,10 +127,7 @@ func (c *NativeUVCommand) Run() error {
 				if biErr := uvGetScriptBuildInfo(scriptPath, c.buildConfiguration, serverDetails); biErr != nil {
 					log.Warn("Failed to collect UV script build info: " + biErr.Error())
 				}
-			} else if c.commandName != "build" {
-				// "build" only creates local dist/ files — nothing is uploaded to Artifactory,
-				// so it must not save a partial build-info. Saving unenriched deps from "build"
-				// would create duplicate dependency entries when merged with a prior "sync" partial.
+			} else {
 				var installed map[string]string
 				if uvModifiesVenv(c.commandName) {
 					installed = uvInstalledPackages()
@@ -719,6 +716,12 @@ func uvGetBuildInfo(workingDir string, buildConfiguration *buildUtils.BuildConfi
 	// must not be duplicated here without enrichment.
 	if cmdName == "publish" && len(bi.Modules) > 0 {
 		bi.Modules[0].Dependencies = nil
+	}
+	// build creates local dist/ files but uploads nothing to Artifactory — record
+	// dependencies (what was resolved) but no artifacts, matching Maven's behavior
+	// for non-deploy goals.
+	if cmdName == "build" && len(bi.Modules) > 0 {
+		bi.Modules[0].Artifacts = nil
 	}
 
 	switch cmdName {
