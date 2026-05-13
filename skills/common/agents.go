@@ -26,7 +26,7 @@ type AgentSpec struct {
 	FromConfig bool
 }
 
-// Agents is built-in defaults; merged with ~/.jfrog/agents/agent_config.json.
+// Agents is built-in defaults; merged with ~/.jfrog/agents/agent-config.json.
 // Reference: https://github.com/vercel-labs/skills/pull/76/changes#diff-b335630551682c19a781afebcf4d07bf978fb1f8ac04c6bf87428ed5106870f5R172
 var Agents = map[string]AgentConfig{
 	"claude-code":    {GlobalDir: "~/.claude/skills", ProjectDir: ".claude/skills"},
