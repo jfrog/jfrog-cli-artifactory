@@ -26,7 +26,7 @@ func TestReserveUpdateBackupPath(t *testing.T) {
 	base := t.TempDir()
 	p, err := reserveUpdateBackupPath(base, "skill-a")
 	require.NoError(t, err)
-	require.Equal(t, filepath.Join(base, ".skill-backup"), filepath.Dir(p))
+	require.Equal(t, filepath.Join(base, skillBackupDirName), filepath.Dir(p))
 	assert.Contains(t, filepath.Base(p), "skill-a-backup-")
 	_, err = os.Stat(p)
 	require.True(t, errors.Is(err, fs.ErrNotExist), "reserved path must not exist until rename")
@@ -156,10 +156,10 @@ func TestUpdateOneSkill_SuccessRemovesBackup(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{"web"}, names)
 
-	backupRoot := filepath.Join(filepath.Dir(dir), ".skill-backup")
+	backupRoot := filepath.Join(filepath.Dir(dir), skillBackupDirName)
 	_, statErr := os.Stat(backupRoot)
 	require.Error(t, statErr)
-	assert.True(t, os.IsNotExist(statErr), ".skill-backup should be removed when empty after successful update")
+	assert.True(t, os.IsNotExist(statErr), skillBackupDirName+" should be removed when empty after successful update")
 	data, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "2.0.0")

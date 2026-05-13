@@ -14,6 +14,9 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+// skillBackupDirName is the directory under the skills parent where update backups are stored.
+const skillBackupDirName = ".skill-backup"
+
 type preUpdate struct {
 	agentTarget            common.AgentTarget
 	installedVersion       string
@@ -218,7 +221,7 @@ func updateOneSkill(unzipDir string, installCommand *install.InstallCommand, che
 	if err := os.RemoveAll(backupPath); err != nil {
 		log.Warn(fmt.Sprintf("Update succeeded but previous copy at %s could not be deleted: %s", backupPath, err.Error()))
 	} else {
-		backupRoot := filepath.Join(parent, ".skill-backup")
+		backupRoot := filepath.Join(parent, skillBackupDirName)
 		_ = os.Remove(backupRoot)
 	}
 
@@ -238,10 +241,10 @@ func finalError(results []install.SummaryRow) error {
 }
 
 func reserveUpdateBackupPath(installBase, slug string) (string, error) {
-	backupRoot := filepath.Join(installBase, ".skill-backup")
+	backupRoot := filepath.Join(installBase, skillBackupDirName)
 	// #nosec G301 -- update backup dir under user skill tree; permissive mode matches install copy behavior for tooling access.
 	if err := os.MkdirAll(backupRoot, 0o755); err != nil {
-		return "", fmt.Errorf("could not create .skill-backup directory: %w", err)
+		return "", fmt.Errorf("could not create %s directory: %w", skillBackupDirName, err)
 	}
 	pattern := slug + "-backup-*"
 	d, err := os.MkdirTemp(backupRoot, pattern)
