@@ -32,6 +32,7 @@ const (
 	listCheckStatusUnknown = "unknown"
 	listCheckStatusBehind  = "behind"
 	listCheckStatusCurrent = "current"
+	listCheckStatusAhead   = "ahead"
 )
 
 // repoListRow is one row for registry mode (jf skills list --repo).
@@ -282,6 +283,18 @@ func (lc *ListCommand) listLocalSkills() error {
 	return lc.printLocalResults(results)
 }
 
+// checkUpdateStatusFromSemverComparison maps common.CompareSemver numeric result to a list STATUS value.
+func checkUpdateStatusFromSemverComparison(semverComparison int) string {
+	switch {
+	case semverComparison < 0:
+		return listCheckStatusBehind
+	case semverComparison == 0:
+		return listCheckStatusCurrent
+	default:
+		return listCheckStatusAhead
+	}
+}
+
 func (lc *ListCommand) fillUpdateStatus(row *localListRow, slug string) {
 	if row.Repo == "" || row.Repo == manifestRepoUnknownDisplay {
 		row.RegistryLatest = emDash
@@ -310,14 +323,7 @@ func (lc *ListCommand) fillUpdateStatus(row *localListRow, slug string) {
 		row.Status = listCheckStatusUnknown
 		return
 	}
-	switch {
-	case semverComparison < 0:
-		row.Status = listCheckStatusBehind
-	case semverComparison == 0:
-		row.Status = listCheckStatusCurrent
-	default:
-		row.Status = listCheckStatusCurrent
-	}
+	row.Status = checkUpdateStatusFromSemverComparison(semverComparison)
 }
 
 func (lc *ListCommand) printRepoResults(results []repoListRow) error {

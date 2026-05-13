@@ -1,6 +1,7 @@
 package publish
 
 import (
+	"bytes"
 	"errors"
 	"io/fs"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jfrog/jfrog-cli-artifactory/skills/common"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,6 +42,24 @@ func TestReadInstalledSkillVersion_FallsBackToSkillMd(t *testing.T) {
 	v, err := ReadInstalledSkillVersion(dir)
 	require.NoError(t, err)
 	assert.Equal(t, "3.1.4", v)
+}
+
+func TestReadInstalledSkillVersion_CorruptManifestFallsBackToSkillMd(t *testing.T) {
+	buf := &bytes.Buffer{}
+	prev := log.GetLogger()
+	log.SetLogger(log.NewLogger(log.INFO, buf))
+	t.Cleanup(func() { log.SetLogger(prev) })
+
+	dir := filepath.Join(t.TempDir(), "corrupt-manifest")
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".jfrog"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".jfrog", "skill-info.json"), []byte("{not json"), 0o644))
+	skillMd := "---\nname: corrupt-manifest\nversion: 9.8.7\ndescription: x\n---\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillMd), 0o644))
+
+	v, err := ReadInstalledSkillVersion(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "9.8.7", v)
+	assert.Contains(t, buf.String(), "Invalid skill-info manifest")
 }
 
 func TestReadInstalledSkillVersion_ManifestEmptyUsesMeta(t *testing.T) {

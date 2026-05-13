@@ -48,6 +48,7 @@ func WriteSkillInfoManifest(skillDir string, manifest SkillInfoManifest) error {
 		return fmt.Errorf("create .jfrog under skill dir: %w", err)
 	}
 	path := filepath.Join(dir, skillInfoJSON)
+	// #nosec G306 -- manifest lives under user-owned skill dir; mode matches install/list expectations for CLI metadata.
 	if err := os.WriteFile(path, data, 0640); err != nil {
 		return fmt.Errorf("write skill info manifest: %w", err)
 	}
@@ -58,6 +59,7 @@ func WriteSkillInfoManifest(skillDir string, manifest SkillInfoManifest) error {
 // A missing file returns (nil, nil).
 func ReadSkillInfoManifest(skillDir string) (*SkillInfoManifest, error) {
 	path := SkillInfoManifestPath(skillDir)
+	// #nosec G304 -- path is skill install directory joined with fixed .jfrog/skill-info.json segments.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

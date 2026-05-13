@@ -144,6 +144,21 @@ func TestListCommand_CheckUpdatesRequiresServer(t *testing.T) {
 	assert.Contains(t, err.Error(), "--check-updates requires")
 }
 
+func TestCheckUpdateStatusFromSemverComparison(t *testing.T) {
+	tests := []struct {
+		cmp  int
+		want string
+	}{
+		{-1, listCheckStatusBehind},
+		{0, listCheckStatusCurrent},
+		{1, listCheckStatusAhead},
+		{2, listCheckStatusAhead},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, checkUpdateStatusFromSemverComparison(tt.cmp), "cmp=%d", tt.cmp)
+	}
+}
+
 func TestListLocalSkills_ReadsVersionFromSKILLMd(t *testing.T) {
 	projectRoot := t.TempDir()
 	skillsPath := filepath.Join(projectRoot, ".cursor", "skills")

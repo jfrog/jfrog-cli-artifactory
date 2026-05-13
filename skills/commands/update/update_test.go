@@ -154,12 +154,12 @@ func TestUpdateOneSkill_SuccessRemovesBackup(t *testing.T) {
 	for _, e := range entries {
 		names = append(names, e.Name())
 	}
-	assert.ElementsMatch(t, []string{"web", ".skill-backup"}, names)
+	assert.ElementsMatch(t, []string{"web"}, names)
 
 	backupRoot := filepath.Join(filepath.Dir(dir), ".skill-backup")
-	backupEntries, err := os.ReadDir(backupRoot)
-	require.NoError(t, err)
-	require.Empty(t, backupEntries, "reserved backup path should be removed after successful update")
+	_, statErr := os.Stat(backupRoot)
+	require.Error(t, statErr)
+	assert.True(t, os.IsNotExist(statErr), ".skill-backup should be removed when empty after successful update")
 	data, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "2.0.0")
