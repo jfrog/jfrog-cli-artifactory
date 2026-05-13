@@ -15,6 +15,8 @@ import (
 type GitLfsCommand struct {
 	GenericCommand
 	configuration *GitLfsCleanConfiguration
+	successCount  int
+	totalCount    int
 }
 
 func NewGitLfsCommand() *GitLfsCommand {
@@ -28,6 +30,13 @@ func (glc *GitLfsCommand) Configuration() *GitLfsCleanConfiguration {
 func (glc *GitLfsCommand) SetConfiguration(configuration *GitLfsCleanConfiguration) *GitLfsCommand {
 	glc.configuration = configuration
 	return glc
+}
+
+// Result returns the operation counts after Run() has completed.
+// successCount is the number of files successfully deleted; totalCount is the total
+// number of unreferenced files that were candidates for deletion.
+func (glc *GitLfsCommand) Result() (successCount, totalCount int) {
+	return glc.successCount, glc.totalCount
 }
 
 func (glc *GitLfsCommand) Run() error {
@@ -55,6 +64,7 @@ func (glc *GitLfsCommand) Run() error {
 	if err != nil || length < 1 {
 		return err
 	}
+	glc.totalCount = length
 
 	if glc.configuration.Quiet {
 		return glc.deleteLfsFilesFromArtifactory(filesToDeleteReader)
@@ -76,7 +86,8 @@ func (glc *GitLfsCommand) deleteLfsFilesFromArtifactory(deleteItems *content.Con
 	if err != nil {
 		return err
 	}
-	_, err = servicesManager.DeleteFiles(deleteItems)
+	deleted, err := servicesManager.DeleteFiles(deleteItems)
+	glc.successCount = deleted
 	if err != nil {
 		return errorutils.CheckError(err)
 	}
