@@ -7,18 +7,20 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func newLayer(repo, path, name string) *utils.ResultItem {
+const testRepo = "docker-local"
+
+func newLayer(path, name string) *utils.ResultItem {
 	return &utils.ResultItem{
-		Repo: repo,
+		Repo: testRepo,
 		Path: path,
 		Name: name,
 	}
 }
 
 func TestLayerKeyIsUniquePerLocation(t *testing.T) {
-	a := newLayer("docker-local", "myimg/sha256__aaa", "manifest.json")
-	b := newLayer("docker-local", "myimg/sha256__bbb", "manifest.json")
-	c := newLayer("docker-local", "myimg/sha256__aaa", "manifest.json")
+	a := newLayer("myimg/sha256__aaa", "manifest.json")
+	b := newLayer("myimg/sha256__bbb", "manifest.json")
+	c := newLayer("myimg/sha256__aaa", "manifest.json")
 
 	assert.NotEqual(t, layerKey(a), layerKey(b))
 	assert.Equal(t, layerKey(a), layerKey(c))
@@ -26,10 +28,10 @@ func TestLayerKeyIsUniquePerLocation(t *testing.T) {
 
 func TestCollectBasicSummarySkipsManifestEntries(t *testing.T) {
 	resultMap := map[string]*utils.ResultItem{
-		ManifestJsonFile:    newLayer("docker-local", "myimg/latest", ManifestJsonFile),
-		FatManifestJsonFile: newLayer("docker-local", "myimg/latest", FatManifestJsonFile),
-		"sha256__layer1":    newLayer("docker-local", "myimg/latest", "sha256__layer1"),
-		"sha256__layer2":    newLayer("docker-local", "myimg/latest", "sha256__layer2"),
+		ManifestJsonFile:    newLayer("myimg/latest", ManifestJsonFile),
+		FatManifestJsonFile: newLayer("myimg/latest", FatManifestJsonFile),
+		"sha256__layer1":    newLayer("myimg/latest", "sha256__layer1"),
+		"sha256__layer2":    newLayer("myimg/latest", "sha256__layer2"),
 	}
 
 	summary := collectBasicSummary(resultMap)
@@ -42,15 +44,15 @@ func TestCollectBasicSummarySkipsManifestEntries(t *testing.T) {
 }
 
 func TestAggregateFatManifestLayersIncludesAllPlatforms(t *testing.T) {
-	fatManifestItem := newLayer("docker-local", "myimg/latest", FatManifestJsonFile)
+	fatManifestItem := newLayer("myimg/latest", FatManifestJsonFile)
 
-	amdManifest := newLayer("docker-local", "myimg/sha256__amd", ManifestJsonFile)
-	amdConfig := newLayer("docker-local", "myimg/sha256__amd", "sha256__amdconfig")
-	amdLayer := newLayer("docker-local", "myimg/sha256__amd", "sha256__amdlayer")
+	amdManifest := newLayer("myimg/sha256__amd", ManifestJsonFile)
+	amdConfig := newLayer("myimg/sha256__amd", "sha256__amdconfig")
+	amdLayer := newLayer("myimg/sha256__amd", "sha256__amdlayer")
 
-	armManifest := newLayer("docker-local", "myimg/sha256__arm", ManifestJsonFile)
-	armConfig := newLayer("docker-local", "myimg/sha256__arm", "sha256__armconfig")
-	armLayer := newLayer("docker-local", "myimg/sha256__arm", "sha256__armlayer")
+	armManifest := newLayer("myimg/sha256__arm", ManifestJsonFile)
+	armConfig := newLayer("myimg/sha256__arm", "sha256__armconfig")
+	armLayer := newLayer("myimg/sha256__arm", "sha256__armlayer")
 
 	fatManifest := &FatManifest{
 		Manifests: []ManifestDetails{
@@ -83,11 +85,11 @@ func TestAggregateFatManifestLayersIncludesAllPlatforms(t *testing.T) {
 }
 
 func TestAggregateFatManifestLayersDeduplicatesSharedLayers(t *testing.T) {
-	fatManifestItem := newLayer("docker-local", "myimg/latest", FatManifestJsonFile)
+	fatManifestItem := newLayer("myimg/latest", FatManifestJsonFile)
 
-	sharedLayer := newLayer("docker-local", "myimg/sha256__amd", "sha256__shared")
-	amdManifest := newLayer("docker-local", "myimg/sha256__amd", ManifestJsonFile)
-	armManifest := newLayer("docker-local", "myimg/sha256__arm", ManifestJsonFile)
+	sharedLayer := newLayer("myimg/sha256__amd", "sha256__shared")
+	amdManifest := newLayer("myimg/sha256__amd", ManifestJsonFile)
+	armManifest := newLayer("myimg/sha256__arm", ManifestJsonFile)
 
 	fatManifest := &FatManifest{
 		Manifests: []ManifestDetails{
@@ -108,8 +110,8 @@ func TestAggregateFatManifestLayersDeduplicatesSharedLayers(t *testing.T) {
 }
 
 func TestAggregateFatManifestLayersSkipsMissingPlatformLayers(t *testing.T) {
-	fatManifestItem := newLayer("docker-local", "myimg/latest", FatManifestJsonFile)
-	amdManifest := newLayer("docker-local", "myimg/sha256__amd", ManifestJsonFile)
+	fatManifestItem := newLayer("myimg/latest", FatManifestJsonFile)
+	amdManifest := newLayer("myimg/sha256__amd", ManifestJsonFile)
 
 	fatManifest := &FatManifest{
 		Manifests: []ManifestDetails{
@@ -130,7 +132,7 @@ func TestAggregateFatManifestLayersSkipsMissingPlatformLayers(t *testing.T) {
 }
 
 func TestAggregateFatManifestLayersWithNoPlatforms(t *testing.T) {
-	fatManifestItem := newLayer("docker-local", "myimg/latest", FatManifestJsonFile)
+	fatManifestItem := newLayer("myimg/latest", FatManifestJsonFile)
 	fatManifest := &FatManifest{Manifests: []ManifestDetails{}}
 	multiPlatformImages := map[string][]*utils.ResultItem{}
 
@@ -147,7 +149,7 @@ func TestExtractLayersFromManifestDataMissingManifest(t *testing.T) {
 
 func TestExtractLayersFromManifestDataMissingConfig(t *testing.T) {
 	candidates := map[string]*utils.ResultItem{
-		ManifestJsonFile: newLayer("docker-local", "myimg/latest", ManifestJsonFile),
+		ManifestJsonFile: newLayer("myimg/latest", ManifestJsonFile),
 	}
 	_, err := ExtractLayersFromManifestData(candidates, "sha256:abc", nil)
 	assert.ErrorContains(t, err, "config layer sha256__abc not found")
