@@ -46,6 +46,30 @@ func LatestVersion(versions []string) (string, error) {
 	return parsed[len(parsed)-1].Raw, nil
 }
 
+// CompareSemver compares two semver strings using the same parsing rules as LatestVersion.
+// Returns negative if firstVersion < secondVersion, zero if equal, positive if firstVersion > secondVersion.
+// Non-parseable values return an error.
+func CompareSemver(firstVersion, secondVersion string) (int, error) {
+	firstVersionParts, err := parseSemver(strings.TrimSpace(firstVersion))
+	if err != nil {
+		return 0, fmt.Errorf("compare semver: invalid first version %q: %w", firstVersion, err)
+	}
+	secondVersionParts, err := parseSemver(strings.TrimSpace(secondVersion))
+	if err != nil {
+		return 0, fmt.Errorf("compare semver: invalid second version %q: %w", secondVersion, err)
+	}
+	if firstVersionParts.Major != secondVersionParts.Major {
+		return firstVersionParts.Major - secondVersionParts.Major, nil
+	}
+	if firstVersionParts.Minor != secondVersionParts.Minor {
+		return firstVersionParts.Minor - secondVersionParts.Minor, nil
+	}
+	if firstVersionParts.Patch != secondVersionParts.Patch {
+		return firstVersionParts.Patch - secondVersionParts.Patch, nil
+	}
+	return 0, nil
+}
+
 // NextMinorVersion takes a semver string and returns the next minor version
 // with patch reset to 0 (e.g. "1.2.3" -> "1.3.0").
 func NextMinorVersion(version string) (string, error) {

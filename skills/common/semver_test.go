@@ -64,6 +64,24 @@ func TestLatestVersion(t *testing.T) {
 	}
 }
 
+func TestCompareSemver(t *testing.T) {
+	t.Parallel()
+	cmp, err := CompareSemver("1.0.0", "1.0.5")
+	require.NoError(t, err)
+	assert.Less(t, cmp, 0)
+
+	cmp, err = CompareSemver("1.0.5", "1.0.5")
+	require.NoError(t, err)
+	assert.Zero(t, cmp)
+
+	cmp, err = CompareSemver("2.0.0", "1.9.9")
+	require.NoError(t, err)
+	assert.Greater(t, cmp, 0)
+
+	_, err = CompareSemver("notsemver", "1.0.0")
+	assert.Error(t, err)
+}
+
 func TestNextMinorVersion(t *testing.T) {
 	tests := []struct {
 		name     string

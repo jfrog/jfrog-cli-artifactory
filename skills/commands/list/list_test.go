@@ -45,6 +45,7 @@ func TestListCommand_MissingBothFlags(t *testing.T) {
 	cmd := &ListCommand{}
 	err := cmd.Run()
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "jf skills list requires")
 	assert.Contains(t, err.Error(), "--repo")
 	assert.Contains(t, err.Error(), "--agent")
 }
@@ -78,6 +79,86 @@ func makeSkillDir(t *testing.T, parent, slug, version, description string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644))
 }
 
+func TestListLocalSkills_UsesManifestRepo(t *testing.T) {
+	projectRoot := t.TempDir()
+	skillsPath := filepath.Join(projectRoot, ".cursor", "skills")
+	makeSkillDir(t, skillsPath, "web-search", "1.0.3", "ws")
+	man := common.SkillInfoManifest{
+		Repo:             "skills-local",
+		Slug:             "web-search",
+		InstalledVersion: "1.0.3",
+		Scope:            "project",
+		Agent:            "cursor",
+		ProjectDir:       projectRoot,
+	}
+	require.NoError(t, common.WriteSkillInfoManifest(filepath.Join(skillsPath, "web-search"), man))
+
+	captureLog(t)
+	cmd := &ListCommand{agentName: "cursor"}
+	cmd.SetProjectDir(projectRoot).SetFormat("json")
+
+	jsonOut := captureStdout(t, func() {
+		require.NoError(t, cmd.Run())
+	})
+
+	var results []localListRow
+	require.NoError(t, json.Unmarshal(jsonOut, &results))
+	require.Len(t, results, 1)
+	assert.Equal(t, "skills-local", results[0].Repo)
+}
+
+func TestListLocalSkills_InstalledVersionPrefersManifest(t *testing.T) {
+	projectRoot := t.TempDir()
+	skillsPath := filepath.Join(projectRoot, ".cursor", "skills")
+	makeSkillDir(t, skillsPath, "dual-ver", "1.0.0", "desc")
+	require.NoError(t, common.WriteSkillInfoManifest(filepath.Join(skillsPath, "dual-ver"), common.SkillInfoManifest{
+		Repo:             "skills-local",
+		Slug:             "dual-ver",
+		InstalledVersion: "5.0.0",
+		Scope:            "project",
+		Agent:            "cursor",
+		ProjectDir:       projectRoot,
+	}))
+
+	captureLog(t)
+	cmd := &ListCommand{agentName: "cursor"}
+	cmd.SetProjectDir(projectRoot).SetFormat("json")
+
+	jsonOut := captureStdout(t, func() {
+		require.NoError(t, cmd.Run())
+	})
+
+	var results []localListRow
+	require.NoError(t, json.Unmarshal(jsonOut, &results))
+	require.Len(t, results, 1)
+	assert.Equal(t, "5.0.0", results[0].Version)
+}
+
+func TestListCommand_CheckUpdatesRequiresServer(t *testing.T) {
+	cmd := &ListCommand{}
+	cmd.SetAgentName("cursor").
+		SetProjectDir(t.TempDir()).
+		SetCheckUpdates(true)
+	err := cmd.Run()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--check-updates requires")
+}
+
+func TestCheckUpdateStatusFromSemverComparison(t *testing.T) {
+	tests := []struct {
+		cmp  int
+		want string
+	}{
+		{-1, listCheckStatusBehind},
+		{0, listCheckStatusCurrent},
+		{1, listCheckStatusAhead},
+		{2, listCheckStatusAhead},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, checkUpdateStatusFromSemverComparison(tt.cmp), "cmp=%d", tt.cmp)
+	}
+}
+
 func TestListLocalSkills_ReadsVersionFromSKILLMd(t *testing.T) {
 	projectRoot := t.TempDir()
 	skillsPath := filepath.Join(projectRoot, ".cursor", "skills")
@@ -93,15 +174,18 @@ func TestListLocalSkills_ReadsVersionFromSKILLMd(t *testing.T) {
 		require.NoError(t, cmd.Run())
 	})
 
-	var results []listResult
+	var results []localListRow
 	require.NoError(t, json.Unmarshal(jsonOut, &results))
 	assert.Len(t, results, 2)
 
 	// Sorted alphabetically by name (default)
 	assert.Equal(t, "skill-alpha", results[0].Name)
 	assert.Equal(t, "1.0.0", results[0].Version)
+	assert.Equal(t, "(unknown)", results[0].Repo)
+	assert.Equal(t, ".cursor/skills/skill-alpha", results[0].Path)
 	assert.Equal(t, "skill-beta", results[1].Name)
 	assert.Equal(t, "2.3.1", results[1].Version)
+	assert.Equal(t, ".cursor/skills/skill-beta", results[1].Path)
 }
 
 func TestListLocalSkills_SkipsMissingSKILLMd(t *testing.T) {
@@ -120,7 +204,7 @@ func TestListLocalSkills_SkipsMissingSKILLMd(t *testing.T) {
 		require.NoError(t, cmd.Run())
 	})
 
-	var results []listResult
+	var results []localListRow
 	require.NoError(t, json.Unmarshal(jsonOut, &results))
 	assert.Len(t, results, 1)
 	assert.Equal(t, "with-meta", results[0].Name)
@@ -166,7 +250,7 @@ func TestListLocalSkills_LimitApplied(t *testing.T) {
 		require.NoError(t, cmd.Run())
 	})
 
-	var results []listResult
+	var results []localListRow
 	require.NoError(t, json.Unmarshal(jsonOut, &results))
 	assert.Len(t, results, 2)
 }
@@ -187,7 +271,7 @@ func TestListLocalSkills_GlobalDir(t *testing.T) {
 		require.NoError(t, cmd.Run())
 	})
 
-	var results []listResult
+	var results []localListRow
 	require.NoError(t, json.Unmarshal(jsonOut, &results))
 	require.Len(t, results, 1)
 	assert.Equal(t, "global-skill", results[0].Name)
@@ -210,7 +294,7 @@ func TestListLocalSkills_SortAscending(t *testing.T) {
 		require.NoError(t, cmd.Run())
 	})
 
-	var results []listResult
+	var results []localListRow
 	require.NoError(t, json.Unmarshal(jsonOut, &results))
 	require.Len(t, results, 3)
 	assert.Equal(t, "aaa", results[0].Name)
@@ -234,7 +318,7 @@ func TestListLocalSkills_SortDescending(t *testing.T) {
 		require.NoError(t, cmd.Run())
 	})
 
-	var results []listResult
+	var results []localListRow
 	require.NoError(t, json.Unmarshal(jsonOut, &results))
 	require.Len(t, results, 3)
 	assert.Equal(t, "zzz", results[0].Name)
@@ -248,7 +332,7 @@ func TestListLocalSkills_SortDescending(t *testing.T) {
 
 func TestPrintResults_Table(t *testing.T) {
 	cmd := &ListCommand{format: "table"}
-	results := []listResult{
+	results := []repoListRow{
 		{Name: "my-skill", Version: "1.0.0", Description: "A skill", Source: "Repo: repo-a"},
 	}
 
@@ -256,7 +340,7 @@ func TestPrintResults_Table(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := cmd.printResults(results)
+	err := cmd.printRepoResults(results)
 
 	_ = w.Close()
 	os.Stdout = old
@@ -273,15 +357,15 @@ func TestPrintResults_Table(t *testing.T) {
 
 func TestPrintResults_JSON(t *testing.T) {
 	cmd := &ListCommand{format: "json"}
-	results := []listResult{
+	results := []repoListRow{
 		{Name: "skill-a", Version: "2.0.0", Description: "Desc", Source: "/some/path/skill-a"},
 	}
 
 	out := captureStdout(t, func() {
-		require.NoError(t, cmd.printResults(results))
+		require.NoError(t, cmd.printRepoResults(results))
 	})
 
-	var parsed []listResult
+	var parsed []repoListRow
 	require.NoError(t, json.Unmarshal(out, &parsed))
 	assert.Len(t, parsed, 1)
 	assert.Equal(t, "skill-a", parsed[0].Name)
@@ -292,7 +376,7 @@ func TestPrintResults_Empty_Table(t *testing.T) {
 	buf := captureLog(t)
 	cmd := &ListCommand{}
 
-	require.NoError(t, cmd.printResults([]listResult{}))
+	require.NoError(t, cmd.printRepoResults([]repoListRow{}))
 	assert.Contains(t, buf.String(), "No skills found")
 }
 
@@ -300,12 +384,12 @@ func TestPrintResults_Empty_JSON(t *testing.T) {
 	cmd := &ListCommand{}
 	cmd.SetFormat("json")
 
-	var nilResults []listResult
+	var nilResults []repoListRow
 	out := captureStdout(t, func() {
-		require.NoError(t, cmd.printResults(nilResults))
+		require.NoError(t, cmd.printRepoResults(nilResults))
 	})
 
-	var parsed []listResult
+	var parsed []repoListRow
 	require.NoError(t, json.Unmarshal(out, &parsed))
 	assert.Len(t, parsed, 0)
 	assert.Contains(t, string(out), "[]")

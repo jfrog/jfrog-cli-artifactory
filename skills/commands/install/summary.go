@@ -9,13 +9,16 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+// Summary row statuses for install/update tables and JSON output.
 const (
-	skillInstallStatusOK     = "ok"
-	skillInstallStatusFailed = "failed"
-	skillInstallDetailOK     = "Executed successfully with no issues."
+	SummaryStatusOK        = "ok"
+	SummaryStatusFailed    = "failed"
+	SummaryStatusSkipped   = "skipped"
+	SummaryDetailOKInstall = "Executed successfully with no issues."
 )
 
-type installAttemptResult struct {
+// SummaryRow is one row in the install/update summary table.
+type SummaryRow struct {
 	Agent  string `json:"agent" col-name:"Agent"`
 	Scope  string `json:"scope" col-name:"Scope"`
 	Path   string `json:"path" col-name:"Path"`
@@ -23,18 +26,19 @@ type installAttemptResult struct {
 	Detail string `json:"detail" col-name:"Detail"`
 }
 
-type installSummaryJSON struct {
-	Slug    string                 `json:"slug"`
-	Version string                 `json:"version"`
-	Results []installAttemptResult `json:"results"`
+type summaryJSON struct {
+	Slug    string       `json:"slug"`
+	Version string       `json:"version"`
+	Results []SummaryRow `json:"results"`
 }
 
-func printSummary(slug, version string, results []installAttemptResult, format string) error {
+// PrintSummary renders a table or JSON summary of an install/update run.
+func PrintSummary(slug, version string, results []SummaryRow, format string) error {
 	if len(results) == 0 {
 		return nil
 	}
 	if strings.EqualFold(format, "json") {
-		payload := installSummaryJSON{Slug: slug, Version: version, Results: results}
+		payload := summaryJSON{Slug: slug, Version: version, Results: results}
 		data, err := json.MarshalIndent(payload, "", "  ")
 		if err != nil {
 			return fmt.Errorf("failed to marshal install summary: %w", err)
