@@ -127,10 +127,7 @@ func (c *NativeUVCommand) Run() error {
 				if biErr := uvGetScriptBuildInfo(scriptPath, c.buildConfiguration, serverDetails); biErr != nil {
 					log.Warn("Failed to collect UV script build info: " + biErr.Error())
 				}
-			} else if c.commandName != "build" {
-				// "build" only creates local dist/ files — nothing is uploaded to Artifactory,
-				// so it must not save a partial build-info. Saving unenriched deps from "build"
-				// would create duplicate dependency entries when merged with a prior "sync" partial.
+			} else {
 				var installed map[string]string
 				if uvModifiesVenv(c.commandName) {
 					installed = uvInstalledPackages()
@@ -717,8 +714,19 @@ func uvGetBuildInfo(workingDir string, buildConfiguration *buildUtils.BuildConfi
 
 	// publish only records artifacts — deps come from the sync/install partial and
 	// must not be duplicated here without enrichment.
+	// TODO: loop over all modules if workspace support is added
 	if cmdName == "publish" && len(bi.Modules) > 0 {
 		bi.Modules[0].Dependencies = nil
+	}
+	// build creates local dist/ files but uploads nothing to Artifactory.
+	// deps are cleared to avoid duplicates when sync ran first under the same build
+	// name — jf rt bp merges by key(Id+Sha1+Md5+Scopes), so an unenriched build
+	// dep and an enriched sync dep produce two separate entries for the same package.
+	// artifacts are cleared because nothing is uploaded to Artifactory by build.
+	// TODO: loop over all modules if workspace support is added (same as publish block below)
+	if cmdName == "build" && len(bi.Modules) > 0 {
+		bi.Modules[0].Dependencies = nil
+		bi.Modules[0].Artifacts = nil
 	}
 
 	switch cmdName {
