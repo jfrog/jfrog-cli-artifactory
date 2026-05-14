@@ -18,7 +18,6 @@ func GetCommands() []components.Command {
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsList),
 			Description: "List skills from an Artifactory repository (--repo) or from a local agent install (--agent). Exactly one of --repo or --agent is required. With --agent, use --project-dir for the project root (default: current directory) or --global for each agent's global directory.",
 			Action:      skillslist.RunList,
-			Hidden:      true,
 		},
 		{
 			Name:        "publish",
@@ -36,7 +35,6 @@ func GetCommands() []components.Command {
 		},
 		{
 			Name:        "update",
-			Hidden:      true,
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsUpdate),
 			Description: "Update an installed skill to the latest (or a specific) version. Use --path to specify where the skill is installed (default: current directory). Use --dry-run to preview and --force to re-download even if already up to date.",
 			Arguments:   getUpdateArguments(),
