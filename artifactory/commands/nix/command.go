@@ -80,7 +80,7 @@ func (c *NixCommand) Run() error {
 		c.createNetrcFile()
 		defer func() {
 			if c.netrcPath != "" {
-				os.Remove(c.netrcPath)
+				_ = os.Remove(c.netrcPath)
 			}
 		}()
 	}
@@ -237,8 +237,8 @@ func (c *NixCommand) runPassthrough() error {
 
 // collectDepsFromEnvArgs resolves the store path from nix-env args (e.g., "nixpkgs.hello").
 func (c *NixCommand) collectDepsFromEnvArgs() error {
-	buildName, buildNumber, err := c.getBuildNameAndNumber()
-	if err != nil || buildName == "" || buildNumber == "" {
+	buildName, buildNumber, getBuildErr := c.getBuildNameAndNumber()
+	if getBuildErr != nil || buildName == "" || buildNumber == "" {
 		return nil
 	}
 
@@ -262,8 +262,8 @@ func (c *NixCommand) collectDepsFromEnvArgs() error {
 
 	// Resolve store path: nix-build '<channel>' -A attr --no-out-link
 	cmd := exec.Command("nix-build", fmt.Sprintf("<%s>", parts[0]), "-A", parts[1], "--no-out-link")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
+	output, resolveErr := cmd.CombinedOutput()
+	if resolveErr != nil {
 		log.Warn(fmt.Sprintf("Could not resolve store path for %s: %s", pkgAttr, string(output)))
 		return nil
 	}
@@ -274,8 +274,8 @@ func (c *NixCommand) collectDepsFromEnvArgs() error {
 
 // collectBuildInfoFromStorePaths collects build-info using NixChannelCollector.
 func (c *NixCommand) collectBuildInfoFromStorePaths(storePaths []string) error {
-	buildName, buildNumber, err := c.getBuildNameAndNumber()
-	if err != nil || buildName == "" || buildNumber == "" {
+	buildName, buildNumber, getBuildErr := c.getBuildNameAndNumber()
+	if getBuildErr != nil || buildName == "" || buildNumber == "" {
 		return nil
 	}
 
@@ -361,8 +361,8 @@ func (c *NixCommand) collectBuildInfoFromStorePaths(storePaths []string) error {
 
 // tagUploadedArtifacts sets build properties on artifacts uploaded by nix copy.
 func (c *NixCommand) tagUploadedArtifacts() error {
-	buildName, buildNumber, err := c.getBuildNameAndNumber()
-	if err != nil || buildName == "" || buildNumber == "" {
+	buildName, buildNumber, getBuildErr := c.getBuildNameAndNumber()
+	if getBuildErr != nil || buildName == "" || buildNumber == "" {
 		return nil
 	}
 
@@ -482,7 +482,7 @@ func (c *NixCommand) resolveDefaultDeploymentRepo(repoName string) string {
 	// Query the repo config: GET /api/repositories/<name>
 	url := strings.TrimSuffix(c.serverDetails.ArtifactoryUrl, "/") + "/api/repositories/" + repoName
 	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return ""
 	}
@@ -495,10 +495,13 @@ func (c *NixCommand) resolveDefaultDeploymentRepo(repoName string) string {
 	}
 
 	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != 200 {
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
 		return ""
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var repoConfig struct {
 		Rclass                string `json:"rclass"`
@@ -604,8 +607,12 @@ func (c *NixCommand) createNetrcFile() {
 	if err != nil {
 		return
 	}
-	tmpFile.WriteString(netrcContent)
-	tmpFile.Close()
+	if _, err = tmpFile.WriteString(netrcContent); err != nil {
+		return
+	}
+	if err = tmpFile.Close(); err != nil {
+		return
+	}
 	c.netrcPath = tmpFile.Name()
 }
 
@@ -639,7 +646,7 @@ func (c *NixCommand) setBuildPropertiesInDir(repo, dirPath, namePattern, buildNa
 	if err != nil {
 		return
 	}
-	servicesManager.SetProps(services.PropsParams{Reader: reader, Props: props})
+	_, _ = servicesManager.SetProps(services.PropsParams{Reader: reader, Props: props})
 }
 
 // findNarFile searches for the .nar.xz file in a binary-cache directory.
@@ -662,9 +669,10 @@ func (c *NixCommand) findNarFile(repo, dirPath string) (string, string) {
 	if err != nil {
 		return "", ""
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
-	for item := new(specutils.ResultItem); reader.NextRecord(item) == nil; item = new(specutils.ResultItem) {
+	item := new(specutils.ResultItem)
+	if reader.NextRecord(item) == nil {
 		pathInRepo := item.Path + "/" + item.Name
 		if item.Path == "." {
 			pathInRepo = item.Name
@@ -695,9 +703,10 @@ func (c *NixCommand) getArtifactChecksums(repo, pathInRepo string) entities.Chec
 	if err != nil {
 		return entities.Checksum{}
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
-	for item := new(specutils.ResultItem); reader.NextRecord(item) == nil; item = new(specutils.ResultItem) {
+	item := new(specutils.ResultItem)
+	if reader.NextRecord(item) == nil {
 		return entities.Checksum{
 			Sha1:   item.Actual_Sha1,
 			Sha256: item.Sha256,
