@@ -20,12 +20,12 @@ func LatestVersion(versions []string) (string, error) {
 		return "", fmt.Errorf("no versions available")
 	}
 	parsed := make([]semverParts, 0, len(versions))
-	for _, v := range versions {
-		sv, err := parseSemver(v)
+	for _, version := range versions {
+		parsedSemver, err := parseSemver(version)
 		if err != nil {
 			continue
 		}
-		parsed = append(parsed, sv)
+		parsed = append(parsed, parsedSemver)
 	}
 	if len(parsed) == 0 {
 		return "", fmt.Errorf("no valid semver versions found")
@@ -44,16 +44,16 @@ func LatestVersion(versions []string) (string, error) {
 
 // NextMinorVersion returns the next minor version with patch reset to 0 (e.g. "1.2.3" -> "1.3.0").
 func NextMinorVersion(version string) (string, error) {
-	sv, err := parseSemver(version)
+	parsedSemver, err := parseSemver(version)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%d.%d.0", sv.Major, sv.Minor+1), nil
+	return fmt.Sprintf("%d.%d.0", parsedSemver.Major, parsedSemver.Minor+1), nil
 }
 
 func parseSemver(version string) (semverParts, error) {
-	v := strings.TrimPrefix(version, "v")
-	parts := strings.SplitN(v, ".", 3)
+	versionWithoutPrefix := strings.TrimPrefix(version, "v")
+	parts := strings.SplitN(versionWithoutPrefix, ".", 3)
 	if len(parts) != 3 {
 		return semverParts{}, fmt.Errorf("invalid semver: %s", version)
 	}

@@ -10,8 +10,8 @@ import (
 const envCI = "CI"
 
 // IsQuiet returns true when interactive prompts should be skipped (CI or --quiet).
-func IsQuiet(c *components.Context) bool {
-	if c.GetBoolFlagValue("quiet") {
+func IsQuiet(context *components.Context) bool {
+	if context.GetBoolFlagValue("quiet") {
 		return true
 	}
 	return IsNonInteractive()
@@ -31,6 +31,6 @@ func IsNonInteractive() bool {
 }
 
 func envBool(key string) bool {
-	v, err := strconv.ParseBool(os.Getenv(key))
-	return err == nil && v
+	value, err := strconv.ParseBool(os.Getenv(key))
+	return err == nil && value
 }

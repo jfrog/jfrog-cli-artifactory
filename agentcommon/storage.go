@@ -11,11 +11,11 @@ import (
 // PackageVersionExists reports whether {repoKey}/{slug}/{version}/ exists in Artifactory
 // using the generic storage API. A 404 on the path is reported as "does not exist".
 func PackageVersionExists(serverDetails *config.ServerDetails, repoKey, slug, version string) (bool, error) {
-	sm, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
+	serviceManager, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
 	if err != nil {
 		return false, err
 	}
-	_, err = sm.FolderInfo(fmt.Sprintf("%s/%s/%s", repoKey, slug, version))
+	_, err = serviceManager.FolderInfo(fmt.Sprintf("%s/%s/%s", repoKey, slug, version))
 	if err == nil {
 		return true, nil
 	}

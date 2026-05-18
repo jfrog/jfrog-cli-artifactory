@@ -55,8 +55,8 @@ func ResolveRepo(serverDetails *config.ServerDetails, flagValue string, quiet bo
 	}
 
 	options := make([]prompt.Suggest, len(repos))
-	for i, r := range repos {
-		options[i] = prompt.Suggest{Text: r}
+	for index, repoKey := range repos {
+		options[index] = prompt.Suggest{Text: repoKey}
 	}
 	selected := ioutils.AskFromListWithMismatchConfirmation(
 		fmt.Sprintf("Select a %s repository:", opts.Label),
@@ -68,7 +68,7 @@ func ResolveRepo(serverDetails *config.ServerDetails, flagValue string, quiet bo
 
 // ListRepositoriesByPackageType returns the keys of all local repositories of the given package type.
 func ListRepositoriesByPackageType(serverDetails *config.ServerDetails, packageType string) ([]string, error) {
-	sm, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
+	serviceManager, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
 	if err != nil {
 		return nil, err
 	}
@@ -76,13 +76,13 @@ func ListRepositoriesByPackageType(serverDetails *config.ServerDetails, packageT
 		RepoType:    "local",
 		PackageType: packageType,
 	}
-	repos, err := sm.GetAllRepositoriesFiltered(params)
+	repos, err := serviceManager.GetAllRepositoriesFiltered(params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list %s repositories: %w", packageType, err)
 	}
 	keys := make([]string, 0, len(*repos))
-	for _, r := range *repos {
-		keys = append(keys, r.Key)
+	for _, repo := range *repos {
+		keys = append(keys, repo.Key)
 	}
 	return keys, nil
 }

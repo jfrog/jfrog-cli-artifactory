@@ -9,7 +9,20 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jfrog/jfrog-cli-artifactory/agentcommon"
 )
+
+func zipPluginFolder(pluginDir, slug, version string) (string, string, error) {
+	return agentcommon.ZipPublishBundle(agentcommon.ZipPublishOptions{
+		SourceDir:      pluginDir,
+		Slug:           slug,
+		Version:        version,
+		TempDirPrefix:  "agent-plugin-publish-",
+		ContentLabel:   "plugin",
+		HashWhileWrite: true,
+	})
+}
 
 func TestResolveZipUsesPrebuiltWhenPresent(t *testing.T) {
 	dir := t.TempDir()
@@ -65,7 +78,7 @@ func TestResolveZipBuildsWhenNoPrebuilt(t *testing.T) {
 	}
 
 	// Verify the hash matches a fresh on-disk computation.
-	want, err := computeSHA256(gotPath)
+	want, err := agentcommon.ComputeSHA256(gotPath)
 	if err != nil {
 		t.Fatalf("computeSHA256: %v", err)
 	}
