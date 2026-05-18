@@ -81,9 +81,9 @@ const (
 	PipenvInstall          = "pipenv-install"
 	PoetryConfig           = "poetry-config"
 	Poetry                 = "poetry"
-	Ping           = "ping"
-	NugetDepsTree  = "nuget-deps-tree"
-	RtCurl         = "rt-curl"
+	Ping                   = "ping"
+	NugetDepsTree          = "nuget-deps-tree"
+	RtCurl                 = "rt-curl"
 	TemplateConsumer       = "template-consumer"
 	ReplicationCreate      = "replication-create"
 	RepoCreate             = "repo-create"
@@ -223,8 +223,8 @@ const (
 	downloadSyncDeletes  = downloadPrefix + syncDeletes
 	downloadMinSplit     = downloadPrefix + MinSplit
 	downloadSplitCount   = downloadPrefix + SplitCount
-	validateSymlinks      = "validate-symlinks"
-	skipChecksum          = "skip-checksum"
+	validateSymlinks     = "validate-symlinks"
+	skipChecksum         = "skip-checksum"
 
 	// Unique move flags
 	movePrefix       = "move-"
@@ -317,11 +317,11 @@ const (
 	repo = "repo"
 
 	// Unique git-lfs-clean flags
-	glcPrefix  = "glc-"
-	glcDryRun  = glcPrefix + dryRun
-	glcQuiet   = glcPrefix + quiet
-	glcRepo    = glcPrefix + repo
-	refs       = "refs"
+	glcPrefix = "glc-"
+	glcDryRun = glcPrefix + dryRun
+	glcQuiet  = glcPrefix + quiet
+	glcRepo   = glcPrefix + repo
+	refs      = "refs"
 
 	// Build tool config flags
 	global          = "global"
@@ -510,6 +510,9 @@ const (
 	SkillsSearch  = "skills-search"
 	SkillsDelete  = "skills-delete"
 	SkillsList    = "skills-list"
+
+	// AI agent plugin commands keys
+	AiPluginsPublish = "ai-plugins-publish"
 
 	// Skills-specific flags
 	version             = "version"
@@ -872,6 +875,10 @@ var commandFlags = map[string][]string{
 	},
 	SkillsPublish: {
 		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, skillsQuiet, skipScan, autoDeleteOnFailure,
+		BuildName, BuildNumber, module,
+	},
+	AiPluginsPublish: {
+		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, skillsQuiet,
 		BuildName, BuildNumber, module,
 	},
 	SkillsInstall: {
