@@ -4,13 +4,21 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/delete"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/install"
+	skillslist "github.com/jfrog/jfrog-cli-artifactory/skills/commands/list"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/publish"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/search"
+	"github.com/jfrog/jfrog-cli-artifactory/skills/commands/update"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 )
 
 func GetCommands() []components.Command {
 	return []components.Command{
+		{
+			Name:        "list",
+			Flags:       flagkit.GetCommandFlags(flagkit.SkillsList),
+			Description: "List skills: registry (--repo), project-local (--agent [--project-dir], default .), or global-local (--agent --global). Use --check-updates with --agent to compare installs to the registry. --repo and --agent are mutually exclusive; --global and --project-dir are mutually exclusive.",
+			Action:      skillslist.RunList,
+		},
 		{
 			Name:        "publish",
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsPublish),
@@ -21,9 +29,16 @@ func GetCommands() []components.Command {
 		{
 			Name:        "install",
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsInstall),
-			Description: "Install a skill from Artifactory. Verifies evidence using Artifactory keys automatically.",
+			Description: "Install a skill from Artifactory. Use --agent (comma-separated names) with --project-dir (default: current directory) or --global, or use --path <dir> for a direct install to <dir>/<slug> (same layout as skills update). Agent paths use ~/.jfrog/agents/agent-config.json with built-in fallbacks. Verifies evidence when signing keys are configured. Use --format json for machine-readable install summary.",
 			Arguments:   getInstallArguments(),
 			Action:      install.RunInstall,
+		},
+		{
+			Name:        "update",
+			Flags:       flagkit.GetCommandFlags(flagkit.SkillsUpdate),
+			Description: "Update an installed skill to the latest (or a specific) version. Same targeting flags as install: use --agent (comma-separated) with --project-dir (default: current directory) or --global, or --path <dir> for a direct update at <dir>/<slug>. Pre-update checks skip targets that are not installed or already at the target version (use --force to re-download). Logs skip and failure reasons when not quiet. Downloads once for all targets. Use --dry-run to preview, --format json for machine-readable summaries.",
+			Arguments:   getUpdateArguments(),
+			Action:      update.RunUpdate,
 		},
 		{
 			Name:        "search",
@@ -65,6 +80,15 @@ func getInstallArguments() []components.Argument {
 		{
 			Name:        "slug",
 			Description: "Skill name/slug to install.",
+		},
+	}
+}
+
+func getUpdateArguments() []components.Argument {
+	return []components.Argument{
+		{
+			Name:        "slug",
+			Description: "Skill name/slug to update.",
 		},
 	}
 }

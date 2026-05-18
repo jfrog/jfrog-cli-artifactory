@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jfrog/jfrog-cli-artifactory/skills/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -58,13 +59,108 @@ func TestCopyDir(t *testing.T) {
 	assert.Equal(t, "content2", string(data))
 }
 
-func TestGetDestDir(t *testing.T) {
-	cmd := NewInstallCommand().SetSlug("my-skill")
+func TestResolveAgentTargetDirectories_ProjectScope(t *testing.T) {
+	projectRoot := t.TempDir()
+	cmd := NewInstallCommand().
+		SetSlug("my-skill").
+		SetAgents([]common.AgentSpec{
+			{Name: "cursor", Config: common.AgentConfig{ProjectDir: ".cursor/skills"}},
+			{Name: "claude-code", Config: common.AgentConfig{ProjectDir: ".claude/skills"}},
+		}).
+		SetGlobal(false).
+		SetProjectDir(projectRoot)
 
-	assert.Equal(t, filepath.Join(".", "my-skill"), cmd.getDestDir())
+	targets, err := cmd.resolveAgentTargetDirectories()
+	require.NoError(t, err)
+	require.Len(t, targets, 2)
+	assert.Equal(t, filepath.Join(projectRoot, ".cursor", "skills", "my-skill"), targets[0].DestinationDir)
+	assert.Equal(t, filepath.Join(projectRoot, ".claude", "skills", "my-skill"), targets[1].DestinationDir)
+}
 
-	cmd.SetInstallPath("/custom/path")
-	assert.Equal(t, filepath.Join("/custom/path", "my-skill"), cmd.getDestDir())
+func TestResolveAgentTargetDirectories_GlobalScope(t *testing.T) {
+	globalBase := filepath.Join(t.TempDir(), "global", ".cursor", "skills")
+	wantBase, err := filepath.Abs(globalBase)
+	require.NoError(t, err)
+
+	cmd := NewInstallCommand().
+		SetSlug("alpha").
+		SetAgents([]common.AgentSpec{
+			{Name: "cursor", Config: common.AgentConfig{GlobalDir: globalBase}},
+		}).
+		SetGlobal(true)
+
+	targets, err := cmd.resolveAgentTargetDirectories()
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	assert.Equal(t, filepath.Join(wantBase, "alpha"), targets[0].DestinationDir)
+}
+
+func TestResolveAgentTargetDirectories_LegacyInstallPath(t *testing.T) {
+	tmp := t.TempDir()
+	cmd := NewInstallCommand().SetSlug("legacy").SetInstallPath(tmp)
+	targets, err := cmd.resolveAgentTargetDirectories()
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	assert.Equal(t, filepath.Join(tmp, "legacy"), targets[0].DestinationDir)
+}
+
+func TestEnsureDestinationDir_CreatesUnderExistingParent(t *testing.T) {
+	parent := t.TempDir()
+	dest := filepath.Join(parent, "skill-x")
+	require.NoError(t, ensureDestinationDir(dest))
+	info, err := os.Stat(dest)
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
+}
+
+func TestEnsureDestinationDir_CreatesNestedPath(t *testing.T) {
+	root := t.TempDir()
+	dest := filepath.Join(root, ".cursor", "skills", "alpha")
+	require.NoError(t, ensureDestinationDir(dest))
+	info, err := os.Stat(dest)
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
+}
+
+func TestEnsureDestinationDir_RejectsFileAtDestination(t *testing.T) {
+	parent := t.TempDir()
+	dest := filepath.Join(parent, "blocker")
+	require.NoError(t, os.WriteFile(dest, []byte("hi"), 0o644))
+	err := ensureDestinationDir(dest)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not a directory")
+}
+
+func TestCopyExtractedToTargets_WritesInstallManifest(t *testing.T) {
+	src := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(src, "SKILL.md"), []byte("---\nname: x\nversion: 1.0.0\n---\n"), 0o644))
+	dest := filepath.Join(t.TempDir(), "my-skill")
+	projectRoot := t.TempDir()
+
+	ic := NewInstallCommand().
+		SetRepoKey("skills-repo").
+		SetSlug("my-skill").
+		SetVersion("1.2.3").
+		SetProjectDir(projectRoot)
+
+	targets := []agentSkillInstallDir{{
+		Agent:          common.AgentSpec{Name: "cursor"},
+		DestinationDir: dest,
+		Scope:          "project",
+	}}
+	rows := ic.copyExtractedToTargets(src, targets)
+	require.Len(t, rows, 1)
+	assert.Equal(t, SummaryStatusOK, rows[0].Status)
+
+	got, err := common.ReadSkillInfoManifest(dest)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "skills-repo", got.Repo)
+	assert.Equal(t, "my-skill", got.Slug)
+	assert.Equal(t, "1.2.3", got.InstalledVersion)
+	assert.Equal(t, "project", got.Scope)
+	assert.Equal(t, "cursor", got.Agent)
+	assert.Equal(t, projectRoot, got.ProjectDir)
 }
 
 func createTestZip(t *testing.T, zipPath string, files map[string]string) {

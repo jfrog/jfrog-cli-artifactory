@@ -14,13 +14,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-cli-artifactory/skills/common"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-core/v2/common/build"
+	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
-
+	rtServicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -30,6 +34,7 @@ const evidenceLicenseErrFragment = "Enterprise+"
 
 var zipExcludes = map[string]bool{
 	".git":         true,
+	".jfrog":       true,
 	"__pycache__":  true,
 	"node_modules": true,
 	".DS_Store":    true,
@@ -45,6 +50,7 @@ type PublishCommand struct {
 	quiet               bool
 	skipScan            bool
 	autoDeleteOnFailure bool
+	buildConfiguration  *build.BuildConfiguration
 }
 
 func NewPublishCommand() *PublishCommand {
@@ -93,6 +99,11 @@ func (pc *PublishCommand) SetSkipScan(skip bool) *PublishCommand {
 
 func (pc *PublishCommand) SetAutoDeleteOnFailure(autoDelete bool) *PublishCommand {
 	pc.autoDeleteOnFailure = autoDelete
+	return pc
+}
+
+func (pc *PublishCommand) SetBuildConfiguration(buildConfig *build.BuildConfiguration) *PublishCommand {
+	pc.buildConfiguration = buildConfig
 	return pc
 }
 
@@ -159,9 +170,31 @@ func (pc *PublishCommand) Run() error {
 		return fmt.Errorf("failed to compute SHA256: %w", err)
 	}
 
+	collectBuildInfo := false
+	if pc.buildConfiguration != nil {
+		collectBuildInfo, err = pc.buildConfiguration.IsCollectBuildInfo()
+		if err != nil {
+			return err
+		}
+		if collectBuildInfo && pc.buildConfiguration.GetModule() == "" {
+			pc.buildConfiguration.SetModule(slug)
+		}
+	}
+
 	target := fmt.Sprintf("%s/%s/%s/", pc.repoKey, slug, version)
-	if err := pc.upload(zipPath, target); err != nil {
+	artifactsDetailsReader, err := pc.upload(zipPath, target, collectBuildInfo)
+	if err != nil {
 		return fmt.Errorf("upload failed: %w", err)
+	}
+	if artifactsDetailsReader != nil {
+		defer func() { _ = artifactsDetailsReader.Close() }()
+		buildArtifacts, err := rtServicesUtils.ConvertArtifactsDetailsToBuildInfoArtifacts(artifactsDetailsReader)
+		if err != nil {
+			return fmt.Errorf("failed to convert artifacts for build-info: %w", err)
+		}
+		if err := build.PopulateBuildArtifactsAsPartials(buildArtifacts, pc.buildConfiguration, entities.Generic); err != nil {
+			return fmt.Errorf("failed to save build-info partials: %w", err)
+		}
 	}
 
 	log.Info("Upload complete. Attaching evidence...")
@@ -197,8 +230,8 @@ func (pc *PublishCommand) resolveMissingVersion(slug string) (string, error) {
 	}
 
 	versionStrs := make([]string, len(versions))
-	for i, v := range versions {
-		versionStrs[i] = v.Version
+	for versionIndex, skillVersion := range versions {
+		versionStrs[versionIndex] = skillVersion.Version
 	}
 
 	if len(versionStrs) > 0 {
@@ -478,10 +511,10 @@ func computeSHA256(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func (pc *PublishCommand) upload(zipPath, target string) error {
+func (pc *PublishCommand) upload(zipPath, target string, collectBuildInfo bool) (*content.ContentReader, error) {
 	serviceManager, err := utils.CreateUploadServiceManager(pc.serverDetails, 1, 3, 0, false, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	uploadParams := services.NewUploadParams()
@@ -489,8 +522,31 @@ func (pc *PublishCommand) upload(zipPath, target string) error {
 	uploadParams.Target = target
 	uploadParams.Flat = true
 
+	if collectBuildInfo {
+		if pc.buildConfiguration == nil {
+			return nil, fmt.Errorf("build-info collection requested, but build configuration is nil")
+		}
+		buildProps, err := build.CreateBuildPropsFromConfiguration(pc.buildConfiguration)
+		if err != nil {
+			return nil, err
+		}
+		uploadParams.BuildProps = buildProps
+
+		summary, err := serviceManager.UploadFilesWithSummary(artifactory.UploadServiceOptions{}, uploadParams)
+		if err != nil {
+			return nil, err
+		}
+		if summary != nil {
+			if summary.TransferDetailsReader != nil {
+				_ = summary.TransferDetailsReader.Close()
+			}
+			return summary.ArtifactsDetailsReader, nil
+		}
+		return nil, nil
+	}
+
 	_, _, err = serviceManager.UploadFiles(artifactory.UploadServiceOptions{}, uploadParams)
-	return err
+	return nil, err
 }
 
 func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex string) {
@@ -609,6 +665,11 @@ func RunPublish(c *components.Context) error {
 		return err
 	}
 
+	buildConfig, err := pluginsCommon.CreateBuildConfigurationWithModule(c)
+	if err != nil {
+		return err
+	}
+
 	cmd := NewPublishCommand().
 		SetServerDetails(serverDetails).
 		SetRepoKey(repoKey).
@@ -618,7 +679,8 @@ func RunPublish(c *components.Context) error {
 		SetKeyAlias(c.GetStringFlagValue("key-alias")).
 		SetQuiet(quiet).
 		SetSkipScan(c.GetBoolFlagValue("skip-scan")).
-		SetAutoDeleteOnFailure(c.GetBoolFlagValue("auto-delete-on-failure"))
+		SetAutoDeleteOnFailure(c.GetBoolFlagValue("auto-delete-on-failure")).
+		SetBuildConfiguration(buildConfig)
 
 	return cmd.Run()
 }
