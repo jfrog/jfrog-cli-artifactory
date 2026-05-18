@@ -237,8 +237,8 @@ func (c *NixCommand) runPassthrough() error {
 
 // collectDepsFromEnvArgs resolves the store path from nix-env args (e.g., "nixpkgs.hello").
 func (c *NixCommand) collectDepsFromEnvArgs() error {
-	buildName, buildNumber, getBuildErr := c.getBuildNameAndNumber()
-	if getBuildErr != nil || buildName == "" || buildNumber == "" {
+	buildName, buildNumber, _ := c.getBuildNameAndNumber()
+	if buildName == "" || buildNumber == "" {
 		return nil
 	}
 
@@ -262,10 +262,10 @@ func (c *NixCommand) collectDepsFromEnvArgs() error {
 
 	// Resolve store path: nix-build '<channel>' -A attr --no-out-link
 	cmd := exec.Command("nix-build", fmt.Sprintf("<%s>", parts[0]), "-A", parts[1], "--no-out-link")
-	output, resolveErr := cmd.CombinedOutput()
-	if resolveErr != nil {
+	output, err := cmd.CombinedOutput()
+	if err != nil {
 		log.Warn(fmt.Sprintf("Could not resolve store path for %s: %s", pkgAttr, string(output)))
-		return nil
+		return err
 	}
 
 	storePaths := strings.Fields(strings.TrimSpace(string(output)))
@@ -274,8 +274,8 @@ func (c *NixCommand) collectDepsFromEnvArgs() error {
 
 // collectBuildInfoFromStorePaths collects build-info using NixChannelCollector.
 func (c *NixCommand) collectBuildInfoFromStorePaths(storePaths []string) error {
-	buildName, buildNumber, getBuildErr := c.getBuildNameAndNumber()
-	if getBuildErr != nil || buildName == "" || buildNumber == "" {
+	buildName, buildNumber, _ := c.getBuildNameAndNumber()
+	if buildName == "" || buildNumber == "" {
 		return nil
 	}
 
@@ -361,8 +361,8 @@ func (c *NixCommand) collectBuildInfoFromStorePaths(storePaths []string) error {
 
 // tagUploadedArtifacts sets build properties on artifacts uploaded by nix copy.
 func (c *NixCommand) tagUploadedArtifacts() error {
-	buildName, buildNumber, getBuildErr := c.getBuildNameAndNumber()
-	if getBuildErr != nil || buildName == "" || buildNumber == "" {
+	buildName, buildNumber, _ := c.getBuildNameAndNumber()
+	if buildName == "" || buildNumber == "" {
 		return nil
 	}
 
