@@ -1,45 +1,24 @@
 package publish
 
 import (
-	"archive/zip"
 	"bufio"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"runtime"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-cli-artifactory/agentcommon"
 	plugincommon "github.com/jfrog/jfrog-cli-artifactory/agentplugins/common"
-	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	"github.com/jfrog/jfrog-client-go/artifactory"
-	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	rtServicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
-
-// evidenceLicenseErrFragment is the substring in error messages that indicates
-// the Artifactory instance lacks the Enterprise+ license required for evidence.
-const evidenceLicenseErrFragment = "Enterprise+"
-
-var zipExcludes = map[string]bool{
-	".git":         true,
-	".jfrog":       true,
-	"__pycache__":  true,
-	"node_modules": true,
-	".DS_Store":    true,
-}
 
 type PublishCommand struct {
 	serverDetails      *config.ServerDetails
@@ -52,23 +31,47 @@ type PublishCommand struct {
 	buildConfiguration *build.BuildConfiguration
 }
 
-func NewPublishCommand() *PublishCommand { return &PublishCommand{} }
+func NewPublishCommand() *PublishCommand {
+	return &PublishCommand{}
+}
 
-func (pc *PublishCommand) SetServerDetails(d *config.ServerDetails) *PublishCommand {
-	pc.serverDetails = d
+func (pc *PublishCommand) SetServerDetails(details *config.ServerDetails) *PublishCommand {
+	pc.serverDetails = details
 	return pc
 }
-func (pc *PublishCommand) SetRepoKey(k string) *PublishCommand   { pc.repoKey = k; return pc }
-func (pc *PublishCommand) SetPluginDir(d string) *PublishCommand { pc.pluginDir = d; return pc }
-func (pc *PublishCommand) SetVersion(v string) *PublishCommand   { pc.version = v; return pc }
-func (pc *PublishCommand) SetSigningKey(p string) *PublishCommand {
-	pc.signingKey = p
+
+func (pc *PublishCommand) SetRepoKey(repoKey string) *PublishCommand {
+	pc.repoKey = repoKey
 	return pc
 }
-func (pc *PublishCommand) SetKeyAlias(a string) *PublishCommand { pc.keyAlias = a; return pc }
-func (pc *PublishCommand) SetQuiet(q bool) *PublishCommand      { pc.quiet = q; return pc }
-func (pc *PublishCommand) SetBuildConfiguration(b *build.BuildConfiguration) *PublishCommand {
-	pc.buildConfiguration = b
+
+func (pc *PublishCommand) SetPluginDir(dir string) *PublishCommand {
+	pc.pluginDir = dir
+	return pc
+}
+
+func (pc *PublishCommand) SetVersion(version string) *PublishCommand {
+	pc.version = version
+	return pc
+}
+
+func (pc *PublishCommand) SetSigningKey(path string) *PublishCommand {
+	pc.signingKey = path
+	return pc
+}
+
+func (pc *PublishCommand) SetKeyAlias(alias string) *PublishCommand {
+	pc.keyAlias = alias
+	return pc
+}
+
+func (pc *PublishCommand) SetQuiet(quiet bool) *PublishCommand {
+	pc.quiet = quiet
+	return pc
+}
+
+func (pc *PublishCommand) SetBuildConfiguration(buildConfig *build.BuildConfiguration) *PublishCommand {
+	pc.buildConfiguration = buildConfig
 	return pc
 }
 
@@ -110,7 +113,7 @@ func (pc *PublishCommand) Run() error {
 	}()
 	if sha256Hex == "" {
 		// Prebuilt zips bypass the streaming hasher; hash on disk in that case.
-		if sha256Hex, err = computeSHA256(zipPath); err != nil {
+		if sha256Hex, err = agentcommon.ComputeSHA256(zipPath); err != nil {
 			return fmt.Errorf("failed to compute SHA256: %w", err)
 		}
 	}
@@ -207,192 +210,25 @@ func (pc *PublishCommand) resolveVersionCollision(slug, version string) (string,
 // also returns its SHA256 (computed in the same pass as the write). The prebuilt
 // flag indicates whether the path is a user-managed file (must not be deleted).
 func (pc *PublishCommand) resolveZip(slug, version string) (zipPath, sha256Hex string, prebuilt bool, err error) {
-	if strings.Contains(version, "..") || strings.ContainsAny(version, "/\\") {
-		return "", "", false, fmt.Errorf("invalid version '%s': contains path traversal characters", version)
+	if agentcommon.IsPrebuiltPublishZip(pc.pluginDir, slug, version) {
+		prebuiltPath := agentcommon.PrebuiltPublishZipPath(pc.pluginDir, slug, version)
+		log.Info("Using pre-built zip:", prebuiltPath)
+		return prebuiltPath, "", true, nil
 	}
-	candidate := filepath.Clean(filepath.Join(pc.pluginDir, "zip", fmt.Sprintf("%s_%s.zip", slug, version)))
-	if _, statErr := os.Stat(candidate); statErr == nil {
-		log.Info("Using pre-built zip:", candidate)
-		return candidate, "", true, nil
-	}
-	zipPath, sha256Hex, err = zipPluginFolder(pc.pluginDir, slug, version)
+
+	zipPath, sha256Hex, err = agentcommon.ZipPublishBundle(agentcommon.ZipPublishOptions{
+		SourceDir:      pc.pluginDir,
+		Slug:           slug,
+		Version:        version,
+		TempDirPrefix:  "agent-plugin-publish-",
+		ContentLabel:   "plugin",
+		HashWhileWrite: true,
+	})
 	return zipPath, sha256Hex, false, err
 }
 
-var zipEpoch = time.Date(1980, 1, 1, 0, 0, 0, 0, time.UTC)
-
-type pluginFile struct {
-	relPath string
-	mode    os.FileMode
-}
-
-func collectFiles(pluginDir string) (files []pluginFile, maxMtime time.Time, err error) {
-	err = filepath.Walk(pluginDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		relPath, err := filepath.Rel(pluginDir, path)
-		if err != nil {
-			return err
-		}
-		if shouldExclude(info) {
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !info.IsDir() {
-			files = append(files, pluginFile{relPath: relPath, mode: info.Mode()})
-			if info.ModTime().After(maxMtime) {
-				maxMtime = info.ModTime()
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return
-	}
-	sort.Slice(files, func(i, j int) bool { return files[i].relPath < files[j].relPath })
-	return
-}
-
-func addFileToZip(w *zip.Writer, pluginDir string, pf pluginFile, uniformTime time.Time) error {
-	absPath := filepath.Join(pluginDir, pf.relPath)
-
-	header := &zip.FileHeader{
-		Name:     pf.relPath,
-		Method:   zip.Deflate,
-		Modified: uniformTime,
-	}
-	header.SetModTime(uniformTime) //nolint:staticcheck // sets legacy MS-DOS ModifiedDate/ModifiedTime fields
-	header.SetMode(normalizeFileMode(pf.mode))
-	header.Extra = nil
-
-	writer, err := w.CreateHeader(header)
-	if err != nil {
-		return err
-	}
-	// #nosec G304 -- absPath is from user-provided plugin directory joined with a walked relative path.
-	file, err := os.Open(absPath)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = file.Close() }()
-
-	_, err = io.Copy(writer, file)
-	return err
-}
-
-func normalizeFileMode(mode os.FileMode) os.FileMode {
-	if runtime.GOOS == "windows" {
-		return 0o644
-	}
-	return mode
-}
-
-func zipPluginFolder(pluginDir, slug, version string) (zipPath, sha256Hex string, err error) {
-	files, maxMtime, err := collectFiles(pluginDir)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to collect plugin files: %w", err)
-	}
-	if len(files) == 0 {
-		return "", "", fmt.Errorf("no files found in plugin directory %s (all files may have been excluded)", pluginDir)
-	}
-	if maxMtime.IsZero() {
-		maxMtime = zipEpoch
-	}
-
-	tmpDir, err := os.MkdirTemp("", "agent-plugin-publish-*")
-	if err != nil {
-		return "", "", fmt.Errorf("failed to create temp dir: %w", err)
-	}
-
-	zipPath = filepath.Clean(filepath.Join(tmpDir, fmt.Sprintf("%s-%s.zip", slug, version)))
-	zipFile, err := os.Create(zipPath)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to create zip file: %w", err)
-	}
-	defer func() { _ = zipFile.Close() }()
-
-	hasher := sha256.New()
-	w := zip.NewWriter(io.MultiWriter(zipFile, hasher))
-	defer func() {
-		if cerr := w.Close(); cerr != nil && err == nil {
-			err = fmt.Errorf("failed to finalize zip: %w", cerr)
-		}
-		if err == nil {
-			sha256Hex = hex.EncodeToString(hasher.Sum(nil))
-		}
-	}()
-
-	for _, pf := range files {
-		if err = addFileToZip(w, pluginDir, pf, maxMtime); err != nil {
-			return "", "", fmt.Errorf("failed to add %s to zip: %w", pf.relPath, err)
-		}
-	}
-	return
-}
-
-func shouldExclude(info os.FileInfo) bool {
-	name := info.Name()
-	return zipExcludes[name] || strings.HasSuffix(name, ".pyc")
-}
-
-func computeSHA256(path string) (string, error) {
-	if strings.Contains(path, "..") {
-		return "", fmt.Errorf("invalid path: contains traversal sequence")
-	}
-	cleanPath := filepath.Clean(path)
-	// #nosec G304 -- cleanPath is derived from a path produced inside this package.
-	f, err := os.Open(cleanPath)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = f.Close() }()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
 func (pc *PublishCommand) upload(zipPath, target string, collectBuildInfo bool) (*content.ContentReader, error) {
-	serviceManager, err := utils.CreateUploadServiceManager(pc.serverDetails, 1, 3, 0, false, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	uploadParams := services.NewUploadParams()
-	uploadParams.Pattern = zipPath
-	uploadParams.Target = target
-	uploadParams.Flat = true
-
-	if collectBuildInfo {
-		if pc.buildConfiguration == nil {
-			return nil, fmt.Errorf("build-info collection requested, but build configuration is nil")
-		}
-		buildProps, err := build.CreateBuildPropsFromConfiguration(pc.buildConfiguration)
-		if err != nil {
-			return nil, err
-		}
-		uploadParams.BuildProps = buildProps
-
-		summary, err := serviceManager.UploadFilesWithSummary(artifactory.UploadServiceOptions{}, uploadParams)
-		if err != nil {
-			return nil, err
-		}
-		if summary != nil {
-			if summary.TransferDetailsReader != nil {
-				_ = summary.TransferDetailsReader.Close()
-			}
-			return summary.ArtifactsDetailsReader, nil
-		}
-		return nil, nil
-	}
-
-	_, _, err = serviceManager.UploadFiles(artifactory.UploadServiceOptions{}, uploadParams)
-	return nil, err
+	return agentcommon.UploadPublishArtifact(pc.serverDetails, zipPath, target, collectBuildInfo, pc.buildConfiguration)
 }
 
 func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex, subjectRepoPath string) {
@@ -444,11 +280,11 @@ func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex, subjectRepoPa
 		KeyAlias:        alias,
 	}
 
-	err = withSuppressedLogs(func() error {
+	err = agentcommon.WithSuppressedLogs(func() error {
 		return agentcommon.CreateEvidence(pc.serverDetails, opts)
 	})
 	if err != nil {
-		if isEvidenceLicenseError(err) {
+		if agentcommon.IsEvidenceLicenseError(err) {
 			log.Info("Evidence not attached: evidence requires an Enterprise+ license. Plugin upload succeeded.")
 		} else {
 			log.Warn("Evidence creation failed (plugin upload succeeded):", err.Error())
@@ -457,19 +293,6 @@ func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex, subjectRepoPa
 	}
 
 	log.Info("Evidence successfully attached.")
-}
-
-func withSuppressedLogs(fn func() error) error {
-	if jfLogger, ok := log.GetLogger().(*log.JfrogLogger); ok {
-		prev := jfLogger.GetLogLevel()
-		jfLogger.SetLogLevel(-1)
-		defer jfLogger.SetLogLevel(prev)
-	}
-	return fn()
-}
-
-func isEvidenceLicenseError(err error) bool {
-	return strings.Contains(err.Error(), evidenceLicenseErrFragment)
 }
 
 // RunPublish is the standalone CLI action for `jf ai-plugins publish <path>`.

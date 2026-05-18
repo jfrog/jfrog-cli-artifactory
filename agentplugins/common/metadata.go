@@ -45,23 +45,23 @@ type pluginJSON struct {
 // relative path strings from KnownManifestRelPaths.
 func DiscoverPluginManifests(pluginRoot string) (map[string]PluginMeta, error) {
 	found := make(map[string]PluginMeta)
-	for _, rel := range KnownManifestRelPaths {
-		fullPath := filepath.Join(pluginRoot, rel)
+	for _, relativePath := range KnownManifestRelPaths {
+		fullPath := filepath.Join(pluginRoot, relativePath)
 		info, err := os.Stat(fullPath)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
-			return nil, fmt.Errorf("failed to stat %s: %w", rel, err)
+			return nil, fmt.Errorf("failed to stat %s: %w", relativePath, err)
 		}
 		if info.IsDir() {
 			continue
 		}
 		meta, err := readPluginManifest(fullPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse %s: %w", rel, err)
+			return nil, fmt.Errorf("failed to parse %s: %w", relativePath, err)
 		}
-		found[rel] = meta
+		found[relativePath] = meta
 	}
 	return found, nil
 }
@@ -108,21 +108,21 @@ func ValidateAndResolvePluginMeta(pluginRoot, versionFlag string) (PluginMeta, e
 		nameSource       string
 		versionSource    string
 	)
-	for _, rel := range KnownManifestRelPaths {
-		meta, ok := manifests[rel]
+	for _, relativePath := range KnownManifestRelPaths {
+		meta, ok := manifests[relativePath]
 		if !ok {
 			continue
 		}
 		if meta.Name == "" {
-			return PluginMeta{}, fmt.Errorf("%s is missing required 'name' field", rel)
+			return PluginMeta{}, fmt.Errorf("%s is missing required 'name' field", relativePath)
 		}
 		if canonicalName == "" {
 			canonicalName = meta.Name
-			nameSource = rel
+			nameSource = relativePath
 		} else if meta.Name != canonicalName {
 			return PluginMeta{}, fmt.Errorf(
 				"plugin name mismatch: %s declares name=%q but %s declares name=%q",
-				nameSource, canonicalName, rel, meta.Name,
+				nameSource, canonicalName, relativePath, meta.Name,
 			)
 		}
 		if meta.Version == "" {
@@ -130,11 +130,11 @@ func ValidateAndResolvePluginMeta(pluginRoot, versionFlag string) (PluginMeta, e
 		}
 		if canonicalVersion == "" {
 			canonicalVersion = meta.Version
-			versionSource = rel
+			versionSource = relativePath
 		} else if meta.Version != canonicalVersion {
 			return PluginMeta{}, fmt.Errorf(
 				"plugin version mismatch: %s declares version=%q but %s declares version=%q",
-				versionSource, canonicalVersion, rel, meta.Version,
+				versionSource, canonicalVersion, relativePath, meta.Version,
 			)
 		}
 	}

@@ -81,9 +81,9 @@ const (
 	PipenvInstall          = "pipenv-install"
 	PoetryConfig           = "poetry-config"
 	Poetry                 = "poetry"
-	Ping                   = "ping"
-	NugetDepsTree          = "nuget-deps-tree"
-	RtCurl                 = "rt-curl"
+	Ping           = "ping"
+	NugetDepsTree  = "nuget-deps-tree"
+	RtCurl         = "rt-curl"
 	TemplateConsumer       = "template-consumer"
 	ReplicationCreate      = "replication-create"
 	RepoCreate             = "repo-create"
@@ -223,8 +223,8 @@ const (
 	downloadSyncDeletes  = downloadPrefix + syncDeletes
 	downloadMinSplit     = downloadPrefix + MinSplit
 	downloadSplitCount   = downloadPrefix + SplitCount
-	validateSymlinks     = "validate-symlinks"
-	skipChecksum         = "skip-checksum"
+	validateSymlinks      = "validate-symlinks"
+	skipChecksum          = "skip-checksum"
 
 	// Unique move flags
 	movePrefix       = "move-"
@@ -317,11 +317,11 @@ const (
 	repo = "repo"
 
 	// Unique git-lfs-clean flags
-	glcPrefix = "glc-"
-	glcDryRun = glcPrefix + dryRun
-	glcQuiet  = glcPrefix + quiet
-	glcRepo   = glcPrefix + repo
-	refs      = "refs"
+	glcPrefix  = "glc-"
+	glcDryRun  = glcPrefix + dryRun
+	glcQuiet   = glcPrefix + quiet
+	glcRepo    = glcPrefix + repo
+	refs       = "refs"
 
 	// Build tool config flags
 	global          = "global"

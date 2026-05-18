@@ -39,7 +39,7 @@ func GeneratePredicateFile(dir, slug, version string, publishedAt time.Time) (st
 
 // GenerateMarkdownFile writes the canonical attestation.md to a temp directory.
 func GenerateMarkdownFile(dir, slug, version string, publishedAt time.Time) (string, error) {
-	md := fmt.Sprintf(`# Publish Attestation
+	attestationMarkdown := fmt.Sprintf(`# Publish Attestation
 
 | Field | Value |
 |-------|-------|
@@ -48,7 +48,7 @@ func GenerateMarkdownFile(dir, slug, version string, publishedAt time.Time) (str
 | Published at | %s |
 `, slug, version, formatPublishedAt(publishedAt))
 	path := filepath.Join(dir, "attestation.md")
-	if err := os.WriteFile(path, []byte(md), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(attestationMarkdown), 0o600); err != nil {
 		return "", fmt.Errorf("failed to write attestation markdown: %w", err)
 	}
 	return path, nil
