@@ -81,9 +81,9 @@ const (
 	PipenvInstall          = "pipenv-install"
 	PoetryConfig           = "poetry-config"
 	Poetry                 = "poetry"
-	Ping           = "ping"
-	NugetDepsTree  = "nuget-deps-tree"
-	RtCurl         = "rt-curl"
+	Ping                   = "ping"
+	NugetDepsTree          = "nuget-deps-tree"
+	RtCurl                 = "rt-curl"
 	TemplateConsumer       = "template-consumer"
 	ReplicationCreate      = "replication-create"
 	RepoCreate             = "repo-create"
@@ -223,8 +223,8 @@ const (
 	downloadSyncDeletes  = downloadPrefix + syncDeletes
 	downloadMinSplit     = downloadPrefix + MinSplit
 	downloadSplitCount   = downloadPrefix + SplitCount
-	validateSymlinks      = "validate-symlinks"
-	skipChecksum          = "skip-checksum"
+	validateSymlinks     = "validate-symlinks"
+	skipChecksum         = "skip-checksum"
 
 	// Unique move flags
 	movePrefix       = "move-"
@@ -317,11 +317,11 @@ const (
 	repo = "repo"
 
 	// Unique git-lfs-clean flags
-	glcPrefix  = "glc-"
-	glcDryRun  = glcPrefix + dryRun
-	glcQuiet   = glcPrefix + quiet
-	glcRepo    = glcPrefix + repo
-	refs       = "refs"
+	glcPrefix = "glc-"
+	glcDryRun = glcPrefix + dryRun
+	glcQuiet  = glcPrefix + quiet
+	glcRepo   = glcPrefix + repo
+	refs      = "refs"
 
 	// Build tool config flags
 	global          = "global"
@@ -513,6 +513,10 @@ const (
 
 	// AI agent plugin commands keys
 	AiPluginsPublish = "ai-plugins-publish"
+
+	// Flag-map keys for AiPluginsPublish (CLI names remain repo/version).
+	aiPluginsRepoFlag    = "ai-plugins-repo"
+	aiPluginsVersionFlag = "ai-plugins-version"
 
 	// Skills-specific flags
 	version             = "version"
@@ -878,7 +882,7 @@ var commandFlags = map[string][]string{
 		BuildName, BuildNumber, module,
 	},
 	AiPluginsPublish: {
-		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, skillsQuiet,
+		url, user, password, accessToken, serverId, aiPluginsRepoFlag, aiPluginsVersionFlag, signingKey, keyAlias, skillsQuiet,
 		BuildName, BuildNumber, module,
 	},
 	SkillsInstall: {
@@ -1198,24 +1202,26 @@ var flagsMap = map[string]components.Flag{
 	AddSources:               components.NewBoolFlag(AddSources, "Add sources to an existing draft release bundle.", components.WithBoolDefaultValueFalse()),
 
 	// Skills-specific flags
-	repo:                components.NewStringFlag(repo, "Skills repository key in Artifactory.", components.SetMandatoryFalse()),
-	version:             components.NewStringFlag(version, "Skill version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
-	installPath:         components.NewStringFlag(installPath, "Base directory for a direct install or update: files go under <path>/<slug>. Mutually exclusive with --agent, --project-dir, and --global.", components.SetMandatoryFalse()),
-	skillsForce:         components.NewBoolFlag(skillsForce, "Re-download and reinstall even if the skill is already at the target version.", components.WithBoolDefaultValueFalse()),
-	signingKey:          components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
-	keyAlias:            components.NewStringFlag(keyAlias, "Alias for the signing key. Overrides EVD_KEY_ALIAS env var.", components.SetMandatoryFalse()),
-	skillsQuiet:         components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
-	skillsFormat:        components.NewStringFlag(Format, "Output format: \"table\" (default) or \"json\".", components.SetMandatoryFalse()),
-	propSearch:          components.NewBoolFlag(propSearch, "Use Artifactory property search (skill.name) instead of Skills API search.", components.WithBoolDefaultValueFalse()),
-	skipScan:            components.NewBoolFlag(skipScan, "Skip Xray security scan after publish. Can also be set via JFROG_CLI_SKIP_SKILLS_SCAN=true.", components.WithBoolDefaultValueFalse()),
-	autoDeleteOnFailure: components.NewBoolFlag(autoDeleteOnFailure, "Automatically delete the artifact if Xray scan identifies it as malicious.", components.WithBoolDefaultValueFalse()),
-	agent:               components.NewStringFlag(agent, "Comma-separated AI agent names for install or update; a single name for list. Resolved from ~/.jfrog/agents/agent-config.json first, then built-in fallbacks (claude-code, cursor, github-copilot, windsurf, codex, agents).", components.SetMandatoryFalse()),
-	projectDir:          components.NewStringFlag(projectDir, "Project root directory combined with each agent's project path from config. Default: current directory when --global is not set. Mutually exclusive with --global.", components.SetMandatoryFalse()),
-	skillsGlobal:        components.NewBoolFlag(global, "Install, update, or list under each agent's global directory from config instead of under the project root. Mutually exclusive with --project-dir.", components.WithBoolDefaultValueFalse()),
-	skillsLimit:         components.NewStringFlag(limit, "Maximum number of skills to return. Fetches all by default.", components.SetMandatoryFalse()),
-	skillsSortBy:        components.NewStringFlag(sortBy, "Field to sort by. With --repo: updated (default), downloads. With --agent: name (default, only option).", components.SetMandatoryFalse()),
-	skillsSortOrder:     components.NewStringFlag(sortOrder, "Sort order for --agent. Supported: asc (default), desc. Not supported with --repo.", components.SetMandatoryFalse()),
-	skillsCheckUpdates:  components.NewBoolFlag(checkUpdates, "With --agent only: compare installed skills to the registry (requires jf config server). Adds registry latest and status columns. Not supported with --repo.", components.WithBoolDefaultValueFalse()),
+	repo:                 components.NewStringFlag(repo, "Skills repository key in Artifactory.", components.SetMandatoryFalse()),
+	version:              components.NewStringFlag(version, "Skill version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
+	aiPluginsRepoFlag:    components.NewStringFlag(repo, "Agent plugins repository key in Artifactory (package type agentplugins). Overrides JFROG_AGENT_PLUGINS_REPO.", components.SetMandatoryFalse()),
+	aiPluginsVersionFlag: components.NewStringFlag(version, "Plugin version (semver, e.g. 1.2.0). Overrides consensus from plugin.json; default 1.0.0 when omitted.", components.SetMandatoryFalse()),
+	installPath:          components.NewStringFlag(installPath, "Base directory for a direct install or update: files go under <path>/<slug>. Mutually exclusive with --agent, --project-dir, and --global.", components.SetMandatoryFalse()),
+	skillsForce:          components.NewBoolFlag(skillsForce, "Re-download and reinstall even if the skill is already at the target version.", components.WithBoolDefaultValueFalse()),
+	signingKey:           components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
+	keyAlias:             components.NewStringFlag(keyAlias, "Alias for the signing key. Overrides EVD_KEY_ALIAS env var.", components.SetMandatoryFalse()),
+	skillsQuiet:          components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
+	skillsFormat:         components.NewStringFlag(Format, "Output format: \"table\" (default) or \"json\".", components.SetMandatoryFalse()),
+	propSearch:           components.NewBoolFlag(propSearch, "Use Artifactory property search (skill.name) instead of Skills API search.", components.WithBoolDefaultValueFalse()),
+	skipScan:             components.NewBoolFlag(skipScan, "Skip Xray security scan after publish. Can also be set via JFROG_CLI_SKIP_SKILLS_SCAN=true.", components.WithBoolDefaultValueFalse()),
+	autoDeleteOnFailure:  components.NewBoolFlag(autoDeleteOnFailure, "Automatically delete the artifact if Xray scan identifies it as malicious.", components.WithBoolDefaultValueFalse()),
+	agent:                components.NewStringFlag(agent, "Comma-separated AI agent names for install or update; a single name for list. Resolved from ~/.jfrog/agents/agent-config.json first, then built-in fallbacks (claude-code, cursor, github-copilot, windsurf, codex, agents).", components.SetMandatoryFalse()),
+	projectDir:           components.NewStringFlag(projectDir, "Project root directory combined with each agent's project path from config. Default: current directory when --global is not set. Mutually exclusive with --global.", components.SetMandatoryFalse()),
+	skillsGlobal:         components.NewBoolFlag(global, "Install, update, or list under each agent's global directory from config instead of under the project root. Mutually exclusive with --project-dir.", components.WithBoolDefaultValueFalse()),
+	skillsLimit:          components.NewStringFlag(limit, "Maximum number of skills to return. Fetches all by default.", components.SetMandatoryFalse()),
+	skillsSortBy:         components.NewStringFlag(sortBy, "Field to sort by. With --repo: updated (default), downloads. With --agent: name (default, only option).", components.SetMandatoryFalse()),
+	skillsSortOrder:      components.NewStringFlag(sortOrder, "Sort order for --agent. Supported: asc (default), desc. Not supported with --repo.", components.SetMandatoryFalse()),
+	skillsCheckUpdates:   components.NewBoolFlag(checkUpdates, "With --agent only: compare installed skills to the registry (requires jf config server). Adds registry latest and status columns. Not supported with --repo.", components.WithBoolDefaultValueFalse()),
 }
 
 func GetCommandFlags(cmdKey string) []components.Flag {
