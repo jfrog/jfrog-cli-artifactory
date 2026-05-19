@@ -21,7 +21,7 @@ func getPublishCommand() components.Command {
 	return components.Command{
 		Name:        "publish",
 		Flags:       flagkit.GetCommandFlags(flagkit.AiPluginsPublish),
-		Description: "Publish an AI agent plugin to Artifactory. Discovers plugin.json under the given directory (root and known agent subdirs), validates that all manifests agree on name and version, and uploads a zip to a local repository of package type 'agentplugins'. Version precedence: --version flag, then consensus from manifests, then default 1.0.0.",
+		Description: "Publish an AI agent plugin to Artifactory. Discovers plugin.json under the given directory (root and known agent subdirs), validates that all manifests agree on name and version, and uploads a zip to a repository of package type 'agentplugins'. Version precedence: --version flag, then consensus from manifests, then default 1.0.0.",
 		Arguments:   getPublishArguments(),
 		Action:      publish.RunPublish,
 	}
