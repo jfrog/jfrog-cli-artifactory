@@ -514,6 +514,10 @@ const (
 	// AI agent plugin commands keys
 	AiPluginsPublish = "ai-plugins-publish"
 
+	// Flag-map keys for AiPluginsPublish (CLI names remain repo/version).
+	aiPluginsRepoFlag    = "ai-plugins-repo"
+	aiPluginsVersionFlag = "ai-plugins-version"
+
 	// Skills-specific flags
 	version             = "version"
 	installPath         = "path"
@@ -878,7 +882,7 @@ var commandFlags = map[string][]string{
 		BuildName, BuildNumber, module,
 	},
 	AiPluginsPublish: {
-		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, skillsQuiet,
+		url, user, password, accessToken, serverId, aiPluginsRepoFlag, aiPluginsVersionFlag, signingKey, keyAlias, skillsQuiet,
 		BuildName, BuildNumber, module,
 	},
 	SkillsInstall: {

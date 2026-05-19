@@ -296,12 +296,11 @@ func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex, subjectRepoPa
 }
 
 // RunPublish is the CLI action for `jf ai plugins publish <path>`.
-// The first positional arg is the subcommand name ("publish"); the second is the plugin directory.
 func RunPublish(c *components.Context) error {
-	if c.GetNumberOfArgs() < 2 {
+	if c.GetNumberOfArgs() < 1 {
 		return fmt.Errorf("usage: jf ai plugins publish <path-to-plugin-folder> [--repo <repo>] [options]")
 	}
-	pluginDir := c.GetArgumentAt(1)
+	pluginDir := c.GetArgumentAt(0)
 	absDir, err := filepath.Abs(pluginDir)
 	if err != nil {
 		return fmt.Errorf("invalid plugin path: %w", err)
