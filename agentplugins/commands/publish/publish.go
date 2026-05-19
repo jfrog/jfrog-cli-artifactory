@@ -295,24 +295,13 @@ func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex, subjectRepoPa
 	log.Info("Evidence successfully attached.")
 }
 
-// RunPublish is the standalone CLI action for `jf ai-plugins publish <path>`.
-// It expects the first positional arg to be the plugin directory.
+// RunPublish is the CLI action for `jf ai plugins publish <path>`.
+// The first positional arg is the subcommand name ("publish"); the second is the plugin directory.
 func RunPublish(c *components.Context) error {
-	return runPublishAt(c, 0, "jf ai-plugins publish <path-to-plugin-folder> [--repo <repo>] [options]")
-}
-
-// RunPublishFromDispatcher is the CLI action when `jf ai plugins publish <path>` is
-// invoked via the ai-namespace dispatcher. The first arg is the subcommand name
-// ("publish") and the second arg is the plugin directory.
-func RunPublishFromDispatcher(c *components.Context) error {
-	return runPublishAt(c, 1, "jf ai plugins publish <path-to-plugin-folder> [--repo <repo>] [options]")
-}
-
-func runPublishAt(c *components.Context, pathArgIndex int, usage string) error {
-	if c.GetNumberOfArgs() <= pathArgIndex {
-		return fmt.Errorf("usage: %s", usage)
+	if c.GetNumberOfArgs() < 2 {
+		return fmt.Errorf("usage: jf ai plugins publish <path-to-plugin-folder> [--repo <repo>] [options]")
 	}
-	pluginDir := c.GetArgumentAt(pathArgIndex)
+	pluginDir := c.GetArgumentAt(1)
 	absDir, err := filepath.Abs(pluginDir)
 	if err != nil {
 		return fmt.Errorf("invalid plugin path: %w", err)

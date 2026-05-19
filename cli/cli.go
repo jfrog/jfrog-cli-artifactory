@@ -48,13 +48,6 @@ func GetJfrogCliArtifactoryApp() components.App {
 		Commands:    agentpluginsCLI.GetAiCommands(),
 		Category:    "Command Namespaces",
 	})
-	app.Subcommands = append(app.Subcommands, components.Namespace{
-		Name:        "ai-plugins",
-		Description: "AI agent plugins (flat form of 'jf ai plugins').",
-		Hidden:      true,
-		Commands:    agentpluginsCLI.GetAgentPluginsCommands(),
-		Category:    "Command Namespaces",
-	})
 	app.Commands = append(app.Commands, lifecycle.GetCommands()...)
 
 	return app

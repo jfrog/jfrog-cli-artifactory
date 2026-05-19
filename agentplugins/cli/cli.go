@@ -31,24 +31,6 @@ func GetAiCommands() []components.Command {
 	}
 }
 
-// GetAgentPluginsCommands returns the commands exposed under the `jf ai-plugins`
-// namespace (the framework-flat equivalent of `jf ai plugins`).
-func GetAgentPluginsCommands() []components.Command {
-	return []components.Command{
-		{
-			Name:        "publish",
-			Flags:       flagkit.GetCommandFlags(flagkit.AiPluginsPublish),
-			Description: "Publish an AI agent plugin to Artifactory. Discovers plugin.json under the given directory (root and known agent subdirs), validates that all manifests agree on name and version, and uploads a zip to a local repository of package type 'agentplugins'.",
-			Arguments:   getPublishArguments(),
-			Action:      publish.RunPublish,
-		},
-	}
-}
-
-func getPublishArguments() []components.Argument {
-	return []components.Argument{pluginPathArgument}
-}
-
 func getPluginsArguments() []components.Argument {
 	return []components.Argument{
 		{Name: "subcommand", Description: "Subcommand to run. Supported: 'publish'."},
@@ -64,7 +46,7 @@ func runPluginsDispatcher(c *components.Context) error {
 	}
 	switch sub := c.GetArgumentAt(0); sub {
 	case "publish":
-		return publish.RunPublishFromDispatcher(c)
+		return publish.RunPublish(c)
 	default:
 		return fmt.Errorf("unknown 'jf ai plugins' subcommand %q. Supported: publish", sub)
 	}
