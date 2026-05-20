@@ -10,12 +10,15 @@ import (
 // the Artifactory instance lacks the Enterprise+ license required for evidence.
 const EvidenceLicenseErrFragment = "Enterprise+"
 
+// logLevelSilent disables all JfrogLogger output (below the minimum log level).
+const logLevelSilent = -1
+
 // WithSuppressedLogs temporarily mutes all log output while fn executes,
 // then restores the previous log level.
 func WithSuppressedLogs(fn func() error) error {
 	if jfLogger, ok := log.GetLogger().(*log.JfrogLogger); ok {
 		prev := jfLogger.GetLogLevel()
-		jfLogger.SetLogLevel(-1)
+		jfLogger.SetLogLevel(logLevelSilent)
 		defer jfLogger.SetLogLevel(prev)
 	}
 	return fn()

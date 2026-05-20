@@ -63,6 +63,11 @@ func ZipPublishBundle(opts ZipPublishOptions) (zipPath, sha256Hex string, err er
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create temp dir: %w", err)
 	}
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(tmpDir)
+		}
+	}()
 
 	zipPath = filepath.Clean(filepath.Join(tmpDir, fmt.Sprintf("%s-%s.zip", opts.Slug, opts.Version)))
 	zipFile, err := os.Create(zipPath)
@@ -181,9 +186,6 @@ func ShouldExcludePublishPath(relPath string, info os.FileInfo) bool {
 	}
 	if strings.HasSuffix(name, ".pyc") {
 		return true
-	}
-	if relPath == "." {
-		return false
 	}
 	return false
 }

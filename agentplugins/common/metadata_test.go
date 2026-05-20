@@ -164,6 +164,105 @@ func TestValidateSlug(t *testing.T) {
 	}
 }
 
+func TestUpdatePluginManifestVersions_BeforePublishOrder(t *testing.T) {
+	dir := t.TempDir()
+	writePluginJSON(t, dir, "plugin.json", map[string]string{"name": "demo", "version": "1.0.0"})
+
+	meta, err := ValidateAndResolvePluginMeta(dir, "1.0.2")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if meta.ManifestVersion != "1.0.0" || meta.Version != "1.0.2" {
+		t.Fatalf("unexpected meta %+v", meta)
+	}
+	if meta.ManifestVersion == meta.Version {
+		t.Fatal("expected manifest and resolved versions to differ for --version override")
+	}
+
+	if err := UpdatePluginManifestVersions(dir, "1.0.2"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "plugin.json"))
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var doc map[string]string
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if doc["version"] != "1.0.2" {
+		t.Fatalf("version on disk = %q, want 1.0.2 before zip/publish", doc["version"])
+	}
+}
+
+func TestWritePluginManifestVersion_CompactJSON(t *testing.T) {
+	dir := t.TempDir()
+	writePluginJSON(t, dir, "plugin.json", map[string]string{"name": "demo", "version": "1.0.0"})
+
+	if err := writePluginManifestVersion(filepath.Join(dir, "plugin.json"), "1.0.2"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "plugin.json"))
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !strings.Contains(string(data), `"version":"1.0.2"`) && !strings.Contains(string(data), `"version": "1.0.2"`) {
+		t.Fatalf("expected updated version in compact json, got %s", string(data))
+	}
+}
+
+func TestWritePluginManifestVersion_PreservesFormatting(t *testing.T) {
+	raw := `{
+  "author": "Uday Kumar",
+  "name": "autoagent2",
+  "version": "1.0.0"
+}`
+	want := `{
+  "author": "Uday Kumar",
+  "name": "autoagent2",
+  "version": "1.0.2"
+}`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "plugin.json")
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := writePluginManifestVersion(path, "1.0.2"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != want {
+		t.Fatalf("formatting changed.\nwant:\n%s\ngot:\n%s", want, string(got))
+	}
+}
+
+func TestUpdatePluginManifestVersions_SkipsWhenNoManifestVersion(t *testing.T) {
+	dir := t.TempDir()
+	writePluginJSON(t, dir, "plugin.json", map[string]string{"name": "demo"})
+
+	meta, err := ValidateAndResolvePluginMeta(dir, "2.0.0")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if meta.ManifestVersion != "" {
+		t.Fatalf("ManifestVersion = %q, want empty", meta.ManifestVersion)
+	}
+
+	if err := UpdatePluginManifestVersions(dir, "2.0.0"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "plugin.json"))
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if strings.Contains(string(data), `"version"`) {
+		t.Fatalf("expected no version field inserted, got %s", string(data))
+	}
+}
+
 func TestValidateVersion(t *testing.T) {
 	good := []string{"1.0.0", "1.2.3-rc1", "0.1.0+build.1"}
 	for _, v := range good {

@@ -17,4 +17,6 @@ func TestGetAiCommandsPluginsHasPublishSubcommand(t *testing.T) {
 	assert.NotNil(t, commands[0].Subcommands[0].Action)
 	require.Len(t, commands[0].Subcommands[0].Arguments, 1)
 	assert.Equal(t, "path", commands[0].Subcommands[0].Arguments[0].Name)
+	assert.Contains(t, commands[0].Subcommands[0].Description, "{repo}/{plugin-slug}/{version}/")
+	assert.Contains(t, commands[0].Subcommands[0].Description, "evidence attachment fails")
 }

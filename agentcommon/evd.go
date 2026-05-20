@@ -21,9 +21,10 @@ type CreateEvidenceOpts struct {
 
 // CreateEvidence attaches a signed publish-attestation to an artifact using jfrog-cli-evidence programmatically.
 func CreateEvidence(serverDetails *config.ServerDetails, opts CreateEvidenceOpts) error {
-	ensureServiceUrls(serverDetails)
+	sd := *serverDetails
+	ensureServiceUrls(&sd)
 	cmd := create.NewCreateEvidenceCustom(
-		serverDetails,
+		&sd,
 		opts.PredicatePath,
 		opts.PredicateType,
 		opts.MarkdownPath,
@@ -38,7 +39,7 @@ func CreateEvidence(serverDetails *config.ServerDetails, opts CreateEvidenceOpts
 }
 
 // ensureServiceUrls derives the platform URL from ArtifactoryUrl and populates
-// service-specific URLs that the evidence library requires.
+// service-specific URLs that the evidence library requires. It mutates sd in place.
 func ensureServiceUrls(sd *config.ServerDetails) {
 	if sd.Url != "" {
 		platformBase := clientutils.AddTrailingSlashIfNeeded(sd.Url)

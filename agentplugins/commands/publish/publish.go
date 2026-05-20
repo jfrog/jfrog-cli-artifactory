@@ -100,6 +100,14 @@ func (pc *PublishCommand) Run() error {
 		return err
 	}
 
+	// Update plugin.json on disk before zipping, matching jf skills publish + SKILL.md order.
+	if meta.ManifestVersion != "" && meta.ManifestVersion != version {
+		if err := plugincommon.UpdatePluginManifestVersions(pc.pluginDir, version); err != nil {
+			return fmt.Errorf("failed to update plugin.json version: %w", err)
+		}
+		log.Info(fmt.Sprintf("Updated plugin.json version from '%s' to '%s'", meta.ManifestVersion, version))
+	}
+
 	log.Info(fmt.Sprintf("Publishing plugin '%s' version '%s'", slug, version))
 
 	zipPath, sha256Hex, prebuilt, err := pc.resolveZip(slug, version)
@@ -159,12 +167,13 @@ func (pc *PublishCommand) Run() error {
 func (pc *PublishCommand) resolveVersionCollision(slug, version string) (string, error) {
 	exists, err := agentcommon.PackageVersionExists(pc.serverDetails, pc.repoKey, slug, version)
 	if err != nil {
-		// In CI/quiet mode, refuse to proceed on an inconclusive check so we don't
-		// silently overwrite. Interactive callers get a debug log and continue.
 		if pc.quiet {
 			return "", fmt.Errorf("could not verify whether version %s of plugin '%s' already exists: %w", version, slug, err)
 		}
-		log.Debug("Could not check version existence:", err.Error())
+		log.Warn(fmt.Sprintf(
+			"Could not verify whether version %s of plugin '%s' already exists (%v); continuing publish.",
+			version, slug, err,
+		))
 		return version, nil
 	}
 	if !exists {
@@ -176,14 +185,17 @@ func (pc *PublishCommand) resolveVersionCollision(slug, version string) (string,
 	}
 
 	log.Warn(fmt.Sprintf("Version %s of plugin '%s' already exists in repository '%s'.", version, slug, pc.repoKey))
-	fmt.Println("Choose an action:")
-	fmt.Println("  [o] Overwrite the existing version")
-	fmt.Println("  [n] Enter a new version")
-	fmt.Println("  [a] Abort")
-	fmt.Print("Your choice (o/n/a): ")
+	log.Info("Choose an action:")
+	log.Info("  [o] Overwrite the existing version")
+	log.Info("  [n] Enter a new version")
+	log.Info("  [a] Abort")
+	log.Info("Your choice (o/n/a): ")
 
 	reader := bufio.NewReader(os.Stdin)
-	input, _ := reader.ReadString('\n')
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return "", fmt.Errorf("read user input: %w", err)
+	}
 	choice := strings.TrimSpace(strings.ToLower(input))
 
 	switch choice {
@@ -191,8 +203,11 @@ func (pc *PublishCommand) resolveVersionCollision(slug, version string) (string,
 		log.Info(fmt.Sprintf("Overwriting version %s...", version))
 		return version, nil
 	case "n":
-		fmt.Print("Enter new version: ")
-		newInput, _ := reader.ReadString('\n')
+		log.Info("Enter new version: ")
+		newInput, err := reader.ReadString('\n')
+		if err != nil {
+			return "", fmt.Errorf("read user input: %w", err)
+		}
 		newVersion := strings.TrimSpace(newInput)
 		if newVersion == "" {
 			return "", fmt.Errorf("no version provided, aborting")
@@ -295,19 +310,27 @@ func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex, subjectRepoPa
 	log.Info("Evidence successfully attached.")
 }
 
+// validatePluginDir resolves pluginDir to an absolute path and ensures it is an existing directory.
+func validatePluginDir(pluginDir string) (string, error) {
+	absDir, err := filepath.Abs(pluginDir)
+	if err != nil {
+		return "", fmt.Errorf("invalid plugin path: %w", err)
+	}
+	info, err := os.Stat(absDir)
+	if err != nil || !info.IsDir() {
+		return "", fmt.Errorf("plugin path '%s' is not a valid directory", pluginDir)
+	}
+	return absDir, nil
+}
+
 // RunPublish is the CLI action for `jf ai plugins publish <path>`.
 func RunPublish(c *components.Context) error {
 	if c.GetNumberOfArgs() < 1 {
 		return fmt.Errorf("usage: jf ai plugins publish <path-to-plugin-folder> [--repo <repo>] [options]")
 	}
-	pluginDir := c.GetArgumentAt(0)
-	absDir, err := filepath.Abs(pluginDir)
+	absDir, err := validatePluginDir(c.GetArgumentAt(0))
 	if err != nil {
-		return fmt.Errorf("invalid plugin path: %w", err)
-	}
-	info, err := os.Stat(absDir)
-	if err != nil || !info.IsDir() {
-		return fmt.Errorf("plugin path '%s' is not a valid directory", pluginDir)
+		return err
 	}
 
 	serverDetails, err := agentcommon.GetServerDetails(c)

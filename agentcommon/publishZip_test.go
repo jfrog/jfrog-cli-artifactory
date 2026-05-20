@@ -51,6 +51,44 @@ func TestZipPublishBundleSkipsExcluded(t *testing.T) {
 	}
 }
 
+func TestShouldExcludePublishPath(t *testing.T) {
+	dir := t.TempDir()
+	mustMkdir(t, dir, ".git")
+	mustMkdir(t, dir, "node_modules")
+	mustWritePublishTestFile(t, dir, "cache.pyc", "x")
+	mustWritePublishTestFile(t, dir, "src/main.go", "ok")
+
+	tests := []struct {
+		relPath string
+		want    bool
+	}{
+		{relPath: ".", want: false},
+		{relPath: ".git", want: true},
+		{relPath: "node_modules", want: true},
+		{relPath: "cache.pyc", want: true},
+		{relPath: filepath.Join("src", "main.go"), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.relPath, func(t *testing.T) {
+			info, err := os.Stat(filepath.Join(dir, tt.relPath))
+			if err != nil {
+				t.Fatalf("stat: %v", err)
+			}
+			if got := ShouldExcludePublishPath(tt.relPath, info); got != tt.want {
+				t.Fatalf("ShouldExcludePublishPath(%q) = %v, want %v", tt.relPath, got, tt.want)
+			}
+		})
+	}
+}
+
+func mustMkdir(t *testing.T, root, rel string) {
+	t.Helper()
+	full := filepath.Join(root, rel)
+	if err := os.MkdirAll(full, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+}
+
 func mustWritePublishTestFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	full := filepath.Join(root, rel)
