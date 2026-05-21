@@ -1,4 +1,4 @@
-package agentcommon
+package common
 
 import (
 	"archive/zip"
@@ -43,64 +43,92 @@ type ZipPublishOptions struct {
 
 // ZipPublishBundle builds a deterministic zip from sourceDir.
 // When HashWhileWrite is true, sha256Hex is populated during the write.
-func ZipPublishBundle(opts ZipPublishOptions) (zipPath, sha256Hex string, err error) {
-	if strings.Contains(opts.Version, "..") || strings.ContainsAny(opts.Version, "/\\") {
-		return "", "", fmt.Errorf("invalid version '%s': contains path traversal characters", opts.Version)
+// The caller must remove tmpDir (e.g. defer os.RemoveAll(tmpDir)) after the zip is consumed.
+func ZipPublishBundle(opts ZipPublishOptions) (zipPath, tmpDir, sha256Hex string, err error) {
+	if err := validatePublishVersion(opts.Version); err != nil {
+		return "", "", "", err
 	}
 
+	files, uniformMtime, err := preparePublishZipFiles(opts)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	tmpDir, err = os.MkdirTemp("", opts.TempDirPrefix)
+	if err != nil {
+		return "", "", "", fmt.Errorf("failed to create temp dir: %w", err)
+	}
+
+	zipPath = publishZipOutputPath(tmpDir, opts.Slug, opts.Version)
+	sha256Hex, err = writePublishZip(zipPath, opts.SourceDir, files, uniformMtime, opts.HashWhileWrite)
+	return zipPath, tmpDir, sha256Hex, err
+}
+
+func validatePublishVersion(version string) error {
+	return ValidateSemver(version)
+}
+
+func preparePublishZipFiles(opts ZipPublishOptions) (files []ZipFileEntry, uniformMtime time.Time, err error) {
 	files, maxMtime, err := CollectPublishFiles(opts.SourceDir)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to collect %s files: %w", opts.ContentLabel, err)
+		return nil, time.Time{}, fmt.Errorf("failed to collect %s files: %w", opts.ContentLabel, err)
 	}
 	if len(files) == 0 {
-		return "", "", fmt.Errorf("no files found in %s directory %s (all files may have been excluded)", opts.ContentLabel, opts.SourceDir)
+		return nil, time.Time{}, fmt.Errorf(
+			"no files found in %s directory %s (all files may have been excluded)",
+			opts.ContentLabel, opts.SourceDir,
+		)
 	}
 	if maxMtime.IsZero() {
 		maxMtime = zipEpoch
 	}
+	return files, maxMtime, nil
+}
 
-	tmpDir, err := os.MkdirTemp("", opts.TempDirPrefix)
+func publishZipOutputPath(tmpDir, slug, version string) string {
+	return filepath.Clean(filepath.Join(tmpDir, fmt.Sprintf("%s-%s.zip", slug, version)))
+}
+
+func writePublishZip(
+	zipPath, sourceDir string,
+	files []ZipFileEntry,
+	uniformMtime time.Time,
+	hashWhileWrite bool,
+) (sha256Hex string, err error) {
+	zipFile, err := os.Create(zipPath)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to create temp dir: %w", err)
+		return "", fmt.Errorf("failed to create zip file: %w", err)
 	}
 	defer func() {
-		if err != nil {
-			_ = os.RemoveAll(tmpDir)
+		if cerr := zipFile.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close zip file: %w", cerr)
 		}
 	}()
 
-	zipPath = filepath.Clean(filepath.Join(tmpDir, fmt.Sprintf("%s-%s.zip", opts.Slug, opts.Version)))
-	zipFile, err := os.Create(zipPath)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to create zip file: %w", err)
-	}
-	defer func() {
-		_ = zipFile.Close()
-	}()
-
-	var zipWriter *zip.Writer
-	var hasher hashWriter
-	if opts.HashWhileWrite {
-		hasher = sha256.New()
-		zipWriter = zip.NewWriter(io.MultiWriter(zipFile, hasher))
-	} else {
-		zipWriter = zip.NewWriter(zipFile)
-	}
+	zipWriter, hasher := newPublishZipWriter(zipFile, hashWhileWrite)
 	defer func() {
 		if cerr := zipWriter.Close(); cerr != nil && err == nil {
 			err = fmt.Errorf("failed to finalize zip: %w", cerr)
 		}
-		if err == nil && opts.HashWhileWrite {
+		if err == nil && hashWhileWrite {
 			sha256Hex = hex.EncodeToString(hasher.Sum(nil))
 		}
 	}()
 
 	for _, fileEntry := range files {
-		if err = addFileToZip(zipWriter, opts.SourceDir, fileEntry, maxMtime); err != nil {
-			return "", "", fmt.Errorf("failed to add %s to zip: %w", fileEntry.RelPath, err)
+		if err = addFileToZip(zipWriter, sourceDir, fileEntry, uniformMtime); err != nil {
+			return "", fmt.Errorf("failed to add %s to zip: %w", fileEntry.RelPath, err)
 		}
 	}
-	return zipPath, sha256Hex, nil
+	return sha256Hex, nil
+}
+
+func newPublishZipWriter(zipFile *os.File, hashWhileWrite bool) (*zip.Writer, hashWriter) {
+	if !hashWhileWrite {
+		return zip.NewWriter(zipFile), nil
+	}
+	hasher := sha256.New()
+	return zip.NewWriter(io.MultiWriter(zipFile, hasher)), hasher
 }
 
 type hashWriter interface {
@@ -163,7 +191,7 @@ func addFileToZip(zipWriter *zip.Writer, sourceDir string, fileEntry ZipFileEntr
 		return err
 	}
 	defer func() {
-		_ = file.Close()
+		_ = file.Close() // read-side close after copy
 	}()
 
 	_, err = io.Copy(writer, file)
@@ -172,7 +200,7 @@ func addFileToZip(zipWriter *zip.Writer, sourceDir string, fileEntry ZipFileEntr
 
 func normalizeZipFileMode(mode os.FileMode) os.FileMode {
 	if runtime.GOOS == "windows" {
-		return 0o644
+		return DefaultFileMode
 	}
 	return mode
 }
@@ -191,18 +219,19 @@ func ShouldExcludePublishPath(relPath string, info os.FileInfo) bool {
 }
 
 // ComputeSHA256 returns the hex-encoded SHA256 digest of the file at path.
+// Callers pass paths from ZipPublishBundle or PrebuiltPublishZipPath (typically absolute).
 func ComputeSHA256(path string) (string, error) {
-	if strings.Contains(path, "..") {
-		return "", fmt.Errorf("invalid path: contains traversal sequence")
-	}
 	cleanPath := filepath.Clean(path)
-	// #nosec G304 -- cleanPath is derived from a path produced inside this package.
+	if err := validateReadableFilePath(cleanPath); err != nil {
+		return "", err
+	}
+	// #nosec G304 -- cleanPath is validated and produced by this package's publish flow.
 	file, err := os.Open(cleanPath)
 	if err != nil {
 		return "", err
 	}
 	defer func() {
-		_ = file.Close()
+		_ = file.Close() // read-side close after hash
 	}()
 
 	hasher := sha256.New()
@@ -210,6 +239,18 @@ func ComputeSHA256(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+// validateReadableFilePath guards os.Open for gosec. filepath.IsLocal applies to
+// relative paths only (it rejects absolute paths). Publish zips from MkdirTemp are absolute.
+func validateReadableFilePath(path string) error {
+	if filepath.IsAbs(path) {
+		return nil
+	}
+	if filepath.IsLocal(path) {
+		return nil
+	}
+	return fmt.Errorf("invalid path %q", path)
 }
 
 // IsPrebuiltPublishZip reports whether sourceDir/zip/{slug}_{version}.zip exists.

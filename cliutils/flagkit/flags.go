@@ -516,6 +516,7 @@ const (
 
 	// AI namespace-specific flags (shared by skills and agent-plugins commands)
 	version = "version"
+	aiQuiet = "ai-" + quiet
 
 	// Skills-specific flags
 	installPath         = "path"
@@ -880,7 +881,7 @@ var commandFlags = map[string][]string{
 		BuildName, BuildNumber, module,
 	},
 	AiPluginsPublish: {
-		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, skillsQuiet,
+		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, aiQuiet,
 		BuildName, BuildNumber, module,
 	},
 	SkillsInstall: {
@@ -1202,6 +1203,7 @@ var flagsMap = map[string]components.Flag{
 	// AI namespace-specific flags (shared by skills and agent-plugins commands)
 	repo:    components.NewStringFlag(repo, "Repository key in Artifactory.", components.SetMandatoryFalse()),
 	version: components.NewStringFlag(version, "Package version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
+	aiQuiet: components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
 
 	// Skills-specific flags
 	installPath:         components.NewStringFlag(installPath, "Base directory for a direct install or update: files go under <path>/<slug>. Mutually exclusive with --agent, --project-dir, and --global.", components.SetMandatoryFalse()),

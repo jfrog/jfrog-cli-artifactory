@@ -1,4 +1,4 @@
-package agentcommon
+package common
 
 import (
 	"os"

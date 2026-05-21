@@ -1,4 +1,4 @@
-package agentcommon
+package common
 
 import (
 	"archive/zip"
@@ -15,7 +15,7 @@ func TestZipPublishBundleSkipsExcluded(t *testing.T) {
 	mustWritePublishTestFile(t, dir, "__pycache__/x.pyc", "junk")
 	mustWritePublishTestFile(t, dir, "src/main.go", "package main")
 
-	zipPath, hash, err := ZipPublishBundle(ZipPublishOptions{
+	zipPath, tmpDir, hash, err := ZipPublishBundle(ZipPublishOptions{
 		SourceDir:      dir,
 		Slug:           "demo",
 		Version:        "1.0.0",
@@ -26,7 +26,7 @@ func TestZipPublishBundleSkipsExcluded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("zip: %v", err)
 	}
-	defer func() { _ = os.Remove(zipPath) }()
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 	if hash == "" {
 		t.Fatal("expected non-empty hash")
 	}
@@ -84,18 +84,40 @@ func TestShouldExcludePublishPath(t *testing.T) {
 func mustMkdir(t *testing.T, root, rel string) {
 	t.Helper()
 	full := filepath.Join(root, rel)
-	if err := os.MkdirAll(full, 0o755); err != nil {
+	if err := os.MkdirAll(full, DefaultDirMode); err != nil {
 		t.Fatalf("mkdir: %v", err)
+	}
+}
+
+func TestComputeSHA256RejectsNonLocalRelativePath(t *testing.T) {
+	_, err := ComputeSHA256("../outside.zip")
+	if err == nil {
+		t.Fatal("expected error for traversal path")
+	}
+}
+
+func TestComputeSHA256AbsolutePath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "artifact.zip")
+	if err := os.WriteFile(path, []byte("payload"), PrivateFileMode); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	hash, err := ComputeSHA256(path)
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if hash == "" {
+		t.Fatal("expected non-empty hash")
 	}
 }
 
 func mustWritePublishTestFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	full := filepath.Join(root, rel)
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(full), DefaultDirMode); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(full, []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(full, []byte(content), PrivateFileMode); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 }

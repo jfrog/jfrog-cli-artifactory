@@ -1,4 +1,4 @@
-package agentcommon
+package common
 
 import (
 	"strings"
@@ -16,10 +16,10 @@ const logLevelSilent = -1
 // WithSuppressedLogs temporarily mutes all log output while fn executes,
 // then restores the previous log level.
 func WithSuppressedLogs(fn func() error) error {
-	if jfLogger, ok := log.GetLogger().(*log.JfrogLogger); ok {
-		prev := jfLogger.GetLogLevel()
-		jfLogger.SetLogLevel(logLevelSilent)
-		defer jfLogger.SetLogLevel(prev)
+	if jfrogLogger, isJfrogLogger := log.GetLogger().(*log.JfrogLogger); isJfrogLogger {
+		previousLogLevel := jfrogLogger.GetLogLevel()
+		jfrogLogger.SetLogLevel(logLevelSilent)
+		defer jfrogLogger.SetLogLevel(previousLogLevel)
 	}
 	return fn()
 }

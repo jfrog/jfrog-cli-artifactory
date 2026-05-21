@@ -2,6 +2,7 @@ package publish
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,8 +10,8 @@ import (
 	"time"
 
 	"github.com/jfrog/build-info-go/entities"
-	"github.com/jfrog/jfrog-cli-artifactory/agentcommon"
-	plugincommon "github.com/jfrog/jfrog-cli-artifactory/agentplugins/common"
+	"github.com/jfrog/jfrog-cli-artifactory/ai/common"
+	plugincommon "github.com/jfrog/jfrog-cli-artifactory/ai/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
@@ -18,6 +19,9 @@ import (
 	rtServicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
+
+// packageVersionExists checks whether a version folder exists in Artifactory. Tests may replace it.
+var packageVersionExists = common.PackageVersionExists
 
 type PublishCommand struct {
 	serverDetails      *config.ServerDetails
@@ -44,8 +48,8 @@ func (pc *PublishCommand) SetRepoKey(repoKey string) *PublishCommand {
 	return pc
 }
 
-func (pc *PublishCommand) SetPluginDir(dir string) *PublishCommand {
-	pc.pluginDir = dir
+func (pc *PublishCommand) SetPluginDir(pluginDir string) *PublishCommand {
+	pc.pluginDir = pluginDir
 	return pc
 }
 
@@ -97,28 +101,33 @@ func (pc *PublishCommand) Run() error {
 		return err
 	}
 
-	// Update plugin.json on disk before zipping, matching jf skills publish + SKILL.md order.
+	// Update plugin.json on disk before zipping, matching jf skills publish (SKILL.md is updated
+	// before zip there too). If a later step fails, the manifest stays at the new version; skills
+	// publish behaves the same way and does not roll back.
 	if meta.ManifestVersion != "" && meta.ManifestVersion != version {
+		log.Info(fmt.Sprintf(
+			"Updating plugin.json on disk from '%s' to '%s' before publish",
+			meta.ManifestVersion, version,
+		))
 		if err := plugincommon.UpdatePluginManifestVersions(pc.pluginDir, version); err != nil {
 			return fmt.Errorf("failed to update plugin.json version: %w", err)
 		}
-		log.Info(fmt.Sprintf("Updated plugin.json version from '%s' to '%s'", meta.ManifestVersion, version))
 	}
 
 	log.Info(fmt.Sprintf("Publishing plugin '%s' version '%s'", slug, version))
 
-	zipPath, sha256Hex, prebuilt, err := pc.resolveZip(slug, version)
+	zipPath, sha256Hex, zipTmpDir, _, err := pc.resolveZip(slug, version)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		if !prebuilt {
-			_ = os.Remove(zipPath)
+		if zipTmpDir != "" {
+			_ = os.RemoveAll(zipTmpDir) // best-effort temp cleanup after upload
 		}
 	}()
 	if sha256Hex == "" {
 		// Prebuilt zips bypass the streaming hasher; hash on disk in that case.
-		if sha256Hex, err = agentcommon.ComputeSHA256(zipPath); err != nil {
+		if sha256Hex, err = common.ComputeSHA256(zipPath); err != nil {
 			return fmt.Errorf("failed to compute SHA256: %w", err)
 		}
 	}
@@ -135,12 +144,12 @@ func (pc *PublishCommand) Run() error {
 	}
 
 	target := fmt.Sprintf("%s/%s/%s/", pc.repoKey, slug, version)
-	artifactsDetailsReader, err := agentcommon.UploadPublishArtifact(pc.serverDetails, zipPath, target, collectBuildInfo, pc.buildConfiguration)
+	artifactsDetailsReader, err := common.UploadPublishArtifact(pc.serverDetails, zipPath, target, collectBuildInfo, pc.buildConfiguration)
 	if err != nil {
 		return fmt.Errorf("upload failed: %w", err)
 	}
 	if artifactsDetailsReader != nil {
-		defer func() { _ = artifactsDetailsReader.Close() }()
+		defer func() { _ = artifactsDetailsReader.Close() }() // read-side close after build-info partials
 		buildArtifacts, err := rtServicesUtils.ConvertArtifactsDetailsToBuildInfoArtifacts(artifactsDetailsReader)
 		if err != nil {
 			return fmt.Errorf("failed to convert artifacts for build-info: %w", err)
@@ -160,33 +169,36 @@ func (pc *PublishCommand) Run() error {
 
 // resolveVersionCollision checks whether the given version already exists in Artifactory.
 // In interactive mode the user picks: overwrite, enter a new version, or abort.
-// In quiet/CI mode it fails so pipelines don't silently overwrite artifacts.
+// In quiet, CI, or other non-interactive mode it fails so pipelines don't silently overwrite artifacts.
 func (pc *PublishCommand) resolveVersionCollision(slug, version string) (string, error) {
-	exists, err := agentcommon.PackageVersionExists(pc.serverDetails, pc.repoKey, slug, version)
+	nonInteractive := pc.quiet || common.IsNonInteractive()
+
+	exists, err := packageVersionExists(pc.serverDetails, pc.repoKey, slug, version)
 	if err != nil {
-		if pc.quiet {
+		if nonInteractive {
 			return "", fmt.Errorf("could not verify whether version %s of plugin '%s' already exists: %w", version, slug, err)
 		}
-		log.Warn(fmt.Sprintf(
-			"Could not verify whether version %s of plugin '%s' already exists (%v); continuing publish.",
-			version, slug, err,
-		))
+		if errors.Is(err, common.ErrVersionExistenceUnknown) {
+			log.Warn("Could not verify whether version exists (Artifactory HTTP status unavailable; 404 detection disabled); proceeding:", err.Error())
+		} else {
+			log.Debug("Could not check version existence:", err.Error())
+		}
 		return version, nil
 	}
 	if !exists {
 		return version, nil
 	}
 
-	if pc.quiet {
+	if nonInteractive {
 		return "", fmt.Errorf("version %s of plugin '%s' already exists. Use a different version or remove the existing one", version, slug)
 	}
 
 	log.Warn(fmt.Sprintf("Version %s of plugin '%s' already exists in repository '%s'.", version, slug, pc.repoKey))
-	log.Info("Choose an action:")
-	log.Info("  [o] Overwrite the existing version")
-	log.Info("  [n] Enter a new version")
-	log.Info("  [a] Abort")
-	log.Info("Your choice (o/n/a): ")
+	fmt.Println("Choose an action:")
+	fmt.Println("  [o] Overwrite the existing version")
+	fmt.Println("  [n] Enter a new version")
+	fmt.Println("  [a] Abort")
+	fmt.Print("Your choice (o/n/a): ")
 
 	reader := bufio.NewReader(os.Stdin)
 	input, err := reader.ReadString('\n')
@@ -200,7 +212,7 @@ func (pc *PublishCommand) resolveVersionCollision(slug, version string) (string,
 		log.Info(fmt.Sprintf("Overwriting version %s...", version))
 		return version, nil
 	case "n":
-		log.Info("Enter new version: ")
+		fmt.Print("Enter new version: ")
 		newInput, err := reader.ReadString('\n')
 		if err != nil {
 			return "", fmt.Errorf("read user input: %w", err)
@@ -219,16 +231,17 @@ func (pc *PublishCommand) resolveVersionCollision(slug, version string) (string,
 }
 
 // resolveZip locates or builds the publish zip and, when it was built locally,
-// also returns its SHA256 (computed in the same pass as the write). The prebuilt
-// flag indicates whether the path is a user-managed file (must not be deleted).
-func (pc *PublishCommand) resolveZip(slug, version string) (zipPath, sha256Hex string, prebuilt bool, err error) {
-	if agentcommon.IsPrebuiltPublishZip(pc.pluginDir, slug, version) {
-		prebuiltPath := agentcommon.PrebuiltPublishZipPath(pc.pluginDir, slug, version)
+// also returns its SHA256 (computed in the same pass as the write) and the temp
+// directory holding the zip. zipTmpDir is empty for prebuilt zips; callers should
+// defer os.RemoveAll(zipTmpDir) when non-empty.
+func (pc *PublishCommand) resolveZip(slug, version string) (zipPath, sha256Hex, zipTmpDir string, prebuilt bool, err error) {
+	if common.IsPrebuiltPublishZip(pc.pluginDir, slug, version) {
+		prebuiltPath := common.PrebuiltPublishZipPath(pc.pluginDir, slug, version)
 		log.Info("Using pre-built zip:", prebuiltPath)
-		return prebuiltPath, "", true, nil
+		return prebuiltPath, "", "", true, nil
 	}
 
-	zipPath, sha256Hex, err = agentcommon.ZipPublishBundle(agentcommon.ZipPublishOptions{
+	zipPath, zipTmpDir, sha256Hex, err = common.ZipPublishBundle(common.ZipPublishOptions{
 		SourceDir:      pc.pluginDir,
 		Slug:           slug,
 		Version:        version,
@@ -236,7 +249,7 @@ func (pc *PublishCommand) resolveZip(slug, version string) (zipPath, sha256Hex s
 		ContentLabel:   "plugin",
 		HashWhileWrite: true,
 	})
-	return zipPath, sha256Hex, false, err
+	return zipPath, sha256Hex, zipTmpDir, false, err
 }
 
 func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex, subjectRepoPath string) {
@@ -260,7 +273,7 @@ func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex, subjectRepoPa
 		log.Warn("Failed to create temp dir for evidence:", err.Error())
 		return
 	}
-	defer func() { _ = os.RemoveAll(tmpDir) }()
+	defer func() { _ = os.RemoveAll(tmpDir) }() // best-effort evidence temp dir cleanup
 
 	publishedAt := time.Now()
 	predicatePath, err := GeneratePredicateFile(tmpDir, slug, version, publishedAt)
@@ -273,7 +286,7 @@ func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex, subjectRepoPa
 		log.Warn("Failed to generate attestation markdown:", err.Error())
 		return
 	}
-	opts := agentcommon.CreateEvidenceOpts{
+	opts := common.CreateEvidenceOpts{
 		SubjectRepoPath: subjectRepoPath,
 		SubjectSHA256:   sha256Hex,
 		PredicatePath:   predicatePath,
@@ -283,11 +296,11 @@ func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex, subjectRepoPa
 		KeyAlias:        alias,
 	}
 
-	err = agentcommon.WithSuppressedLogs(func() error {
-		return agentcommon.CreateEvidence(pc.serverDetails, opts)
+	err = common.WithSuppressedLogs(func() error {
+		return common.CreateEvidence(pc.serverDetails, opts)
 	})
 	if err != nil {
-		if agentcommon.IsEvidenceLicenseError(err) {
+		if common.IsEvidenceLicenseError(err) {
 			log.Info("Evidence not attached: evidence requires an Enterprise+ license. Plugin upload succeeded.")
 		} else {
 			log.Warn("Evidence creation failed (plugin upload succeeded):", err.Error())
@@ -311,24 +324,24 @@ func validatePluginDir(pluginDir string) (string, error) {
 }
 
 // RunPublish is the CLI action for `jf ai plugins publish <path>`.
-func RunPublish(c *components.Context) error {
-	if c.GetNumberOfArgs() < 1 {
+func RunPublish(commandContext *components.Context) error {
+	if commandContext.GetNumberOfArgs() < 1 {
 		return fmt.Errorf("usage: jf ai plugins publish <path-to-plugin-folder> [--repo <repo>] [options]")
 	}
-	absDir, err := validatePluginDir(c.GetArgumentAt(0))
+	absDir, err := validatePluginDir(commandContext.GetArgumentAt(0))
 	if err != nil {
 		return err
 	}
-	serverDetails, err := agentcommon.GetServerDetails(c)
+	serverDetails, err := common.GetServerDetails(commandContext)
 	if err != nil {
 		return err
 	}
-	quiet := agentcommon.IsQuiet(c)
-	repoKey, err := agentcommon.ResolveRepo(serverDetails, c.GetStringFlagValue("repo"), quiet, agentcommon.AgentPluginsRepoOptions())
+	quiet := common.IsQuiet(commandContext)
+	repoKey, err := common.ResolveRepo(serverDetails, commandContext.GetStringFlagValue("repo"), quiet, plugincommon.RepoOptions())
 	if err != nil {
 		return err
 	}
-	buildConfig, err := pluginsCommon.CreateBuildConfigurationWithModule(c)
+	buildConfig, err := pluginsCommon.CreateBuildConfigurationWithModule(commandContext)
 	if err != nil {
 		return err
 	}
@@ -336,9 +349,9 @@ func RunPublish(c *components.Context) error {
 		SetServerDetails(serverDetails).
 		SetRepoKey(repoKey).
 		SetPluginDir(absDir).
-		SetVersion(c.GetStringFlagValue("version")).
-		SetSigningKey(c.GetStringFlagValue("signing-key")).
-		SetKeyAlias(c.GetStringFlagValue("key-alias")).
+		SetVersion(commandContext.GetStringFlagValue("version")).
+		SetSigningKey(commandContext.GetStringFlagValue("signing-key")).
+		SetKeyAlias(commandContext.GetStringFlagValue("key-alias")).
 		SetQuiet(quiet).
 		SetBuildConfiguration(buildConfig)
 

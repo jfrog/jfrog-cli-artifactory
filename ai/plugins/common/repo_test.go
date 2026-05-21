@@ -1,9 +1,9 @@
-package agentcommon
+package common
 
 import "testing"
 
-func TestAgentPluginsRepoOptions(t *testing.T) {
-	opts := AgentPluginsRepoOptions()
+func TestRepoOptions(t *testing.T) {
+	opts := RepoOptions()
 	if opts.PackageType != "agentplugins" {
 		t.Fatalf("expected package type agentplugins, got %s", opts.PackageType)
 	}

@@ -1,0 +1,216 @@
+package common
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	aicommon "github.com/jfrog/jfrog-cli-artifactory/ai/common"
+)
+
+// ManifestFileName is the canonical plugin manifest filename at the plugin root.
+const ManifestFileName = "plugin.json"
+
+// ManifestVersionField is the top-level JSON key for the publish version in plugin.json.
+const ManifestVersionField = "version"
+
+// manifestJSONIndent is used when rewriting plugin.json so the file stays human-readable.
+const manifestJSONIndent = "    "
+
+// DefaultPluginVersion is used when no plugin.json declares a version and the user did
+// not pass --version.
+const DefaultPluginVersion = "1.0.0"
+
+// KnownManifestRelPaths lists the fixed relative locations checked for plugin.json,
+// in priority order. The first existing file is the canonical manifest; later paths are ignored.
+var KnownManifestRelPaths = []string{
+	ManifestFileName,
+	".cursor-plugin/" + ManifestFileName,
+	".claude-plugin/" + ManifestFileName,
+	".codex-plugin/" + ManifestFileName,
+	".github/plugin/" + ManifestFileName,
+	".plugin/" + ManifestFileName,
+}
+
+// PluginMeta is the portable subset of plugin.json used for publish.
+// When read from a single file, only Name and Version are set. After
+// ValidateAndResolvePluginMeta, Version is the final publish version and
+// ManifestVersion holds the on-disk consensus before --version.
+type PluginMeta struct {
+	Name    string `json:"name"`
+	Version string `json:"version,omitempty"`
+	// ManifestVersion is the consensus version from plugin.json files only (before --version).
+	ManifestVersion string `json:"-"`
+}
+
+// findPrimaryPluginManifest returns the first plugin.json found under pluginRoot,
+// searching KnownManifestRelPaths in order.
+func findPrimaryPluginManifest(pluginRoot string) (relativePath string, meta PluginMeta, err error) {
+	for _, relativePath := range KnownManifestRelPaths {
+		fullPath := filepath.Join(pluginRoot, relativePath)
+		info, statErr := os.Stat(fullPath)
+		if statErr != nil {
+			if errors.Is(statErr, os.ErrNotExist) {
+				continue
+			}
+			return "", PluginMeta{}, fmt.Errorf("failed to stat %s: %w", relativePath, statErr)
+		}
+		if info.IsDir() {
+			continue
+		}
+		meta, err := readPluginManifest(fullPath)
+		if err != nil {
+			return "", PluginMeta{}, fmt.Errorf("failed to parse %s: %w", relativePath, err)
+		}
+		return relativePath, meta, nil
+	}
+	return "", PluginMeta{}, fmt.Errorf(
+		"no %s found under %s (checked: %s)",
+		ManifestFileName,
+		pluginRoot,
+		strings.Join(KnownManifestRelPaths, ", "),
+	)
+}
+
+// DiscoverPluginManifests returns the canonical plugin.json for pluginRoot (at most one entry).
+func DiscoverPluginManifests(pluginRoot string) (map[string]PluginMeta, error) {
+	relativePath, meta, err := findPrimaryPluginManifest(pluginRoot)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]PluginMeta{relativePath: meta}, nil
+}
+
+func readPluginManifest(path string) (PluginMeta, error) {
+	// #nosec G304 -- path is constructed by joining a user-provided directory with a fixed allowlist.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return PluginMeta{}, err
+	}
+	var meta PluginMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return PluginMeta{}, err
+	}
+	meta.Name = strings.TrimSpace(meta.Name)
+	meta.Version = strings.TrimSpace(meta.Version)
+	return meta, nil
+}
+
+// ValidateAndResolvePluginMeta loads the first plugin.json under pluginRoot (see KnownManifestRelPaths)
+// and resolves the final publish identity using this precedence:
+//
+//  1. versionFlag (--version) overrides everything when non-empty
+//  2. version from the canonical manifest, if non-empty
+//  3. DefaultPluginVersion ("1.0.0")
+func ValidateAndResolvePluginMeta(pluginRoot, versionFlag string) (PluginMeta, error) {
+	relativePath, meta, err := findPrimaryPluginManifest(pluginRoot)
+	if err != nil {
+		return PluginMeta{}, err
+	}
+	if meta.Name == "" {
+		return PluginMeta{}, fmt.Errorf("%s is missing required 'name' field", relativePath)
+	}
+
+	manifestVersion := strings.TrimSpace(meta.Version)
+	resolvedVersion := strings.TrimSpace(versionFlag)
+	if resolvedVersion == "" {
+		resolvedVersion = manifestVersion
+	}
+	if resolvedVersion == "" {
+		resolvedVersion = DefaultPluginVersion
+	}
+
+	return PluginMeta{
+		Name:            meta.Name,
+		Version:         resolvedVersion,
+		ManifestVersion: manifestVersion,
+	}, nil
+}
+
+// UpdatePluginManifestVersions rewrites the top-level "version" string field in the canonical
+// plugin.json (first match in KnownManifestRelPaths). Manifests without a version field are unchanged.
+func UpdatePluginManifestVersions(pluginRoot, newVersion string) error {
+	relativePath, meta, err := findPrimaryPluginManifest(pluginRoot)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(meta.Version) == "" || strings.TrimSpace(meta.Version) == newVersion {
+		return nil
+	}
+	fullPath := filepath.Join(pluginRoot, relativePath)
+	if err := writePluginManifestVersion(fullPath, newVersion); err != nil {
+		return fmt.Errorf("%s: %w", relativePath, err)
+	}
+	return nil
+}
+
+func writePluginManifestVersion(path, newVersion string) error {
+	// #nosec G304 -- path is constructed from pluginRoot and KnownManifestRelPaths allowlist.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var meta PluginMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return err
+	}
+	if strings.TrimSpace(meta.Version) == "" {
+		return nil
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return err
+	}
+	if _, hasVersionField := doc[ManifestVersionField]; !hasVersionField {
+		return fmt.Errorf("%s declares version %q but has no %q field", ManifestFileName, meta.Version, ManifestVersionField)
+	}
+	versionJSON, err := json.Marshal(newVersion)
+	if err != nil {
+		return err
+	}
+	doc[ManifestVersionField] = versionJSON
+
+	updated, err := json.MarshalIndent(doc, "", manifestJSONIndent)
+	if err != nil {
+		return err
+	}
+	updated = append(updated, '\n')
+	// #nosec G306,G703 -- path is pluginRoot + KnownManifestRelPaths allowlist; user-owned manifest.
+	return os.WriteFile(path, updated, aicommon.PrivateFileMode)
+}
+
+// ValidateSlug checks that a plugin slug is safe for repository paths and Artifactory layout.
+// It must start with a lowercase letter or digit, then contain only lowercase letters, digits, or hyphens.
+//
+// Accepted examples: "my-plugin", "skill123", "a", "4chan-reader"
+// Not accepted examples: "", "-invalid", "My-Skill", "has space", "foo/bar"
+func ValidateSlug(slug string) error {
+	if slug == "" {
+		return fmt.Errorf("invalid plugin slug %q: must not be empty", slug)
+	}
+	if !isSlugStartChar(slug[0]) {
+		return fmt.Errorf("invalid plugin slug %q: must start with a lowercase letter or digit", slug)
+	}
+	for charIndex := 1; charIndex < len(slug); charIndex++ {
+		if !isSlugChar(slug[charIndex]) {
+			return fmt.Errorf("invalid plugin slug %q: may contain only lowercase letters, digits, and hyphens", slug)
+		}
+	}
+	return nil
+}
+
+func isSlugStartChar(character byte) bool {
+	return (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9')
+}
+
+func isSlugChar(character byte) bool {
+	return isSlugStartChar(character) || character == '-'
+}
+
+// ValidateVersion checks that version is a valid semantic version for publish paths and Artifactory layout.
+func ValidateVersion(version string) error {
+	return aicommon.ValidateSemver(version)
+}

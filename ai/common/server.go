@@ -1,4 +1,4 @@
-package agentcommon
+package common
 
 import (
 	"fmt"
@@ -12,12 +12,12 @@ import (
 
 // GetServerDetails returns ServerDetails from CLI flags when present, otherwise the default
 // configured server. The Artifactory URL is normalized to always end with /artifactory/.
-func GetServerDetails(c *components.Context) (*config.ServerDetails, error) {
+func GetServerDetails(commandContext *components.Context) (*config.ServerDetails, error) {
 	var details *config.ServerDetails
 	var err error
 
-	if hasServerConfigFlags(c) {
-		details, err = pluginsCommon.CreateArtifactoryDetailsByFlags(c)
+	if hasServerConfigFlags(commandContext) {
+		details, err = pluginsCommon.CreateArtifactoryDetailsByFlags(commandContext)
 	} else {
 		details, err = config.GetDefaultServerConf()
 	}
@@ -32,24 +32,25 @@ func GetServerDetails(c *components.Context) (*config.ServerDetails, error) {
 }
 
 func normalizeArtifactoryUrl(details *config.ServerDetails) {
-	if details.ArtifactoryUrl == "" {
+	artifactoryURL := details.GetArtifactoryUrl()
+	if artifactoryURL == "" {
 		return
 	}
-	artUrl := clientutils.AddTrailingSlashIfNeeded(details.ArtifactoryUrl)
-	if !strings.Contains(artUrl, "/artifactory/") {
-		artUrl += "artifactory/"
+	artifactoryURL = clientutils.AddTrailingSlashIfNeeded(artifactoryURL)
+	if !strings.Contains(artifactoryURL, "/artifactory/") {
+		artifactoryURL += "artifactory/"
 	}
-	details.ArtifactoryUrl = artUrl
+	details.ArtifactoryUrl = artifactoryURL
 
-	if details.Url == "" {
-		details.Url = strings.TrimSuffix(artUrl, "artifactory/")
+	if details.GetUrl() == "" {
+		details.Url = strings.TrimSuffix(artifactoryURL, "artifactory/")
 	}
 }
 
-func hasServerConfigFlags(c *components.Context) bool {
-	return c.IsFlagSet("url") ||
-		c.IsFlagSet("user") ||
-		c.IsFlagSet("access-token") ||
-		c.IsFlagSet("server-id") ||
-		(c.IsFlagSet("password") && (c.IsFlagSet("url") || c.IsFlagSet("server-id")))
+func hasServerConfigFlags(commandContext *components.Context) bool {
+	return commandContext.IsFlagSet("url") ||
+		commandContext.IsFlagSet("user") ||
+		commandContext.IsFlagSet("access-token") ||
+		commandContext.IsFlagSet("server-id") ||
+		(commandContext.IsFlagSet("password") && (commandContext.IsFlagSet("url") || commandContext.IsFlagSet("server-id")))
 }

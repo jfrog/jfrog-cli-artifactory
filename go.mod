@@ -10,7 +10,7 @@ require (
 	github.com/jedib0t/go-pretty/v6 v6.7.10
 	github.com/jfrog/build-info-go v1.13.1-0.20260520130109-bde5000c5601
 	github.com/jfrog/gofrog v1.7.6
-	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260520130103-75be6a23c54b
+	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260521060700-68cc859377cf
 	github.com/jfrog/jfrog-cli-evidence v0.9.0
 	github.com/jfrog/jfrog-client-go v1.55.1-0.20260508101905-a17af78a38d7
 	github.com/pkg/errors v0.9.1
