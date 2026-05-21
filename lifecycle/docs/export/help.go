@@ -8,6 +8,30 @@ func GetDescription() string {
 	return "Triggers the Export process and downloads the Release Bundle archive"
 }
 
+func GetAIDescription() string {
+	return `Trigger export of a Release Bundle v2 and download the resulting archive to the local filesystem. Supports path remapping during export.
+
+When to use:
+- Producing an offline copy of a bundle for airgapped distribution.
+- Backing up a bundle outside the JFrog platform.
+
+Prerequisites:
+- A configured platform server with read on the bundle.
+- Writable local target path (defaults to current directory).
+
+Common patterns:
+  $ jf release-bundle-export my-bundle 1.0.0 ./bundles/
+  $ jf release-bundle-export my-bundle 1.0.0 --project=my-proj
+  $ jf release-bundle-export my-bundle 1.0.0 ./out/ --mapping-pattern="(.*)/staging/(.*)" --mapping-target="$1/release/$2"
+
+Gotchas:
+- Trailing slash on target = directory; no slash = rename target file.
+- Export is server-side; large bundles can take minutes. Use --threads and --split-count to tune local download.
+- --skip-checksum=true disables local integrity verification.
+
+Related: jf release-bundle-import, jf release-bundle-distribute, jf rt download`
+}
+
 func GetArguments() []components.Argument {
 	return []components.Argument{
 		{Name: "release bundle name", Description: "Name of the Release Bundle to export."},

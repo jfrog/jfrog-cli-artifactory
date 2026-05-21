@@ -11,6 +11,31 @@ func GetDescription() string {
 	return "Adds dependencies from the local file-system to the build info."
 }
 
+func GetAIDescription() string {
+	return `Attach files as build-info "dependencies" so the published build can record what inputs went into it. By default reads from the local filesystem; with --from-rt the pattern is evaluated against Artifactory.
+
+When to use:
+- Recording the version of a third-party binary checked into the workspace as a build input.
+- Collecting checksums of inputs that did not flow through a package manager.
+- Snapshotting Artifactory paths as inputs via --from-rt.
+
+Prerequisites:
+- A build name and number that will later be passed to jf rt build-publish.
+- With --from-rt, a configured server with read permission on the source repo.
+
+Common patterns:
+  $ jf rt build-add-dependencies my-build 42 "deps/*.tgz"
+  $ jf rt build-add-dependencies my-build 42 "vendor/lib.so" --regexp
+  $ jf rt build-add-dependencies my-build 42 "tools-repo/cli/*" --from-rt
+
+Gotchas:
+- --regexp is not supported with --from-rt; mixing them errors out.
+- Local mode does not upload anything; it only records checksums in the in-progress build-info.
+- Files are recorded with build-info-relative paths; renaming sources between this command and build-publish breaks tooling.
+
+Related: jf rt build-publish, jf rt build-add-git, jf rt build-collect-env, jf rt upload`
+}
+
 func GetArguments() []components.Argument {
 	return []components.Argument{
 		{
