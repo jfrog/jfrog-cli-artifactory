@@ -3,9 +3,8 @@ package agentcommon
 import (
 	"strings"
 
-	"github.com/jfrog/jfrog-cli-evidence/evidence/create"
-
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-evidence/evidence/create"
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 )
 

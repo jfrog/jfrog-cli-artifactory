@@ -27,7 +27,6 @@ func GetServerDetails(c *components.Context) (*config.ServerDetails, error) {
 	if details.ArtifactoryUrl == "" && details.Url == "" {
 		return nil, fmt.Errorf("no Artifactory URL configured")
 	}
-
 	normalizeArtifactoryUrl(details)
 	return details, nil
 }

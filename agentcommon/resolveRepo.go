@@ -33,7 +33,6 @@ func ResolveRepo(serverDetails *config.ServerDetails, flagValue string, quiet bo
 			return envRepo, nil
 		}
 	}
-
 	if serverDetails == nil {
 		return "", fmt.Errorf("server details are required to discover %s repositories; specify --repo or set %s", opts.Label, opts.EnvVar)
 	}

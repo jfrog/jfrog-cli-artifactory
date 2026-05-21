@@ -16,7 +16,6 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	rtServicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
-	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -86,12 +85,10 @@ func (pc *PublishCommand) Run() error {
 	if err != nil {
 		return err
 	}
-
 	slug := meta.Name
 	if err := plugincommon.ValidateSlug(slug); err != nil {
 		return err
 	}
-
 	version, err := pc.resolveVersionCollision(slug, meta.Version)
 	if err != nil {
 		return err
@@ -138,7 +135,7 @@ func (pc *PublishCommand) Run() error {
 	}
 
 	target := fmt.Sprintf("%s/%s/%s/", pc.repoKey, slug, version)
-	artifactsDetailsReader, err := pc.upload(zipPath, target, collectBuildInfo)
+	artifactsDetailsReader, err := agentcommon.UploadPublishArtifact(pc.serverDetails, zipPath, target, collectBuildInfo, pc.buildConfiguration)
 	if err != nil {
 		return fmt.Errorf("upload failed: %w", err)
 	}
@@ -242,10 +239,6 @@ func (pc *PublishCommand) resolveZip(slug, version string) (zipPath, sha256Hex s
 	return zipPath, sha256Hex, false, err
 }
 
-func (pc *PublishCommand) upload(zipPath, target string, collectBuildInfo bool) (*content.ContentReader, error) {
-	return agentcommon.UploadPublishArtifact(pc.serverDetails, zipPath, target, collectBuildInfo, pc.buildConfiguration)
-}
-
 func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex, subjectRepoPath string) {
 	keyPath := pc.signingKey
 	if keyPath == "" {
@@ -254,17 +247,14 @@ func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex, subjectRepoPa
 	if keyPath == "" {
 		keyPath = os.Getenv("JFROG_CLI_SIGNING_KEY")
 	}
-
 	alias := pc.keyAlias
 	if alias == "" {
 		alias = os.Getenv("EVD_KEY_ALIAS")
 	}
-
 	if keyPath == "" {
 		log.Info("No signing key configured. Provide --signing-key flag or set EVD_SIGNING_KEY_PATH env var. Skipping evidence creation.")
 		return
 	}
-
 	tmpDir, err := os.MkdirTemp("", "agent-plugin-evidence-*")
 	if err != nil {
 		log.Warn("Failed to create temp dir for evidence:", err.Error())
@@ -278,13 +268,11 @@ func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex, subjectRepoPa
 		log.Warn("Failed to generate predicate:", err.Error())
 		return
 	}
-
 	markdownPath, err := GenerateMarkdownFile(tmpDir, slug, version, publishedAt)
 	if err != nil {
 		log.Warn("Failed to generate attestation markdown:", err.Error())
 		return
 	}
-
 	opts := agentcommon.CreateEvidenceOpts{
 		SubjectRepoPath: subjectRepoPath,
 		SubjectSHA256:   sha256Hex,
@@ -306,7 +294,6 @@ func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex, subjectRepoPa
 		}
 		return
 	}
-
 	log.Info("Evidence successfully attached.")
 }
 
@@ -332,23 +319,19 @@ func RunPublish(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-
 	serverDetails, err := agentcommon.GetServerDetails(c)
 	if err != nil {
 		return err
 	}
-
 	quiet := agentcommon.IsQuiet(c)
 	repoKey, err := agentcommon.ResolveRepo(serverDetails, c.GetStringFlagValue("repo"), quiet, agentcommon.AgentPluginsRepoOptions())
 	if err != nil {
 		return err
 	}
-
 	buildConfig, err := pluginsCommon.CreateBuildConfigurationWithModule(c)
 	if err != nil {
 		return err
 	}
-
 	cmd := NewPublishCommand().
 		SetServerDetails(serverDetails).
 		SetRepoKey(repoKey).
