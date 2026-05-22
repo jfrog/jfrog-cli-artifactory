@@ -1,6 +1,7 @@
 package cli
 
 import (
+	aiCLI "github.com/jfrog/jfrog-cli-artifactory/ai/cli"
 	artifactoryCLI "github.com/jfrog/jfrog-cli-artifactory/artifactory/cli"
 	distributionCLI "github.com/jfrog/jfrog-cli-artifactory/distribution/cli"
 	ideCLI "github.com/jfrog/jfrog-cli-artifactory/ide/cli"
@@ -39,6 +40,12 @@ func GetJfrogCliArtifactoryApp() components.App {
 		Description: "Skills commands.",
 		Hidden:      true,
 		Commands:    skillsCLI.GetCommands(),
+		Category:    "Command Namespaces",
+	})
+	app.Subcommands = append(app.Subcommands, components.Namespace{
+		Name:        "ai",
+		Description: "AI commands.",
+		Commands:    aiCLI.GetAiCommands(),
 		Category:    "Command Namespaces",
 	})
 	app.Commands = append(app.Commands, lifecycle.GetCommands()...)
