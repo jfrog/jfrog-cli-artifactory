@@ -7,20 +7,20 @@ import (
 	"strings"
 	"testing"
 
-	aicommon "github.com/jfrog/jfrog-cli-artifactory/ai/common"
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 )
 
 func writePluginJSON(t *testing.T, root, rel string, meta map[string]string) {
 	t.Helper()
 	fullPath := filepath.Join(root, rel)
-	if err := os.MkdirAll(filepath.Dir(fullPath), aicommon.DefaultDirMode); err != nil {
+	if err := os.MkdirAll(filepath.Dir(fullPath), agentcommon.DefaultDirMode); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	data, err := json.Marshal(meta)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if err := os.WriteFile(fullPath, data, aicommon.PrivateFileMode); err != nil {
+	if err := os.WriteFile(fullPath, data, agentcommon.PrivateFileMode); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 }
@@ -200,7 +200,7 @@ func TestWritePluginManifestVersion_ReplacesOnlyFirstVersionField(t *testing.T) 
 }`
 	dir := t.TempDir()
 	path := filepath.Join(dir, "plugin.json")
-	if err := os.WriteFile(path, []byte(raw), aicommon.PrivateFileMode); err != nil {
+	if err := os.WriteFile(path, []byte(raw), agentcommon.PrivateFileMode); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	if err := writePluginManifestVersion(path, "1.0.2"); err != nil {

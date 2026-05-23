@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/jfrog/jfrog-cli-artifactory/ai/common"
+	"github.com/jfrog/jfrog-cli-artifactory/agent/common"
 )
 
 const (

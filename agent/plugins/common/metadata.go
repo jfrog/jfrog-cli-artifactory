@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	aicommon "github.com/jfrog/jfrog-cli-artifactory/ai/common"
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 )
 
 // ManifestFileName is the canonical plugin manifest filename at the plugin root.
@@ -179,7 +179,7 @@ func writePluginManifestVersion(path, newVersion string) error {
 	}
 	updated = append(updated, '\n')
 	// #nosec G306,G703 -- path is pluginRoot + KnownManifestRelPaths allowlist; user-owned manifest.
-	return os.WriteFile(path, updated, aicommon.PrivateFileMode)
+	return os.WriteFile(path, updated, agentcommon.PrivateFileMode)
 }
 
 // ValidateSlug checks that a plugin slug is safe for repository paths and Artifactory layout.
@@ -212,5 +212,5 @@ func isSlugChar(character byte) bool {
 
 // ValidateVersion checks that version is a valid semantic version for publish paths and Artifactory layout.
 func ValidateVersion(version string) error {
-	return aicommon.ValidateSemver(version)
+	return agentcommon.ValidateSemver(version)
 }

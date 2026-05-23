@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/jfrog/build-info-go/entities"
-	"github.com/jfrog/jfrog-cli-artifactory/ai/common"
-	plugincommon "github.com/jfrog/jfrog-cli-artifactory/ai/plugins/common"
+	"github.com/jfrog/jfrog-cli-artifactory/agent/common"
+	plugincommon "github.com/jfrog/jfrog-cli-artifactory/agent/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
@@ -82,7 +82,7 @@ func (pc *PublishCommand) ServerDetails() (*config.ServerDetails, error) {
 	return pc.serverDetails, nil
 }
 
-func (pc *PublishCommand) CommandName() string { return "ai_plugins_publish" }
+func (pc *PublishCommand) CommandName() string { return "agent_plugins_publish" }
 
 func (pc *PublishCommand) Run() error {
 	meta, err := plugincommon.ValidateAndResolvePluginMeta(pc.pluginDir, pc.version)
@@ -323,10 +323,10 @@ func validatePluginDir(pluginDir string) (string, error) {
 	return absDir, nil
 }
 
-// RunPublish is the CLI action for `jf ai plugins publish <path>`.
+// RunPublish is the CLI action for `jf agent plugins publish <path>`.
 func RunPublish(commandContext *components.Context) error {
 	if commandContext.GetNumberOfArgs() < 1 {
-		return fmt.Errorf("usage: jf ai plugins publish <path-to-plugin-folder> [--repo <repo>] [options]")
+		return fmt.Errorf("usage: jf agent plugins publish <path-to-plugin-folder> [--repo <repo>] [options]")
 	}
 	absDir, err := validatePluginDir(commandContext.GetArgumentAt(0))
 	if err != nil {
