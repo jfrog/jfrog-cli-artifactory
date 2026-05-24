@@ -34,3 +34,9 @@ func envBool(key string) bool {
 	value, err := strconv.ParseBool(os.Getenv(key))
 	return err == nil && value
 }
+
+// ShouldFailOnMissingEvidence returns true when quiet/non-interactive mode should fail
+// when evidence verification fails. The named env var, when truthy, opts out (proceed without evidence).
+func ShouldFailOnMissingEvidence(disableEnvVar string) bool {
+	return !envBool(disableEnvVar)
+}

@@ -513,10 +513,14 @@ const (
 
 	// Agent plugin commands keys
 	AgentPluginsPublish = "agent-plugins-publish"
+	AgentPluginsInstall = "agent-plugins-install"
 
 	// Agent namespace-specific flags (shared by skills and agent-plugins commands)
-	version    = "version"
-	agentQuiet = "agent-" + quiet
+	version          = "version"
+	agentQuiet       = "agent-" + quiet
+	agentInstallPath = "agent-" + installPath
+	agentGlobal      = "agent-global"
+	agentFormat      = "agent-" + Format
 
 	// Skills-specific flags
 	installPath         = "path"
@@ -884,6 +888,9 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, agentQuiet,
 		BuildName, BuildNumber, module,
 	},
+	AgentPluginsInstall: {
+		url, user, password, accessToken, serverId, repo, version, agent, projectDir, agentGlobal, agentInstallPath, agentFormat, agentQuiet,
+	},
 	SkillsInstall: {
 		url, user, password, accessToken, serverId, repo, version, agent, projectDir, skillsGlobal, installPath, skillsFormat, skillsQuiet,
 	},
@@ -1203,7 +1210,10 @@ var flagsMap = map[string]components.Flag{
 	// Agent namespace-specific flags (shared by skills and agent-plugins commands)
 	repo:       components.NewStringFlag(repo, "Repository key in Artifactory.", components.SetMandatoryFalse()),
 	version:    components.NewStringFlag(version, "Package version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
-	agentQuiet: components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
+	agentQuiet:       components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
+	agentInstallPath: components.NewStringFlag(installPath, "Base directory for a direct plugin install: files go under <path>/<slug>. Mutually exclusive with --agent, --project-dir, and --global.", components.SetMandatoryFalse()),
+	agentGlobal:      components.NewBoolFlag(global, "Install under each agent's global plugins directory from config instead of under the project root. Mutually exclusive with --project-dir.", components.WithBoolDefaultValueFalse()),
+	agentFormat:      components.NewStringFlag(Format, "Output format: \"table\" (default) or \"json\".", components.SetMandatoryFalse()),
 
 	// Skills-specific flags
 	installPath:         components.NewStringFlag(installPath, "Base directory for a direct install or update: files go under <path>/<slug>. Mutually exclusive with --agent, --project-dir, and --global.", components.SetMandatoryFalse()),

@@ -14,9 +14,11 @@ func TestGetCommands_HasPluginsNamespace(t *testing.T) {
 	plugins := commands[0]
 	assert.Equal(t, "plugins", plugins.Name)
 	assert.Nil(t, plugins.Action)
-	require.Len(t, plugins.Subcommands, 1)
+	require.Len(t, plugins.Subcommands, 2)
 	assert.Equal(t, "publish", plugins.Subcommands[0].Name)
 	assert.NotNil(t, plugins.Subcommands[0].Action)
+	assert.Equal(t, "install", plugins.Subcommands[1].Name)
+	assert.NotNil(t, plugins.Subcommands[1].Action)
 }
 
 func TestGetCommands_PluginsPublishDescription(t *testing.T) {

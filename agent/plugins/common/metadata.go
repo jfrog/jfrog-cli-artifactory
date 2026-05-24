@@ -47,9 +47,10 @@ type PluginMeta struct {
 }
 
 // findPrimaryPluginManifest returns the first plugin.json found under pluginRoot,
-// searching KnownManifestRelPaths in order.
+// searching the merged list returned by ResolveManifestSearchPaths in order.
 func findPrimaryPluginManifest(pluginRoot string) (relativePath string, meta PluginMeta, err error) {
-	for _, relativePath := range KnownManifestRelPaths {
+	searchPaths := ResolveManifestSearchPaths()
+	for _, relativePath := range searchPaths {
 		fullPath := filepath.Join(pluginRoot, relativePath)
 		info, statErr := os.Stat(fullPath)
 		if statErr != nil {
@@ -71,7 +72,7 @@ func findPrimaryPluginManifest(pluginRoot string) (relativePath string, meta Plu
 		"no %s found under %s (checked: %s)",
 		ManifestFileName,
 		pluginRoot,
-		strings.Join(KnownManifestRelPaths, ", "),
+		strings.Join(searchPaths, ", "),
 	)
 }
 

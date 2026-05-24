@@ -1,0 +1,90 @@
+package common
+
+import (
+	"archive/zip"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestUnzipFile(t *testing.T) {
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+
+	zipPath := filepath.Join(srcDir, "test.zip")
+	createTestZip(t, zipPath, map[string]string{
+		"plugin.json":     `{"name":"x"}`,
+		"main.py":         "print('hi')",
+		"utils/helper.py": "pass",
+	})
+
+	require.NoError(t, UnzipFile(zipPath, destDir))
+
+	data, err := os.ReadFile(filepath.Join(destDir, "plugin.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"name":"x"`)
+
+	data, err = os.ReadFile(filepath.Join(destDir, "main.py"))
+	require.NoError(t, err)
+	assert.Equal(t, "print('hi')", string(data))
+
+	data, err = os.ReadFile(filepath.Join(destDir, "utils", "helper.py"))
+	require.NoError(t, err)
+	assert.Equal(t, "pass", string(data))
+}
+
+func TestCopyDir(t *testing.T) {
+	srcDir := t.TempDir()
+	dstDir := filepath.Join(t.TempDir(), "dest")
+
+	require.NoError(t, os.WriteFile(filepath.Join(srcDir, "file1.txt"), []byte("content1"), 0644))
+	subDir := filepath.Join(srcDir, "sub")
+	require.NoError(t, os.MkdirAll(subDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(subDir, "file2.txt"), []byte("content2"), 0644))
+
+	require.NoError(t, CopyDir(srcDir, dstDir))
+
+	data, err := os.ReadFile(filepath.Join(dstDir, "file1.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "content1", string(data))
+
+	data, err = os.ReadFile(filepath.Join(dstDir, "sub", "file2.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "content2", string(data))
+}
+
+func TestEnsureDestinationDir_CreatesNestedPath(t *testing.T) {
+	root := t.TempDir()
+	dest := filepath.Join(root, "a", "b", "c")
+	require.NoError(t, EnsureDestinationDir(dest))
+	info, err := os.Stat(dest)
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
+}
+
+func TestEnsureDestinationDir_RejectsFile(t *testing.T) {
+	parent := t.TempDir()
+	dest := filepath.Join(parent, "blocker")
+	require.NoError(t, os.WriteFile(dest, []byte("hi"), 0o644))
+	err := EnsureDestinationDir(dest)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not a directory")
+}
+
+func createTestZip(t *testing.T, zipPath string, files map[string]string) {
+	t.Helper()
+	f, err := os.Create(zipPath)
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+	w := zip.NewWriter(f)
+	defer func() { _ = w.Close() }()
+	for name, content := range files {
+		fw, err := w.Create(name)
+		require.NoError(t, err)
+		_, err = fw.Write([]byte(content))
+		require.NoError(t, err)
+	}
+}
