@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jfrog/jfrog-cli-artifactory/ai/common"
+	"github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/stretchr/testify/assert"
@@ -28,7 +28,7 @@ func newPublishTestContext(args ...string) *components.Context {
 func TestRunPublish_MissingPathArgument(t *testing.T) {
 	err := RunPublish(newPublishTestContext())
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "usage: jf ai plugins publish")
+	assert.Contains(t, err.Error(), "usage: jf agent plugins publish")
 }
 
 func TestValidatePluginDir(t *testing.T) {

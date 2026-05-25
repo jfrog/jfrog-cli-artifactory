@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGetAiCommands_HasPluginsNamespace(t *testing.T) {
-	commands := GetAiCommands()
+func TestGetCommands_HasPluginsNamespace(t *testing.T) {
+	commands := GetCommands()
 	require.Len(t, commands, 1)
 
 	plugins := commands[0]
@@ -19,9 +19,9 @@ func TestGetAiCommands_HasPluginsNamespace(t *testing.T) {
 	assert.NotNil(t, plugins.Subcommands[0].Action)
 }
 
-func TestGetAiCommands_PluginsPublishDescription(t *testing.T) {
-	commands := GetAiCommands()
+func TestGetCommands_PluginsPublishDescription(t *testing.T) {
+	commands := GetCommands()
 	publish := commands[0].Subcommands[0]
-	assert.Contains(t, publish.Description, "Publish an AI agent plugin to Artifactory")
+	assert.Contains(t, publish.Description, "Publish an agent plugin to Artifactory")
 	assert.Contains(t, publish.Description, "Signs and attaches evidence")
 }

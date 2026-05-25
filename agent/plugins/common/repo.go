@@ -1,13 +1,13 @@
 package common
 
 import (
-	aicommon "github.com/jfrog/jfrog-cli-artifactory/ai/common"
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 )
 
 // Constants for the agent plugins package type.
 const (
 	// PackageType is the Artifactory package type string used when filtering or
-	// describing repositories that host AI agent plugins.
+	// describing repositories that host agent plugins.
 	PackageType = "agentplugins"
 
 	// RepoEnvVar names the environment variable consulted to select the agent plugins
@@ -19,8 +19,8 @@ const (
 )
 
 // RepoOptions returns the canonical ResolveRepoOptions for agent plugins.
-func RepoOptions() aicommon.ResolveRepoOptions {
-	return aicommon.ResolveRepoOptions{
+func RepoOptions() agentcommon.ResolveRepoOptions {
+	return agentcommon.ResolveRepoOptions{
 		PackageType: PackageType,
 		EnvVar:      RepoEnvVar,
 		Label:       RepoLabel,

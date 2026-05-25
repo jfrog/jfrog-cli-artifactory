@@ -511,12 +511,12 @@ const (
 	SkillsDelete  = "skills-delete"
 	SkillsList    = "skills-list"
 
-	// AI agent plugin commands keys
-	AiPluginsPublish = "ai-plugins-publish"
+	// Agent plugin commands keys
+	AgentPluginsPublish = "agent-plugins-publish"
 
-	// AI namespace-specific flags (shared by skills and agent-plugins commands)
-	version = "version"
-	aiQuiet = "ai-" + quiet
+	// Agent namespace-specific flags (shared by skills and agent-plugins commands)
+	version    = "version"
+	agentQuiet = "agent-" + quiet
 
 	// Skills-specific flags
 	installPath         = "path"
@@ -880,8 +880,8 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, skillsQuiet, skipScan, autoDeleteOnFailure,
 		BuildName, BuildNumber, module,
 	},
-	AiPluginsPublish: {
-		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, aiQuiet,
+	AgentPluginsPublish: {
+		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, agentQuiet,
 		BuildName, BuildNumber, module,
 	},
 	SkillsInstall: {
@@ -1200,10 +1200,10 @@ var flagsMap = map[string]components.Flag{
 	Draft:                    components.NewBoolFlag(Draft, "Set to true to create the release bundle as a draft. A draft release bundle can be updated and finalized later.", components.WithBoolDefaultValueFalse()),
 	AddSources:               components.NewBoolFlag(AddSources, "Add sources to an existing draft release bundle.", components.WithBoolDefaultValueFalse()),
 
-	// AI namespace-specific flags (shared by skills and agent-plugins commands)
-	repo:    components.NewStringFlag(repo, "Repository key in Artifactory.", components.SetMandatoryFalse()),
-	version: components.NewStringFlag(version, "Package version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
-	aiQuiet: components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
+	// Agent namespace-specific flags (shared by skills and agent-plugins commands)
+	repo:       components.NewStringFlag(repo, "Repository key in Artifactory.", components.SetMandatoryFalse()),
+	version:    components.NewStringFlag(version, "Package version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
+	agentQuiet: components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
 
 	// Skills-specific flags
 	installPath:         components.NewStringFlag(installPath, "Base directory for a direct install or update: files go under <path>/<slug>. Mutually exclusive with --agent, --project-dir, and --global.", components.SetMandatoryFalse()),
