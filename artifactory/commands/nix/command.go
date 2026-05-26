@@ -3,9 +3,9 @@ package nix
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -40,6 +40,26 @@ type NixCommand struct {
 	servicesManager    artifactory.ArtifactoryServicesManager
 }
 
+// Nix store + binary-cache layout used across this file.
+const (
+	// nixStorePathPrefix is the on-disk root for every store path produced by
+	// Nix (`/nix/store/<hash>-<name>-<version>`). Hard-coded by Nix itself.
+	nixStorePathPrefix = "/nix/store/"
+	// nixResultSymlink / nixResultName are the conventional build-output
+	// symlinks produced by `nix-build` (channels) and `nix build` (flakes).
+	nixResultSymlink = "./result"
+	nixResultName    = "result"
+	// binaryCacheDirPrefix is the directory under an Artifactory Nix repo
+	// where each store-path's artifacts (`*.nar.xz`, `*.narinfo`) live.
+	binaryCacheDirPrefix = "binary-cache/"
+)
+
+// Artifact types reported in BuildInfo for files uploaded by `nix copy`.
+const (
+	artifactTypeNarXz   = "xz"
+	artifactTypeNarinfo = "narinfo"
+)
+
 func NewNixCommand() *NixCommand {
 	return &NixCommand{}
 }
@@ -54,8 +74,8 @@ func (c *NixCommand) SetArgs(args []string) *NixCommand {
 	return c
 }
 
-func (c *NixCommand) SetServerDetails(details *config.ServerDetails) *NixCommand {
-	c.serverDetails = details
+func (c *NixCommand) SetServerDetails(serverDetails *config.ServerDetails) *NixCommand {
+	c.serverDetails = serverDetails
 	return c
 }
 
@@ -110,14 +130,23 @@ func (c *NixCommand) Run() error {
 	}
 }
 
-// runNixChannel executes "nix-channel" with all args. No build-info.
-func (c *NixCommand) runNixChannel() error {
-	log.Info("Running nix-channel")
-	cmd := exec.Command("nix-channel", c.args...)
+// runCommand spawns `name args...` with stdout/stderr piped to the user's
+// terminal and the Nix-aware environment (netrc). Used by every sub-command
+// that doesn't need to capture stdout itself. nix-build is the one exception
+// because it reads store paths off stdout — it builds its own *exec.Cmd
+// directly.
+func (c *NixCommand) runCommand(name string, args []string) error {
+	cmd := exec.Command(name, args...)
 	cmd.Env = c.buildEnv()
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	return cmd.Run()
+}
+
+// runNixChannel executes "nix-channel" with all args. No build-info.
+func (c *NixCommand) runNixChannel() error {
+	log.Info("Running nix-channel")
+	if err := c.runCommand("nix-channel", c.args); err != nil {
 		return fmt.Errorf("nix-channel failed: %w", err)
 	}
 	return nil
@@ -126,11 +155,7 @@ func (c *NixCommand) runNixChannel() error {
 // runNixEnv executes "nix-env" with args, then collects build-info from runtime closure.
 func (c *NixCommand) runNixEnv() error {
 	log.Info("Running nix-env")
-	cmd := exec.Command("nix-env", c.args...)
-	cmd.Env = c.buildEnv()
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := c.runCommand("nix-env", c.args); err != nil {
 		return fmt.Errorf("nix-env failed: %w", err)
 	}
 
@@ -170,11 +195,7 @@ func (c *NixCommand) runNixBuild() error {
 // "nix build" creates a ./result symlink pointing to the output store path.
 func (c *NixCommand) runNixFlakeBuild() error {
 	log.Info("Running nix build")
-	cmd := exec.Command("nix", append([]string{"build"}, c.args...)...)
-	cmd.Env = c.buildEnv()
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := c.runCommand("nix", append([]string{"build"}, c.args...)); err != nil {
 		return fmt.Errorf("nix build failed: %w", err)
 	}
 
@@ -182,7 +203,7 @@ func (c *NixCommand) runNixFlakeBuild() error {
 	var storePaths []string
 	matches, _ := filepath.Glob(filepath.Join(c.workingDir, "result*"))
 	for _, m := range matches {
-		if target, err := os.Readlink(m); err == nil && strings.HasPrefix(target, "/nix/store/") {
+		if target, err := os.Readlink(m); err == nil && strings.HasPrefix(target, nixStorePathPrefix) {
 			storePaths = append(storePaths, target)
 			log.Info(fmt.Sprintf("Built: %s → %s", filepath.Base(m), target))
 		}
@@ -218,11 +239,7 @@ func (c *NixCommand) runNixCopy() error {
 	}
 
 	log.Info("Running nix copy")
-	cmd := exec.Command("nix", append([]string{"copy"}, c.args...)...)
-	cmd.Env = c.buildEnv()
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := c.runCommand("nix", append([]string{"copy"}, c.args...)); err != nil {
 		return fmt.Errorf("nix copy failed: %w", err)
 	}
 
@@ -236,11 +253,7 @@ func (c *NixCommand) runNixCopy() error {
 // runPassthrough executes "nix <nativeTool>" for any unrecognized command.
 func (c *NixCommand) runPassthrough() error {
 	log.Info(fmt.Sprintf("Running nix %s", c.nativeTool))
-	cmd := exec.Command("nix", append([]string{c.nativeTool}, c.args...)...)
-	cmd.Env = c.buildEnv()
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := c.runCommand("nix", append([]string{c.nativeTool}, c.args...)); err != nil {
 		return fmt.Errorf("nix %s failed: %w", c.nativeTool, err)
 	}
 	return nil
@@ -315,21 +328,43 @@ func (c *NixCommand) collectBuildInfoFromStorePaths(storePaths []string) error {
 		}
 
 		if searchRepo != "" {
-			resolved := 0
-			for i, dep := range buildInfo.Modules[0].Dependencies {
+			// Build the per-dep dir map once so we can query Artifactory in
+			// ONE shot instead of two AQL calls per dependency.
+			depDir := make(map[string]string, len(buildInfo.Modules[0].Dependencies))
+			seen := make(map[string]bool, len(buildInfo.Modules[0].Dependencies))
+			dirPaths := make([]string, 0, len(buildInfo.Modules[0].Dependencies))
+			for _, dep := range buildInfo.Modules[0].Dependencies {
 				storePath, ok := deps[dep.Id]
 				if !ok {
 					continue
 				}
-				storeHash := nixpkg.ExtractStoreHash(storePath)
-				dirPath := "binary-cache/" + storeHash
-				narXzName, narXzPath := c.findNarFile(searchRepo, dirPath)
-				if narXzName != "" {
-					artChecksum := c.getArtifactChecksums(searchRepo, narXzPath)
-					if artChecksum.Sha1 != "" || artChecksum.Sha256 != "" {
-						buildInfo.Modules[0].Dependencies[i].Checksum = artChecksum
-						resolved++
-					}
+				dir := binaryCacheDirPrefix + nixpkg.ExtractStoreHash(storePath)
+				depDir[dep.Id] = dir
+				if !seen[dir] {
+					seen[dir] = true
+					dirPaths = append(dirPaths, dir)
+				}
+			}
+
+			narXzFiles, err := c.searchClosureArtifacts(searchRepo, dirPaths, "*.nar.xz")
+			if err != nil {
+				log.Warn("Could not enrich dependency checksums from Artifactory: " + err.Error())
+			}
+			narXzByDir := firstByDir(narXzFiles)
+
+			resolved := 0
+			for i, dep := range buildInfo.Modules[0].Dependencies {
+				dir, ok := depDir[dep.Id]
+				if !ok {
+					continue
+				}
+				f, ok := narXzByDir[dir]
+				if !ok {
+					continue
+				}
+				if f.Checksum.Sha1 != "" || f.Checksum.Sha256 != "" {
+					buildInfo.Modules[0].Dependencies[i].Checksum = f.Checksum
+					resolved++
 				}
 			}
 			if resolved > 0 {
@@ -380,8 +415,8 @@ func collectRuntimeClosure(rootPaths []string) (deps map[string]string, depGraph
 	}
 
 	rootIDs := make(map[string]bool, len(rootPaths))
-	for _, sp := range rootPaths {
-		rootIDs[nixpkg.StorePathToDepID(sp)] = true
+	for _, storePath := range rootPaths {
+		rootIDs[nixpkg.StorePathToDepID(storePath)] = true
 	}
 
 	depGraph = make(map[string][]string)
@@ -487,36 +522,68 @@ func (c *NixCommand) tagUploadedArtifacts() error {
 	closurePaths := strings.Fields(strings.TrimSpace(string(output)))
 	log.Info(fmt.Sprintf("Found %d store path(s) in closure", len(closurePaths)))
 
+	// Pre-compute every binary-cache directory for the closure. Each store
+	// path produces exactly one `binary-cache/<hash>` directory; the rest of
+	// this function reads files out of those directories in three batched
+	// queries (SetProps, *.nar.xz, *.narinfo) instead of the previous
+	// four-queries-per-store-path loop.
+	dirPaths := make([]string, 0, len(closurePaths))
+	for _, storePath := range closurePaths {
+		dirPaths = append(dirPaths, binaryCacheDirPrefix+nixpkg.ExtractStoreHash(storePath))
+	}
+
+	// 1. ONE SetProps for every file in every closure directory.
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	props := fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp)
+	if err := c.setBuildPropertiesBatch(c.repo, dirPaths, "*", props); err != nil {
+		log.Warn("Failed to set build properties on uploaded artifacts: " + err.Error())
+	}
+
+	// 2. ONE AQL for every *.nar.xz in the closure, indexed by dir.
+	narXzFiles, err := c.searchClosureArtifacts(c.repo, dirPaths, "*.nar.xz")
+	if err != nil {
+		log.Warn("Failed to enumerate .nar.xz artifacts: " + err.Error())
+	}
+	narXzByDir := firstByDir(narXzFiles)
+
+	// 3. ONE AQL for every *.narinfo in the closure, indexed by dir.
+	narinfoFiles, err := c.searchClosureArtifacts(c.repo, dirPaths, "*.narinfo")
+	if err != nil {
+		log.Warn("Failed to enumerate .narinfo artifacts: " + err.Error())
+	}
+	narinfoByDir := firstByDir(narinfoFiles)
+
+	// Assemble artifacts in closure order so the BuildInfo output is stable.
+	// Behavior preserved from the previous per-path loop:
+	//   - nar.xz: appended ONLY when a matching file was found in Artifactory.
+	//   - narinfo: appended for EVERY closure dir (the previous code also did
+	//     this unconditionally — getArtifactChecksums silently returned an
+	//     empty Checksum when the file was missing, but the artifact entry
+	//     was still recorded with its computed name+path).
 	var artifacts []entities.Artifact
+	for _, storePath := range closurePaths {
+		storeHash := nixpkg.ExtractStoreHash(storePath)
+		dirPath := binaryCacheDirPrefix + storeHash
 
-	for _, sp := range closurePaths {
-		storeHash := nixpkg.ExtractStoreHash(sp)
-		dirPath := "binary-cache/" + storeHash
-
-		// Set build properties on ALL files in this directory
-		c.setBuildPropertiesInDir(c.repo, dirPath, "*", buildName, buildNumber, timestamp)
-
-		// Find the NAR file and get checksums
-		narFileName, narFilePath := c.findNarFile(c.repo, dirPath)
-		if narFileName != "" {
-			narChecksum := c.getArtifactChecksums(c.repo, narFilePath)
+		if f, ok := narXzByDir[dirPath]; ok {
 			artifacts = append(artifacts, entities.Artifact{
-				Name:                   narFileName,
-				Type:                   "xz",
-				Path:                   narFilePath,
+				Name:                   f.Name,
+				Type:                   artifactTypeNarXz,
+				Path:                   f.Path,
 				OriginalDeploymentRepo: c.repo,
-				Checksum:               narChecksum,
+				Checksum:               f.Checksum,
 			})
 		}
 
-		// narinfo artifact
 		narinfoName := storeHash + ".narinfo"
 		narinfoPath := dirPath + "/" + narinfoName
-		narinfoChecksum := c.getArtifactChecksums(c.repo, narinfoPath)
+		narinfoChecksum := entities.Checksum{}
+		if f, ok := narinfoByDir[dirPath]; ok {
+			narinfoChecksum = f.Checksum
+		}
 		artifacts = append(artifacts, entities.Artifact{
 			Name:                   narinfoName,
-			Type:                   "narinfo",
+			Type:                   artifactTypeNarinfo,
 			Path:                   narinfoPath,
 			OriginalDeploymentRepo: c.repo,
 			Checksum:               narinfoChecksum,
@@ -552,10 +619,10 @@ func (c *NixCommand) tagUploadedArtifacts() error {
 // findStorePathFromArgs finds a store path or ./result from the command args.
 func (c *NixCommand) findStorePathFromArgs() string {
 	for _, arg := range c.args {
-		if strings.HasPrefix(arg, "/nix/store/") {
+		if strings.HasPrefix(arg, nixStorePathPrefix) {
 			return arg
 		}
-		if arg == "./result" || arg == "result" {
+		if arg == nixResultSymlink || arg == nixResultName {
 			resolved, err := os.Readlink(arg)
 			if err == nil {
 				return resolved
@@ -566,7 +633,7 @@ func (c *NixCommand) findStorePathFromArgs() string {
 			resolved, err := filepath.Abs(arg)
 			if err == nil {
 				link, err := os.Readlink(resolved)
-				if err == nil && strings.HasPrefix(link, "/nix/store/") {
+				if err == nil && strings.HasPrefix(link, nixStorePathPrefix) {
 					return link
 				}
 			}
@@ -672,13 +739,20 @@ func (c *NixCommand) createNetrcFile() error {
 		return fmt.Errorf("no credentials configured (need user+password or user+access-token)")
 	}
 
+	// Use net/url so we never have to slice the URL string by hand
+	// (the previous host[idx+3:] / host[:idx] pair worked, but slipping a
+	// scheme-less or malformed URL through manual indexing is exactly the
+	// class of bug to avoid). url.Parse handles ports, IPv6 brackets, and
+	// userinfo correctly; falling back to the raw string is a no-op when
+	// the URL is already just a bare host.
 	host := c.serverDetails.ArtifactoryUrl
-	if idx := strings.Index(host, "://"); idx != -1 {
-		host = host[idx+3:]
-	}
-	host = strings.TrimSuffix(host, "/")
-	if idx := strings.Index(host, "/"); idx != -1 {
-		host = host[:idx]
+	if parsed, err := url.Parse(host); err == nil && parsed.Host != "" {
+		host = parsed.Host
+	} else {
+		host = strings.TrimSuffix(host, "/")
+		if slash := strings.Index(host, "/"); slash != -1 {
+			host = host[:slash]
+		}
 	}
 
 	netrcContent := fmt.Sprintf("machine %s\nlogin %s\npassword %s\n", host, user, password)
@@ -708,86 +782,106 @@ func (c *NixCommand) buildEnv() []string {
 	return env
 }
 
-// setBuildPropertiesInDir sets build properties on all files in a directory.
-func (c *NixCommand) setBuildPropertiesInDir(repo, dirPath, namePattern, buildName, buildNumber, timestamp string) {
-	if c.servicesManager == nil {
-		return
+// aqlFile is a flattened view of one AQL ResultItem.
+type aqlFile struct {
+	Name     string // file name (no directory)
+	Dir      string // directory portion of the path within the repo (item.Path)
+	Path     string // full path within the repo: Dir + "/" + Name (or just Name when Dir is ".")
+	Checksum entities.Checksum
+}
+
+// buildClosureAql composes ONE AQL query that selects every file in `repo`
+// whose `path` matches any of `dirPaths` and whose `name` matches `namePattern`.
+// Duplicate dirPaths are removed so the resulting $or clause stays compact.
+// Pre-condition: dirPaths is non-empty (callers check). The query shape mirrors
+// the original per-dir search exactly (`{"path": "<dir>", "name": {"$match": "<pat>"}}`),
+// just OR'd together so one round trip covers the whole closure.
+func buildClosureAql(repo string, dirPaths []string, namePattern string) string {
+	seen := make(map[string]bool, len(dirPaths))
+	clauses := make([]string, 0, len(dirPaths))
+	for _, dir := range dirPaths {
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		clauses = append(clauses,
+			fmt.Sprintf(`{"$and":[{"path":"%s"},{"name":{"$match":"%s"}}]}`, dir, namePattern))
+	}
+	return fmt.Sprintf(`{"repo":"%s","$or":[%s]}`, repo, strings.Join(clauses, ","))
+}
+
+// searchClosureArtifacts runs ONE AQL search across every (dirPath, namePattern)
+// in `dirPaths` and returns the matching items. Replaces N per-directory
+// findNarFile/getArtifactChecksums calls with a single network round trip.
+// Returns nil when there are no dirs to query or no service manager configured.
+func (c *NixCommand) searchClosureArtifacts(repo string, dirPaths []string, namePattern string) ([]aqlFile, error) {
+	if c.servicesManager == nil || repo == "" || len(dirPaths) == 0 {
+		return nil, nil
 	}
 
-	props := fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp)
-	searchQuery := fmt.Sprintf(`{"repo": "%s", "$or": [{"$and":[{"path": "%s","name": {"$match": "%s"}}]}]}`, repo, dirPath, namePattern)
-	searchParams := services.SearchParams{
-		CommonParams: &specutils.CommonParams{
-			Aql: specutils.Aql{ItemsFind: searchQuery},
-		},
-	}
-	reader, err := c.servicesManager.SearchFiles(searchParams)
+	searchQuery := buildClosureAql(repo, dirPaths, namePattern)
+	reader, err := c.servicesManager.SearchFiles(services.SearchParams{
+		CommonParams: &specutils.CommonParams{Aql: specutils.Aql{ItemsFind: searchQuery}},
+	})
 	if err != nil {
-		log.Warn(fmt.Sprintf("Failed to search files in %s/%s: %s", repo, dirPath, err.Error()))
-		return
+		return nil, fmt.Errorf("AQL search in %s: %w", repo, err)
 	}
+	defer func() { _ = reader.Close() }()
+
+	var items []aqlFile
+	for item := new(specutils.ResultItem); reader.NextRecord(item) == nil; item = new(specutils.ResultItem) {
+		pathInRepo := item.Name
+		if item.Path != "." {
+			pathInRepo = item.Path + "/" + item.Name
+		}
+		items = append(items, aqlFile{
+			Name: item.Name,
+			Dir:  item.Path,
+			Path: pathInRepo,
+			Checksum: entities.Checksum{
+				Sha1:   item.Actual_Sha1,
+				Sha256: item.Sha256,
+				Md5:    item.Actual_Md5,
+			},
+		})
+	}
+	return items, nil
+}
+
+// setBuildPropertiesBatch applies `props` to every file matching
+// (repo, dirPaths, namePattern) in a single SearchFiles + SetProps round trip,
+// replacing N per-directory SetProps calls.
+func (c *NixCommand) setBuildPropertiesBatch(repo string, dirPaths []string, namePattern, props string) error {
+	if c.servicesManager == nil || repo == "" || len(dirPaths) == 0 {
+		return nil
+	}
+
+	searchQuery := buildClosureAql(repo, dirPaths, namePattern)
+	reader, err := c.servicesManager.SearchFiles(services.SearchParams{
+		CommonParams: &specutils.CommonParams{Aql: specutils.Aql{ItemsFind: searchQuery}},
+	})
+	if err != nil {
+		return fmt.Errorf("AQL search for properties in %s: %w", repo, err)
+	}
+	defer func() { _ = reader.Close() }()
+
 	if _, err := c.servicesManager.SetProps(services.PropsParams{Reader: reader, Props: props}); err != nil {
-		log.Warn(fmt.Sprintf("Failed to set build properties on %s/%s: %s", repo, dirPath, err.Error()))
+		return fmt.Errorf("set props in %s: %w", repo, err)
 	}
+	return nil
 }
 
-// findNarFile searches for the .nar.xz file in a binary-cache directory.
-func (c *NixCommand) findNarFile(repo, dirPath string) (string, string) {
-	if c.servicesManager == nil {
-		return "", ""
-	}
-
-	searchQuery := fmt.Sprintf(`{"repo": "%s", "$or": [{"$and":[{"path": "%s","name": {"$match": "*.nar.xz"}}]}]}`, repo, dirPath)
-	searchParams := services.SearchParams{
-		CommonParams: &specutils.CommonParams{
-			Aql: specutils.Aql{ItemsFind: searchQuery},
-		},
-	}
-	reader, err := c.servicesManager.SearchFiles(searchParams)
-	if err != nil {
-		return "", ""
-	}
-	defer func() { _ = reader.Close() }()
-
-	item := new(specutils.ResultItem)
-	if reader.NextRecord(item) == nil {
-		pathInRepo := item.Path + "/" + item.Name
-		if item.Path == "." {
-			pathInRepo = item.Name
-		}
-		return item.Name, pathInRepo
-	}
-	return "", ""
-}
-
-// getArtifactChecksums fetches sha1/sha256/md5 for a file in Artifactory.
-func (c *NixCommand) getArtifactChecksums(repo, pathInRepo string) entities.Checksum {
-	if c.servicesManager == nil {
-		return entities.Checksum{}
-	}
-
-	searchQuery := fmt.Sprintf(`{"repo": "%s", "$or": [{"$and":[{"path": "%s","name": "%s"}]}]}`,
-		repo, path.Dir(pathInRepo), path.Base(pathInRepo))
-	searchParams := services.SearchParams{
-		CommonParams: &specutils.CommonParams{
-			Aql: specutils.Aql{ItemsFind: searchQuery},
-		},
-	}
-	reader, err := c.servicesManager.SearchFiles(searchParams)
-	if err != nil {
-		return entities.Checksum{}
-	}
-	defer func() { _ = reader.Close() }()
-
-	item := new(specutils.ResultItem)
-	if reader.NextRecord(item) == nil {
-		return entities.Checksum{
-			Sha1:   item.Actual_Sha1,
-			Sha256: item.Sha256,
-			Md5:    item.Actual_Md5,
+// firstByDir indexes the AQL results by their directory, keeping the first
+// hit per directory — preserves the original `findNarFile` semantics, which
+// returned the first matching record only.
+func firstByDir(files []aqlFile) map[string]aqlFile {
+	out := make(map[string]aqlFile, len(files))
+	for _, f := range files {
+		if _, exists := out[f.Dir]; !exists {
+			out[f.Dir] = f
 		}
 	}
-	return entities.Checksum{}
+	return out
 }
 
 func (c *NixCommand) getBuildNameAndNumber() (string, string, error) {
