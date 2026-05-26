@@ -81,9 +81,9 @@ const (
 	PipenvInstall          = "pipenv-install"
 	PoetryConfig           = "poetry-config"
 	Poetry                 = "poetry"
-	Ping           = "ping"
-	NugetDepsTree  = "nuget-deps-tree"
-	RtCurl         = "rt-curl"
+	Ping                   = "ping"
+	NugetDepsTree          = "nuget-deps-tree"
+	RtCurl                 = "rt-curl"
 	TemplateConsumer       = "template-consumer"
 	ReplicationCreate      = "replication-create"
 	RepoCreate             = "repo-create"
@@ -223,8 +223,8 @@ const (
 	downloadSyncDeletes  = downloadPrefix + syncDeletes
 	downloadMinSplit     = downloadPrefix + MinSplit
 	downloadSplitCount   = downloadPrefix + SplitCount
-	validateSymlinks      = "validate-symlinks"
-	skipChecksum          = "skip-checksum"
+	validateSymlinks     = "validate-symlinks"
+	skipChecksum         = "skip-checksum"
 
 	// Unique move flags
 	movePrefix       = "move-"
@@ -317,11 +317,11 @@ const (
 	repo = "repo"
 
 	// Unique git-lfs-clean flags
-	glcPrefix  = "glc-"
-	glcDryRun  = glcPrefix + dryRun
-	glcQuiet   = glcPrefix + quiet
-	glcRepo    = glcPrefix + repo
-	refs       = "refs"
+	glcPrefix = "glc-"
+	glcDryRun = glcPrefix + dryRun
+	glcQuiet  = glcPrefix + quiet
+	glcRepo   = glcPrefix + repo
+	refs      = "refs"
 
 	// Build tool config flags
 	global          = "global"
@@ -511,8 +511,14 @@ const (
 	SkillsDelete  = "skills-delete"
 	SkillsList    = "skills-list"
 
+	// Agent plugin commands keys
+	AgentPluginsPublish = "agent-plugins-publish"
+
+	// Agent namespace-specific flags (shared by skills and agent-plugins commands)
+	version    = "version"
+	agentQuiet = "agent-" + quiet
+
 	// Skills-specific flags
-	version             = "version"
 	installPath         = "path"
 	skillsForce         = "force"
 	signingKey          = "signing-key"
@@ -874,6 +880,10 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, skillsQuiet, skipScan, autoDeleteOnFailure,
 		BuildName, BuildNumber, module,
 	},
+	AgentPluginsPublish: {
+		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, agentQuiet,
+		BuildName, BuildNumber, module,
+	},
 	SkillsInstall: {
 		url, user, password, accessToken, serverId, repo, version, agent, projectDir, skillsGlobal, installPath, skillsFormat, skillsQuiet,
 	},
@@ -1190,9 +1200,12 @@ var flagsMap = map[string]components.Flag{
 	Draft:                    components.NewBoolFlag(Draft, "Set to true to create the release bundle as a draft. A draft release bundle can be updated and finalized later.", components.WithBoolDefaultValueFalse()),
 	AddSources:               components.NewBoolFlag(AddSources, "Add sources to an existing draft release bundle.", components.WithBoolDefaultValueFalse()),
 
+	// Agent namespace-specific flags (shared by skills and agent-plugins commands)
+	repo:       components.NewStringFlag(repo, "Repository key in Artifactory.", components.SetMandatoryFalse()),
+	version:    components.NewStringFlag(version, "Package version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
+	agentQuiet: components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
+
 	// Skills-specific flags
-	repo:                components.NewStringFlag(repo, "Skills repository key in Artifactory.", components.SetMandatoryFalse()),
-	version:             components.NewStringFlag(version, "Skill version (semver, e.g. 1.2.0) or \"latest\".", components.SetMandatoryFalse()),
 	installPath:         components.NewStringFlag(installPath, "Base directory for a direct install or update: files go under <path>/<slug>. Mutually exclusive with --agent, --project-dir, and --global.", components.SetMandatoryFalse()),
 	skillsForce:         components.NewBoolFlag(skillsForce, "Re-download and reinstall even if the skill is already at the target version.", components.WithBoolDefaultValueFalse()),
 	signingKey:          components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
