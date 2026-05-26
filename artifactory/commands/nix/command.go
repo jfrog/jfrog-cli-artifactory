@@ -3,10 +3,9 @@ package nix
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	specutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -37,6 +37,7 @@ type NixCommand struct {
 	workingDir         string
 	repo               string
 	netrcPath          string
+	servicesManager    artifactory.ArtifactoryServicesManager
 }
 
 func NewNixCommand() *NixCommand {
@@ -75,14 +76,22 @@ func (c *NixCommand) Run() error {
 	}
 	c.workingDir = workingDir
 
-	// Set up auth (netrc) for Artifactory access
+	// Set up auth (netrc) for Artifactory access and service manager
 	if c.serverDetails != nil {
-		c.createNetrcFile()
+		if err := c.createNetrcFile(); err != nil {
+			log.Warn("Nix authentication setup failed: " + err.Error())
+		}
 		defer func() {
 			if c.netrcPath != "" {
 				_ = os.Remove(c.netrcPath)
 			}
 		}()
+		sm, err := utils.CreateServiceManager(c.serverDetails, -1, 0, false)
+		if err != nil {
+			log.Warn("Could not create Artifactory service manager: " + err.Error())
+		} else {
+			c.servicesManager = sm
+		}
 	}
 
 	switch c.nativeTool {
@@ -140,7 +149,7 @@ func (c *NixCommand) runNixBuild() error {
 	cmd.Stderr = os.Stderr // Show build progress to user
 	output, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("nix-build failed: %s: %w", string(output), err)
+		return fmt.Errorf("nix-build failed: %w", err)
 	}
 
 	// nix-build prints only the output store path(s) to stdout, one per line
@@ -169,12 +178,14 @@ func (c *NixCommand) runNixFlakeBuild() error {
 		return fmt.Errorf("nix build failed: %w", err)
 	}
 
-	// "nix build" creates ./result symlink → resolve it to get the store path
+	// "nix build" can create multiple output symlinks: ./result, ./result-bin, ./result-man, etc.
 	var storePaths []string
-	resultLink := filepath.Join(c.workingDir, "result")
-	if target, err := os.Readlink(resultLink); err == nil {
-		storePaths = append(storePaths, target)
-		log.Info(fmt.Sprintf("Built: %s", target))
+	matches, _ := filepath.Glob(filepath.Join(c.workingDir, "result*"))
+	for _, m := range matches {
+		if target, err := os.Readlink(m); err == nil && strings.HasPrefix(target, "/nix/store/") {
+			storePaths = append(storePaths, target)
+			log.Info(fmt.Sprintf("Built: %s → %s", filepath.Base(m), target))
+		}
 	}
 
 	// Collect build-info from the output store paths
@@ -235,14 +246,16 @@ func (c *NixCommand) runPassthrough() error {
 	return nil
 }
 
-// collectDepsFromEnvArgs resolves the store path from nix-env args (e.g., "nixpkgs.hello").
+// collectDepsFromEnvArgs resolves the store path from nix-env args.
+// Supports channel-qualified attributes like "nixpkgs.hello" (channel.attr format).
+// Plain package names (e.g., "hello") are not supported for build-info collection.
 func (c *NixCommand) collectDepsFromEnvArgs() error {
 	buildName, buildNumber, _ := c.getBuildNameAndNumber()
 	if buildName == "" || buildNumber == "" {
 		return nil
 	}
 
-	// Find the package attribute in args (last non-flag arg, e.g., "nixpkgs.hello")
+	// Find the package attribute in args (last non-flag arg with ".", e.g., "nixpkgs.hello")
 	var pkgAttr string
 	for i := len(c.args) - 1; i >= 0; i-- {
 		if !strings.HasPrefix(c.args[i], "-") && strings.Contains(c.args[i], ".") {
@@ -251,6 +264,8 @@ func (c *NixCommand) collectDepsFromEnvArgs() error {
 		}
 	}
 	if pkgAttr == "" {
+		log.Warn("Build-info collection for nix-env requires a channel-qualified attribute (e.g., nixpkgs.hello). " +
+			"Plain package names are not supported. No build-info was collected.")
 		return nil
 	}
 
@@ -272,7 +287,9 @@ func (c *NixCommand) collectDepsFromEnvArgs() error {
 	return c.collectBuildInfoFromStorePaths(storePaths)
 }
 
-// collectBuildInfoFromStorePaths collects build-info using NixChannelCollector.
+// collectBuildInfoFromStorePaths collects the runtime closure via "nix path-info --json -r",
+// resolves checksums via Artifactory AQL, then saves build-info locally.
+// All dependency collection logic lives here — no external collector needed.
 func (c *NixCommand) collectBuildInfoFromStorePaths(storePaths []string) error {
 	buildName, buildNumber, _ := c.getBuildNameAndNumber()
 	if buildName == "" || buildNumber == "" {
@@ -281,33 +298,17 @@ func (c *NixCommand) collectBuildInfoFromStorePaths(storePaths []string) error {
 
 	log.Info(fmt.Sprintf("Collecting build info for Nix project: %s/%s", buildName, buildNumber))
 
-	collector, err := nixpkg.NewNixChannelCollector(nixpkg.NixChannelConfig{
-		WorkingDirectory: c.workingDir,
-	})
+	deps, depGraph, err := collectRuntimeClosure(storePaths)
 	if err != nil {
-		return fmt.Errorf("failed to create Nix collector: %w", err)
-	}
-
-	if err := collector.CollectStorePathDependencies(storePaths...); err != nil {
 		log.Warn("Failed to collect runtime dependencies: " + err.Error())
 	}
 
-	buildInfo, err := collector.CollectBuildInfo(buildName, buildNumber)
-	if err != nil {
-		return fmt.Errorf("failed to collect build info: %w", err)
-	}
+	buildInfo := buildNixBuildInfo(buildName, buildNumber, filepath.Base(c.workingDir), deps, depGraph)
 
-	// Resolve dep checksums from Artifactory via AQL.
-	// The dependency file is the .nar.xz (compiled binary archive).
-	// Search in the virtual repo which sees both local + remote-cache.
-	if c.serverDetails != nil && len(buildInfo.Modules) > 0 {
-		deps, _ := collector.GetProjectDependencies()
-		depPathMap := make(map[string]string)
-		for _, d := range deps {
-			depPathMap[d.ID] = d.Path
-		}
-
-		// Determine repo to search — use --repo if set, else parse from nix.conf substituter
+	// Resolve checksums from Artifactory AQL — the .nar.xz file hash is what Artifactory stores.
+	// narHash from nix path-info is a hash of the NAR byte stream, not the uploaded file, so it
+	// cannot be used directly.
+	if c.servicesManager != nil && len(buildInfo.Modules) > 0 {
 		searchRepo := c.repo
 		if searchRepo == "" {
 			searchRepo = c.parseRepoFromSubstituter()
@@ -316,14 +317,12 @@ func (c *NixCommand) collectBuildInfoFromStorePaths(storePaths []string) error {
 		if searchRepo != "" {
 			resolved := 0
 			for i, dep := range buildInfo.Modules[0].Dependencies {
-				storePath, ok := depPathMap[dep.Id]
+				storePath, ok := deps[dep.Id]
 				if !ok {
 					continue
 				}
 				storeHash := nixpkg.ExtractStoreHash(storePath)
 				dirPath := "binary-cache/" + storeHash
-
-				// Find the .nar.xz file — the actual dependency binary
 				narXzName, narXzPath := c.findNarFile(searchRepo, dirPath)
 				if narXzName != "" {
 					artChecksum := c.getArtifactChecksums(searchRepo, narXzPath)
@@ -339,10 +338,8 @@ func (c *NixCommand) collectBuildInfoFromStorePaths(storePaths []string) error {
 		}
 	}
 
-	// Apply --module override
 	if c.buildConfiguration != nil {
-		moduleOverride := c.buildConfiguration.GetModule()
-		if moduleOverride != "" && len(buildInfo.Modules) > 0 {
+		if moduleOverride := c.buildConfiguration.GetModule(); moduleOverride != "" && len(buildInfo.Modules) > 0 {
 			buildInfo.Modules[0].Id = moduleOverride
 		}
 	}
@@ -357,6 +354,112 @@ func (c *NixCommand) collectBuildInfoFromStorePaths(storePaths []string) error {
 
 	log.Info(fmt.Sprintf("Nix build info collected. Use 'jf rt bp %s %s' to publish it.", buildName, buildNumber))
 	return nil
+}
+
+// nixStorePathInfo mirrors the JSON output of "nix path-info --json -r" for a single path.
+type nixStorePathInfo struct {
+	NarHash    string   `json:"narHash"`
+	NarSize    int64    `json:"narSize"`
+	References []string `json:"references,omitempty"`
+}
+
+// collectRuntimeClosure runs "nix path-info --json --recursive" on the given store paths
+// and returns:
+//   - deps: map of depID → store path for every dependency (root paths excluded)
+//   - depGraph: forward graph depID → []depID (built from References)
+func collectRuntimeClosure(rootPaths []string) (deps map[string]string, depGraph map[string][]string, err error) {
+	args := append([]string{"path-info", "--json", "--recursive"}, rootPaths...)
+	output, err := exec.Command("nix", args...).Output()
+	if err != nil {
+		return nil, nil, fmt.Errorf("nix path-info failed: %w", err)
+	}
+
+	var pathInfoMap map[string]nixStorePathInfo
+	if err := json.Unmarshal(output, &pathInfoMap); err != nil {
+		return nil, nil, fmt.Errorf("parse nix path-info output: %w", err)
+	}
+
+	rootIDs := make(map[string]bool, len(rootPaths))
+	for _, sp := range rootPaths {
+		rootIDs[nixpkg.StorePathToDepID(sp)] = true
+	}
+
+	depGraph = make(map[string][]string)
+	for parentPath, info := range pathInfoMap {
+		parentID := nixpkg.StorePathToDepID(parentPath)
+		for _, refPath := range info.References {
+			if refPath == parentPath {
+				continue
+			}
+			depGraph[parentID] = append(depGraph[parentID], nixpkg.StorePathToDepID(refPath))
+		}
+	}
+
+	deps = make(map[string]string)
+	for storePath := range pathInfoMap {
+		depID := nixpkg.StorePathToDepID(storePath)
+		if rootIDs[depID] {
+			continue
+		}
+		deps[depID] = storePath
+	}
+
+	log.Debug(fmt.Sprintf("Collected %d runtime dependencies from store closure", len(deps)))
+	return deps, depGraph, nil
+}
+
+// buildNixBuildInfo assembles an entities.BuildInfo from collected Nix dependencies.
+func buildNixBuildInfo(buildName, buildNumber, projectName string, deps map[string]string, depGraph map[string][]string) *entities.BuildInfo {
+	requestedBy := make(map[string][]string)
+	for parent, children := range depGraph {
+		for _, child := range children {
+			requestedBy[child] = append(requestedBy[child], parent)
+		}
+	}
+
+	module := entities.Module{
+		Id:   projectName,
+		Type: entities.Nix,
+	}
+
+	for depID := range deps {
+		entityDep := entities.Dependency{
+			Id:     depID,
+			Scopes: []string{"runtime"},
+		}
+		for _, parent := range requestedBy[depID] {
+			entityDep.RequestedBy = append(entityDep.RequestedBy, []string{parent})
+		}
+		module.Dependencies = append(module.Dependencies, entityDep)
+	}
+
+	return &entities.BuildInfo{
+		Name:    buildName,
+		Number:  buildNumber,
+		Started: time.Now().Format(entities.TimeFormat),
+		Agent: &entities.Agent{
+			Name:    "nix",
+			Version: getNixVersion(),
+		},
+		BuildAgent: &entities.Agent{
+			Name:    "Generic",
+			Version: "1.0",
+		},
+		Modules: []entities.Module{module},
+	}
+}
+
+// getNixVersion returns the installed nix version string (e.g. "2.24.12").
+func getNixVersion() string {
+	out, err := exec.Command("nix", "--version").Output()
+	if err != nil {
+		return "unknown"
+	}
+	parts := strings.Fields(strings.TrimSpace(string(out)))
+	if len(parts) >= 3 {
+		return parts[len(parts)-1]
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // tagUploadedArtifacts sets build properties on artifacts uploaded by nix copy.
@@ -472,47 +575,23 @@ func (c *NixCommand) findStorePathFromArgs() string {
 	return ""
 }
 
-// resolveDefaultDeploymentRepo queries Artifactory REST API to find the defaultDeploymentRepo
+// resolveDefaultDeploymentRepo queries Artifactory to find the defaultDeploymentRepo
 // for a virtual repo. Returns empty if not virtual or no default deployment repo.
 func (c *NixCommand) resolveDefaultDeploymentRepo(repoName string) string {
-	if c.serverDetails == nil || c.serverDetails.ArtifactoryUrl == "" {
+	if c.servicesManager == nil {
 		return ""
 	}
-
-	// Query the repo config: GET /api/repositories/<name>
-	url := strings.TrimSuffix(c.serverDetails.ArtifactoryUrl, "/") + "/api/repositories/" + repoName
-	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
+	repoDetails := &services.VirtualRepositoryBaseParams{}
+	if err := c.servicesManager.GetRepository(repoName, repoDetails); err != nil {
+		log.Debug(fmt.Sprintf("Could not determine type for repo '%s', using as-is: %s", repoName, err.Error()))
 		return ""
 	}
-	if c.serverDetails.User != "" {
-		password := c.serverDetails.Password
-		if password == "" {
-			password = c.serverDetails.AccessToken
+	if repoDetails.Rclass == services.VirtualRepositoryRepoType {
+		if repoDetails.DefaultDeploymentRepo == "" {
+			log.Warn(fmt.Sprintf("Virtual repository '%s' has no default deployment repository configured.", repoName))
+			return ""
 		}
-		req.SetBasicAuth(c.serverDetails.User, password)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		if resp != nil {
-			_ = resp.Body.Close()
-		}
-		return ""
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	var repoConfig struct {
-		Rclass                string `json:"rclass"`
-		DefaultDeploymentRepo string `json:"defaultDeploymentRepo"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&repoConfig); err != nil {
-		return ""
-	}
-
-	if repoConfig.Rclass == "virtual" && repoConfig.DefaultDeploymentRepo != "" {
-		return repoConfig.DefaultDeploymentRepo
+		return repoDetails.DefaultDeploymentRepo
 	}
 	return ""
 }
@@ -583,14 +662,14 @@ func (c *NixCommand) parseRepoFromToArg() string {
 }
 
 // createNetrcFile creates a temporary netrc file for Nix authentication.
-func (c *NixCommand) createNetrcFile() {
+func (c *NixCommand) createNetrcFile() error {
 	user := c.serverDetails.User
 	password := c.serverDetails.Password
 	if password == "" {
 		password = c.serverDetails.AccessToken
 	}
 	if user == "" || password == "" {
-		return
+		return fmt.Errorf("no credentials configured (need user+password or user+access-token)")
 	}
 
 	host := c.serverDetails.ArtifactoryUrl
@@ -605,15 +684,19 @@ func (c *NixCommand) createNetrcFile() {
 	netrcContent := fmt.Sprintf("machine %s\nlogin %s\npassword %s\n", host, user, password)
 	tmpFile, err := os.CreateTemp("", "nix-netrc-")
 	if err != nil {
-		return
+		return fmt.Errorf("create netrc temp file: %w", err)
 	}
 	if _, err = tmpFile.WriteString(netrcContent); err != nil {
-		return
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpFile.Name())
+		return fmt.Errorf("write netrc file: %w", err)
 	}
 	if err = tmpFile.Close(); err != nil {
-		return
+		_ = os.Remove(tmpFile.Name())
+		return fmt.Errorf("close netrc file: %w", err)
 	}
 	c.netrcPath = tmpFile.Name()
+	return nil
 }
 
 // buildEnv returns the current environment with NIX_CONFIG for netrc auth.
@@ -627,11 +710,7 @@ func (c *NixCommand) buildEnv() []string {
 
 // setBuildPropertiesInDir sets build properties on all files in a directory.
 func (c *NixCommand) setBuildPropertiesInDir(repo, dirPath, namePattern, buildName, buildNumber, timestamp string) {
-	if c.serverDetails == nil {
-		return
-	}
-	servicesManager, err := utils.CreateServiceManager(c.serverDetails, -1, 0, false)
-	if err != nil {
+	if c.servicesManager == nil {
 		return
 	}
 
@@ -642,20 +721,19 @@ func (c *NixCommand) setBuildPropertiesInDir(repo, dirPath, namePattern, buildNa
 			Aql: specutils.Aql{ItemsFind: searchQuery},
 		},
 	}
-	reader, err := servicesManager.SearchFiles(searchParams)
+	reader, err := c.servicesManager.SearchFiles(searchParams)
 	if err != nil {
+		log.Warn(fmt.Sprintf("Failed to search files in %s/%s: %s", repo, dirPath, err.Error()))
 		return
 	}
-	_, _ = servicesManager.SetProps(services.PropsParams{Reader: reader, Props: props})
+	if _, err := c.servicesManager.SetProps(services.PropsParams{Reader: reader, Props: props}); err != nil {
+		log.Warn(fmt.Sprintf("Failed to set build properties on %s/%s: %s", repo, dirPath, err.Error()))
+	}
 }
 
 // findNarFile searches for the .nar.xz file in a binary-cache directory.
 func (c *NixCommand) findNarFile(repo, dirPath string) (string, string) {
-	if c.serverDetails == nil {
-		return "", ""
-	}
-	servicesManager, err := utils.CreateServiceManager(c.serverDetails, -1, 0, false)
-	if err != nil {
+	if c.servicesManager == nil {
 		return "", ""
 	}
 
@@ -665,7 +743,7 @@ func (c *NixCommand) findNarFile(repo, dirPath string) (string, string) {
 			Aql: specutils.Aql{ItemsFind: searchQuery},
 		},
 	}
-	reader, err := servicesManager.SearchFiles(searchParams)
+	reader, err := c.servicesManager.SearchFiles(searchParams)
 	if err != nil {
 		return "", ""
 	}
@@ -684,22 +762,18 @@ func (c *NixCommand) findNarFile(repo, dirPath string) (string, string) {
 
 // getArtifactChecksums fetches sha1/sha256/md5 for a file in Artifactory.
 func (c *NixCommand) getArtifactChecksums(repo, pathInRepo string) entities.Checksum {
-	if c.serverDetails == nil {
-		return entities.Checksum{}
-	}
-	servicesManager, err := utils.CreateServiceManager(c.serverDetails, -1, 0, false)
-	if err != nil {
+	if c.servicesManager == nil {
 		return entities.Checksum{}
 	}
 
 	searchQuery := fmt.Sprintf(`{"repo": "%s", "$or": [{"$and":[{"path": "%s","name": "%s"}]}]}`,
-		repo, filepath.Dir(pathInRepo), filepath.Base(pathInRepo))
+		repo, path.Dir(pathInRepo), path.Base(pathInRepo))
 	searchParams := services.SearchParams{
 		CommonParams: &specutils.CommonParams{
 			Aql: specutils.Aql{ItemsFind: searchQuery},
 		},
 	}
-	reader, err := servicesManager.SearchFiles(searchParams)
+	reader, err := c.servicesManager.SearchFiles(searchParams)
 	if err != nil {
 		return entities.Checksum{}
 	}
@@ -731,22 +805,7 @@ func (c *NixCommand) getBuildNameAndNumber() (string, string, error) {
 	return buildName, buildNumber, nil
 }
 
-// GetCmd returns the exec.Cmd for gofrogcmd.RunCmd interface.
-func (c *NixCommand) GetCmd() *exec.Cmd {
-	return exec.Command("nix", append([]string{c.nativeTool}, c.args...)...)
-}
-
-func (c *NixCommand) GetEnv() map[string]string {
-	env := map[string]string{}
-	if c.netrcPath != "" {
-		env["NIX_CONFIG"] = "netrc-file = " + c.netrcPath
-	}
-	return env
-}
-
-func (c *NixCommand) GetStdWriter() io.WriteCloser { return nil }
-func (c *NixCommand) GetErrWriter() io.WriteCloser { return nil }
-func (c *NixCommand) CommandName() string           { return "rt_nix" }
+func (c *NixCommand) CommandName() string { return "rt_nix" }
 
 func (c *NixCommand) ServerDetails() (*config.ServerDetails, error) {
 	return c.serverDetails, nil
@@ -763,6 +822,3 @@ func saveBuildInfoLocally(buildInfo *entities.BuildInfo, projectKey string) erro
 	}
 	return nil
 }
-
-// Ensure unused imports don't cause compile errors
-var _ = json.Marshal
