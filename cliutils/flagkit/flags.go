@@ -520,21 +520,20 @@ const (
 
 	// Skills-specific flags
 	installPath         = "path"
-	skillsForce         = "force"
+	agentForce          = "force"
 	signingKey          = "signing-key"
 	keyAlias            = "key-alias"
-	skillsQuiet         = "skills-" + quiet
 	propSearch          = "prop"
-	skillsFormat        = "skills-" + Format
+	agentFormat         = "agent-" + Format
 	skipScan            = "skip-scan"
 	autoDeleteOnFailure = "auto-delete-on-failure"
-	agent               = "agent"
+	harness             = "harness"
 	projectDir          = "project-dir"
-	skillsGlobal        = "skills-global"
-	skillsLimit         = "skills-" + limit
-	skillsSortBy        = "skills-" + sortBy
-	skillsSortOrder     = "skills-" + sortOrder
-	skillsCheckUpdates  = "skills-check-updates"
+	agentGlobal         = "agent-global"
+	agentLimit          = "agent-" + limit
+	agentSortBy         = "agent-" + sortBy
+	agentSortOrder      = "agent-" + sortOrder
+	agentCheckUpdates   = "agent-check-updates"
 	checkUpdates        = "check-updates"
 )
 
@@ -877,7 +876,7 @@ var commandFlags = map[string][]string{
 		Format, OrderBy, FilterBy, OrderAsc, Limit, Offset, Includes, Project,
 	},
 	SkillsPublish: {
-		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, skillsQuiet, skipScan, autoDeleteOnFailure,
+		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, agentQuiet, skipScan, autoDeleteOnFailure,
 		BuildName, BuildNumber, module,
 	},
 	AgentPluginsPublish: {
@@ -885,19 +884,19 @@ var commandFlags = map[string][]string{
 		BuildName, BuildNumber, module,
 	},
 	SkillsInstall: {
-		url, user, password, accessToken, serverId, repo, version, agent, projectDir, skillsGlobal, installPath, skillsFormat, skillsQuiet,
+		url, user, password, accessToken, serverId, repo, version, harness, projectDir, agentGlobal, installPath, agentFormat, agentQuiet,
 	},
 	SkillsUpdate: {
-		url, user, password, accessToken, serverId, repo, version, agent, projectDir, skillsGlobal, installPath, skillsFormat, skillsQuiet, dryRun, skillsForce,
+		url, user, password, accessToken, serverId, repo, version, harness, projectDir, agentGlobal, installPath, agentFormat, agentQuiet, dryRun, agentForce,
 	},
 	SkillsDelete: {
 		url, user, password, accessToken, serverId, repo, version, dryRun,
 	},
 	SkillsSearch: {
-		url, user, password, accessToken, serverId, repo, skillsFormat, propSearch,
+		url, user, password, accessToken, serverId, repo, agentFormat, propSearch,
 	},
 	SkillsList: {
-		url, user, password, accessToken, serverId, repo, agent, projectDir, skillsGlobal, skillsFormat, skillsLimit, skillsSortBy, skillsSortOrder, skillsCheckUpdates,
+		url, user, password, accessToken, serverId, repo, harness, projectDir, agentGlobal, agentFormat, agentLimit, agentSortBy, agentSortOrder, agentCheckUpdates,
 	},
 }
 
@@ -1206,22 +1205,21 @@ var flagsMap = map[string]components.Flag{
 	agentQuiet: components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
 
 	// Skills-specific flags
-	installPath:         components.NewStringFlag(installPath, "Base directory for a direct install or update: files go under <path>/<slug>. Mutually exclusive with --agent, --project-dir, and --global.", components.SetMandatoryFalse()),
-	skillsForce:         components.NewBoolFlag(skillsForce, "Re-download and reinstall even if the skill is already at the target version.", components.WithBoolDefaultValueFalse()),
+	installPath:         components.NewStringFlag(installPath, "Base directory for a direct install or update: files go under <path>/<slug>. Mutually exclusive with --harness, --project-dir, and --global.", components.SetMandatoryFalse()),
+	agentForce:          components.NewBoolFlag(agentForce, "Re-download and reinstall even if the skill is already at the target version.", components.WithBoolDefaultValueFalse()),
 	signingKey:          components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
 	keyAlias:            components.NewStringFlag(keyAlias, "Alias for the signing key. Overrides EVD_KEY_ALIAS env var.", components.SetMandatoryFalse()),
-	skillsQuiet:         components.NewBoolFlag(quiet, "[Default: $CI] Set to true to skip interactive prompts.", components.WithBoolDefaultValueFalse()),
-	skillsFormat:        components.NewStringFlag(Format, "Output format: \"table\" (default) or \"json\".", components.SetMandatoryFalse()),
+	agentFormat:         components.NewStringFlag(Format, "Output format: \"table\" (default) or \"json\".", components.SetMandatoryFalse()),
 	propSearch:          components.NewBoolFlag(propSearch, "Use Artifactory property search (skill.name) instead of Skills API search.", components.WithBoolDefaultValueFalse()),
 	skipScan:            components.NewBoolFlag(skipScan, "Skip Xray security scan after publish. Can also be set via JFROG_CLI_SKIP_SKILLS_SCAN=true.", components.WithBoolDefaultValueFalse()),
 	autoDeleteOnFailure: components.NewBoolFlag(autoDeleteOnFailure, "Automatically delete the artifact if Xray scan identifies it as malicious.", components.WithBoolDefaultValueFalse()),
-	agent:               components.NewStringFlag(agent, "Comma-separated AI agent names for install or update; a single name for list. Resolved from ~/.jfrog/agents/agent-config.json first, then built-in fallbacks (claude-code, cursor, github-copilot, windsurf, codex, agents).", components.SetMandatoryFalse()),
+	harness:             components.NewStringFlag(harness, "Harness name for install, update, or list (e.g. cursor, claude, codex). Resolved from ~/.jfrog/agents/agent-config.json first, then built-in fallbacks.", components.SetMandatoryFalse()),
 	projectDir:          components.NewStringFlag(projectDir, "Project root directory combined with each agent's project path from config. Default: current directory when --global is not set. Mutually exclusive with --global.", components.SetMandatoryFalse()),
-	skillsGlobal:        components.NewBoolFlag(global, "Install, update, or list under each agent's global directory from config instead of under the project root. Mutually exclusive with --project-dir.", components.WithBoolDefaultValueFalse()),
-	skillsLimit:         components.NewStringFlag(limit, "Maximum number of skills to return. Fetches all by default.", components.SetMandatoryFalse()),
-	skillsSortBy:        components.NewStringFlag(sortBy, "Field to sort by. With --repo: updated (default), downloads. With --agent: name (default, only option).", components.SetMandatoryFalse()),
-	skillsSortOrder:     components.NewStringFlag(sortOrder, "Sort order for --agent. Supported: asc (default), desc. Not supported with --repo.", components.SetMandatoryFalse()),
-	skillsCheckUpdates:  components.NewBoolFlag(checkUpdates, "With --agent only: compare installed skills to the registry (requires jf config server). Adds registry latest and status columns. Not supported with --repo.", components.WithBoolDefaultValueFalse()),
+	agentGlobal:         components.NewBoolFlag(global, "Install, update, or list under each agent's global directory from config instead of under the project root. Mutually exclusive with --project-dir.", components.WithBoolDefaultValueFalse()),
+	agentLimit:          components.NewStringFlag(limit, "Maximum number of skills to return. Fetches all by default.", components.SetMandatoryFalse()),
+	agentSortBy:         components.NewStringFlag(sortBy, "Field to sort by. With --repo: updated (default), downloads. With --harness: name (default, only option).", components.SetMandatoryFalse()),
+	agentSortOrder:      components.NewStringFlag(sortOrder, "Sort order for --harness. Supported: asc (default), desc. Not supported with --repo.", components.SetMandatoryFalse()),
+	agentCheckUpdates:   components.NewBoolFlag(checkUpdates, "With --harness only: compare installed skills to the registry (requires jf config server). Adds registry latest and status columns. Not supported with --repo.", components.WithBoolDefaultValueFalse()),
 }
 
 func GetCommandFlags(cmdKey string) []components.Flag {

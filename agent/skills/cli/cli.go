@@ -1,0 +1,104 @@
+package cli
+
+import (
+	"github.com/jfrog/jfrog-cli-artifactory/agent/skills/commands/delete"
+	"github.com/jfrog/jfrog-cli-artifactory/agent/skills/commands/install"
+	skillslist "github.com/jfrog/jfrog-cli-artifactory/agent/skills/commands/list"
+	"github.com/jfrog/jfrog-cli-artifactory/agent/skills/commands/publish"
+	"github.com/jfrog/jfrog-cli-artifactory/agent/skills/commands/search"
+	"github.com/jfrog/jfrog-cli-artifactory/agent/skills/commands/update"
+	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
+	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
+)
+
+// GetSubCommands returns leaf commands for `jf agent skills`.
+func GetSubCommands() []components.Command {
+	return []components.Command{
+		{
+			Name:        "list",
+			Flags:       flagkit.GetCommandFlags(flagkit.SkillsList),
+			Description: "List skills: registry (--repo), project-local (--harness [--project-dir], default .), or global-local (--harness --global). Use --check-updates with --harness to compare installs to the registry. --repo and --harness are mutually exclusive; --global and --project-dir are mutually exclusive.",
+			Action:      skillslist.RunList,
+		},
+		{
+			Name:        "publish",
+			Flags:       flagkit.GetCommandFlags(flagkit.SkillsPublish),
+			Description: "Publish a skill to Artifactory. Signs and attaches evidence if a signing key is provided. Runs Xray security scan after upload (use --skip-scan or JFROG_CLI_SKIP_SKILLS_SCAN=true to bypass). Scan timeout is configurable via JFROG_CLI_SKILLS_SCAN_TIMEOUT (default: 5m, e.g. 2m, 30s).",
+			Arguments:   getPublishArguments(),
+			Action:      publish.RunPublish,
+		},
+		{
+			Name:        "install",
+			Flags:       flagkit.GetCommandFlags(flagkit.SkillsInstall),
+			Description: "Install a skill from Artifactory. Use --harness with --project-dir (default: current directory) or --global, or use --path <dir> for a direct install to <dir>/<slug> (same layout as skills update). Harness paths use ~/.jfrog/agents/agent-config.json with built-in fallbacks. Verifies evidence when signing keys are configured. Use --format json for machine-readable install summary.",
+			Arguments:   getInstallArguments(),
+			Action:      install.RunInstall,
+		},
+		{
+			Name:        "update",
+			Flags:       flagkit.GetCommandFlags(flagkit.SkillsUpdate),
+			Description: "Update an installed skill to the latest (or a specific) version. Same targeting flags as install: use --harness with --project-dir (default: current directory) or --global, or --path <dir> for a direct update at <dir>/<slug>. Pre-update checks skip targets that are not installed or already at the target version (use --force to re-download). Logs skip and failure reasons when not quiet. Downloads once for all targets. Use --dry-run to preview, --format json for machine-readable summaries.",
+			Arguments:   getUpdateArguments(),
+			Action:      update.RunUpdate,
+		},
+		{
+			Name:        "search",
+			Flags:       flagkit.GetCommandFlags(flagkit.SkillsSearch),
+			Description: "Search for skills across Artifactory repositories.",
+			Arguments:   getSearchArguments(),
+			Action:      search.RunSearch,
+		},
+		{
+			Name:        "delete",
+			Flags:       flagkit.GetCommandFlags(flagkit.SkillsDelete),
+			Description: "Delete a specific skill version from Artifactory.",
+			Arguments:   getDeleteArguments(),
+			Action:      delete.RunDelete,
+		},
+	}
+}
+
+func getPublishArguments() []components.Argument {
+	return []components.Argument{
+		{
+			Name:        "path",
+			Description: "Path to the skill folder containing SKILL.md.",
+		},
+	}
+}
+
+func getSearchArguments() []components.Argument {
+	return []components.Argument{
+		{
+			Name:        "query",
+			Description: "Skill name or search term.",
+		},
+	}
+}
+
+func getInstallArguments() []components.Argument {
+	return []components.Argument{
+		{
+			Name:        "slug",
+			Description: "Skill name/slug to install.",
+		},
+	}
+}
+
+func getUpdateArguments() []components.Argument {
+	return []components.Argument{
+		{
+			Name:        "slug",
+			Description: "Skill name/slug to update.",
+		},
+	}
+}
+
+func getDeleteArguments() []components.Argument {
+	return []components.Argument{
+		{
+			Name:        "slug",
+			Description: "Skill name/slug to delete.",
+		},
+	}
+}

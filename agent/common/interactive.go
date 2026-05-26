@@ -20,7 +20,7 @@ func IsQuiet(context *components.Context) bool {
 // IsNonInteractive returns true when interactive prompts cannot be used safely.
 // go-prompt will panic if it tries to read from a non-terminal stdin.
 func IsNonInteractive() bool {
-	if envBool(envCI) {
+	if EnvBool(envCI) {
 		return true
 	}
 	stat, err := os.Stdin.Stat()
@@ -30,7 +30,9 @@ func IsNonInteractive() bool {
 	return (stat.Mode() & os.ModeCharDevice) == 0
 }
 
-func envBool(key string) bool {
+// EnvBool returns true if the named environment variable is set to a truthy value
+// ("true", "TRUE", "1", "t", "T", "yes", "YES", etc.) as defined by strconv.ParseBool.
+func EnvBool(key string) bool {
 	value, err := strconv.ParseBool(os.Getenv(key))
 	return err == nil && value
 }
