@@ -592,8 +592,17 @@ func (c *NixCommand) tagUploadedArtifacts() error {
 
 	if len(artifacts) > 0 {
 		buildInfo := &entities.BuildInfo{
-			Name:   buildName,
-			Number: buildNumber,
+			Name:    buildName,
+			Number:  buildNumber,
+			Started: time.Now().Format(entities.TimeFormat),
+			Agent: &entities.Agent{
+				Name:    "build-info-go",
+				Version: "1.0.0",
+			},
+			BuildAgent: &entities.Agent{
+				Name:    "Nix",
+				Version: getNixVersion(),
+			},
 			Modules: []entities.Module{
 				{
 					Id:        filepath.Base(c.workingDir),
@@ -601,6 +610,16 @@ func (c *NixCommand) tagUploadedArtifacts() error {
 					Artifacts: artifacts,
 				},
 			},
+		}
+
+		// Apply --module override so nix copy's module ID matches
+		// nix-env / nix-build's module ID. Without this, --module is
+		// silently ignored on the artifact-tagging path and the
+		// published build-info ends up with two separate modules.
+		if c.buildConfiguration != nil {
+			if moduleOverride := c.buildConfiguration.GetModule(); moduleOverride != "" {
+				buildInfo.Modules[0].Id = moduleOverride
+			}
 		}
 
 		projectKey := ""
