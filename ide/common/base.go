@@ -21,6 +21,9 @@ func GetServerDetails(c *components.Context) (*config.ServerDetails, error) {
 	if err != nil {
 		return nil, fmt.Errorf("no default server configured")
 	}
+	if rtDetails == nil {
+		return nil, fmt.Errorf("no default server configured. Use 'jf config add' or provide --url and --access-token flags")
+	}
 	if rtDetails.ArtifactoryUrl == "" && rtDetails.Url == "" {
 		return nil, fmt.Errorf("no Artifactory URL configured")
 	}

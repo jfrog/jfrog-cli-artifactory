@@ -5,7 +5,9 @@ import (
 
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNormalizeArtifactoryUrl_AppendsArtifactoryPath(t *testing.T) {
@@ -39,4 +41,14 @@ func TestHasServerConfigFlags(t *testing.T) {
 
 	ctx.AddStringFlag("url", "https://acme.jfrog.io")
 	assert.True(t, hasServerConfigFlags(ctx))
+}
+
+func TestGetServerDetails_NoConfiguredServer(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(coreutils.HomeDir, dir)
+
+	ctx := &components.Context{}
+	_, err := GetServerDetails(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no default server configured")
 }
