@@ -150,6 +150,11 @@ func (lc *ListCommand) Run() error {
 	}
 
 	if lc.agentName != "" {
+		parsedHarness, err := common.ParseHarnessForList(lc.agentName)
+		if err != nil {
+			return err
+		}
+		lc.agentName = parsedHarness
 		if lc.checkUpdates && lc.serverDetails == nil {
 			return fmt.Errorf("--check-updates requires a configured Artifactory server (same as other jf agent skills commands)")
 		}
@@ -368,7 +373,7 @@ func (lc *ListCommand) printLocalResults(results []localListRow) error {
 // RunList is the CLI action for `jf agent skills list`.
 func RunList(c *components.Context) error {
 	repoKey := c.GetStringFlagValue("repo")
-	agentName := c.GetStringFlagValue("harness")
+	agentName := strings.TrimSpace(c.GetStringFlagValue("harness"))
 
 	format := "table"
 	if c.GetStringFlagValue("format") != "" {

@@ -30,14 +30,14 @@ func GetSubCommands() []components.Command {
 		{
 			Name:        "install",
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsInstall),
-			Description: "Install a skill from Artifactory. Use --harness with --project-dir (default: current directory) or --global, or use --path <dir> for a direct install to <dir>/<slug> (same layout as skills update). Harness paths use ~/.jfrog/agents/agent-config.json with built-in fallbacks. Verifies evidence when signing keys are configured. Use --format json for machine-readable install summary.",
+			Description: "Install a skill from Artifactory. Use --harness (comma-separated) with --project-dir (default: current directory) or --global, or use --path <dir> for a direct install to <dir>/<slug> (same layout as skills update). Harness paths use ~/.jfrog/agents/agent-config.json with built-in fallbacks. Verifies evidence when signing keys are configured. Use --format json for machine-readable install summary.",
 			Arguments:   getInstallArguments(),
 			Action:      install.RunInstall,
 		},
 		{
 			Name:        "update",
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsUpdate),
-			Description: "Update an installed skill to the latest (or a specific) version. Same targeting flags as install: use --harness with --project-dir (default: current directory) or --global, or --path <dir> for a direct update at <dir>/<slug>. Pre-update checks skip targets that are not installed or already at the target version (use --force to re-download). Logs skip and failure reasons when not quiet. Downloads once for all targets. Use --dry-run to preview, --format json for machine-readable summaries.",
+			Description: "Update an installed skill to the latest (or a specific) version. Same targeting flags as install: use --harness (comma-separated) with --project-dir (default: current directory) or --global, or --path <dir> for a direct update at <dir>/<slug>. Pre-update checks skip targets that are not installed or already at the target version (use --force to re-download). Logs skip and failure reasons when not quiet. Downloads once for all targets. Use --dry-run to preview, --format json for machine-readable summaries.",
 			Arguments:   getUpdateArguments(),
 			Action:      update.RunUpdate,
 		},

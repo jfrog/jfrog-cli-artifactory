@@ -121,16 +121,38 @@ func ResolveAgent(registry map[string]AgentSpec, name string) (AgentSpec, error)
 	return spec, nil
 }
 
-// ParseHarness parses a single harness name (trim, lowercase). Commas are rejected.
-func ParseHarness(raw string) (string, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return "", fmt.Errorf("--harness is required (single harness name, e.g. cursor or claude)")
+// ParseHarnessList parses comma-separated harness names (trim, lowercase, reject empty/duplicates).
+func ParseHarnessList(raw string) ([]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, fmt.Errorf("--harness is required (comma-separated list of harness names)")
 	}
-	if strings.Contains(trimmed, ",") {
-		return "", fmt.Errorf("--harness accepts one harness name only, not a comma-separated list: %q", raw)
+
+	seen := make(map[string]struct{})
+	var result []string
+	for _, part := range strings.Split(raw, ",") {
+		name := strings.ToLower(strings.TrimSpace(part))
+		if name == "" {
+			return nil, fmt.Errorf("--harness contains an empty name in %q", raw)
+		}
+		if _, dup := seen[name]; dup {
+			return nil, fmt.Errorf("--harness lists %q more than once", name)
+		}
+		seen[name] = struct{}{}
+		result = append(result, name)
 	}
-	return strings.ToLower(trimmed), nil
+	return result, nil
+}
+
+// ParseHarnessForList parses --harness for list (exactly one harness name; commas are rejected).
+func ParseHarnessForList(raw string) (string, error) {
+	names, err := ParseHarnessList(raw)
+	if err != nil {
+		return "", err
+	}
+	if len(names) != 1 {
+		return "", fmt.Errorf("--harness for list accepts one harness name, not a comma-separated list: %q", raw)
+	}
+	return names[0], nil
 }
 
 // AgentNames returns the registry's agent names, sorted alphabetically.

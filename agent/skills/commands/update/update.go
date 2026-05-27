@@ -28,7 +28,7 @@ type preUpdate struct {
 // RunUpdate is the CLI action for `jf agent skills update`.
 func RunUpdate(c *components.Context) error {
 	if c.GetNumberOfArgs() < 1 {
-		return fmt.Errorf("usage: jf agent skills update <slug> (--harness <name> [--global] [--project-dir <dir>] | --path <dir>) [--repo <repo>] [--version <ver>] [--dry-run] [--force] [--format <table|json>]")
+		return fmt.Errorf("usage: jf agent skills update <slug> (--harness <name[,name...]> [--global] [--project-dir <dir>] | --path <dir>) [--repo <repo>] [--version <ver>] [--dry-run] [--force] [--format <table|json>]")
 	}
 
 	slug := c.GetArgumentAt(0)

@@ -1213,7 +1213,7 @@ var flagsMap = map[string]components.Flag{
 	propSearch:          components.NewBoolFlag(propSearch, "Use Artifactory property search (skill.name) instead of Skills API search.", components.WithBoolDefaultValueFalse()),
 	skipScan:            components.NewBoolFlag(skipScan, "Skip Xray security scan after publish. Can also be set via JFROG_CLI_SKIP_SKILLS_SCAN=true.", components.WithBoolDefaultValueFalse()),
 	autoDeleteOnFailure: components.NewBoolFlag(autoDeleteOnFailure, "Automatically delete the artifact if Xray scan identifies it as malicious.", components.WithBoolDefaultValueFalse()),
-	harness:             components.NewStringFlag(harness, "Harness name for install, update, or list (e.g. cursor, claude, codex). Resolved from ~/.jfrog/agents/agent-config.json first, then built-in fallbacks.", components.SetMandatoryFalse()),
+	harness:             components.NewStringFlag(harness, "Comma-separated harness names for install or update; a single name for list (e.g. cursor, claude-code). Resolved from ~/.jfrog/agents/agent-config.json first, then built-in fallbacks.", components.SetMandatoryFalse()),
 	projectDir:          components.NewStringFlag(projectDir, "Project root directory combined with each agent's project path from config. Default: current directory when --global is not set. Mutually exclusive with --global.", components.SetMandatoryFalse()),
 	agentGlobal:         components.NewBoolFlag(global, "Install, update, or list under each agent's global directory from config instead of under the project root. Mutually exclusive with --project-dir.", components.WithBoolDefaultValueFalse()),
 	agentLimit:          components.NewStringFlag(limit, "Maximum number of skills to return. Fetches all by default.", components.SetMandatoryFalse()),

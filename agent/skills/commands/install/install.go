@@ -156,7 +156,7 @@ func (ic *InstallCommand) Run() error {
 	if ic.installPath != "" {
 		log.Info(fmt.Sprintf("Installing skill '%s' version '%s' to %s", ic.slug, ic.version, installTargets[0].DestinationDir))
 	} else {
-		log.Info(fmt.Sprintf("Installing skill '%s' version '%s' for harness %s", ic.slug, ic.version, installTargets[0].Agent.Name))
+		log.Info(fmt.Sprintf("Installing skill '%s' version '%s' for %d harness(es)", ic.slug, ic.version, len(installTargets)))
 	}
 
 	tmpDir, err := os.MkdirTemp("", "skill-install-*")
@@ -399,7 +399,7 @@ func (ic *InstallCommand) verifyEvidence() error {
 // RunInstall is the CLI action for `jf agent skills install`.
 func RunInstall(c *components.Context) error {
 	if c.GetNumberOfArgs() < 1 {
-		return fmt.Errorf("usage: jf agent skills install <slug> (--harness <name> [--global] [--project-dir <dir>] | --path <dir>) [--repo <repo>] [--version <ver>]")
+		return fmt.Errorf("usage: jf agent skills install <slug> (--harness <name[,name...]> [--global] [--project-dir <dir>] | --path <dir>) [--repo <repo>] [--version <ver>]")
 	}
 
 	slug := c.GetArgumentAt(0)

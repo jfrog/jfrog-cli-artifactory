@@ -58,6 +58,14 @@ func TestListCommand_MutuallyExclusive(t *testing.T) {
 	assert.Contains(t, err.Error(), "mutually exclusive")
 }
 
+func TestListCommand_CommaSeparatedHarnessRejected(t *testing.T) {
+	cmd := &ListCommand{}
+	cmd.SetAgentName("cursor,claude-code")
+	err := cmd.Run()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "one harness name")
+}
+
 func TestListCommand_UnknownAgent(t *testing.T) {
 	cmd := &ListCommand{}
 	cmd.SetAgentName("unknown-editor")

@@ -129,3 +129,16 @@ func TestValidateInstallFlags_HarnessProjectOK(t *testing.T) {
 	assert.Equal(t, wantProj, projectDirAbs)
 	assert.False(t, isGlobal)
 }
+
+func TestValidateInstallFlags_CommaSeparatedHarnesses(t *testing.T) {
+	projectDir := t.TempDir()
+	c := newInstallTestContext()
+	c.AddStringFlag("harness", "cursor,claude-code")
+	c.AddStringFlag("project-dir", projectDir)
+
+	_, specs, _, _, err := ValidateInstallFlags(c)
+	require.NoError(t, err)
+	require.Len(t, specs, 2)
+	assert.Equal(t, "cursor", specs[0].Name)
+	assert.Equal(t, "claude-code", specs[1].Name)
+}

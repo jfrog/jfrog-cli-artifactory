@@ -69,16 +69,20 @@ func ValidateInstallFlags(c *components.Context) (absoluteInstallBaseDir string,
 		return
 	}
 
-	harnessName, err := ParseHarness(rawHarness)
+	harnessNames, err := ParseHarnessList(rawHarness)
 	if err != nil {
 		return
 	}
 
-	agentSpec, err := ResolveAgent(registry, harnessName)
-	if err != nil {
-		return
+	specs = make([]AgentSpec, 0, len(harnessNames))
+	for _, name := range harnessNames {
+		agentSpec, resolveErr := ResolveAgent(registry, name)
+		if resolveErr != nil {
+			err = resolveErr
+			return
+		}
+		specs = append(specs, agentSpec)
 	}
-	specs = []AgentSpec{agentSpec}
 
 	if isGlobal && projectDir != "" {
 		err = fmt.Errorf("--global and --project-dir are mutually exclusive, please choose either --global or --project-dir")

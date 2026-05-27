@@ -94,19 +94,35 @@ func TestLoadAgentRegistry_RejectsBadJSON(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to parse agent config")
 }
 
-func TestParseHarness(t *testing.T) {
-	got, err := ParseHarness(" Claude-Code ")
+func TestParseHarnessList(t *testing.T) {
+	got, err := ParseHarnessList("cursor, Claude-Code")
 	require.NoError(t, err)
-	assert.Equal(t, "claude-code", got)
+	assert.Equal(t, []string{"cursor", "claude-code"}, got)
 }
 
-func TestParseHarness_EmptyAndList(t *testing.T) {
-	_, err := ParseHarness("")
+func TestParseHarnessForList_Single(t *testing.T) {
+	got, err := ParseHarnessForList("cursor")
+	require.NoError(t, err)
+	assert.Equal(t, "cursor", got)
+}
+
+func TestParseHarnessForList_RejectsCommaSeparated(t *testing.T) {
+	_, err := ParseHarnessForList("cursor,claude-code")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "one harness name")
+}
+
+func TestParseHarnessList_EmptyAndDuplicates(t *testing.T) {
+	_, err := ParseHarnessList("")
 	require.Error(t, err)
 
-	_, err = ParseHarness("cursor,claude-code")
+	_, err = ParseHarnessList("cursor,,claude-code")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "one harness name only")
+	assert.Contains(t, err.Error(), "empty name")
+
+	_, err = ParseHarnessList("cursor,cursor")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "more than once")
 }
 
 func TestResolveAgent_Unknown(t *testing.T) {
