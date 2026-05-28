@@ -8,7 +8,7 @@ require (
 	github.com/forPelevin/gomoji v1.4.1
 	github.com/google/go-containerregistry v0.21.3
 	github.com/jedib0t/go-pretty/v6 v6.7.10
-	github.com/jfrog/build-info-go v1.13.1-0.20260526201157-3dd942bd9e1f
+	github.com/jfrog/build-info-go v1.13.1-0.20260528065004-80409c046540
 	github.com/jfrog/gofrog v1.7.6
 	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260522091649-43f236276873
 	github.com/jfrog/jfrog-cli-evidence v0.9.0
@@ -205,5 +205,3 @@ require (
 // replace github.com/gfleury/go-bitbucket-v1 => github.com/gfleury/go-bitbucket-v1 v0.0.0-20230825095122-9bc1711434ab
 
 // replace github.com/ktrysmt/go-bitbucket => github.com/ktrysmt/go-bitbucket v0.9.80
-
-replace github.com/jfrog/build-info-go => github.com/Phavya-jfrog/build-info-go v1.13.1-0.20260527083816-99f98732e17d
