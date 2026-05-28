@@ -8,5 +8,5 @@ const envDisableQuietFailure = "JFROG_SKILLS_DISABLE_QUIET_FAILURE"
 // on missing evidence. Default is to fail; set JFROG_SKILLS_DISABLE_QUIET_FAILURE=true
 // to override and allow installation without evidence.
 func ShouldFailOnMissingEvidence() bool {
-	return !agentcommon.EnvBool(envDisableQuietFailure)
+	return !agentcommon.IsEnvTrue(envDisableQuietFailure)
 }

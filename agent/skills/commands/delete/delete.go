@@ -102,8 +102,7 @@ func RunDelete(c *components.Context) error {
 		return err
 	}
 
-	quiet := agentcommon.IsQuiet(c)
-	repoKey, err := agentcommon.ResolveRepo(serverDetails, c.GetStringFlagValue("repo"), quiet, common.RepoOptions())
+	repoKey, err := agentcommon.ResolveRepo(serverDetails, c.GetStringFlagValue("repo"), agentcommon.IsQuiet(c), common.RepoOptions())
 	if err != nil {
 		return err
 	}

@@ -39,7 +39,7 @@ type XrayGateParams struct {
 // It polls until a terminal status is reached, then acts based on the result.
 // Returns an error only if the scan detects malicious content (BLOCKED).
 func CheckXrayGate(params XrayGateParams) error {
-	if params.SkipScan || agentcommon.EnvBool(envSkipSkillsScan) {
+	if params.SkipScan || agentcommon.IsEnvTrue(envSkipSkillsScan) {
 		log.Info("Xray scan check skipped.")
 		return nil
 	}
