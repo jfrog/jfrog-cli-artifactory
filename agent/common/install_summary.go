@@ -32,6 +32,17 @@ type summaryJSON struct {
 	Results []SummaryRow `json:"results"`
 }
 
+// InstallFailureRow builds a failed install/update summary row for one target.
+func InstallFailureRow(agentName, scope, destinationDir string, err error) SummaryRow {
+	return SummaryRow{
+		Agent:  agentName,
+		Scope:  scope,
+		Path:   destinationDir,
+		Status: SummaryStatusFailed,
+		Detail: err.Error(),
+	}
+}
+
 // PrintInstallSummary renders a table or JSON summary of an install/update run.
 // entityLabel is used in the table heading (e.g. "Skill" or "Plugin").
 func PrintInstallSummary(entityLabel, slug, version string, results []SummaryRow, format string) error {

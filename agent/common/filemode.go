@@ -11,5 +11,8 @@ const DefaultDirMode fs.FileMode = 0o755
 // InstallDirMode is rwxr-x--- for directories created during agent install, unzip, and copy.
 const InstallDirMode fs.FileMode = 0o750
 
+// InstallManifestFileMode is rw-r----- for .jfrog/*-info.json install manifests.
+const InstallManifestFileMode fs.FileMode = 0o640
+
 // DefaultFileMode is rw-r--r-- for regular file entries in publish zips on Unix.
 const DefaultFileMode fs.FileMode = 0o644

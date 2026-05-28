@@ -35,3 +35,35 @@ func TestValidateExistingDir(t *testing.T) {
 
 	require.Error(t, ValidateExistingDir(filepath.Join(dir, "missing")))
 }
+
+func TestResolvePathInstallBase_OK(t *testing.T) {
+	abs, err := ResolvePathInstallBase(InstallFlagInput{PathInstallBase: t.TempDir()})
+	require.NoError(t, err)
+	assert.NotEmpty(t, abs)
+}
+
+func TestResolvePathInstallBase_NotPathMode(t *testing.T) {
+	abs, err := ResolvePathInstallBase(InstallFlagInput{RawHarness: "cursor"})
+	require.NoError(t, err)
+	assert.Empty(t, abs)
+}
+
+func TestResolveInstallProjectDir(t *testing.T) {
+	projectDir := t.TempDir()
+	abs, err := ResolveInstallProjectDir(projectDir, false)
+	require.NoError(t, err)
+	want, err := filepath.Abs(projectDir)
+	require.NoError(t, err)
+	assert.Equal(t, want, abs)
+}
+
+func TestBuildPathInstallTarget(t *testing.T) {
+	base := t.TempDir()
+	target, err := BuildPathInstallTarget("my-package", base)
+	require.NoError(t, err)
+	assert.Equal(t, PathAgentName, target.Agent.Name)
+	assert.Equal(t, InstallScopePath, target.Scope)
+	wantDest, err := filepath.Abs(filepath.Join(base, "my-package"))
+	require.NoError(t, err)
+	assert.Equal(t, wantDest, target.DestinationDir)
+}

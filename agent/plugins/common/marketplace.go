@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
@@ -52,7 +53,7 @@ func DownloadMarketplace(serverDetails *config.ServerDetails, repoKey, harness s
 	}
 	cleanup := func() { _ = os.RemoveAll(tmpDir) }
 
-	serviceManager, err := utils.CreateDownloadServiceManager(serverDetails, 1, 3, 0, false, nil)
+	serviceManager, err := utils.CreateDownloadServiceManager(serverDetails, agentcommon.PackageDownloadThreads, agentcommon.PackageDownloadRetries, 0, false, nil)
 	if err != nil {
 		cleanup()
 		return "", func() {}, err

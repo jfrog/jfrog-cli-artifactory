@@ -1,27 +1,15 @@
 package common
 
 import (
-	"encoding/json"
 	"fmt"
-	"path/filepath"
-	"sort"
 	"strings"
 
 	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 )
 
-// AgentConfig holds the skills directory paths for an AI agent.
-type AgentConfig struct {
-	GlobalDir  string `json:"globalDir"`
-	ProjectDir string `json:"projectDir"`
-}
+type AgentConfig = agentcommon.AgentConfig
 
-// AgentSpec is a resolved agent; FromConfig marks JSON vs built-in.
-type AgentSpec struct {
-	Name       string
-	Config     AgentConfig
-	FromConfig bool
-}
+type AgentSpec = agentcommon.AgentSpec
 
 // Agents is built-in defaults; merged with ~/.jfrog/agents/agent-config.json.
 // Reference: https://github.com/vercel-labs/skills/pull/76/changes#diff-b335630551682c19a781afebcf4d07bf978fb1f8ac04c6bf87428ed5106870f5R172
@@ -34,61 +22,11 @@ var Agents = map[string]AgentConfig{
 	"cross-agent":    {GlobalDir: "~/.agents/skills", ProjectDir: ".agents/skills"},
 }
 
-// LoadAgentRegistry merges the agent-config.json "skills-agents" section over built-in
-// Agents (keys lowercased). A missing file or section is not an error; built-in defaults
-// are returned unchanged.
-func LoadAgentRegistry() (map[string]AgentSpec, error) {
-	registry := make(map[string]AgentSpec, len(Agents))
-	for name, config := range Agents {
-		registry[strings.ToLower(name)] = AgentSpec{
-			Name:       name,
-			Config:     config,
-			FromConfig: false,
-		}
-	}
-
-	section, path, err := agentcommon.LoadAgentConfigSection(agentcommon.SkillsAgentsKey)
-	if err != nil {
-		return nil, err
-	}
-	if section == nil {
-		return registry, nil
-	}
-
-	var agentsFromConfig map[string]AgentConfig
-	if err := json.Unmarshal(section, &agentsFromConfig); err != nil {
-		return nil, fmt.Errorf("failed to parse %q in %s: %w", agentcommon.SkillsAgentsKey, path, err)
-	}
-
-	for name, config := range agentsFromConfig {
-		normalizedName := strings.ToLower(strings.TrimSpace(name))
-		if normalizedName == "" {
-			return nil, fmt.Errorf("agent config %s contains an entry with an empty name", path)
-		}
-		if config.GlobalDir == "" && config.ProjectDir == "" {
-			return nil, fmt.Errorf("agent %q in %s must define globalDir and/or projectDir", name, path)
-		}
-		registry[normalizedName] = AgentSpec{
-			Name:       normalizedName,
-			Config:     config,
-			FromConfig: true,
-		}
-	}
-
-	return registry, nil
-}
-
-// ResolveAgent returns spec or an error listing supported agents.
-func ResolveAgent(registry map[string]AgentSpec, name string) (AgentSpec, error) {
-	normalizedName := strings.ToLower(strings.TrimSpace(name))
-	if normalizedName == "" {
-		return AgentSpec{}, fmt.Errorf("agent name is required.\n%s", AgentRegistryHelp(registry))
-	}
-	spec, ok := registry[normalizedName]
-	if !ok {
-		return AgentSpec{}, fmt.Errorf("unknown agent %q.\n%s", name, AgentRegistryHelp(registry))
-	}
-	return spec, nil
+// RegistryHelp configures agent-config.json help text for skills harness resolution.
+var RegistryHelp = agentcommon.AgentRegistryHelpExample{
+	ConfigSectionKey:  agentcommon.SkillsAgentsKey,
+	ExampleProjectDir: ".my-agent/skills",
+	ExampleGlobalDir:  "~/.my-agent/skills",
 }
 
 // ParseHarnessList parses comma-separated harness names (trim, lowercase, reject empty/duplicates).
@@ -123,74 +61,4 @@ func ParseHarnessForList(raw string) (string, error) {
 		return "", fmt.Errorf("--harness for list accepts one harness name, not a comma-separated list: %q", raw)
 	}
 	return names[0], nil
-}
-
-// AgentNames returns the registry's agent names, sorted alphabetically.
-func AgentNames(registry map[string]AgentSpec) string {
-	names := make([]string, 0, len(registry))
-	for name := range registry {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return strings.Join(names, ", ")
-}
-
-// AgentRegistryHelp lists agents/paths and how to edit agent-config.json.
-func AgentRegistryHelp(registry map[string]AgentSpec) string {
-	configPath, _ := agentcommon.AgentConfigPath()
-	keys := make([]string, 0, len(registry))
-	for name := range registry {
-		keys = append(keys, name)
-	}
-	sort.Strings(keys)
-
-	var helpBuf strings.Builder
-	helpBuf.WriteString("Supported agents:\n")
-	for _, name := range keys {
-		spec := registry[name]
-		fmt.Fprintf(&helpBuf, "  - %s (project: %s, global: %s)\n", name, spec.Config.ProjectDir, spec.Config.GlobalDir)
-	}
-	fmt.Fprintf(&helpBuf, "\nTo add or override an agent, edit %s. Example:\n", configPath)
-	helpBuf.WriteString(`  {
-    "skills-agents": {
-      "my-agent": { "projectDir": ".my-agent/skills", "globalDir": "~/.my-agent/skills" }
-    }
-  }`)
-	return helpBuf.String()
-}
-
-// ResolveAgentInstallDir is absolute global dir or projectDir + project-relative path.
-func ResolveAgentInstallDir(spec AgentSpec, projectDir string, global bool) (string, error) {
-	if global {
-		dir := agentcommon.ExpandHome(spec.Config.GlobalDir)
-		if dir == "" {
-			return "", fmt.Errorf("agent %q has no global directory configured", spec.Name)
-		}
-		abs, err := filepath.Abs(dir)
-		if err != nil {
-			return "", fmt.Errorf("invalid global path for agent %q: %w", spec.Name, err)
-		}
-		return abs, nil
-	}
-	if spec.Config.ProjectDir == "" {
-		return "", fmt.Errorf("agent %q has no project directory configured", spec.Name)
-	}
-	if projectDir == "" {
-		projectDir = "."
-	}
-	return filepath.Abs(filepath.Join(projectDir, spec.Config.ProjectDir))
-}
-
-// SupportedAgentsList is comma-separated names from registry or built-ins.
-func SupportedAgentsList() string {
-	registry, err := LoadAgentRegistry()
-	if err != nil || len(registry) == 0 {
-		names := make([]string, 0, len(Agents))
-		for name := range Agents {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		return strings.Join(names, ", ")
-	}
-	return AgentNames(registry)
 }

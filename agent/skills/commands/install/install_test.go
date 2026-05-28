@@ -77,7 +77,7 @@ func TestCopyExtractedToTargets_WritesInstallManifest(t *testing.T) {
 	require.Len(t, rows, 1)
 	assert.Equal(t, agentcommon.SummaryStatusOK, rows[0].Status)
 
-	got, err := common.ReadSkillInfoManifest(dest)
+	got, err := agentcommon.ReadInstallInfoManifest(dest, common.SkillInfoManifestFile)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "skills-repo", got.Repo)

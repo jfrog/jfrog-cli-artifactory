@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,7 +29,7 @@ func writeAgentConfig(t *testing.T, home, body string) {
 func TestLoadAgentRegistry_BuiltInsOnly(t *testing.T) {
 	withJfrogHome(t)
 
-	registry, err := LoadAgentRegistry()
+	registry, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.PluginsAgentsKey)
 	require.NoError(t, err)
 
 	for _, name := range []string{"claude", "cursor", "codex"} {
@@ -49,7 +50,7 @@ func TestLoadAgentRegistry_OverridesAndAdds(t *testing.T) {
 		}
 	}`)
 
-	registry, err := LoadAgentRegistry()
+	registry, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.PluginsAgentsKey)
 	require.NoError(t, err)
 
 	cursor := registry["cursor"]
@@ -71,7 +72,7 @@ func TestLoadAgentRegistry_IgnoresSkillsAgents(t *testing.T) {
 		"skills-agents": {"my-agent": {"projectDir": "x", "globalDir": "y"}}
 	}`)
 
-	registry, err := LoadAgentRegistry()
+	registry, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.PluginsAgentsKey)
 	require.NoError(t, err)
 
 	_, ok := registry["my-agent"]
@@ -82,7 +83,7 @@ func TestLoadAgentRegistry_RejectsEmptyEntry(t *testing.T) {
 	home := withJfrogHome(t)
 	writeAgentConfig(t, home, `{"plugins-agents": {"broken": {}}}`)
 
-	_, err := LoadAgentRegistry()
+	_, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.PluginsAgentsKey)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must define globalDir and/or projectDir")
 }
@@ -103,10 +104,10 @@ func TestParseSingleHarness(t *testing.T) {
 
 func TestResolveAgent_Unknown(t *testing.T) {
 	withJfrogHome(t)
-	registry, err := LoadAgentRegistry()
+	registry, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.PluginsAgentsKey)
 	require.NoError(t, err)
 
-	_, err = ResolveAgent(registry, "no-such-agent")
+	_, err = agentcommon.ResolveAgent(registry, "no-such-agent", RegistryHelp)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Supported agents")
 	assert.Contains(t, err.Error(), "claude")
@@ -116,14 +117,14 @@ func TestResolveAgentInstallDir_GlobalAndProject(t *testing.T) {
 	withJfrogHome(t)
 	spec := AgentSpec{Name: "cursor", Config: AgentConfig{GlobalDir: "/abs/cursor/plugins", ProjectDir: ".cursor/plugins"}}
 
-	abs, err := ResolveAgentInstallDir(spec, "", true)
+	abs, err := agentcommon.ResolveAgentInstallDir(spec, "", true)
 	require.NoError(t, err)
 	want, err := filepath.Abs("/abs/cursor/plugins")
 	require.NoError(t, err)
 	assert.Equal(t, want, abs)
 
 	projectRoot := t.TempDir()
-	abs, err = ResolveAgentInstallDir(spec, projectRoot, false)
+	abs, err = agentcommon.ResolveAgentInstallDir(spec, projectRoot, false)
 	require.NoError(t, err)
 	wantProject, err := filepath.Abs(filepath.Join(projectRoot, spec.Config.ProjectDir))
 	require.NoError(t, err)
@@ -132,7 +133,7 @@ func TestResolveAgentInstallDir_GlobalAndProject(t *testing.T) {
 
 func TestSupportedAgentsList_OnlyPluginAgents(t *testing.T) {
 	withJfrogHome(t)
-	got := SupportedAgentsList()
+	got := agentcommon.SupportedAgentsList(Agents, agentcommon.PluginsAgentsKey)
 	parts := strings.Split(got, ", ")
 	assert.ElementsMatch(t, []string{"claude", "cursor", "codex"}, parts)
 }

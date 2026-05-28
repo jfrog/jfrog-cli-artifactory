@@ -53,7 +53,7 @@ func TestValidateAndResolvePluginMeta_ClaudeManifestWins(t *testing.T) {
 	}
 }
 
-func TestLoadPluginManifestPaths_OverrideFromConfig(t *testing.T) {
+func TestLoadPluginManifestPaths_MergesConfigBeforeDefaults(t *testing.T) {
 	home := withJfrogHome(t)
 	writeAgentConfig(t, home, `{
 		"plugin-manifest-paths": ["custom-dir/plugin.json", "plugin.json"]
@@ -63,8 +63,40 @@ func TestLoadPluginManifestPaths_OverrideFromConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(got) != 2 || got[0] != "custom-dir/plugin.json" {
+	wantPrefix := []string{
+		"custom-dir/plugin.json",
+		"plugin.json",
+		".claude-plugin/plugin.json",
+		".cursor-plugin/plugin.json",
+	}
+	if len(got) < len(wantPrefix) {
 		t.Fatalf("unexpected paths %v", got)
+	}
+	for i, want := range wantPrefix {
+		if got[i] != want {
+			t.Fatalf("got[%d] = %q, want %q (full list %v)", i, got[i], want, got)
+		}
+	}
+	if len(got) != len(KnownManifestRelPaths)+1 {
+		t.Fatalf("expected %d paths (config + defaults minus duplicate plugin.json), got %d: %v",
+			len(KnownManifestRelPaths)+1, len(got), got)
+	}
+}
+
+func TestLoadPluginManifestPaths_ConfigTakesPriorityOverDefault(t *testing.T) {
+	home := withJfrogHome(t)
+	writeAgentConfig(t, home, `{"plugin-manifest-paths": ["custom-dir/plugin.json"]}`)
+
+	dir := t.TempDir()
+	writePluginJSON(t, dir, "plugin.json", map[string]string{"name": "root", "version": "1.0.0"})
+	writePluginJSON(t, dir, "custom-dir/plugin.json", map[string]string{"name": "custom", "version": "2.0.0"})
+
+	meta, err := ValidateAndResolvePluginMeta(dir, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if meta.Name != "custom" {
+		t.Fatalf("expected custom-dir manifest, got %+v", meta)
 	}
 }
 
@@ -102,8 +134,18 @@ func TestKnownManifestRelPaths_AgentPriorityOrder(t *testing.T) {
 func TestValidateAndResolvePluginMeta_MissingAll(t *testing.T) {
 	dir := t.TempDir()
 	_, err := ValidateAndResolvePluginMeta(dir, "")
-	if err == nil || !strings.Contains(err.Error(), "no plugin.json") {
+	if err == nil {
+		t.Fatal("expected no-manifest error")
+	}
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "no plugin.json") {
 		t.Fatalf("expected no-manifest error, got %v", err)
+	}
+	if !strings.Contains(errMsg, "plugin-manifest-paths") {
+		t.Fatalf("expected agent-config hint, got %v", err)
+	}
+	if !strings.Contains(errMsg, "agent-config.json") {
+		t.Fatalf("expected agent-config.json path in hint, got %v", err)
 	}
 }
 

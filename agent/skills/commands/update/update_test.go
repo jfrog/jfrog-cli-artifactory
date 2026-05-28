@@ -51,7 +51,7 @@ func TestPreUpdateTargets_UpToDate(t *testing.T) {
 
 func TestPreUpdateTargets_UpToDate_UsesManifestVersion(t *testing.T) {
 	dir := skillDir(t, "---\nname: web\nversion: 1.0.0\n---\n")
-	require.NoError(t, common.WriteSkillInfoManifest(dir, common.SkillInfoManifest{
+	require.NoError(t, agentcommon.WriteInstallInfoManifest(dir, common.SkillInfoManifestFile, common.SkillInfoManifest{
 		Repo:             "r",
 		Slug:             "web",
 		InstalledVersion: "2.0.0",

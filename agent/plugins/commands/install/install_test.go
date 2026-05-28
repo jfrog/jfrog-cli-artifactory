@@ -98,7 +98,7 @@ func TestCopyExtractedToTarget_WritesPluginInfoManifest(t *testing.T) {
 	require.Len(t, rows, 1)
 	assert.Equal(t, agentcommon.SummaryStatusOK, rows[0].Status)
 
-	got, err := plugincommon.ReadPluginInfoManifest(dest)
+	got, err := agentcommon.ReadInstallInfoManifest(dest, plugincommon.PluginInfoManifestFile)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "plugins-repo", got.Repo)

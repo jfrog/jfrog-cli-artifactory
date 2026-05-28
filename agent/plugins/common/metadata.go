@@ -24,13 +24,9 @@ const manifestJSONIndent = "    "
 // not pass --version.
 const DefaultPluginVersion = "1.0.0"
 
-// KnownManifestRelPaths lists the fixed relative locations checked for plugin.json,
-// in priority order: the supported agent-specific subdirs (claude, cursor, codex) come
-// first so publish picks up an agent-tagged manifest before any generic fallback.
-// The first existing file is the canonical manifest; later paths are ignored.
-// User overrides come from agent-config.json's "plugin-manifest-paths" array; when set,
-// LoadPluginManifestPaths returns that order. Callers that need the resolved list at
-// runtime should use LoadPluginManifestPaths instead of reading this variable directly.
+// KnownManifestRelPaths lists the built-in relative locations checked for plugin.json.
+// agent-config.json "plugin-manifest-paths" entries are prepended (higher priority);
+// defaults fill in any path not already listed. The first existing file wins.
 var KnownManifestRelPaths = []string{
 	".claude-plugin/" + ManifestFileName,
 	".cursor-plugin/" + ManifestFileName,
@@ -40,9 +36,9 @@ var KnownManifestRelPaths = []string{
 	".plugin/" + ManifestFileName,
 }
 
-// LoadPluginManifestPaths returns the ordered list of relative plugin.json locations to
-// check during publish. When agent-config.json defines "plugin-manifest-paths", that
-// list is returned; otherwise the hardcoded KnownManifestRelPaths order is used.
+// LoadPluginManifestPaths returns plugin.json search paths for publish.
+// agent-config.json "plugin-manifest-paths" come first; KnownManifestRelPaths follow,
+// skipping duplicates while preserving order.
 func LoadPluginManifestPaths() ([]string, error) {
 	section, path, err := agentcommon.LoadAgentConfigSection(agentcommon.PluginManifestPathsKey)
 	if err != nil {
@@ -51,14 +47,37 @@ func LoadPluginManifestPaths() ([]string, error) {
 	if section == nil {
 		return append([]string(nil), KnownManifestRelPaths...), nil
 	}
-	var override []string
-	if err := json.Unmarshal(section, &override); err != nil {
+	var fromConfig []string
+	if err := json.Unmarshal(section, &fromConfig); err != nil {
 		return nil, fmt.Errorf("failed to parse %q in %s: %w", agentcommon.PluginManifestPathsKey, path, err)
 	}
-	if len(override) == 0 {
-		return append([]string(nil), KnownManifestRelPaths...), nil
+	return mergePluginManifestPaths(fromConfig), nil
+}
+
+// mergePluginManifestPaths prepends config paths, then appends built-in defaults once each.
+func mergePluginManifestPaths(fromConfig []string) []string {
+	seen := make(map[string]struct{})
+	merged := make([]string, 0, len(fromConfig)+len(KnownManifestRelPaths))
+
+	for _, relativePath := range fromConfig {
+		relativePath = strings.TrimSpace(relativePath)
+		if relativePath == "" {
+			continue
+		}
+		if _, exists := seen[relativePath]; exists {
+			continue
+		}
+		seen[relativePath] = struct{}{}
+		merged = append(merged, relativePath)
 	}
-	return override, nil
+	for _, relativePath := range KnownManifestRelPaths {
+		if _, exists := seen[relativePath]; exists {
+			continue
+		}
+		seen[relativePath] = struct{}{}
+		merged = append(merged, relativePath)
+	}
+	return merged
 }
 
 // PluginMeta is the portable subset of plugin.json used for publish.
@@ -97,11 +116,32 @@ func findPrimaryPluginManifest(pluginRoot string) (relativePath string, meta Plu
 		}
 		return relativePath, meta, nil
 	}
-	return "", PluginMeta{}, fmt.Errorf(
-		"no %s found under %s (checked: %s)",
+	return "", PluginMeta{}, pluginManifestNotFoundError(pluginRoot, relPaths)
+}
+
+func pluginManifestNotFoundError(pluginRoot string, relPaths []string) error {
+	configPath, err := agentcommon.AgentConfigPath()
+	if err != nil {
+		configPath = filepath.Join("~/.jfrog", "agents", "agent-config.json")
+	}
+	return fmt.Errorf(
+		"no %s found under %s (checked: %s).\n\n"+
+			"To search additional locations, edit %s and add relative paths under %q "+
+			"(paths are relative to the plugin directory). Custom paths are checked first, "+
+			"then built-in defaults.\n\n"+
+			"Example:\n"+
+			"  {\n"+
+			"    %q: [\n"+
+			"      \"my-layout/%s\"\n"+
+			"    ]\n"+
+			"  }",
 		ManifestFileName,
 		pluginRoot,
 		strings.Join(relPaths, ", "),
+		configPath,
+		agentcommon.PluginManifestPathsKey,
+		agentcommon.PluginManifestPathsKey,
+		ManifestFileName,
 	)
 }
 

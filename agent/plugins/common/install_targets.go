@@ -2,7 +2,6 @@ package common
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -10,24 +9,17 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 )
 
-// PathAgentName is the synthetic agent name used when --path selects the install target.
-const PathAgentName = "(path)"
+const PathAgentName = agentcommon.PathAgentName
 
-// ScopeMode identifies the install target scope.
-type ScopeMode string
+type ScopeMode = agentcommon.InstallScope
 
 const (
-	ScopeProject ScopeMode = "project"
-	ScopeGlobal  ScopeMode = "global"
-	ScopePath    ScopeMode = "path"
+	ScopeProject = agentcommon.InstallScopeProject
+	ScopeGlobal  = agentcommon.InstallScopeGlobal
+	ScopePath    = agentcommon.InstallScopePath
 )
 
-// AgentTarget pairs an agent spec with the resolved absolute destination directory (includes slug).
-type AgentTarget struct {
-	Agent          AgentSpec
-	Scope          ScopeMode
-	DestinationDir string
-}
+type AgentTarget = agentcommon.InstallTarget
 
 // ValidateInstallFlags validates `--path | (--harness [, --project-dir | --global])` for plugins install.
 // absoluteInstallBaseDir is non-empty when --path was supplied; otherwise spec is resolved from --harness.
@@ -38,36 +30,22 @@ func ValidateInstallFlags(c *components.Context) (absoluteInstallBaseDir string,
 	isGlobal = c.GetBoolFlagValue("global")
 	projectDir := strings.TrimSpace(c.GetStringFlagValue("project-dir"))
 
-	if pathInstallBase != "" {
-		if rawHarness != "" {
-			err = fmt.Errorf("--path cannot be combined with --harness")
-			return
-		}
-		if isGlobal {
-			err = fmt.Errorf("--path cannot be combined with --global")
-			return
-		}
-		if projectDir != "" {
-			err = fmt.Errorf("--path cannot be combined with --project-dir")
-			return
-		}
-		if err = agentcommon.ValidateExistingDir(pathInstallBase); err != nil {
-			err = fmt.Errorf("--path: %w", err)
-			return
-		}
-		absoluteInstallBaseDir, err = filepath.Abs(pathInstallBase)
-		if err != nil {
-			err = fmt.Errorf("invalid --path %q: %w", pathInstallBase, err)
-		}
+	absoluteInstallBaseDir, err = agentcommon.ResolvePathInstallBase(agentcommon.InstallFlagInput{
+		PathInstallBase: pathInstallBase,
+		RawHarness:      rawHarness,
+		ProjectDir:      projectDir,
+		IsGlobal:        isGlobal,
+	})
+	if err != nil || absoluteInstallBaseDir != "" {
 		return
 	}
 
-	registry, err := LoadAgentRegistry()
+	registry, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.PluginsAgentsKey)
 	if err != nil {
 		return
 	}
 	if rawHarness == "" {
-		err = fmt.Errorf("--harness is required unless --path is set. Supported harnesses: %s", AgentNames(registry))
+		err = fmt.Errorf("--harness is required unless --path is set. Supported harnesses: %s", agentcommon.AgentNames(registry))
 		return
 	}
 
@@ -75,34 +53,12 @@ func ValidateInstallFlags(c *components.Context) (absoluteInstallBaseDir string,
 	if err != nil {
 		return
 	}
-
-	spec, err = ResolveAgent(registry, harnessName)
+	spec, err = agentcommon.ResolveAgent(registry, harnessName, RegistryHelp)
 	if err != nil {
 		return
 	}
 
-	if isGlobal && projectDir != "" {
-		err = fmt.Errorf("--global and --project-dir are mutually exclusive, please choose either --global or --project-dir")
-		return
-	}
-
-	if !isGlobal {
-		dir := projectDir
-		if dir == "" {
-			dir = "."
-		}
-		absoluteProjectDir, resolveErr := filepath.Abs(dir)
-		if resolveErr != nil {
-			err = fmt.Errorf("invalid --project-dir %q: %w", dir, resolveErr)
-			return
-		}
-		info, statErr := os.Stat(absoluteProjectDir)
-		if statErr != nil || !info.IsDir() {
-			err = fmt.Errorf("--project-dir %q is not an existing directory", dir)
-			return
-		}
-		projectDirAbs = absoluteProjectDir
-	}
+	projectDirAbs, err = agentcommon.ResolveInstallProjectDir(projectDir, isGlobal)
 	return
 }
 
@@ -111,15 +67,7 @@ func ValidateInstallFlags(c *components.Context) (absoluteInstallBaseDir string,
 // agent's project/global directory is used.
 func ResolveAgentTarget(slug, path string, spec AgentSpec, projectDirAbs string, isGlobal bool) (AgentTarget, error) {
 	if path != "" {
-		base, err := filepath.Abs(path)
-		if err != nil {
-			return AgentTarget{}, fmt.Errorf("invalid install path %q: %w", path, err)
-		}
-		return AgentTarget{
-			Agent:          AgentSpec{Name: PathAgentName},
-			Scope:          ScopePath,
-			DestinationDir: filepath.Join(base, slug),
-		}, nil
+		return agentcommon.BuildPathInstallTarget(slug, path)
 	}
 
 	scope := ScopeProject
@@ -130,7 +78,7 @@ func ResolveAgentTarget(slug, path string, spec AgentSpec, projectDirAbs string,
 		return AgentTarget{}, fmt.Errorf("project directory is required for project-scoped install")
 	}
 
-	base, err := ResolveAgentInstallDir(spec, projectDirAbs, isGlobal)
+	base, err := agentcommon.ResolveAgentInstallDir(spec, projectDirAbs, isGlobal)
 	if err != nil {
 		return AgentTarget{}, err
 	}

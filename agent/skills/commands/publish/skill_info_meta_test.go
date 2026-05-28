@@ -21,7 +21,7 @@ func TestReadInstalledSkillVersion_PrefersManifest(t *testing.T) {
 	skillMd := "---\nname: my-skill\nversion: 1.0.0\ndescription: x\n---\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillMd), 0o644))
 
-	require.NoError(t, common.WriteSkillInfoManifest(dir, common.SkillInfoManifest{
+	require.NoError(t, agentcommon.WriteInstallInfoManifest(dir, common.SkillInfoManifestFile, common.SkillInfoManifest{
 		Repo:             "r",
 		Slug:             "my-skill",
 		InstalledVersion: "2.0.0",
@@ -68,7 +68,7 @@ func TestReadInstalledSkillVersion_ManifestEmptyUsesMeta(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dir, agentcommon.InstallDirMode))
 	skillMd := "---\nname: empty-manifest-ver\nversion: 0.1.0\ndescription: x\n---\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillMd), 0o644))
-	require.NoError(t, common.WriteSkillInfoManifest(dir, common.SkillInfoManifest{
+	require.NoError(t, agentcommon.WriteInstallInfoManifest(dir, common.SkillInfoManifestFile, common.SkillInfoManifest{
 		Repo:             "r",
 		Slug:             "empty-manifest-ver",
 		InstalledVersion: "   ",

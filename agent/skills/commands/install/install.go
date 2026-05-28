@@ -17,14 +17,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-// scope is project (under project root) or global (agent home paths).
-type scope string
-
-const (
-	scopeProject scope = "project"
-	scopeGlobal  scope = "global"
-)
-
 // InstallCommand installs a skill for configured agents or legacy --path (update).
 type InstallCommand struct {
 	serverDetails *config.ServerDetails
@@ -32,7 +24,7 @@ type InstallCommand struct {
 	slug          string
 	version       string
 	agents        []common.AgentSpec
-	scope         scope
+	scope         agentcommon.InstallScope
 	projectDir    string // project root for project scope (--project-dir)
 	// installPath is the base directory for jf agent skills install --path. The skill is installed at
 	// <installPath>/<slug> and takes precedence over --harness / --project-dir / --global.
@@ -45,7 +37,7 @@ type InstallCommand struct {
 }
 
 func NewInstallCommand() *InstallCommand {
-	return &InstallCommand{scope: scopeProject}
+	return &InstallCommand{scope: agentcommon.InstallScopeProject}
 }
 
 func (ic *InstallCommand) SetServerDetails(details *config.ServerDetails) *InstallCommand {
@@ -76,9 +68,9 @@ func (ic *InstallCommand) SetAgents(agents []common.AgentSpec) *InstallCommand {
 // SetGlobal sets global vs project scope.
 func (ic *InstallCommand) SetGlobal(isGlobal bool) *InstallCommand {
 	if isGlobal {
-		ic.scope = scopeGlobal
+		ic.scope = agentcommon.InstallScopeGlobal
 	} else {
-		ic.scope = scopeProject
+		ic.scope = agentcommon.InstallScopeProject
 	}
 	return ic
 }
@@ -153,6 +145,7 @@ func (ic *InstallCommand) Run() error {
 		return fmt.Errorf("failed to create temp dir: %w", err)
 	}
 	defer func() {
+		// Best-effort cleanup of install temp dir.
 		_ = os.RemoveAll(tmpDir)
 	}()
 
@@ -208,15 +201,15 @@ func (ic *InstallCommand) CopyExtractedToTargets(unzipDir string, installTargets
 	results := make([]agentcommon.SummaryRow, 0, len(installTargets))
 	for _, target := range installTargets {
 		if err := agentcommon.EnsureDestinationDir(target.DestinationDir); err != nil {
-			results = append(results, failureRow(target, err))
+			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
 			continue
 		}
 		if err := agentcommon.CopyDir(unzipDir, target.DestinationDir); err != nil {
-			results = append(results, failureRow(target, err))
+			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
 			continue
 		}
 		if err := ic.writeSkillInfoManifest(target); err != nil {
-			results = append(results, failureRow(target, err))
+			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
 			continue
 		}
 		results = append(results, agentcommon.SummaryRow{
@@ -230,24 +223,14 @@ func (ic *InstallCommand) CopyExtractedToTargets(unzipDir string, installTargets
 	return results
 }
 
-func failureRow(target common.AgentTarget, err error) agentcommon.SummaryRow {
-	return agentcommon.SummaryRow{
-		Agent:  target.Agent.Name,
-		Scope:  string(target.Scope),
-		Path:   target.DestinationDir,
-		Status: agentcommon.SummaryStatusFailed,
-		Detail: err.Error(),
-	}
-}
-
 func (ic *InstallCommand) handleEvidenceVerification() error {
 	err := ic.verifyEvidence()
 	if err == nil {
 		return nil
 	}
 	if ic.quiet || agentcommon.IsNonInteractive() {
-		if common.ShouldFailOnMissingEvidence() {
-			return fmt.Errorf("evidence verification failed for skill '%s': %s. Set JFROG_SKILLS_DISABLE_QUIET_FAILURE=true to proceed without evidence", ic.slug, err.Error())
+		if agentcommon.ShouldFailOnMissingEvidenceForSkills() {
+			return fmt.Errorf("evidence verification failed for skill '%s': %s. %s", ic.slug, err.Error(), agentcommon.DisableQuietFailureEvidenceHintForSkills())
 		}
 		log.Warn(fmt.Sprintf("Evidence verification failed for skill '%s': %s. Proceeding with installation.", ic.slug, err.Error()))
 		return nil
@@ -267,10 +250,10 @@ func (ic *InstallCommand) resolveAgentTargetDirectories() ([]common.AgentTarget,
 	if ic.installPath != "" {
 		return common.ResolveAgentTargets(ic.slug, ic.installPath, nil, "", false)
 	}
-	if ic.scope == scopeProject && ic.projectDir == "" {
+	if ic.scope == agentcommon.InstallScopeProject && ic.projectDir == "" {
 		return nil, fmt.Errorf("project directory is required for project-scoped install")
 	}
-	isGlobal := ic.scope == scopeGlobal
+	isGlobal := ic.scope == agentcommon.InstallScopeGlobal
 	return common.ResolveAgentTargets(ic.slug, "", ic.agents, ic.projectDir, isGlobal)
 }
 
@@ -280,8 +263,8 @@ func (ic *InstallCommand) writeSkillInfoManifest(target common.AgentTarget) erro
 	if dirName != "" && dirName != slug {
 		log.Warn(fmt.Sprintf("Install directory name %q differs from slug %q; manifest will record slug %q for API consistency", dirName, slug, slug))
 	}
-	manifest := common.SkillInfoManifest{
-		SchemaVersion:    common.SkillInfoManifestSchemaVersion,
+	manifest := agentcommon.InstallInfoManifest{
+		SchemaVersion:    agentcommon.InstallInfoManifestSchemaVersion,
 		Repo:             ic.repoKey,
 		Slug:             slug,
 		InstalledVersion: ic.version,
@@ -291,36 +274,11 @@ func (ic *InstallCommand) writeSkillInfoManifest(target common.AgentTarget) erro
 	if target.Scope == common.ScopeProject && ic.projectDir != "" {
 		manifest.ProjectDir = ic.projectDir
 	}
-	return common.WriteSkillInfoManifest(target.DestinationDir, manifest)
+	return agentcommon.WriteInstallInfoManifest(target.DestinationDir, common.SkillInfoManifestFile, manifest)
 }
 
 func (ic *InstallCommand) downloadZip(tmpDir string) (string, error) {
-	serviceManager, err := utils.CreateDownloadServiceManager(ic.serverDetails, 1, 3, 0, false, nil)
-	if err != nil {
-		return "", err
-	}
-
-	pattern := fmt.Sprintf("%s/%s/%s/%s-%s.zip", ic.repoKey, ic.slug, ic.version, ic.slug, ic.version)
-
-	downloadParams := services.NewDownloadParams()
-	downloadParams.Pattern = pattern
-	downloadParams.Target = tmpDir + "/"
-	downloadParams.Flat = true
-
-	totalDownloaded, totalFailed, err := serviceManager.DownloadFiles(downloadParams)
-	if err != nil {
-		return "", err
-	}
-	if totalFailed > 0 {
-		return "", fmt.Errorf("download failed for %s", pattern)
-	}
-	if totalDownloaded == 0 {
-		return "", fmt.Errorf("skill '%s' version '%s' not found in repository '%s'", ic.slug, ic.version, ic.repoKey)
-	}
-
-	zipName := fmt.Sprintf("%s-%s.zip", ic.slug, ic.version)
-	zipPath := filepath.Join(tmpDir, zipName)
-	return zipPath, nil
+	return agentcommon.DownloadPackageZip(ic.serverDetails, ic.repoKey, ic.slug, ic.version, tmpDir, "skill")
 }
 
 // diagnoseDownloadForbidden checks the Xray status API when a download returns 403.
@@ -343,15 +301,7 @@ func (ic *InstallCommand) diagnoseDownloadForbidden(originalErr error) error {
 }
 
 func (ic *InstallCommand) verifyEvidence() error {
-	if ic.repoKey == "" || ic.slug == "" || ic.version == "" {
-		return fmt.Errorf("cannot verify evidence: repoKey, slug, and version must all be set")
-	}
-
-	subjectRepoPath := fmt.Sprintf("%s/%s/%s/%s-%s.zip", ic.repoKey, ic.slug, ic.version, ic.slug, ic.version)
-
-	return agentcommon.VerifyEvidence(ic.serverDetails, agentcommon.VerifyEvidenceOpts{
-		SubjectRepoPath: subjectRepoPath,
-	})
+	return agentcommon.VerifyPackageEvidence(ic.serverDetails, ic.repoKey, ic.slug, ic.version)
 }
 
 // RunInstall is the CLI action for `jf agent skills install`.
