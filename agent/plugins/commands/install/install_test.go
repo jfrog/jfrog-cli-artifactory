@@ -1,0 +1,117 @@
+package install
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
+	plugincommon "github.com/jfrog/jfrog-cli-artifactory/agent/plugins/common"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestResolveAgentTarget_ProjectScope(t *testing.T) {
+	projectRoot := t.TempDir()
+	cmd := NewInstallCommand().
+		SetSlug("my-plugin").
+		SetAgent(plugincommon.AgentSpec{Name: "claude", Config: plugincommon.AgentConfig{ProjectDir: ".claude/plugins"}}).
+		SetProjectDir(projectRoot)
+
+	target, err := cmd.resolveAgentTarget()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(projectRoot, ".claude", "plugins", "my-plugin"), target.DestinationDir)
+}
+
+func TestResolveAgentTarget_GlobalScope(t *testing.T) {
+	globalBase := filepath.Join(t.TempDir(), "global", ".cursor", "plugins")
+	wantBase, err := filepath.Abs(globalBase)
+	require.NoError(t, err)
+
+	cmd := NewInstallCommand().
+		SetSlug("alpha").
+		SetAgent(plugincommon.AgentSpec{Name: "cursor", Config: plugincommon.AgentConfig{GlobalDir: globalBase}}).
+		SetGlobal(true)
+
+	target, err := cmd.resolveAgentTarget()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(wantBase, "alpha"), target.DestinationDir)
+}
+
+func TestResolveAgentTarget_LegacyInstallPath(t *testing.T) {
+	tmp := t.TempDir()
+	cmd := NewInstallCommand().SetSlug("legacy").SetInstallPath(tmp)
+	target, err := cmd.resolveAgentTarget()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(tmp, "legacy"), target.DestinationDir)
+}
+
+func TestResolveVersion_ExplicitOverridesMarketplace(t *testing.T) {
+	cmd := NewInstallCommand().
+		SetSlug("my-plugin").
+		SetAgent(plugincommon.AgentSpec{Name: "claude"}).
+		SetVersion("1.0.0")
+
+	got, err := cmd.resolveVersion()
+	require.NoError(t, err)
+	assert.Equal(t, "1.0.0", got)
+}
+
+func TestResolveVersion_EmptyVersionWithPathResolvesLatest(t *testing.T) {
+	restore := resolveLatestPluginVersion
+	resolveLatestPluginVersion = func(_ *config.ServerDetails, repoKey, slug string) (string, error) {
+		assert.Equal(t, "plugins-repo", repoKey)
+		assert.Equal(t, "my-plugin", slug)
+		return "1.2.3", nil
+	}
+	t.Cleanup(func() { resolveLatestPluginVersion = restore })
+
+	cmd := NewInstallCommand().
+		SetSlug("my-plugin").
+		SetRepoKey("plugins-repo").
+		SetInstallPath(t.TempDir())
+
+	got, err := cmd.resolveVersion()
+	require.NoError(t, err)
+	assert.Equal(t, "1.2.3", got)
+}
+
+func TestCopyExtractedToTarget_WritesPluginInfoManifest(t *testing.T) {
+	src := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(src, "plugin.json"), []byte(`{"name":"my-plugin","version":"1.0.0"}`), 0o644))
+	dest := filepath.Join(t.TempDir(), "my-plugin")
+	projectRoot := t.TempDir()
+
+	ic := NewInstallCommand().
+		SetRepoKey("plugins-repo").
+		SetSlug("my-plugin").
+		SetVersion("1.2.3").
+		SetProjectDir(projectRoot)
+
+	target := plugincommon.AgentTarget{
+		Agent:          plugincommon.AgentSpec{Name: "claude"},
+		DestinationDir: dest,
+		Scope:          plugincommon.ScopeProject,
+	}
+	rows := ic.copyExtractedToTarget(src, target)
+	require.Len(t, rows, 1)
+	assert.Equal(t, agentcommon.SummaryStatusOK, rows[0].Status)
+
+	got, err := plugincommon.ReadPluginInfoManifest(dest)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "plugins-repo", got.Repo)
+	assert.Equal(t, "my-plugin", got.Slug)
+	assert.Equal(t, "1.2.3", got.InstalledVersion)
+	assert.Equal(t, "project", got.Scope)
+	assert.Equal(t, "claude", got.Agent)
+	assert.Equal(t, projectRoot, got.ProjectDir)
+}
+
+func TestRun_MissingHarnessAndPath(t *testing.T) {
+	cmd := NewInstallCommand().SetSlug("my-plugin")
+	err := cmd.Run()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--harness is required")
+}

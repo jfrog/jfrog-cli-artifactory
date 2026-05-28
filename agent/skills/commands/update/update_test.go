@@ -7,20 +7,12 @@ import (
 	"path/filepath"
 	"testing"
 
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/skills/commands/install"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/skills/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestValidateExistingDir_NotADirectory(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "not-a-dir")
-	require.NoError(t, os.WriteFile(file, []byte("x"), 0o644))
-
-	err := common.ValidateExistingDir(file)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not a directory")
-}
 
 func TestReserveUpdateBackupPath(t *testing.T) {
 	base := t.TempDir()
@@ -98,31 +90,31 @@ func TestInitialResultsAndUpdatable_Mixed(t *testing.T) {
 	results, updatable := initialResultsAndUpdatable(checks, "2.0.0")
 	require.Len(t, results, 2)
 	require.Len(t, updatable, 1)
-	assert.Equal(t, install.SummaryStatusFailed, results[0].Status)
-	assert.Equal(t, install.SummaryStatusSkipped, results[1].Status)
+	assert.Equal(t, agentcommon.SummaryStatusFailed, results[0].Status)
+	assert.Equal(t, agentcommon.SummaryStatusSkipped, results[1].Status)
 	assert.Equal(t, "a3", updatable[0].agentTarget.Agent.Name)
 }
 
 func TestFinalError_AllOK(t *testing.T) {
-	results := []install.SummaryRow{
-		{Status: install.SummaryStatusOK},
-		{Status: install.SummaryStatusSkipped},
+	results := []agentcommon.SummaryRow{
+		{Status: agentcommon.SummaryStatusOK},
+		{Status: agentcommon.SummaryStatusSkipped},
 	}
 	require.NoError(t, finalError(results))
 }
 
 func TestFinalError_PartialSuccess(t *testing.T) {
-	results := []install.SummaryRow{
-		{Status: install.SummaryStatusFailed},
-		{Status: install.SummaryStatusOK},
+	results := []agentcommon.SummaryRow{
+		{Status: agentcommon.SummaryStatusFailed},
+		{Status: agentcommon.SummaryStatusOK},
 	}
 	require.NoError(t, finalError(results))
 }
 
 func TestFinalError_AllFailed(t *testing.T) {
-	results := []install.SummaryRow{
-		{Status: install.SummaryStatusFailed},
-		{Status: install.SummaryStatusFailed},
+	results := []agentcommon.SummaryRow{
+		{Status: agentcommon.SummaryStatusFailed},
+		{Status: agentcommon.SummaryStatusFailed},
 	}
 	err := finalError(results)
 	require.Error(t, err)
@@ -145,8 +137,8 @@ func TestUpdateOneSkill_SuccessRemovesBackup(t *testing.T) {
 
 	installCommand := install.NewInstallCommand()
 	row := updateOneSkill(src, installCommand, check)
-	assert.Equal(t, install.SummaryStatusOK, row.Status)
-	assert.Equal(t, install.SummaryDetailOKInstall, row.Detail)
+	assert.Equal(t, agentcommon.SummaryStatusOK, row.Status)
+	assert.Equal(t, agentcommon.SummaryDetailOKInstall, row.Detail)
 
 	entries, err := os.ReadDir(filepath.Dir(dir))
 	require.NoError(t, err)

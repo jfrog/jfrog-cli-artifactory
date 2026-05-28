@@ -20,11 +20,6 @@ func TestResolveAgentTargets_PathMode(t *testing.T) {
 	assert.Equal(t, ScopePath, targets[0].Scope)
 }
 
-func TestValidateExistingDir_InvalidPath(t *testing.T) {
-	err := ValidateExistingDir("/nonexistent/path/that/does/not/exist")
-	require.Error(t, err)
-}
-
 func newInstallTestContext() *components.Context {
 	ctx := &components.Context{}
 	ctx.PrintCommandHelp = func(string) error { return nil }

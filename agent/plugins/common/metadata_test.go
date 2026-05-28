@@ -38,17 +38,64 @@ func TestValidateAndResolvePluginMeta_SingleRootManifest(t *testing.T) {
 	}
 }
 
-func TestValidateAndResolvePluginMeta_FirstManifestWins(t *testing.T) {
+func TestValidateAndResolvePluginMeta_ClaudeManifestWins(t *testing.T) {
 	dir := t.TempDir()
 	writePluginJSON(t, dir, "plugin.json", map[string]string{"name": "root", "version": "1.0.0"})
-	writePluginJSON(t, dir, ".cursor-plugin/plugin.json", map[string]string{"name": "cursor", "version": "9.9.9"})
+	writePluginJSON(t, dir, ".cursor-plugin/plugin.json", map[string]string{"name": "cursor", "version": "8.8.8"})
+	writePluginJSON(t, dir, ".claude-plugin/plugin.json", map[string]string{"name": "claude", "version": "9.9.9"})
 
 	meta, err := ValidateAndResolvePluginMeta(dir, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if meta.Name != "root" || meta.Version != "1.0.0" {
-		t.Fatalf("expected root plugin.json to win, got %+v", meta)
+	if meta.Name != "claude" || meta.Version != "9.9.9" {
+		t.Fatalf("expected .claude-plugin/plugin.json to win, got %+v", meta)
+	}
+}
+
+func TestLoadPluginManifestPaths_OverrideFromConfig(t *testing.T) {
+	home := withJfrogHome(t)
+	writeAgentConfig(t, home, `{
+		"plugin-manifest-paths": ["custom-dir/plugin.json", "plugin.json"]
+	}`)
+
+	got, err := LoadPluginManifestPaths()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 2 || got[0] != "custom-dir/plugin.json" {
+		t.Fatalf("unexpected paths %v", got)
+	}
+}
+
+func TestLoadPluginManifestPaths_FallbackOrder(t *testing.T) {
+	withJfrogHome(t)
+
+	got, err := LoadPluginManifestPaths()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got[0] != ".claude-plugin/plugin.json" {
+		t.Fatalf("expected .claude-plugin first, got %v", got)
+	}
+}
+
+func TestKnownManifestRelPaths_AgentPriorityOrder(t *testing.T) {
+	want := []string{
+		".claude-plugin/plugin.json",
+		".cursor-plugin/plugin.json",
+		".codex-plugin/plugin.json",
+		"plugin.json",
+		".github/plugin/plugin.json",
+		".plugin/plugin.json",
+	}
+	if len(KnownManifestRelPaths) != len(want) {
+		t.Fatalf("KnownManifestRelPaths length = %d, want %d", len(KnownManifestRelPaths), len(want))
+	}
+	for i, p := range want {
+		if KnownManifestRelPaths[i] != p {
+			t.Fatalf("KnownManifestRelPaths[%d] = %q, want %q", i, KnownManifestRelPaths[i], p)
+		}
 	}
 }
 
@@ -109,21 +156,21 @@ func TestValidateAndResolvePluginMeta_EmptyName(t *testing.T) {
 	}
 }
 
-func TestDiscoverPluginManifests_OnlyKnownPaths(t *testing.T) {
+func TestFindPrimaryPluginManifest_OnlyKnownPaths(t *testing.T) {
 	dir := t.TempDir()
 	writePluginJSON(t, dir, ".github/plugin/plugin.json", map[string]string{"name": "demo", "version": "1.0.0"})
 	// An unknown location must not be discovered.
 	writePluginJSON(t, dir, "other-dir/plugin.json", map[string]string{"name": "ignore-me", "version": "9.9.9"})
 
-	manifests, err := DiscoverPluginManifests(dir)
+	relPath, meta, err := findPrimaryPluginManifest(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(manifests) != 1 {
-		t.Fatalf("expected exactly one manifest, got %d: %+v", len(manifests), manifests)
+	if relPath != ".github/plugin/plugin.json" {
+		t.Fatalf("expected .github/plugin/plugin.json, got %s", relPath)
 	}
-	if _, ok := manifests[".github/plugin/plugin.json"]; !ok {
-		t.Fatalf("expected .github/plugin/plugin.json in manifests, got %+v", manifests)
+	if meta.Name != "demo" || meta.Version != "1.0.0" {
+		t.Fatalf("unexpected meta %+v", meta)
 	}
 }
 
@@ -221,25 +268,25 @@ func TestWritePluginManifestVersion_ReplacesOnlyFirstVersionField(t *testing.T) 
 
 func TestUpdatePluginManifestVersions_OnlyPrimaryManifest(t *testing.T) {
 	dir := t.TempDir()
+	writePluginJSON(t, dir, ".claude-plugin/plugin.json", map[string]string{"name": "demo", "version": "1.0.0"})
 	writePluginJSON(t, dir, "plugin.json", map[string]string{"name": "demo", "version": "1.0.0"})
-	writePluginJSON(t, dir, ".cursor-plugin/plugin.json", map[string]string{"name": "demo", "version": "1.0.0"})
 
 	if err := UpdatePluginManifestVersions(dir, "2.0.0"); err != nil {
 		t.Fatalf("update: %v", err)
+	}
+	primary, err := os.ReadFile(filepath.Join(dir, ".claude-plugin/plugin.json"))
+	if err != nil {
+		t.Fatalf("read primary: %v", err)
+	}
+	if !strings.Contains(string(primary), "2.0.0") {
+		t.Fatalf("expected .claude-plugin/plugin.json updated, got %s", string(primary))
 	}
 	root, err := os.ReadFile(filepath.Join(dir, "plugin.json"))
 	if err != nil {
 		t.Fatalf("read root: %v", err)
 	}
-	if !strings.Contains(string(root), "2.0.0") {
-		t.Fatalf("expected root manifest updated, got %s", string(root))
-	}
-	cursor, err := os.ReadFile(filepath.Join(dir, ".cursor-plugin/plugin.json"))
-	if err != nil {
-		t.Fatalf("read cursor: %v", err)
-	}
-	if strings.Contains(string(cursor), "2.0.0") {
-		t.Fatalf("expected secondary manifest unchanged, got %s", string(cursor))
+	if strings.Contains(string(root), "2.0.0") {
+		t.Fatalf("expected secondary manifest unchanged, got %s", string(root))
 	}
 }
 

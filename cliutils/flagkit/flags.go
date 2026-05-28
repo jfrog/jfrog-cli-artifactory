@@ -513,6 +513,7 @@ const (
 
 	// Agent plugin commands keys
 	AgentPluginsPublish = "agent-plugins-publish"
+	AgentPluginsInstall = "agent-plugins-install"
 
 	// Agent namespace-specific flags (shared by skills and agent-plugins commands)
 	version    = "version"
@@ -882,6 +883,9 @@ var commandFlags = map[string][]string{
 	AgentPluginsPublish: {
 		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, agentQuiet,
 		BuildName, BuildNumber, module,
+	},
+	AgentPluginsInstall: {
+		url, user, password, accessToken, serverId, repo, version, harness, projectDir, agentGlobal, installPath, agentFormat, agentQuiet,
 	},
 	SkillsInstall: {
 		url, user, password, accessToken, serverId, repo, version, harness, projectDir, agentGlobal, installPath, agentFormat, agentQuiet,

@@ -1,0 +1,56 @@
+package common
+
+import (
+	"fmt"
+	"strings"
+
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
+	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+)
+
+// ListPluginVersions returns the version folders published under <repoKey>/<slug>/ using
+// the generic Artifactory storage API. Folder children that are not directories are skipped.
+func ListPluginVersions(serverDetails *config.ServerDetails, repoKey, slug string) ([]string, error) {
+	if serverDetails == nil {
+		return nil, fmt.Errorf("server details are required to list plugin versions")
+	}
+	if strings.TrimSpace(repoKey) == "" {
+		return nil, fmt.Errorf("repository is required to list plugin versions")
+	}
+	serviceManager, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
+	if err != nil {
+		return nil, err
+	}
+	info, err := serviceManager.FolderInfo(fmt.Sprintf("%s/%s", repoKey, slug))
+	if err != nil {
+		return nil, err
+	}
+	versions := make([]string, 0, len(info.Children))
+	for _, child := range info.Children {
+		if !child.Folder {
+			continue
+		}
+		name := child.Uri
+		if len(name) > 0 && name[0] == '/' {
+			name = name[1:]
+		}
+		if name == "" {
+			continue
+		}
+		versions = append(versions, name)
+	}
+	return versions, nil
+}
+
+// ResolveLatestPluginVersion returns the greatest semver from ListPluginVersions.
+func ResolveLatestPluginVersion(serverDetails *config.ServerDetails, repoKey, slug string) (string, error) {
+	versions, err := ListPluginVersions(serverDetails, repoKey, slug)
+	if err != nil {
+		return "", fmt.Errorf("failed to list versions for plugin '%s': %w", slug, err)
+	}
+	if len(versions) == 0 {
+		return "", fmt.Errorf("plugin '%s' has no versions in repository '%s'", slug, repoKey)
+	}
+	return agentcommon.LatestVersion(versions)
+}

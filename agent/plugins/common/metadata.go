@@ -25,14 +25,40 @@ const manifestJSONIndent = "    "
 const DefaultPluginVersion = "1.0.0"
 
 // KnownManifestRelPaths lists the fixed relative locations checked for plugin.json,
-// in priority order. The first existing file is the canonical manifest; later paths are ignored.
+// in priority order: the supported agent-specific subdirs (claude, cursor, codex) come
+// first so publish picks up an agent-tagged manifest before any generic fallback.
+// The first existing file is the canonical manifest; later paths are ignored.
+// User overrides come from agent-config.json's "plugin-manifest-paths" array; when set,
+// LoadPluginManifestPaths returns that order. Callers that need the resolved list at
+// runtime should use LoadPluginManifestPaths instead of reading this variable directly.
 var KnownManifestRelPaths = []string{
-	ManifestFileName,
-	".cursor-plugin/" + ManifestFileName,
 	".claude-plugin/" + ManifestFileName,
+	".cursor-plugin/" + ManifestFileName,
 	".codex-plugin/" + ManifestFileName,
+	ManifestFileName,
 	".github/plugin/" + ManifestFileName,
 	".plugin/" + ManifestFileName,
+}
+
+// LoadPluginManifestPaths returns the ordered list of relative plugin.json locations to
+// check during publish. When agent-config.json defines "plugin-manifest-paths", that
+// list is returned; otherwise the hardcoded KnownManifestRelPaths order is used.
+func LoadPluginManifestPaths() ([]string, error) {
+	section, path, err := agentcommon.LoadAgentConfigSection(agentcommon.PluginManifestPathsKey)
+	if err != nil {
+		return nil, err
+	}
+	if section == nil {
+		return append([]string(nil), KnownManifestRelPaths...), nil
+	}
+	var override []string
+	if err := json.Unmarshal(section, &override); err != nil {
+		return nil, fmt.Errorf("failed to parse %q in %s: %w", agentcommon.PluginManifestPathsKey, path, err)
+	}
+	if len(override) == 0 {
+		return append([]string(nil), KnownManifestRelPaths...), nil
+	}
+	return override, nil
 }
 
 // PluginMeta is the portable subset of plugin.json used for publish.
@@ -47,9 +73,13 @@ type PluginMeta struct {
 }
 
 // findPrimaryPluginManifest returns the first plugin.json found under pluginRoot,
-// searching KnownManifestRelPaths in order.
+// searching LoadPluginManifestPaths() in order.
 func findPrimaryPluginManifest(pluginRoot string) (relativePath string, meta PluginMeta, err error) {
-	for _, relativePath := range KnownManifestRelPaths {
+	relPaths, err := LoadPluginManifestPaths()
+	if err != nil {
+		return "", PluginMeta{}, err
+	}
+	for _, relativePath := range relPaths {
 		fullPath := filepath.Join(pluginRoot, relativePath)
 		info, statErr := os.Stat(fullPath)
 		if statErr != nil {
@@ -71,17 +101,8 @@ func findPrimaryPluginManifest(pluginRoot string) (relativePath string, meta Plu
 		"no %s found under %s (checked: %s)",
 		ManifestFileName,
 		pluginRoot,
-		strings.Join(KnownManifestRelPaths, ", "),
+		strings.Join(relPaths, ", "),
 	)
-}
-
-// DiscoverPluginManifests returns the canonical plugin.json for pluginRoot (at most one entry).
-func DiscoverPluginManifests(pluginRoot string) (map[string]PluginMeta, error) {
-	relativePath, meta, err := findPrimaryPluginManifest(pluginRoot)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]PluginMeta{relativePath: meta}, nil
 }
 
 func readPluginManifest(path string) (PluginMeta, error) {

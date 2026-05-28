@@ -5,13 +5,14 @@ import (
 	"path/filepath"
 	"testing"
 
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestWriteReadSkillInfoManifest(t *testing.T) {
 	skillDir := filepath.Join(t.TempDir(), "my-skill")
-	require.NoError(t, os.MkdirAll(skillDir, 0o750))
+	require.NoError(t, os.MkdirAll(skillDir, agentcommon.InstallDirMode))
 
 	manifest := SkillInfoManifest{
 		Repo:             "skills-local",

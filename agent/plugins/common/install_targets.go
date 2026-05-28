@@ -10,10 +10,10 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 )
 
-// PathAgentName is the synthetic agent name used when --path selects a single target.
+// PathAgentName is the synthetic agent name used when --path selects the install target.
 const PathAgentName = "(path)"
 
-// ScopeMode identifies the install/update target scope.
+// ScopeMode identifies the install target scope.
 type ScopeMode string
 
 const (
@@ -29,9 +29,10 @@ type AgentTarget struct {
 	DestinationDir string
 }
 
-// ValidateInstallFlags validates `--path | (--harness [, --project-dir | --global])` for install/update.
-// absoluteInstallBaseDir is non-empty when --path was supplied; otherwise specs are resolved from --harness.
-func ValidateInstallFlags(c *components.Context) (absoluteInstallBaseDir string, specs []AgentSpec, projectDirAbs string, isGlobal bool, err error) {
+// ValidateInstallFlags validates `--path | (--harness [, --project-dir | --global])` for plugins install.
+// absoluteInstallBaseDir is non-empty when --path was supplied; otherwise spec is resolved from --harness.
+// Unlike skills install, --harness accepts exactly one agent name.
+func ValidateInstallFlags(c *components.Context) (absoluteInstallBaseDir string, spec AgentSpec, projectDirAbs string, isGlobal bool, err error) {
 	pathInstallBase := strings.TrimSpace(c.GetStringFlagValue("path"))
 	rawHarness := strings.TrimSpace(c.GetStringFlagValue("harness"))
 	isGlobal = c.GetBoolFlagValue("global")
@@ -70,19 +71,14 @@ func ValidateInstallFlags(c *components.Context) (absoluteInstallBaseDir string,
 		return
 	}
 
-	harnessNames, err := ParseHarnessList(rawHarness)
+	harnessName, err := ParseSingleHarness(rawHarness)
 	if err != nil {
 		return
 	}
 
-	specs = make([]AgentSpec, 0, len(harnessNames))
-	for _, name := range harnessNames {
-		agentSpec, resolveErr := ResolveAgent(registry, name)
-		if resolveErr != nil {
-			err = resolveErr
-			return
-		}
-		specs = append(specs, agentSpec)
+	spec, err = ResolveAgent(registry, harnessName)
+	if err != nil {
+		return
 	}
 
 	if isGlobal && projectDir != "" {
@@ -110,19 +106,20 @@ func ValidateInstallFlags(c *components.Context) (absoluteInstallBaseDir string,
 	return
 }
 
-// ResolveAgentTargets resolves per-agent install destinations.
-// When path is non-empty, a single ScopePath target is returned.
-func ResolveAgentTargets(slug, path string, agents []AgentSpec, projectDirAbs string, isGlobal bool) ([]AgentTarget, error) {
+// ResolveAgentTarget returns the single install destination for a plugin.
+// When path is non-empty, a ScopePath target is returned; otherwise the
+// agent's project/global directory is used.
+func ResolveAgentTarget(slug, path string, spec AgentSpec, projectDirAbs string, isGlobal bool) (AgentTarget, error) {
 	if path != "" {
 		base, err := filepath.Abs(path)
 		if err != nil {
-			return nil, fmt.Errorf("invalid install path %q: %w", path, err)
+			return AgentTarget{}, fmt.Errorf("invalid install path %q: %w", path, err)
 		}
-		return []AgentTarget{{
+		return AgentTarget{
 			Agent:          AgentSpec{Name: PathAgentName},
 			Scope:          ScopePath,
 			DestinationDir: filepath.Join(base, slug),
-		}}, nil
+		}, nil
 	}
 
 	scope := ScopeProject
@@ -130,20 +127,16 @@ func ResolveAgentTargets(slug, path string, agents []AgentSpec, projectDirAbs st
 		scope = ScopeGlobal
 	}
 	if scope == ScopeProject && projectDirAbs == "" {
-		return nil, fmt.Errorf("project directory is required for project-scoped install")
+		return AgentTarget{}, fmt.Errorf("project directory is required for project-scoped install")
 	}
 
-	targets := make([]AgentTarget, 0, len(agents))
-	for _, agent := range agents {
-		base, err := ResolveAgentInstallDir(agent, projectDirAbs, isGlobal)
-		if err != nil {
-			return nil, err
-		}
-		targets = append(targets, AgentTarget{
-			Agent:          agent,
-			Scope:          scope,
-			DestinationDir: filepath.Join(base, slug),
-		})
+	base, err := ResolveAgentInstallDir(spec, projectDirAbs, isGlobal)
+	if err != nil {
+		return AgentTarget{}, err
 	}
-	return targets, nil
+	return AgentTarget{
+		Agent:          spec,
+		Scope:          scope,
+		DestinationDir: filepath.Join(base, slug),
+	}, nil
 }

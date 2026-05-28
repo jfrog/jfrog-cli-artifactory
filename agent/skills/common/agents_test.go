@@ -52,7 +52,7 @@ func TestLoadAgentRegistry_FallbackOnly(t *testing.T) {
 func TestLoadAgentRegistry_OverridesAndAdds(t *testing.T) {
 	home := withJfrogHome(t)
 	writeAgentConfig(t, home, `{
-		"agents": {
+		"skills-agents": {
 			"cursor": {"globalDir": "/abs/cursor", "projectDir": ".override/cursor"},
 			"my-agent": {"globalDir": "~/.my/skills", "projectDir": ".my/skills"}
 		}
@@ -78,7 +78,7 @@ func TestLoadAgentRegistry_OverridesAndAdds(t *testing.T) {
 
 func TestLoadAgentRegistry_RejectsEmptyEntry(t *testing.T) {
 	home := withJfrogHome(t)
-	writeAgentConfig(t, home, `{"agents": {"broken": {}}}`)
+	writeAgentConfig(t, home, `{"skills-agents": {"broken": {}}}`)
 
 	_, err := LoadAgentRegistry()
 	require.Error(t, err)

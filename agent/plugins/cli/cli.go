@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/install"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/publish"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
@@ -16,6 +17,17 @@ func GetSubCommands() []components.Command {
 			Arguments:   getPublishArguments(),
 			Action:      publish.RunPublish,
 		},
+		{
+			Name:  "install",
+			Flags: flagkit.GetCommandFlags(flagkit.AgentPluginsInstall),
+			Description: "Install an agent plugin from Artifactory. Use --harness <name> (single agent) with " +
+				"--project-dir (default: current directory) or --global; or --path <dir> for a direct install " +
+				"at <dir>/<slug>. If --version is omitted with --harness, the install command downloads " +
+				"<harness>-marketplace.json and uses the version listed there; with --path, the latest " +
+				"published version is used. Use --format json for machine-readable install summary.",
+			Arguments: getInstallArguments(),
+			Action:    install.RunInstall,
+		},
 	}
 }
 
@@ -24,6 +36,15 @@ func getPublishArguments() []components.Argument {
 		{
 			Name:        "path",
 			Description: "Path to the plugin folder containing plugin.json.",
+		},
+	}
+}
+
+func getInstallArguments() []components.Argument {
+	return []components.Argument{
+		{
+			Name:        "slug",
+			Description: "Slug (name) of the plugin to install.",
 		},
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 )
 
 const (
@@ -44,7 +46,7 @@ func WriteSkillInfoManifest(skillDir string, manifest SkillInfoManifest) error {
 		return fmt.Errorf("marshal skill info manifest: %w", err)
 	}
 	dir := filepath.Join(skillDir, jfrogSkillDirName)
-	if err := os.MkdirAll(dir, 0750); err != nil {
+	if err := os.MkdirAll(dir, agentcommon.InstallDirMode); err != nil {
 		return fmt.Errorf("create .jfrog under skill dir: %w", err)
 	}
 	path := filepath.Join(dir, skillInfoJSON)

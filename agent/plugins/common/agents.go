@@ -10,7 +10,7 @@ import (
 	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 )
 
-// AgentConfig holds the skills directory paths for an AI agent.
+// AgentConfig holds the plugin install directories for an AI agent.
 type AgentConfig struct {
 	GlobalDir  string `json:"globalDir"`
 	ProjectDir string `json:"projectDir"`
@@ -23,18 +23,15 @@ type AgentSpec struct {
 	FromConfig bool
 }
 
-// Agents is built-in defaults; merged with ~/.jfrog/agents/agent-config.json.
-// Reference: https://github.com/vercel-labs/skills/pull/76/changes#diff-b335630551682c19a781afebcf4d07bf978fb1f8ac04c6bf87428ed5106870f5R172
+// Agents is the hardcoded set of agents currently supported by `jf agent plugins`.
+// User overrides come from agent-config.json -> "plugins-agents".
 var Agents = map[string]AgentConfig{
-	"claude-code":    {GlobalDir: "~/.claude/skills", ProjectDir: ".claude/skills"},
-	"cursor":         {GlobalDir: "~/.cursor/skills", ProjectDir: ".cursor/skills"},
-	"github-copilot": {GlobalDir: "~/.copilot/skills", ProjectDir: ".github/skills"},
-	"windsurf":       {GlobalDir: "~/.codeium/windsurf/skills", ProjectDir: ".windsurf/skills"},
-	"codex":          {GlobalDir: "~/.codex/skills", ProjectDir: ".codex/skills"},
-	"cross-agent":    {GlobalDir: "~/.agents/skills", ProjectDir: ".agents/skills"},
+	"claude": {GlobalDir: "~/.claude/plugins", ProjectDir: ".claude/plugins"},
+	"cursor": {GlobalDir: "~/.cursor/plugins", ProjectDir: ".cursor/plugins"},
+	"codex":  {GlobalDir: "~/.codex/plugins", ProjectDir: ".codex/plugins"},
 }
 
-// LoadAgentRegistry merges the agent-config.json "skills-agents" section over built-in
+// LoadAgentRegistry merges the agent-config.json "plugins-agents" section over built-in
 // Agents (keys lowercased). A missing file or section is not an error; built-in defaults
 // are returned unchanged.
 func LoadAgentRegistry() (map[string]AgentSpec, error) {
@@ -47,7 +44,7 @@ func LoadAgentRegistry() (map[string]AgentSpec, error) {
 		}
 	}
 
-	section, path, err := agentcommon.LoadAgentConfigSection(agentcommon.SkillsAgentsKey)
+	section, path, err := agentcommon.LoadAgentConfigSection(agentcommon.PluginsAgentsKey)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +54,7 @@ func LoadAgentRegistry() (map[string]AgentSpec, error) {
 
 	var agentsFromConfig map[string]AgentConfig
 	if err := json.Unmarshal(section, &agentsFromConfig); err != nil {
-		return nil, fmt.Errorf("failed to parse %q in %s: %w", agentcommon.SkillsAgentsKey, path, err)
+		return nil, fmt.Errorf("failed to parse %q in %s: %w", agentcommon.PluginsAgentsKey, path, err)
 	}
 
 	for name, config := range agentsFromConfig {
@@ -91,38 +88,17 @@ func ResolveAgent(registry map[string]AgentSpec, name string) (AgentSpec, error)
 	return spec, nil
 }
 
-// ParseHarnessList parses comma-separated harness names (trim, lowercase, reject empty/duplicates).
-func ParseHarnessList(raw string) ([]string, error) {
-	if strings.TrimSpace(raw) == "" {
-		return nil, fmt.Errorf("--harness is required (comma-separated list of harness names)")
+// ParseSingleHarness parses a single harness name from --harness. Comma-separated lists
+// are rejected because plugins install targets exactly one agent.
+func ParseSingleHarness(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", fmt.Errorf("--harness is required (single harness name)")
 	}
-
-	seen := make(map[string]struct{})
-	var result []string
-	for _, part := range strings.Split(raw, ",") {
-		name := strings.ToLower(strings.TrimSpace(part))
-		if name == "" {
-			return nil, fmt.Errorf("--harness contains an empty name in %q", raw)
-		}
-		if _, dup := seen[name]; dup {
-			return nil, fmt.Errorf("--harness lists %q more than once", name)
-		}
-		seen[name] = struct{}{}
-		result = append(result, name)
+	if strings.Contains(trimmed, ",") {
+		return "", fmt.Errorf("--harness for plugins install accepts a single harness name, not a comma-separated list: %q", raw)
 	}
-	return result, nil
-}
-
-// ParseHarnessForList parses --harness for list (exactly one harness name; commas are rejected).
-func ParseHarnessForList(raw string) (string, error) {
-	names, err := ParseHarnessList(raw)
-	if err != nil {
-		return "", err
-	}
-	if len(names) != 1 {
-		return "", fmt.Errorf("--harness for list accepts one harness name, not a comma-separated list: %q", raw)
-	}
-	return names[0], nil
+	return strings.ToLower(trimmed), nil
 }
 
 // AgentNames returns the registry's agent names, sorted alphabetically.
@@ -152,8 +128,8 @@ func AgentRegistryHelp(registry map[string]AgentSpec) string {
 	}
 	fmt.Fprintf(&helpBuf, "\nTo add or override an agent, edit %s. Example:\n", configPath)
 	helpBuf.WriteString(`  {
-    "skills-agents": {
-      "my-agent": { "projectDir": ".my-agent/skills", "globalDir": "~/.my-agent/skills" }
+    "plugins-agents": {
+      "my-agent": { "projectDir": ".my-agent/plugins", "globalDir": "~/.my-agent/plugins" }
     }
   }`)
 	return helpBuf.String()
