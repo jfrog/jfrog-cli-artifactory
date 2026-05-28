@@ -1,7 +1,8 @@
 package cli
 
 import (
-	pluginsCLI "github.com/jfrog/jfrog-cli-artifactory/agent/plugins/cli"
+	pluginscli "github.com/jfrog/jfrog-cli-artifactory/agent/plugins/cli"
+	skillscli "github.com/jfrog/jfrog-cli-artifactory/agent/skills/cli"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 )
 
@@ -12,7 +13,12 @@ func GetCommands() []components.Command {
 		{
 			Name:        "plugins",
 			Description: "Agent plugin commands.",
-			Subcommands: pluginsCLI.GetSubCommands(),
+			Subcommands: pluginscli.GetSubCommands(),
+		},
+		{
+			Name:        "skills",
+			Description: "Agent skill commands.",
+			Subcommands: skillscli.GetSubCommands(),
 		},
 	}
 }

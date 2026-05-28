@@ -3,6 +3,7 @@ package common
 import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-evidence/evidence/create"
+	"github.com/jfrog/jfrog-cli-evidence/evidence/verify"
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 )
 
@@ -14,6 +15,10 @@ type CreateEvidenceOpts struct {
 	MarkdownPath    string
 	KeyPath         string
 	KeyAlias        string
+}
+
+type VerifyEvidenceOpts struct {
+	SubjectRepoPath string
 }
 
 // CreateEvidence attaches a signed publish-attestation to an artifact using jfrog-cli-evidence programmatically.
@@ -31,6 +36,20 @@ func CreateEvidence(serverDetails *config.ServerDetails, opts CreateEvidenceOpts
 		opts.SubjectSHA256,
 		"", "", "",
 		"", "", "",
+	)
+	return cmd.Run()
+}
+
+// VerifyEvidence verifies publish-attestation evidence on an artifact using Artifactory keys.
+func VerifyEvidence(serverDetails *config.ServerDetails, opts VerifyEvidenceOpts) error {
+	localServerDetails := *serverDetails
+	ensureServiceUrls(&localServerDetails)
+	cmd := verify.NewVerifyEvidenceCustom(
+		&localServerDetails,
+		opts.SubjectRepoPath,
+		"plaintext",
+		nil,
+		true,
 	)
 	return cmd.Run()
 }

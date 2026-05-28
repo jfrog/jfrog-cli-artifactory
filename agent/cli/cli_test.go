@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGetCommands_HasPluginsNamespace(t *testing.T) {
+func TestGetCommands_HasPluginsAndSkillsNamespaces(t *testing.T) {
 	commands := GetCommands()
-	require.Len(t, commands, 1)
+	require.Len(t, commands, 2)
 
 	plugins := commands[0]
 	assert.Equal(t, "plugins", plugins.Name)
@@ -17,6 +17,19 @@ func TestGetCommands_HasPluginsNamespace(t *testing.T) {
 	require.Len(t, plugins.Subcommands, 1)
 	assert.Equal(t, "publish", plugins.Subcommands[0].Name)
 	assert.NotNil(t, plugins.Subcommands[0].Action)
+
+	skills := commands[1]
+	assert.Equal(t, "skills", skills.Name)
+	assert.Nil(t, skills.Action)
+	skillsNames := make([]string, 0, len(skills.Subcommands))
+	for _, sub := range skills.Subcommands {
+		assert.NotNil(t, sub.Action, "skills subcommand %q must have an Action", sub.Name)
+		skillsNames = append(skillsNames, sub.Name)
+	}
+	assert.ElementsMatch(t,
+		[]string{"list", "publish", "install", "update", "search", "delete"},
+		skillsNames,
+	)
 }
 
 func TestGetCommands_PluginsPublishDescription(t *testing.T) {
