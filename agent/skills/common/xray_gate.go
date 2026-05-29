@@ -66,7 +66,7 @@ func CheckXrayGate(params XrayGateParams) error {
 		log.Info(fmt.Sprintf("[SUCCESS] Skill \"%s\" v%s passed security scan.", params.Slug, params.Version))
 		return nil
 	case services.SkillXrayStatusBlocked:
-		return handleBlocked(sm, params)
+		return handleBlocked(params)
 	case services.SkillXrayStatusScanInProgress:
 		return pollUntilDone(sm, params)
 	default:
@@ -140,7 +140,7 @@ func pollUntilDone(sm artifactory.ArtifactoryServicesManager, params XrayGatePar
 				return nil
 			case services.SkillXrayStatusBlocked:
 				stopSpinner()
-				return handleBlocked(sm, params)
+				return handleBlocked(params)
 			case services.SkillXrayStatusScanInProgress:
 				continue
 			default:
@@ -152,7 +152,7 @@ func pollUntilDone(sm artifactory.ArtifactoryServicesManager, params XrayGatePar
 	}
 }
 
-func handleBlocked(sm artifactory.ArtifactoryServicesManager, params XrayGateParams) error {
+func handleBlocked(params XrayGateParams) error {
 	log.Error(fmt.Sprintf("[VIOLATION] Skill \"%s\" v%s identified as malicious.", params.Slug, params.Version))
 	if params.AutoDeleteOnFailure {
 		deletePath := fmt.Sprintf("%s/%s/%s/", params.RepoKey, params.Slug, params.Version)
