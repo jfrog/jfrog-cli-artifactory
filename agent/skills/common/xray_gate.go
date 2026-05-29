@@ -167,13 +167,8 @@ func handleBlocked(sm artifactory.ArtifactoryServicesManager, params XrayGatePar
 }
 
 // DeleteSkillVersion deletes the entire version directory for a skill.
-// Creates its own service manager. For callers that already have one, use deleteSkillVersionWithManager.
 func DeleteSkillVersion(serverDetails *config.ServerDetails, repoKey, slug, version string) error {
-	sm, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
-	if err != nil {
-		return fmt.Errorf("failed to create service manager for deletion: %w", err)
-	}
-	return deleteSkillVersionWithManager(sm, repoKey, slug, version)
+	return agentcommon.DeleteVersion(serverDetails, repoKey, slug, version)
 }
 
 func deleteSkillVersionWithManager(sm artifactory.ArtifactoryServicesManager, repoKey, slug, version string) error {

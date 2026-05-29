@@ -514,6 +514,7 @@ const (
 	// Agent plugin commands keys
 	AgentPluginsPublish = "agent-plugins-publish"
 	AgentPluginsInstall = "agent-plugins-install"
+	AgentPluginsDelete  = "agent-plugins-delete"
 
 	// Agent namespace-specific flags (shared by skills and agent-plugins commands)
 	version    = "version"
@@ -894,6 +895,9 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, serverId, repo, version, harness, projectDir, agentGlobal, installPath, agentFormat, agentQuiet, dryRun, agentForce,
 	},
 	SkillsDelete: {
+		url, user, password, accessToken, serverId, repo, version, dryRun,
+	},
+	AgentPluginsDelete: {
 		url, user, password, accessToken, serverId, repo, version, dryRun,
 	},
 	SkillsSearch: {

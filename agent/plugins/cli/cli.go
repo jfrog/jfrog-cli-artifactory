@@ -1,13 +1,14 @@
 package cli
 
 import (
+	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/delete"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/install"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/publish"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 )
 
-// GetSubCommands returns leaf commands for `jf agent plugins` (publish, install, …).
+// GetSubCommands returns leaf commands for `jf agent plugins` (publish, install, delete, …).
 func GetSubCommands() []components.Command {
 	return []components.Command{
 		{
@@ -28,6 +29,13 @@ func GetSubCommands() []components.Command {
 			Arguments: getInstallArguments(),
 			Action:    install.RunInstall,
 		},
+		{
+			Name:        "delete",
+			Flags:       flagkit.GetCommandFlags(flagkit.AgentPluginsDelete),
+			Description: "Delete a specific agent plugin version from Artifactory.",
+			Arguments:   getDeleteArguments(),
+			Action:      delete.RunDelete,
+		},
 	}
 }
 
@@ -45,6 +53,15 @@ func getInstallArguments() []components.Argument {
 		{
 			Name:        "slug",
 			Description: "Slug (name) of the plugin to install.",
+		},
+	}
+}
+
+func getDeleteArguments() []components.Argument {
+	return []components.Argument{
+		{
+			Name:        "slug",
+			Description: "Plugin name/slug to delete.",
 		},
 	}
 }
