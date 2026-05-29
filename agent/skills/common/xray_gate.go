@@ -12,7 +12,6 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/progressbar"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
-	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -157,7 +156,7 @@ func handleBlocked(sm artifactory.ArtifactoryServicesManager, params XrayGatePar
 	log.Error(fmt.Sprintf("[VIOLATION] Skill \"%s\" v%s identified as malicious.", params.Slug, params.Version))
 	if params.AutoDeleteOnFailure {
 		deletePath := fmt.Sprintf("%s/%s/%s/", params.RepoKey, params.Slug, params.Version)
-		if err := deleteSkillVersionWithManager(sm, params.RepoKey, params.Slug, params.Version); err != nil {
+		if err := agentcommon.DeleteVersion(params.ServerDetails, params.RepoKey, params.Slug, params.Version); err != nil {
 			log.Error(fmt.Sprintf("Failed to delete malicious skill artifact '%s' from '%s': %s", deletePath, params.RepoKey, err.Error()))
 		} else {
 			log.Info(fmt.Sprintf("Malicious artifact deleted: %s", deletePath))
@@ -171,23 +170,6 @@ func DeleteSkillVersion(serverDetails *config.ServerDetails, repoKey, slug, vers
 	return agentcommon.DeleteVersion(serverDetails, repoKey, slug, version)
 }
 
-func deleteSkillVersionWithManager(sm artifactory.ArtifactoryServicesManager, repoKey, slug, version string) error {
-	if sm == nil {
-		return fmt.Errorf("service manager is nil")
-	}
-	artURL := clientutils.AddTrailingSlashIfNeeded(sm.GetConfig().GetServiceDetails().GetUrl())
-	deletePath := fmt.Sprintf("%s%s/%s/%s/", artURL, repoKey, slug, version)
-	httpDetails := sm.GetConfig().GetServiceDetails().CreateHttpClientDetails()
-
-	resp, body, err := sm.Client().SendDelete(deletePath, nil, &httpDetails)
-	if err != nil {
-		return fmt.Errorf("failed to delete %s/%s/%s: %w", repoKey, slug, version, err)
-	}
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("failed to delete %s/%s/%s: HTTP %d — %s", repoKey, slug, version, resp.StatusCode, string(body))
-	}
-	return nil
-}
 
 func resolveTimeout() time.Duration {
 	if v := os.Getenv(envScanTimeout); v != "" {

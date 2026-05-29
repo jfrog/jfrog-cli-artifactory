@@ -888,6 +888,9 @@ var commandFlags = map[string][]string{
 	AgentPluginsInstall: {
 		url, user, password, accessToken, serverId, repo, version, harness, projectDir, agentGlobal, installPath, agentFormat, agentQuiet,
 	},
+	AgentPluginsDelete: {
+		url, user, password, accessToken, serverId, repo, version, dryRun,
+	},
 	SkillsInstall: {
 		url, user, password, accessToken, serverId, repo, version, harness, projectDir, agentGlobal, installPath, agentFormat, agentQuiet,
 	},
@@ -895,9 +898,6 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, serverId, repo, version, harness, projectDir, agentGlobal, installPath, agentFormat, agentQuiet, dryRun, agentForce,
 	},
 	SkillsDelete: {
-		url, user, password, accessToken, serverId, repo, version, dryRun,
-	},
-	AgentPluginsDelete: {
 		url, user, password, accessToken, serverId, repo, version, dryRun,
 	},
 	SkillsSearch: {
