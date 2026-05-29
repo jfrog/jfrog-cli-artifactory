@@ -21,6 +21,16 @@ func TestGetJfrogCliArtifactoryApp(t *testing.T) {
 	}
 }
 
+func TestGetJfrogCliArtifactoryApp_NoTopLevelSkillsNamespace(t *testing.T) {
+	app := GetJfrogCliArtifactoryApp()
+	for _, ns := range app.Subcommands {
+		assert.NotEqual(t, "skills", ns.Name, "top-level 'skills' namespace must be removed; use 'jf agent skills' instead")
+		for _, alias := range ns.Aliases {
+			assert.NotEqual(t, "skill", alias, "'skill' alias must be removed")
+		}
+	}
+}
+
 // Helper function to find a command by name
 func findCommandByName(commands []components.Command, name string) *components.Command {
 	for i := range commands {

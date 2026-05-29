@@ -101,7 +101,7 @@ func (pc *PublishCommand) Run() error {
 		return err
 	}
 
-	// Update plugin.json on disk before zipping, matching jf skills publish (SKILL.md is updated
+	// Update plugin.json on disk before zipping, matching jf agent skills publish (SKILL.md is updated
 	// before zip there too). If a later step fails, the manifest stays at the new version; skills
 	// publish behaves the same way and does not roll back.
 	if meta.ManifestVersion != "" && meta.ManifestVersion != version {
