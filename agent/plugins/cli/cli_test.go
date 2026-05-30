@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGetSubCommands_HasPublishSubcommand(t *testing.T) {
+func TestGetSubCommands_HasPublishAndInstall(t *testing.T) {
 	commands := GetSubCommands()
-	require.Len(t, commands, 1)
+	require.Len(t, commands, 2)
 
 	publish := commands[0]
 	assert.Equal(t, "publish", publish.Name)
@@ -18,4 +18,12 @@ func TestGetSubCommands_HasPublishSubcommand(t *testing.T) {
 	assert.Equal(t, "path", publish.Arguments[0].Name)
 	assert.Contains(t, publish.Description, "Publish an agent plugin to Artifactory")
 	assert.Contains(t, publish.Description, "Signs and attaches evidence")
+
+	installCmd := commands[1]
+	assert.Equal(t, "install", installCmd.Name)
+	assert.NotNil(t, installCmd.Action)
+	require.Len(t, installCmd.Arguments, 1)
+	assert.Equal(t, "slug", installCmd.Arguments[0].Name)
+	assert.Contains(t, installCmd.Description, "Install an agent plugin from Artifactory")
+	assert.Contains(t, installCmd.Description, "marketplace")
 }

@@ -1,4 +1,4 @@
-package install
+package common
 
 import (
 	"encoding/json"
@@ -32,8 +32,20 @@ type summaryJSON struct {
 	Results []SummaryRow `json:"results"`
 }
 
-// PrintSummary renders a table or JSON summary of an install/update run.
-func PrintSummary(slug, version string, results []SummaryRow, format string) error {
+// InstallFailureRow builds a failed install/update summary row for one target.
+func InstallFailureRow(agentName, scope, destinationDir string, err error) SummaryRow {
+	return SummaryRow{
+		Agent:  agentName,
+		Scope:  scope,
+		Path:   destinationDir,
+		Status: SummaryStatusFailed,
+		Detail: err.Error(),
+	}
+}
+
+// PrintInstallSummary renders a table or JSON summary of an install/update run.
+// entityLabel is used in the table heading (e.g. "Skill" or "Plugin").
+func PrintInstallSummary(entityLabel, slug, version string, results []SummaryRow, format string) error {
 	if len(results) == 0 {
 		return nil
 	}
@@ -46,8 +58,8 @@ func PrintSummary(slug, version string, results []SummaryRow, format string) err
 		fmt.Println(string(data))
 		return nil
 	}
-	log.Info("Skill installation summary for '" + slug + "' v" + version + ":")
-	if err := coreutils.PrintTable(results, "Installed", "No skills installed", false); err != nil {
+	log.Info(entityLabel + " installation summary for '" + slug + "' v" + version + ":")
+	if err := coreutils.PrintTable(results, "Installed", "No "+strings.ToLower(entityLabel)+"s installed", false); err != nil {
 		log.Warn("Failed to render install summary: " + err.Error())
 	}
 	return nil

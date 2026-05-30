@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/skills/common"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
@@ -16,11 +17,11 @@ import (
 
 func TestReadInstalledSkillVersion_PrefersManifest(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "my-skill")
-	require.NoError(t, os.MkdirAll(dir, 0o750))
+	require.NoError(t, os.MkdirAll(dir, agentcommon.InstallDirMode))
 	skillMd := "---\nname: my-skill\nversion: 1.0.0\ndescription: x\n---\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillMd), 0o644))
 
-	require.NoError(t, common.WriteSkillInfoManifest(dir, common.SkillInfoManifest{
+	require.NoError(t, agentcommon.WriteInstallInfoManifest(dir, common.SkillInfoManifestFile, common.SkillInfoManifest{
 		Repo:             "r",
 		Slug:             "my-skill",
 		InstalledVersion: "2.0.0",
@@ -35,7 +36,7 @@ func TestReadInstalledSkillVersion_PrefersManifest(t *testing.T) {
 
 func TestReadInstalledSkillVersion_FallsBackToSkillMd(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "only-meta")
-	require.NoError(t, os.MkdirAll(dir, 0o750))
+	require.NoError(t, os.MkdirAll(dir, agentcommon.InstallDirMode))
 	skillMd := "---\nname: only-meta\nversion: 3.1.4\ndescription: x\n---\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillMd), 0o644))
 
@@ -51,7 +52,7 @@ func TestReadInstalledSkillVersion_CorruptManifestFallsBackToSkillMd(t *testing.
 	t.Cleanup(func() { log.SetLogger(prev) })
 
 	dir := filepath.Join(t.TempDir(), "corrupt-manifest")
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".jfrog"), 0o750))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".jfrog"), agentcommon.InstallDirMode))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".jfrog", "skill-info.json"), []byte("{not json"), 0o644))
 	skillMd := "---\nname: corrupt-manifest\nversion: 9.8.7\ndescription: x\n---\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillMd), 0o644))
@@ -64,10 +65,10 @@ func TestReadInstalledSkillVersion_CorruptManifestFallsBackToSkillMd(t *testing.
 
 func TestReadInstalledSkillVersion_ManifestEmptyUsesMeta(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "empty-manifest-ver")
-	require.NoError(t, os.MkdirAll(dir, 0o750))
+	require.NoError(t, os.MkdirAll(dir, agentcommon.InstallDirMode))
 	skillMd := "---\nname: empty-manifest-ver\nversion: 0.1.0\ndescription: x\n---\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillMd), 0o644))
-	require.NoError(t, common.WriteSkillInfoManifest(dir, common.SkillInfoManifest{
+	require.NoError(t, agentcommon.WriteInstallInfoManifest(dir, common.SkillInfoManifestFile, common.SkillInfoManifest{
 		Repo:             "r",
 		Slug:             "empty-manifest-ver",
 		InstalledVersion: "   ",

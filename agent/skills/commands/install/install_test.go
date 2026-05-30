@@ -1,63 +1,15 @@
 package install
 
 import (
-	"archive/zip"
 	"os"
 	"path/filepath"
 	"testing"
 
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/skills/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestUnzipFile(t *testing.T) {
-	srcDir := t.TempDir()
-	destDir := t.TempDir()
-
-	zipPath := filepath.Join(srcDir, "test.zip")
-	createTestZip(t, zipPath, map[string]string{
-		"SKILL.md":        "---\nname: test\n---",
-		"main.py":         "print('hello')",
-		"utils/helper.py": "pass",
-	})
-
-	err := unzipFile(zipPath, destDir)
-	require.NoError(t, err)
-
-	data, err := os.ReadFile(filepath.Join(destDir, "SKILL.md"))
-	require.NoError(t, err)
-	assert.Contains(t, string(data), "name: test")
-
-	data, err = os.ReadFile(filepath.Join(destDir, "main.py"))
-	require.NoError(t, err)
-	assert.Equal(t, "print('hello')", string(data))
-
-	data, err = os.ReadFile(filepath.Join(destDir, "utils", "helper.py"))
-	require.NoError(t, err)
-	assert.Equal(t, "pass", string(data))
-}
-
-func TestCopyDir(t *testing.T) {
-	srcDir := t.TempDir()
-	dstDir := filepath.Join(t.TempDir(), "dest")
-
-	require.NoError(t, os.WriteFile(filepath.Join(srcDir, "file1.txt"), []byte("content1"), 0644))
-	subDir := filepath.Join(srcDir, "sub")
-	require.NoError(t, os.MkdirAll(subDir, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(subDir, "file2.txt"), []byte("content2"), 0644))
-
-	err := copyDir(srcDir, dstDir)
-	require.NoError(t, err)
-
-	data, err := os.ReadFile(filepath.Join(dstDir, "file1.txt"))
-	require.NoError(t, err)
-	assert.Equal(t, "content1", string(data))
-
-	data, err = os.ReadFile(filepath.Join(dstDir, "sub", "file2.txt"))
-	require.NoError(t, err)
-	assert.Equal(t, "content2", string(data))
-}
 
 func TestResolveAgentTargetDirectories_ProjectScope(t *testing.T) {
 	projectRoot := t.TempDir()
@@ -104,33 +56,6 @@ func TestResolveAgentTargetDirectories_LegacyInstallPath(t *testing.T) {
 	assert.Equal(t, filepath.Join(tmp, "legacy"), targets[0].DestinationDir)
 }
 
-func TestEnsureDestinationDir_CreatesUnderExistingParent(t *testing.T) {
-	parent := t.TempDir()
-	dest := filepath.Join(parent, "skill-x")
-	require.NoError(t, ensureDestinationDir(dest))
-	info, err := os.Stat(dest)
-	require.NoError(t, err)
-	assert.True(t, info.IsDir())
-}
-
-func TestEnsureDestinationDir_CreatesNestedPath(t *testing.T) {
-	root := t.TempDir()
-	dest := filepath.Join(root, ".cursor", "skills", "alpha")
-	require.NoError(t, ensureDestinationDir(dest))
-	info, err := os.Stat(dest)
-	require.NoError(t, err)
-	assert.True(t, info.IsDir())
-}
-
-func TestEnsureDestinationDir_RejectsFileAtDestination(t *testing.T) {
-	parent := t.TempDir()
-	dest := filepath.Join(parent, "blocker")
-	require.NoError(t, os.WriteFile(dest, []byte("hi"), 0o644))
-	err := ensureDestinationDir(dest)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not a directory")
-}
-
 func TestCopyExtractedToTargets_WritesInstallManifest(t *testing.T) {
 	src := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(src, "SKILL.md"), []byte("---\nname: x\nversion: 1.0.0\n---\n"), 0o644))
@@ -143,16 +68,16 @@ func TestCopyExtractedToTargets_WritesInstallManifest(t *testing.T) {
 		SetVersion("1.2.3").
 		SetProjectDir(projectRoot)
 
-	targets := []agentSkillInstallDir{{
+	targets := []common.AgentTarget{{
 		Agent:          common.AgentSpec{Name: "cursor"},
 		DestinationDir: dest,
-		Scope:          "project",
+		Scope:          common.ScopeProject,
 	}}
-	rows := ic.copyExtractedToTargets(src, targets)
+	rows := ic.CopyExtractedToTargets(src, targets)
 	require.Len(t, rows, 1)
-	assert.Equal(t, SummaryStatusOK, rows[0].Status)
+	assert.Equal(t, agentcommon.SummaryStatusOK, rows[0].Status)
 
-	got, err := common.ReadSkillInfoManifest(dest)
+	got, err := agentcommon.ReadInstallInfoManifest(dest, common.SkillInfoManifestFile)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "skills-repo", got.Repo)
@@ -161,26 +86,4 @@ func TestCopyExtractedToTargets_WritesInstallManifest(t *testing.T) {
 	assert.Equal(t, "project", got.Scope)
 	assert.Equal(t, "cursor", got.Agent)
 	assert.Equal(t, projectRoot, got.ProjectDir)
-}
-
-func createTestZip(t *testing.T, zipPath string, files map[string]string) {
-	t.Helper()
-
-	f, err := os.Create(zipPath)
-	require.NoError(t, err)
-	defer func() {
-		_ = f.Close()
-	}()
-
-	w := zip.NewWriter(f)
-	defer func() {
-		_ = w.Close()
-	}()
-
-	for name, content := range files {
-		fw, err := w.Create(name)
-		require.NoError(t, err)
-		_, err = fw.Write([]byte(content))
-		require.NoError(t, err)
-	}
 }

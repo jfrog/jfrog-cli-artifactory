@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jfrog/jfrog-cli-artifactory/agent/common/testutil"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,17 +19,6 @@ func TestResolveAgentTargets_PathMode(t *testing.T) {
 	assert.Equal(t, filepath.Join(base, "my-skill"), targets[0].DestinationDir)
 	assert.Equal(t, PathAgentName, targets[0].Agent.Name)
 	assert.Equal(t, ScopePath, targets[0].Scope)
-}
-
-func TestValidateExistingDir_InvalidPath(t *testing.T) {
-	err := ValidateExistingDir("/nonexistent/path/that/does/not/exist")
-	require.Error(t, err)
-}
-
-func newInstallTestContext() *components.Context {
-	ctx := &components.Context{}
-	ctx.PrintCommandHelp = func(string) error { return nil }
-	return ctx
 }
 
 func TestValidateInstallFlags_Errors(t *testing.T) {
@@ -89,9 +79,9 @@ func TestValidateInstallFlags_Errors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := newInstallTestContext()
+			c := testutil.NewCLIContext()
 			tt.setup(c)
-			_, _, _, _, err := ValidateInstallFlags(c)
+			_, err := ValidateInstallFlags(c)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantSub)
 		})
@@ -100,45 +90,46 @@ func TestValidateInstallFlags_Errors(t *testing.T) {
 
 func TestValidateInstallFlags_PathModeOK(t *testing.T) {
 	validPath := t.TempDir()
-	c := newInstallTestContext()
+	c := testutil.NewCLIContext()
 	c.AddStringFlag("path", validPath)
 
-	absPath, specs, projectDirAbs, isGlobal, err := ValidateInstallFlags(c)
+	flags, err := ValidateInstallFlags(c)
 	require.NoError(t, err)
 	wantAbs, err := filepath.Abs(validPath)
 	require.NoError(t, err)
-	assert.Equal(t, wantAbs, absPath)
-	assert.Empty(t, specs)
-	assert.Empty(t, projectDirAbs)
-	assert.False(t, isGlobal)
+	assert.True(t, flags.PathMode())
+	assert.Equal(t, wantAbs, flags.AbsoluteInstallBaseDir)
+	assert.Empty(t, flags.Specs)
+	assert.Empty(t, flags.ProjectDirAbs)
+	assert.False(t, flags.IsGlobal)
 }
 
 func TestValidateInstallFlags_HarnessProjectOK(t *testing.T) {
 	projectDir := t.TempDir()
-	c := newInstallTestContext()
+	c := testutil.NewCLIContext()
 	c.AddStringFlag("harness", "cursor")
 	c.AddStringFlag("project-dir", projectDir)
 
-	absPath, specs, projectDirAbs, isGlobal, err := ValidateInstallFlags(c)
+	flags, err := ValidateInstallFlags(c)
 	require.NoError(t, err)
-	assert.Empty(t, absPath)
-	require.Len(t, specs, 1)
-	assert.Equal(t, "cursor", strings.ToLower(specs[0].Name))
+	assert.False(t, flags.PathMode())
+	require.Len(t, flags.Specs, 1)
+	assert.Equal(t, "cursor", strings.ToLower(flags.Specs[0].Name))
 	wantProj, err := filepath.Abs(projectDir)
 	require.NoError(t, err)
-	assert.Equal(t, wantProj, projectDirAbs)
-	assert.False(t, isGlobal)
+	assert.Equal(t, wantProj, flags.ProjectDirAbs)
+	assert.False(t, flags.IsGlobal)
 }
 
 func TestValidateInstallFlags_CommaSeparatedHarnesses(t *testing.T) {
 	projectDir := t.TempDir()
-	c := newInstallTestContext()
+	c := testutil.NewCLIContext()
 	c.AddStringFlag("harness", "cursor,claude-code")
 	c.AddStringFlag("project-dir", projectDir)
 
-	_, specs, _, _, err := ValidateInstallFlags(c)
+	flags, err := ValidateInstallFlags(c)
 	require.NoError(t, err)
-	require.Len(t, specs, 2)
-	assert.Equal(t, "cursor", specs[0].Name)
-	assert.Equal(t, "claude-code", specs[1].Name)
+	require.Len(t, flags.Specs, 2)
+	assert.Equal(t, "cursor", flags.Specs[0].Name)
+	assert.Equal(t, "claude-code", flags.Specs[1].Name)
 }

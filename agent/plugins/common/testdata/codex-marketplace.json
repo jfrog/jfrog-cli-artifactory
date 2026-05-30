@@ -1,0 +1,49 @@
+{
+  "name": "test-marketplace",
+  "owner": {
+    "name": "test-owner"
+  },
+  "plugins": [
+    {
+      "name": "dummy-plugin-delta",
+      "source": {
+        "source": "zip",
+        "url": "dummy-plugin-delta/2.0.0-rc.1/dummy-plugin-delta-2.0.0-rc.1.zip"
+      },
+      "description": "Dummy plugin with extra marketplace fields for parser tests.",
+      "license": "MIT",
+      "author": {
+        "name": "Test Author",
+        "url": "https://example.com"
+      },
+      "repository": "https://example.com/dummy-plugin-delta",
+      "homepage": "https://example.com/dummy-plugin-delta",
+      "keywords": [
+        "dummy",
+        "test",
+        "codex"
+      ],
+      "skills": [
+        "./skills/"
+      ],
+      "commands": [
+        "./commands/"
+      ],
+      "mcpServers": {},
+      "interface": {
+        "displayName": "Dummy Plugin Delta",
+        "shortDescription": "Short dummy description for codex marketplace tests.",
+        "longDescription": "Long dummy description used to verify unknown JSON fields are ignored during parsing.",
+        "developerName": "test-author",
+        "composerIcon": "./assets/icon.svg",
+        "category": "Testing",
+        "capabilities": [
+          "Read",
+          "Write"
+        ],
+        "websiteURL": "https://example.com/dummy-plugin-delta"
+      },
+      "version": "2.0.0-rc.1"
+    }
+  ]
+}

@@ -11,28 +11,74 @@ import (
 	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 )
 
-// ManifestFileName is the canonical plugin manifest filename at the plugin root.
-const ManifestFileName = "plugin.json"
+// manifestFileName is the canonical plugin manifest filename at the plugin root.
+const manifestFileName = "plugin.json"
 
-// ManifestVersionField is the top-level JSON key for the publish version in plugin.json.
-const ManifestVersionField = "version"
+// manifestVersionField is the top-level JSON key for the publish version in plugin.json.
+const manifestVersionField = "version"
 
 // manifestJSONIndent is used when rewriting plugin.json so the file stays human-readable.
 const manifestJSONIndent = "    "
 
-// DefaultPluginVersion is used when no plugin.json declares a version and the user did
+// defaultPluginVersion is used when no plugin.json declares a version and the user did
 // not pass --version.
-const DefaultPluginVersion = "1.0.0"
+const defaultPluginVersion = "1.0.0"
 
-// KnownManifestRelPaths lists the fixed relative locations checked for plugin.json,
-// in priority order. The first existing file is the canonical manifest; later paths are ignored.
-var KnownManifestRelPaths = []string{
-	ManifestFileName,
-	".cursor-plugin/" + ManifestFileName,
-	".claude-plugin/" + ManifestFileName,
-	".codex-plugin/" + ManifestFileName,
-	".github/plugin/" + ManifestFileName,
-	".plugin/" + ManifestFileName,
+// knownManifestRelPaths lists the built-in relative locations checked for plugin.json.
+// agent-config.json "plugin-manifest-paths" entries are prepended (higher priority);
+// defaults fill in any path not already listed. The first existing file wins.
+var knownManifestRelPaths = []string{
+	".claude-plugin/" + manifestFileName,
+	".cursor-plugin/" + manifestFileName,
+	".codex-plugin/" + manifestFileName,
+	manifestFileName,
+	".github/plugin/" + manifestFileName,
+	".plugin/" + manifestFileName,
+}
+
+// loadPluginManifestPaths returns plugin.json search paths for publish.
+// agent-config.json "plugin-manifest-paths" come first; knownManifestRelPaths follow,
+// skipping duplicates while preserving order.
+func loadPluginManifestPaths() ([]string, error) {
+	section, path, err := agentcommon.LoadAgentConfigSection(agentcommon.PluginManifestPathsKey)
+	if err != nil {
+		return nil, err
+	}
+	if section == nil {
+		return append([]string(nil), knownManifestRelPaths...), nil
+	}
+	var fromConfig []string
+	if err := json.Unmarshal(section, &fromConfig); err != nil {
+		return nil, fmt.Errorf("failed to parse %q in %s: %w", agentcommon.PluginManifestPathsKey, path, err)
+	}
+	return mergePluginManifestPaths(fromConfig), nil
+}
+
+// mergePluginManifestPaths prepends config paths, then appends built-in defaults once each.
+// addedPaths records relative manifest paths already in the result (dedup by path string).
+func mergePluginManifestPaths(fromConfig []string) []string {
+	addedPaths := make(map[string]struct{})
+	orderedPaths := make([]string, 0, len(fromConfig)+len(knownManifestRelPaths))
+
+	for _, relativePath := range fromConfig {
+		relativePath = strings.TrimSpace(relativePath)
+		if relativePath == "" {
+			continue
+		}
+		if _, alreadyAdded := addedPaths[relativePath]; alreadyAdded {
+			continue
+		}
+		addedPaths[relativePath] = struct{}{}
+		orderedPaths = append(orderedPaths, relativePath)
+	}
+	for _, relativePath := range knownManifestRelPaths {
+		if _, alreadyAdded := addedPaths[relativePath]; alreadyAdded {
+			continue
+		}
+		addedPaths[relativePath] = struct{}{}
+		orderedPaths = append(orderedPaths, relativePath)
+	}
+	return orderedPaths
 }
 
 // PluginMeta is the portable subset of plugin.json used for publish.
@@ -47,9 +93,13 @@ type PluginMeta struct {
 }
 
 // findPrimaryPluginManifest returns the first plugin.json found under pluginRoot,
-// searching KnownManifestRelPaths in order.
+// searching loadPluginManifestPaths() in order.
 func findPrimaryPluginManifest(pluginRoot string) (relativePath string, meta PluginMeta, err error) {
-	for _, relativePath := range KnownManifestRelPaths {
+	relPaths, err := loadPluginManifestPaths()
+	if err != nil {
+		return "", PluginMeta{}, err
+	}
+	for _, relativePath := range relPaths {
 		fullPath := filepath.Join(pluginRoot, relativePath)
 		info, statErr := os.Stat(fullPath)
 		if statErr != nil {
@@ -67,21 +117,30 @@ func findPrimaryPluginManifest(pluginRoot string) (relativePath string, meta Plu
 		}
 		return relativePath, meta, nil
 	}
-	return "", PluginMeta{}, fmt.Errorf(
-		"no %s found under %s (checked: %s)",
-		ManifestFileName,
-		pluginRoot,
-		strings.Join(KnownManifestRelPaths, ", "),
-	)
+	return "", PluginMeta{}, pluginManifestNotFoundError(pluginRoot, relPaths)
 }
 
-// DiscoverPluginManifests returns the canonical plugin.json for pluginRoot (at most one entry).
-func DiscoverPluginManifests(pluginRoot string) (map[string]PluginMeta, error) {
-	relativePath, meta, err := findPrimaryPluginManifest(pluginRoot)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]PluginMeta{relativePath: meta}, nil
+func pluginManifestNotFoundError(pluginRoot string, relPaths []string) error {
+	configPath := agentcommon.AgentConfigPathForDisplay()
+	return fmt.Errorf(
+		"no %s found under %s (checked: %s).\n\n"+
+			"To search additional locations, edit %s and add relative paths under %q "+
+			"(paths are relative to the plugin directory). Custom paths are checked first, "+
+			"then built-in defaults.\n\n"+
+			"Example:\n"+
+			"  {\n"+
+			"    %q: [\n"+
+			"      \"my-layout/%s\"\n"+
+			"    ]\n"+
+			"  }",
+		manifestFileName,
+		pluginRoot,
+		strings.Join(relPaths, ", "),
+		configPath,
+		agentcommon.PluginManifestPathsKey,
+		agentcommon.PluginManifestPathsKey,
+		manifestFileName,
+	)
 }
 
 func readPluginManifest(path string) (PluginMeta, error) {
@@ -99,12 +158,12 @@ func readPluginManifest(path string) (PluginMeta, error) {
 	return meta, nil
 }
 
-// ValidateAndResolvePluginMeta loads the first plugin.json under pluginRoot (see KnownManifestRelPaths)
+// ValidateAndResolvePluginMeta loads the first plugin.json under pluginRoot (see knownManifestRelPaths)
 // and resolves the final publish identity using this precedence:
 //
 //  1. versionFlag (--version) overrides everything when non-empty
 //  2. version from the canonical manifest, if non-empty
-//  3. DefaultPluginVersion ("1.0.0")
+//  3. defaultPluginVersion ("1.0.0")
 func ValidateAndResolvePluginMeta(pluginRoot, versionFlag string) (PluginMeta, error) {
 	relativePath, meta, err := findPrimaryPluginManifest(pluginRoot)
 	if err != nil {
@@ -120,7 +179,7 @@ func ValidateAndResolvePluginMeta(pluginRoot, versionFlag string) (PluginMeta, e
 		resolvedVersion = manifestVersion
 	}
 	if resolvedVersion == "" {
-		resolvedVersion = DefaultPluginVersion
+		resolvedVersion = defaultPluginVersion
 	}
 
 	return PluginMeta{
@@ -131,7 +190,7 @@ func ValidateAndResolvePluginMeta(pluginRoot, versionFlag string) (PluginMeta, e
 }
 
 // UpdatePluginManifestVersions rewrites the top-level "version" string field in the canonical
-// plugin.json (first match in KnownManifestRelPaths). Manifests without a version field are unchanged.
+// plugin.json (first match in knownManifestRelPaths). Manifests without a version field are unchanged.
 func UpdatePluginManifestVersions(pluginRoot, newVersion string) error {
 	relativePath, meta, err := findPrimaryPluginManifest(pluginRoot)
 	if err != nil {
@@ -148,7 +207,7 @@ func UpdatePluginManifestVersions(pluginRoot, newVersion string) error {
 }
 
 func writePluginManifestVersion(path, newVersion string) error {
-	// #nosec G304 -- path is constructed from pluginRoot and KnownManifestRelPaths allowlist.
+	// #nosec G304 -- path is constructed from pluginRoot and knownManifestRelPaths allowlist.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -164,21 +223,21 @@ func writePluginManifestVersion(path, newVersion string) error {
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return err
 	}
-	if _, hasVersionField := doc[ManifestVersionField]; !hasVersionField {
-		return fmt.Errorf("%s declares version %q but has no %q field", ManifestFileName, meta.Version, ManifestVersionField)
+	if _, hasVersionField := doc[manifestVersionField]; !hasVersionField {
+		return fmt.Errorf("%s declares version %q but has no %q field", manifestFileName, meta.Version, manifestVersionField)
 	}
 	versionJSON, err := json.Marshal(newVersion)
 	if err != nil {
 		return err
 	}
-	doc[ManifestVersionField] = versionJSON
+	doc[manifestVersionField] = versionJSON
 
 	updated, err := json.MarshalIndent(doc, "", manifestJSONIndent)
 	if err != nil {
 		return err
 	}
 	updated = append(updated, '\n')
-	// #nosec G306,G703 -- path is pluginRoot + KnownManifestRelPaths allowlist; user-owned manifest.
+	// #nosec G306,G703 -- path is pluginRoot + knownManifestRelPaths allowlist; user-owned manifest.
 	return os.WriteFile(path, updated, agentcommon.PrivateFileMode)
 }
 

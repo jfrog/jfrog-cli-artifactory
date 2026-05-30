@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/skills/common"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
@@ -99,7 +100,7 @@ func TestListLocalSkills_UsesManifestRepo(t *testing.T) {
 		Agent:            "cursor",
 		ProjectDir:       projectRoot,
 	}
-	require.NoError(t, common.WriteSkillInfoManifest(filepath.Join(skillsPath, "web-search"), man))
+	require.NoError(t, agentcommon.WriteInstallInfoManifest(filepath.Join(skillsPath, "web-search"), common.SkillInfoManifestFile, man))
 
 	captureLog(t)
 	cmd := &ListCommand{agentName: "cursor"}
@@ -119,7 +120,7 @@ func TestListLocalSkills_InstalledVersionPrefersManifest(t *testing.T) {
 	projectRoot := t.TempDir()
 	skillsPath := filepath.Join(projectRoot, ".cursor", "skills")
 	makeSkillDir(t, skillsPath, "dual-ver", "1.0.0", "desc")
-	require.NoError(t, common.WriteSkillInfoManifest(filepath.Join(skillsPath, "dual-ver"), common.SkillInfoManifest{
+	require.NoError(t, agentcommon.WriteInstallInfoManifest(filepath.Join(skillsPath, "dual-ver"), common.SkillInfoManifestFile, common.SkillInfoManifest{
 		Repo:             "skills-local",
 		Slug:             "dual-ver",
 		InstalledVersion: "5.0.0",

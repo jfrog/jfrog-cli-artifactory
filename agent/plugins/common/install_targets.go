@@ -21,7 +21,7 @@ const (
 
 type AgentTarget = agentcommon.InstallTarget
 
-// ValidateInstallFlags validates `--path | (--harness [, --project-dir | --global])` for install/update.
+// ValidateInstallFlags validates `--path | (--harness [, --project-dir | --global])` for plugins install.
 func ValidateInstallFlags(c *components.Context) (agentcommon.InstallFlagsResult, error) {
 	pathInstallBase := strings.TrimSpace(c.GetStringFlagValue("path"))
 	rawHarness := strings.TrimSpace(c.GetStringFlagValue("harness"))
@@ -41,7 +41,7 @@ func ValidateInstallFlags(c *components.Context) (agentcommon.InstallFlagsResult
 		return agentcommon.InstallFlagsResult{AbsoluteInstallBaseDir: absoluteInstallBaseDir}, nil
 	}
 
-	registry, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.SkillsAgentsKey)
+	registry, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.PluginsAgentsKey)
 	if err != nil {
 		return agentcommon.InstallFlagsResult{}, err
 	}
@@ -73,7 +73,7 @@ func ValidateInstallFlags(c *components.Context) (agentcommon.InstallFlagsResult
 	}, nil
 }
 
-// ResolveAgentTargets resolves per-agent install destinations.
+// ResolveAgentTargets resolves per-agent install destinations for a plugin.
 // When path is non-empty, a single ScopePath target is returned.
 func ResolveAgentTargets(slug, path string, agents []AgentSpec, projectDirAbs string, isGlobal bool) ([]AgentTarget, error) {
 	if path != "" {
