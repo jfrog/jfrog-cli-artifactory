@@ -4,87 +4,89 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jfrog/jfrog-cli-artifactory/agent/common/testutil"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func newInstallTestContext() *components.Context {
-	ctx := &components.Context{}
-	ctx.PrintCommandHelp = func(string) error { return nil }
-	return ctx
-}
-
 func TestValidateInstallFlags_PathMode(t *testing.T) {
-	withJfrogHome(t)
+	testutil.WithJfrogHome(t)
 	validPath := t.TempDir()
-	c := newInstallTestContext()
+	c := testutil.NewCLIContext()
 	c.AddStringFlag("path", validPath)
 
-	absPath, spec, projectDirAbs, isGlobal, err := ValidateInstallFlags(c)
+	flags, err := ValidateInstallFlags(c)
 	require.NoError(t, err)
 	wantAbs, err := filepath.Abs(validPath)
 	require.NoError(t, err)
-	assert.Equal(t, wantAbs, absPath)
-	assert.Empty(t, spec.Name)
-	assert.Empty(t, projectDirAbs)
-	assert.False(t, isGlobal)
+	assert.True(t, flags.PathMode())
+	assert.Equal(t, wantAbs, flags.AbsoluteInstallBaseDir)
+	assert.Empty(t, flags.Specs)
+	assert.Empty(t, flags.ProjectDirAbs)
+	assert.False(t, flags.IsGlobal)
 }
 
 func TestValidateInstallFlags_HarnessProjectMode(t *testing.T) {
-	withJfrogHome(t)
+	testutil.WithJfrogHome(t)
 	projectDir := t.TempDir()
-	c := newInstallTestContext()
+	c := testutil.NewCLIContext()
 	c.AddStringFlag("harness", "claude")
 	c.AddStringFlag("project-dir", projectDir)
 
-	absPath, spec, projectDirAbs, isGlobal, err := ValidateInstallFlags(c)
+	flags, err := ValidateInstallFlags(c)
 	require.NoError(t, err)
-	assert.Empty(t, absPath)
-	assert.Equal(t, "claude", spec.Name)
+	assert.False(t, flags.PathMode())
+	require.Len(t, flags.Specs, 1)
+	assert.Equal(t, "claude", flags.Specs[0].Name)
 	wantProj, err := filepath.Abs(projectDir)
 	require.NoError(t, err)
-	assert.Equal(t, wantProj, projectDirAbs)
-	assert.False(t, isGlobal)
+	assert.Equal(t, wantProj, flags.ProjectDirAbs)
+	assert.False(t, flags.IsGlobal)
 }
 
 func TestValidateInstallFlags_HarnessGlobalMode(t *testing.T) {
-	withJfrogHome(t)
-	c := newInstallTestContext()
+	testutil.WithJfrogHome(t)
+	c := testutil.NewCLIContext()
 	c.AddStringFlag("harness", "cursor")
 	c.AddBoolFlag("global", true)
 
-	_, spec, projectDirAbs, isGlobal, err := ValidateInstallFlags(c)
+	flags, err := ValidateInstallFlags(c)
 	require.NoError(t, err)
-	assert.Equal(t, "cursor", spec.Name)
-	assert.Empty(t, projectDirAbs)
-	assert.True(t, isGlobal)
+	require.Len(t, flags.Specs, 1)
+	assert.Equal(t, "cursor", flags.Specs[0].Name)
+	assert.Empty(t, flags.ProjectDirAbs)
+	assert.True(t, flags.IsGlobal)
 }
 
-func TestValidateInstallFlags_HarnessRejectsCommaList(t *testing.T) {
-	withJfrogHome(t)
-	c := newInstallTestContext()
+func TestValidateInstallFlags_CommaSeparatedHarnesses(t *testing.T) {
+	testutil.WithJfrogHome(t)
+	projectDir := t.TempDir()
+	c := testutil.NewCLIContext()
 	c.AddStringFlag("harness", "claude,cursor")
+	c.AddStringFlag("project-dir", projectDir)
 
-	_, _, _, _, err := ValidateInstallFlags(c)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "single harness name")
+	flags, err := ValidateInstallFlags(c)
+	require.NoError(t, err)
+	require.Len(t, flags.Specs, 2)
+	assert.Equal(t, "claude", flags.Specs[0].Name)
+	assert.Equal(t, "cursor", flags.Specs[1].Name)
 }
 
 func TestValidateInstallFlags_UnknownAgent(t *testing.T) {
-	withJfrogHome(t)
+	testutil.WithJfrogHome(t)
 	projectDir := t.TempDir()
-	c := newInstallTestContext()
+	c := testutil.NewCLIContext()
 	c.AddStringFlag("harness", "my-agent")
 	c.AddStringFlag("project-dir", projectDir)
 
-	_, _, _, _, err := ValidateInstallFlags(c)
+	_, err := ValidateInstallFlags(c)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown agent")
 }
 
 func TestValidateInstallFlags_ConflictingFlags(t *testing.T) {
-	withJfrogHome(t)
+	testutil.WithJfrogHome(t)
 	validPath := t.TempDir()
 	projectDir := t.TempDir()
 
@@ -126,29 +128,33 @@ func TestValidateInstallFlags_ConflictingFlags(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := newInstallTestContext()
+			c := testutil.NewCLIContext()
 			tt.setup(c)
-			_, _, _, _, err := ValidateInstallFlags(c)
+			_, err := ValidateInstallFlags(c)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantSub)
 		})
 	}
 }
 
-func TestResolveAgentTarget_PathMode(t *testing.T) {
+func TestResolveAgentTargets_PathMode(t *testing.T) {
 	base := t.TempDir()
-	target, err := ResolveAgentTarget("my-plugin", base, AgentSpec{}, "", false)
+	targets, err := ResolveAgentTargets("my-plugin", base, nil, "", false)
 	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	target := targets[0]
 	assert.Equal(t, filepath.Join(base, "my-plugin"), target.DestinationDir)
 	assert.Equal(t, PathAgentName, target.Agent.Name)
 	assert.Equal(t, ScopePath, target.Scope)
 }
 
-func TestResolveAgentTarget_Project(t *testing.T) {
+func TestResolveAgentTargets_Project(t *testing.T) {
 	projectRoot := t.TempDir()
 	spec := AgentSpec{Name: "claude", Config: AgentConfig{ProjectDir: ".claude/plugins"}}
-	target, err := ResolveAgentTarget("my-plugin", "", spec, projectRoot, false)
+	targets, err := ResolveAgentTargets("my-plugin", "", []AgentSpec{spec}, projectRoot, false)
 	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	target := targets[0]
 	assert.Equal(t, filepath.Join(projectRoot, ".claude", "plugins", "my-plugin"), target.DestinationDir)
 	assert.Equal(t, ScopeProject, target.Scope)
 }

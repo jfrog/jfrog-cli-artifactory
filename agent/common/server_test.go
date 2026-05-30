@@ -3,9 +3,9 @@ package common
 import (
 	"testing"
 
+	"github.com/jfrog/jfrog-cli-artifactory/agent/common/testutil"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,8 +44,7 @@ func TestHasServerConfigFlags(t *testing.T) {
 }
 
 func TestGetServerDetails_NoConfiguredServer(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv(coreutils.HomeDir, dir)
+	testutil.WithJfrogHome(t)
 
 	ctx := &components.Context{}
 	_, err := GetServerDetails(ctx)

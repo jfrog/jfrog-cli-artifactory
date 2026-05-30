@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
+	"github.com/jfrog/jfrog-cli-artifactory/agent/common/testutil"
 )
 
 func writePluginJSON(t *testing.T, root, rel string, meta map[string]string) {
@@ -54,12 +55,12 @@ func TestValidateAndResolvePluginMeta_ClaudeManifestWins(t *testing.T) {
 }
 
 func TestLoadPluginManifestPaths_MergesConfigBeforeDefaults(t *testing.T) {
-	home := withJfrogHome(t)
-	writeAgentConfig(t, home, `{
+	home := testutil.WithJfrogHome(t)
+	testutil.WriteAgentConfig(t, home, `{
 		"plugin-manifest-paths": ["custom-dir/plugin.json", "plugin.json"]
 	}`)
 
-	got, err := LoadPluginManifestPaths()
+	got, err := loadPluginManifestPaths()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -77,15 +78,15 @@ func TestLoadPluginManifestPaths_MergesConfigBeforeDefaults(t *testing.T) {
 			t.Fatalf("got[%d] = %q, want %q (full list %v)", i, got[i], want, got)
 		}
 	}
-	if len(got) != len(KnownManifestRelPaths)+1 {
+	if len(got) != len(knownManifestRelPaths)+1 {
 		t.Fatalf("expected %d paths (config + defaults minus duplicate plugin.json), got %d: %v",
-			len(KnownManifestRelPaths)+1, len(got), got)
+			len(knownManifestRelPaths)+1, len(got), got)
 	}
 }
 
 func TestLoadPluginManifestPaths_ConfigTakesPriorityOverDefault(t *testing.T) {
-	home := withJfrogHome(t)
-	writeAgentConfig(t, home, `{"plugin-manifest-paths": ["custom-dir/plugin.json"]}`)
+	home := testutil.WithJfrogHome(t)
+	testutil.WriteAgentConfig(t, home, `{"plugin-manifest-paths": ["custom-dir/plugin.json"]}`)
 
 	dir := t.TempDir()
 	writePluginJSON(t, dir, "plugin.json", map[string]string{"name": "root", "version": "1.0.0"})
@@ -101,9 +102,9 @@ func TestLoadPluginManifestPaths_ConfigTakesPriorityOverDefault(t *testing.T) {
 }
 
 func TestLoadPluginManifestPaths_FallbackOrder(t *testing.T) {
-	withJfrogHome(t)
+	testutil.WithJfrogHome(t)
 
-	got, err := LoadPluginManifestPaths()
+	got, err := loadPluginManifestPaths()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -121,12 +122,12 @@ func TestKnownManifestRelPaths_AgentPriorityOrder(t *testing.T) {
 		".github/plugin/plugin.json",
 		".plugin/plugin.json",
 	}
-	if len(KnownManifestRelPaths) != len(want) {
-		t.Fatalf("KnownManifestRelPaths length = %d, want %d", len(KnownManifestRelPaths), len(want))
+	if len(knownManifestRelPaths) != len(want) {
+		t.Fatalf("knownManifestRelPaths length = %d, want %d", len(knownManifestRelPaths), len(want))
 	}
 	for i, p := range want {
-		if KnownManifestRelPaths[i] != p {
-			t.Fatalf("KnownManifestRelPaths[%d] = %q, want %q", i, KnownManifestRelPaths[i], p)
+		if knownManifestRelPaths[i] != p {
+			t.Fatalf("knownManifestRelPaths[%d] = %q, want %q", i, knownManifestRelPaths[i], p)
 		}
 	}
 }
@@ -157,8 +158,8 @@ func TestValidateAndResolvePluginMeta_DefaultVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if meta.Version != DefaultPluginVersion {
-		t.Fatalf("expected default %s, got %s", DefaultPluginVersion, meta.Version)
+	if meta.Version != defaultPluginVersion {
+		t.Fatalf("expected default %s, got %s", defaultPluginVersion, meta.Version)
 	}
 }
 

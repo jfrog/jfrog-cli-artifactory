@@ -315,7 +315,7 @@ func RunInstall(c *components.Context) error {
 		return err
 	}
 
-	absoluteInstallBaseDir, specs, projectDirAbs, isGlobal, err := common.ValidateInstallFlags(c)
+	flags, err := common.ValidateInstallFlags(c)
 	if err != nil {
 		return err
 	}
@@ -335,13 +335,13 @@ func RunInstall(c *components.Context) error {
 	if c.GetStringFlagValue("format") != "" {
 		format = c.GetStringFlagValue("format")
 	}
-	if absoluteInstallBaseDir != "" {
+	if flags.PathMode() {
 		return NewInstallCommand().
 			SetServerDetails(serverDetails).
 			SetRepoKey(repoKey).
 			SetSlug(slug).
 			SetVersion(version).
-			SetInstallPath(absoluteInstallBaseDir).
+			SetInstallPath(flags.AbsoluteInstallBaseDir).
 			SetFormat(format).
 			SetQuiet(quiet).
 			Run()
@@ -352,9 +352,9 @@ func RunInstall(c *components.Context) error {
 		SetRepoKey(repoKey).
 		SetSlug(slug).
 		SetVersion(version).
-		SetAgents(specs).
-		SetGlobal(isGlobal).
-		SetProjectDir(projectDirAbs).
+		SetAgents(flags.Specs).
+		SetGlobal(flags.IsGlobal).
+		SetProjectDir(flags.ProjectDirAbs).
 		SetFormat(format).
 		SetQuiet(quiet).
 		Run()

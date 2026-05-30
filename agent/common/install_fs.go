@@ -1,32 +1,27 @@
 package common
 
 import (
-	"archive/zip"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 )
 
-const jfrogInstallDirName = ".jfrog"
-
 const (
+	jfrogInstallDirName = ".jfrog"
+
 	// PackageDownloadThreads is the parallel download count for package and marketplace files.
 	PackageDownloadThreads = 1
 	// PackageDownloadRetries is the HTTP retry count for package and marketplace downloads.
 	PackageDownloadRetries = 3
+	// InstallInfoManifestSchemaVersion is bumped when the JSON shape changes incompatibly.
+	InstallInfoManifestSchemaVersion = 1
 )
-
-// InstallInfoManifestSchemaVersion is bumped when the JSON shape changes incompatibly.
-const InstallInfoManifestSchemaVersion = 1
 
 // InstallInfoManifest is CLI-owned metadata for an installed skill or plugin.
 type InstallInfoManifest struct {
@@ -39,8 +34,8 @@ type InstallInfoManifest struct {
 	ProjectDir       string `json:"projectDir,omitempty"`
 }
 
-// InstallInfoManifestPath returns the path to the manifest under an install directory.
-func InstallInfoManifestPath(installDir, manifestFileName string) string {
+// installInfoManifestPath is <installDir>/.jfrog/<manifestFileName>.
+func installInfoManifestPath(installDir, manifestFileName string) string {
 	return filepath.Join(installDir, jfrogInstallDirName, manifestFileName)
 }
 
@@ -53,11 +48,10 @@ func WriteInstallInfoManifest(installDir, manifestFileName string, manifest Inst
 	if err != nil {
 		return fmt.Errorf("marshal install info manifest: %w", err)
 	}
-	dir := filepath.Join(installDir, jfrogInstallDirName)
-	if err := os.MkdirAll(dir, InstallDirMode); err != nil {
+	path := installInfoManifestPath(installDir, manifestFileName)
+	if err := os.MkdirAll(filepath.Dir(path), InstallDirMode); err != nil {
 		return fmt.Errorf("create .jfrog under install dir: %w", err)
 	}
-	path := filepath.Join(dir, manifestFileName)
 	// #nosec G306 -- manifest lives under user-owned install dir.
 	if err := os.WriteFile(path, data, InstallManifestFileMode); err != nil {
 		return fmt.Errorf("write install info manifest: %w", err)
@@ -68,7 +62,7 @@ func WriteInstallInfoManifest(installDir, manifestFileName string, manifest Inst
 // ReadInstallInfoManifest reads .jfrog/<manifestFileName> when present.
 // A missing file returns (nil, nil).
 func ReadInstallInfoManifest(installDir, manifestFileName string) (*InstallInfoManifest, error) {
-	path := InstallInfoManifestPath(installDir, manifestFileName)
+	path := installInfoManifestPath(installDir, manifestFileName)
 	// #nosec G304 -- path is install directory joined with fixed .jfrog segments.
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -133,150 +127,4 @@ func VerifyPackageEvidence(serverDetails *config.ServerDetails, repoKey, slug, v
 	return verifyEvidenceForPackageZip(serverDetails, VerifyEvidenceOpts{
 		SubjectRepoPath: subjectRepoPath,
 	})
-}
-
-// EnsureDestinationDir mkdirs the path if missing; errors when the path exists and is not a directory.
-func EnsureDestinationDir(dest string) error {
-	info, err := os.Stat(dest)
-	switch {
-	case err == nil && !info.IsDir():
-		return fmt.Errorf("install destination %q exists and is not a directory", dest)
-	case err == nil:
-		return nil
-	case errors.Is(err, fs.ErrNotExist):
-		// #nosec G301 -- install files need to be readable across the user's tools.
-		if mkErr := os.MkdirAll(dest, InstallDirMode); mkErr != nil {
-			return fmt.Errorf(
-				"failed to create install destination %q: %w. "+
-					"Create the directory at that path (including parent folders if needed), then run the command again",
-				dest, mkErr,
-			)
-		}
-		return nil
-	default:
-		return fmt.Errorf("install destination %q is not accessible: %w", dest, err)
-	}
-}
-
-// UnzipFile extracts src into dest, rejecting entries that escape the destination directory.
-func UnzipFile(src, dest string) error {
-	zipReader, err := zip.OpenReader(src)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		// Best-effort close after zip read.
-		_ = zipReader.Close()
-	}()
-
-	if err := os.MkdirAll(dest, InstallDirMode); err != nil {
-		return err
-	}
-
-	for _, entry := range zipReader.File {
-		// #nosec G305 -- path traversal is checked immediately below
-		entryPath := filepath.Join(dest, entry.Name)
-
-		if !strings.HasPrefix(filepath.Clean(entryPath), filepath.Clean(dest)+string(os.PathSeparator)) {
-			return fmt.Errorf("illegal file path in zip: %s", entry.Name)
-		}
-
-		if entry.FileInfo().IsDir() {
-			if err := os.MkdirAll(entryPath, entry.Mode()); err != nil {
-				return err
-			}
-			continue
-		}
-
-		// #nosec G301 -- install files need to be readable
-		if err := os.MkdirAll(filepath.Dir(entryPath), InstallDirMode); err != nil {
-			return err
-		}
-
-		if err := extractZipEntry(entry, entryPath); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func extractZipEntry(entry *zip.File, outputPath string) error {
-	if strings.Contains(outputPath, "..") {
-		return fmt.Errorf("illegal file path: %s", outputPath)
-	}
-
-	entryReader, err := entry.Open()
-	if err != nil {
-		return err
-	}
-	defer func() {
-		// Best-effort close after zip entry read.
-		_ = entryReader.Close()
-	}()
-
-	cleanOutputPath := filepath.Clean(outputPath)
-	// #nosec G304 -- outputPath is validated in UnzipFile and above to be under the extraction directory
-	outputFile, err := os.OpenFile(cleanOutputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, entry.Mode())
-	if err != nil {
-		return err
-	}
-	defer func() {
-		// Best-effort close after extract write.
-		_ = outputFile.Close()
-	}()
-
-	// #nosec G110 -- zip files are size-bounded by Artifactory upload limits
-	_, err = io.Copy(outputFile, entryReader)
-	return err
-}
-
-// CopyDir copies the directory tree rooted at src into dst, creating dst if needed.
-func CopyDir(src, dst string) error {
-	// #nosec G301 -- install files need to be readable
-	if err := os.MkdirAll(dst, InstallDirMode); err != nil {
-		return err
-	}
-
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		relPath, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		destPath := filepath.Join(dst, relPath)
-
-		if info.IsDir() {
-			return os.MkdirAll(destPath, info.Mode())
-		}
-
-		return copyFile(path, destPath)
-	})
-}
-
-func copyFile(src, dst string) error {
-	// #nosec G304 -- src comes from a vetted unzip temp directory
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		// Best-effort close after copy read.
-		_ = in.Close()
-	}()
-
-	// #nosec G304 -- dst is constructed from validated unzip output path
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		// Best-effort close after copy write.
-		_ = out.Close()
-	}()
-
-	_, err = io.Copy(out, in)
-	return err
 }

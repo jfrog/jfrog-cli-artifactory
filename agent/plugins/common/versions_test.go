@@ -9,13 +9,13 @@ import (
 )
 
 func TestListPluginVersions_NilServerDetails(t *testing.T) {
-	_, err := ListPluginVersions(nil, "repo", "slug")
+	_, err := listPluginVersions(nil, "repo", "slug")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "server details are required")
 }
 
 func TestListPluginVersions_EmptyRepoKey(t *testing.T) {
-	_, err := ListPluginVersions(&config.ServerDetails{Url: "https://example.com/"}, "", "slug")
+	_, err := listPluginVersions(&config.ServerDetails{Url: "https://example.com/"}, "", "slug")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "repository is required")
 }

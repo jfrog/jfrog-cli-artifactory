@@ -12,45 +12,48 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestResolveAgentTarget_ProjectScope(t *testing.T) {
+func TestResolveAgentTargetDirectories_ProjectScope(t *testing.T) {
 	projectRoot := t.TempDir()
 	cmd := NewInstallCommand().
 		SetSlug("my-plugin").
-		SetAgent(plugincommon.AgentSpec{Name: "claude", Config: plugincommon.AgentConfig{ProjectDir: ".claude/plugins"}}).
+		SetAgents([]plugincommon.AgentSpec{{Name: "claude", Config: plugincommon.AgentConfig{ProjectDir: ".claude/plugins"}}}).
 		SetProjectDir(projectRoot)
 
-	target, err := cmd.resolveAgentTarget()
+	targets, err := cmd.resolveAgentTargetDirectories()
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(projectRoot, ".claude", "plugins", "my-plugin"), target.DestinationDir)
+	require.Len(t, targets, 1)
+	assert.Equal(t, filepath.Join(projectRoot, ".claude", "plugins", "my-plugin"), targets[0].DestinationDir)
 }
 
-func TestResolveAgentTarget_GlobalScope(t *testing.T) {
+func TestResolveAgentTargetDirectories_GlobalScope(t *testing.T) {
 	globalBase := filepath.Join(t.TempDir(), "global", ".cursor", "plugins")
 	wantBase, err := filepath.Abs(globalBase)
 	require.NoError(t, err)
 
 	cmd := NewInstallCommand().
 		SetSlug("alpha").
-		SetAgent(plugincommon.AgentSpec{Name: "cursor", Config: plugincommon.AgentConfig{GlobalDir: globalBase}}).
+		SetAgents([]plugincommon.AgentSpec{{Name: "cursor", Config: plugincommon.AgentConfig{GlobalDir: globalBase}}}).
 		SetGlobal(true)
 
-	target, err := cmd.resolveAgentTarget()
+	targets, err := cmd.resolveAgentTargetDirectories()
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(wantBase, "alpha"), target.DestinationDir)
+	require.Len(t, targets, 1)
+	assert.Equal(t, filepath.Join(wantBase, "alpha"), targets[0].DestinationDir)
 }
 
-func TestResolveAgentTarget_LegacyInstallPath(t *testing.T) {
+func TestResolveAgentTargetDirectories_LegacyInstallPath(t *testing.T) {
 	tmp := t.TempDir()
 	cmd := NewInstallCommand().SetSlug("legacy").SetInstallPath(tmp)
-	target, err := cmd.resolveAgentTarget()
+	targets, err := cmd.resolveAgentTargetDirectories()
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(tmp, "legacy"), target.DestinationDir)
+	require.Len(t, targets, 1)
+	assert.Equal(t, filepath.Join(tmp, "legacy"), targets[0].DestinationDir)
 }
 
 func TestResolveVersion_ExplicitOverridesMarketplace(t *testing.T) {
 	cmd := NewInstallCommand().
 		SetSlug("my-plugin").
-		SetAgent(plugincommon.AgentSpec{Name: "claude"}).
+		SetAgents([]plugincommon.AgentSpec{{Name: "claude"}}).
 		SetVersion("1.0.0")
 
 	got, err := cmd.resolveVersion()
@@ -77,7 +80,7 @@ func TestResolveVersion_EmptyVersionWithPathResolvesLatest(t *testing.T) {
 	assert.Equal(t, "1.2.3", got)
 }
 
-func TestCopyExtractedToTarget_WritesPluginInfoManifest(t *testing.T) {
+func TestCopyExtractedToTargets_WritesPluginInfoManifest(t *testing.T) {
 	src := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(src, "plugin.json"), []byte(`{"name":"my-plugin","version":"1.0.0"}`), 0o644))
 	dest := filepath.Join(t.TempDir(), "my-plugin")
@@ -94,7 +97,7 @@ func TestCopyExtractedToTarget_WritesPluginInfoManifest(t *testing.T) {
 		DestinationDir: dest,
 		Scope:          plugincommon.ScopeProject,
 	}
-	rows := ic.copyExtractedToTarget(src, target)
+	rows := ic.copyExtractedToTargets(src, []plugincommon.AgentTarget{target})
 	require.Len(t, rows, 1)
 	assert.Equal(t, agentcommon.SummaryStatusOK, rows[0].Status)
 

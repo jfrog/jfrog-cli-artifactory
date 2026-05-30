@@ -22,52 +22,66 @@ const (
 type AgentTarget = agentcommon.InstallTarget
 
 // ValidateInstallFlags validates `--path | (--harness [, --project-dir | --global])` for plugins install.
-// absoluteInstallBaseDir is non-empty when --path was supplied; otherwise spec is resolved from --harness.
-// Unlike skills install, --harness accepts exactly one agent name.
-func ValidateInstallFlags(c *components.Context) (absoluteInstallBaseDir string, spec AgentSpec, projectDirAbs string, isGlobal bool, err error) {
+func ValidateInstallFlags(c *components.Context) (agentcommon.InstallFlagsResult, error) {
 	pathInstallBase := strings.TrimSpace(c.GetStringFlagValue("path"))
 	rawHarness := strings.TrimSpace(c.GetStringFlagValue("harness"))
-	isGlobal = c.GetBoolFlagValue("global")
+	isGlobal := c.GetBoolFlagValue("global")
 	projectDir := strings.TrimSpace(c.GetStringFlagValue("project-dir"))
 
-	absoluteInstallBaseDir, err = agentcommon.ResolvePathInstallBase(agentcommon.InstallFlagInput{
+	absoluteInstallBaseDir, err := agentcommon.ResolvePathInstallBase(agentcommon.InstallFlagInput{
 		PathInstallBase: pathInstallBase,
 		RawHarness:      rawHarness,
 		ProjectDir:      projectDir,
 		IsGlobal:        isGlobal,
 	})
-	if err != nil || absoluteInstallBaseDir != "" {
-		return
+	if err != nil {
+		return agentcommon.InstallFlagsResult{}, err
+	}
+	if absoluteInstallBaseDir != "" {
+		return agentcommon.InstallFlagsResult{AbsoluteInstallBaseDir: absoluteInstallBaseDir}, nil
 	}
 
 	registry, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.PluginsAgentsKey)
 	if err != nil {
-		return
+		return agentcommon.InstallFlagsResult{}, err
 	}
 	if rawHarness == "" {
-		err = fmt.Errorf("--harness is required unless --path is set. Supported harnesses: %s", agentcommon.AgentNames(registry))
-		return
+		return agentcommon.InstallFlagsResult{}, fmt.Errorf("--harness is required unless --path is set. Supported harnesses: %s", agentcommon.AgentNames(registry))
 	}
 
-	harnessName, err := ParseSingleHarness(rawHarness)
+	harnessNames, err := ParseHarnessList(rawHarness)
 	if err != nil {
-		return
+		return agentcommon.InstallFlagsResult{}, err
 	}
-	spec, err = agentcommon.ResolveAgent(registry, harnessName, RegistryHelp)
-	if err != nil {
-		return
+	specs := make([]AgentSpec, 0, len(harnessNames))
+	for _, name := range harnessNames {
+		agentSpec, resolveErr := agentcommon.ResolveAgent(registry, name, RegistryHelp)
+		if resolveErr != nil {
+			return agentcommon.InstallFlagsResult{}, resolveErr
+		}
+		specs = append(specs, agentSpec)
 	}
 
-	projectDirAbs, err = agentcommon.ResolveInstallProjectDir(projectDir, isGlobal)
-	return
+	projectDirAbs, err := agentcommon.ResolveInstallProjectDir(projectDir, isGlobal)
+	if err != nil {
+		return agentcommon.InstallFlagsResult{}, err
+	}
+	return agentcommon.InstallFlagsResult{
+		Specs:         specs,
+		ProjectDirAbs: projectDirAbs,
+		IsGlobal:      isGlobal,
+	}, nil
 }
 
-// ResolveAgentTarget returns the single install destination for a plugin.
-// When path is non-empty, a ScopePath target is returned; otherwise the
-// agent's project/global directory is used.
-func ResolveAgentTarget(slug, path string, spec AgentSpec, projectDirAbs string, isGlobal bool) (AgentTarget, error) {
+// ResolveAgentTargets resolves per-agent install destinations for a plugin.
+// When path is non-empty, a single ScopePath target is returned.
+func ResolveAgentTargets(slug, path string, agents []AgentSpec, projectDirAbs string, isGlobal bool) ([]AgentTarget, error) {
 	if path != "" {
-		return agentcommon.BuildPathInstallTarget(slug, path)
+		target, err := agentcommon.BuildPathInstallTarget(slug, path)
+		if err != nil {
+			return nil, err
+		}
+		return []AgentTarget{target}, nil
 	}
 
 	scope := ScopeProject
@@ -75,16 +89,20 @@ func ResolveAgentTarget(slug, path string, spec AgentSpec, projectDirAbs string,
 		scope = ScopeGlobal
 	}
 	if scope == ScopeProject && projectDirAbs == "" {
-		return AgentTarget{}, fmt.Errorf("project directory is required for project-scoped install")
+		return nil, fmt.Errorf("project directory is required for project-scoped install")
 	}
 
-	base, err := agentcommon.ResolveAgentInstallDir(spec, projectDirAbs, isGlobal)
-	if err != nil {
-		return AgentTarget{}, err
+	targets := make([]AgentTarget, 0, len(agents))
+	for _, agent := range agents {
+		base, err := agentcommon.ResolveAgentInstallDir(agent, projectDirAbs, isGlobal)
+		if err != nil {
+			return nil, err
+		}
+		targets = append(targets, AgentTarget{
+			Agent:          agent,
+			Scope:          scope,
+			DestinationDir: filepath.Join(base, slug),
+		})
 	}
-	return AgentTarget{
-		Agent:          spec,
-		Scope:          scope,
-		DestinationDir: filepath.Join(base, slug),
-	}, nil
+	return targets, nil
 }

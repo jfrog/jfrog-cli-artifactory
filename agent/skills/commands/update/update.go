@@ -36,7 +36,7 @@ func RunUpdate(c *components.Context) error {
 		return err
 	}
 
-	absoluteInstallBaseDir, specs, projectDirAbs, isGlobal, err := common.ValidateInstallFlags(c)
+	flags, err := common.ValidateInstallFlags(c)
 	if err != nil {
 		return err
 	}
@@ -59,7 +59,7 @@ func RunUpdate(c *components.Context) error {
 		format = c.GetStringFlagValue("format")
 	}
 
-	targets, err := common.ResolveAgentTargets(slug, absoluteInstallBaseDir, specs, projectDirAbs, isGlobal)
+	targets, err := common.ResolveAgentTargets(slug, flags.AbsoluteInstallBaseDir, flags.Specs, flags.ProjectDirAbs, flags.IsGlobal)
 	if err != nil {
 		return err
 	}
@@ -99,8 +99,8 @@ func RunUpdate(c *components.Context) error {
 		SetVersion(targetVersion).
 		SetQuiet(quiet).
 		SetSuppressSummary(true).
-		SetProjectDir(projectDirAbs).
-		SetGlobal(isGlobal)
+		SetProjectDir(flags.ProjectDirAbs).
+		SetGlobal(flags.IsGlobal)
 
 	unzipDir, err := cmd.FetchAndExtractTo(tmpDir)
 	if err != nil {

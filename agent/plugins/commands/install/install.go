@@ -18,13 +18,13 @@ import (
 // resolveLatestPluginVersion is swappable in tests.
 var resolveLatestPluginVersion = plugincommon.ResolveLatestPluginVersion
 
-// InstallCommand installs an agent plugin for a single agent or a direct --path target.
+// InstallCommand installs an agent plugin for configured agents or a direct --path target.
 type InstallCommand struct {
 	serverDetails *config.ServerDetails
 	repoKey       string
 	slug          string
 	version       string
-	agent         plugincommon.AgentSpec // singular: plugins install accepts only one harness
+	agents        []plugincommon.AgentSpec
 	scope         agentcommon.InstallScope
 	projectDir    string // project root for project scope (--project-dir)
 	// installPath is the base directory for jf agent plugins install --path. The plugin is installed at
@@ -58,8 +58,8 @@ func (ic *InstallCommand) SetVersion(version string) *InstallCommand {
 	return ic
 }
 
-func (ic *InstallCommand) SetAgent(agent plugincommon.AgentSpec) *InstallCommand {
-	ic.agent = agent
+func (ic *InstallCommand) SetAgents(agents []plugincommon.AgentSpec) *InstallCommand {
+	ic.agents = agents
 	return ic
 }
 
@@ -105,11 +105,11 @@ func (ic *InstallCommand) CommandName() string {
 }
 
 func (ic *InstallCommand) Run() error {
-	if ic.installPath == "" && ic.agent.Name == "" {
+	if ic.installPath == "" && len(ic.agents) == 0 {
 		return fmt.Errorf("--harness is required unless --path is set")
 	}
 
-	target, err := ic.resolveAgentTarget()
+	installTargets, err := ic.resolveAgentTargetDirectories()
 	if err != nil {
 		return err
 	}
@@ -124,7 +124,11 @@ func (ic *InstallCommand) Run() error {
 		return err
 	}
 
-	log.Info(fmt.Sprintf("Installing plugin '%s' version '%s' to %s", ic.slug, ic.version, target.DestinationDir))
+	if ic.installPath != "" {
+		log.Info(fmt.Sprintf("Installing plugin '%s' version '%s' to %s", ic.slug, ic.version, installTargets[0].DestinationDir))
+	} else {
+		log.Info(fmt.Sprintf("Installing plugin '%s' version '%s' for %d harness(es)", ic.slug, ic.version, len(installTargets)))
+	}
 
 	tmpDir, err := os.MkdirTemp("", "plugin-install-*")
 	if err != nil {
@@ -140,7 +144,7 @@ func (ic *InstallCommand) Run() error {
 		return err
 	}
 
-	results := ic.copyExtractedToTarget(unzipDir, target)
+	results := ic.copyExtractedToTargets(unzipDir, installTargets)
 
 	if err := agentcommon.PrintInstallSummary("Plugin", ic.slug, ic.version, results, ic.format); err != nil {
 		return err
@@ -148,7 +152,7 @@ func (ic *InstallCommand) Run() error {
 
 	for _, result := range results {
 		if result.Status != agentcommon.SummaryStatusOK {
-			return fmt.Errorf("installation failed (see summary above)")
+			return fmt.Errorf("installation failed for one or more agents (see summary above)")
 		}
 	}
 	return nil
@@ -166,22 +170,37 @@ func (ic *InstallCommand) resolveVersion() (string, error) {
 	if requested != "" && requested != "latest" {
 		return requested, nil
 	}
-	if requested == "latest" || ic.agent.Name == "" {
+	if requested == "latest" || len(ic.agents) == 0 {
 		return resolveLatestPluginVersion(ic.serverDetails, ic.repoKey, ic.slug)
 	}
-	// Empty --version with harness: resolve from marketplace.
-	version, err := plugincommon.ResolveVersionFromMarketplace(ic.serverDetails, ic.repoKey, ic.agent.Name, ic.slug)
-	if err != nil {
-		if errors.Is(err, plugincommon.ErrMarketplaceNotFound) {
+	return ic.resolveVersionFromMarketplaces()
+}
+
+func (ic *InstallCommand) resolveVersionFromMarketplaces() (string, error) {
+	var resolved string
+	for _, agent := range ic.agents {
+		version, err := plugincommon.ResolveVersionFromMarketplace(ic.serverDetails, ic.repoKey, agent.Name, ic.slug)
+		if err != nil {
+			if errors.Is(err, plugincommon.ErrMarketplaceNotFound) {
+				return "", fmt.Errorf(
+					"'%s' is a supported agent, but %s is not available in repository '%s'; %s",
+					agent.Name, plugincommon.MarketplaceFileName(agent.Name), ic.repoKey, plugincommon.InstallBypassMarketplaceHint,
+				)
+			}
+			return "", err
+		}
+		if resolved == "" {
+			resolved = version
+			continue
+		}
+		if version != resolved {
 			return "", fmt.Errorf(
-				"'%s' is a supported agent, but %s is not available in repository '%s'. "+
-					"To install from the common marketplace, re-run with --version <ver> (e.g. --version 1.0.0 or --version latest)",
-				ic.agent.Name, plugincommon.MarketplaceFileName(ic.agent.Name), ic.repoKey,
+				"marketplace versions differ across harnesses for plugin '%s' (%s for %s vs %s for %s); specify --version explicitly",
+				ic.slug, resolved, ic.agents[0].Name, version, agent.Name,
 			)
 		}
-		return "", err
 	}
-	return version, nil
+	return resolved, nil
 }
 
 func (ic *InstallCommand) fetchAndExtractTo(tmpDir string) (string, error) {
@@ -199,23 +218,30 @@ func (ic *InstallCommand) fetchAndExtractTo(tmpDir string) (string, error) {
 	return unzipDir, nil
 }
 
-func (ic *InstallCommand) copyExtractedToTarget(unzipDir string, target plugincommon.AgentTarget) []agentcommon.SummaryRow {
-	if err := agentcommon.EnsureDestinationDir(target.DestinationDir); err != nil {
-		return []agentcommon.SummaryRow{agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err)}
+func (ic *InstallCommand) copyExtractedToTargets(unzipDir string, installTargets []plugincommon.AgentTarget) []agentcommon.SummaryRow {
+	results := make([]agentcommon.SummaryRow, 0, len(installTargets))
+	for _, target := range installTargets {
+		if err := agentcommon.EnsureDestinationDir(target.DestinationDir); err != nil {
+			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
+			continue
+		}
+		if err := agentcommon.CopyDir(unzipDir, target.DestinationDir); err != nil {
+			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
+			continue
+		}
+		if err := ic.writePluginInfoManifest(target); err != nil {
+			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
+			continue
+		}
+		results = append(results, agentcommon.SummaryRow{
+			Agent:  target.Agent.Name,
+			Scope:  string(target.Scope),
+			Path:   target.DestinationDir,
+			Status: agentcommon.SummaryStatusOK,
+			Detail: agentcommon.SummaryDetailOKInstall,
+		})
 	}
-	if err := agentcommon.CopyDir(unzipDir, target.DestinationDir); err != nil {
-		return []agentcommon.SummaryRow{agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err)}
-	}
-	if err := ic.writePluginInfoManifest(target); err != nil {
-		return []agentcommon.SummaryRow{agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err)}
-	}
-	return []agentcommon.SummaryRow{{
-		Agent:  target.Agent.Name,
-		Scope:  string(target.Scope),
-		Path:   target.DestinationDir,
-		Status: agentcommon.SummaryStatusOK,
-		Detail: agentcommon.SummaryDetailOKInstall,
-	}}
+	return results
 }
 
 func (ic *InstallCommand) handleEvidenceVerification() error {
@@ -237,15 +263,15 @@ func (ic *InstallCommand) handleEvidenceVerification() error {
 	return nil
 }
 
-func (ic *InstallCommand) resolveAgentTarget() (plugincommon.AgentTarget, error) {
+func (ic *InstallCommand) resolveAgentTargetDirectories() ([]plugincommon.AgentTarget, error) {
 	if ic.installPath != "" {
-		return plugincommon.ResolveAgentTarget(ic.slug, ic.installPath, plugincommon.AgentSpec{}, "", false)
+		return plugincommon.ResolveAgentTargets(ic.slug, ic.installPath, nil, "", false)
 	}
 	if ic.scope == agentcommon.InstallScopeProject && ic.projectDir == "" {
-		return plugincommon.AgentTarget{}, fmt.Errorf("project directory is required for project-scoped install")
+		return nil, fmt.Errorf("project directory is required for project-scoped install")
 	}
 	isGlobal := ic.scope == agentcommon.InstallScopeGlobal
-	return plugincommon.ResolveAgentTarget(ic.slug, "", ic.agent, ic.projectDir, isGlobal)
+	return plugincommon.ResolveAgentTargets(ic.slug, "", ic.agents, ic.projectDir, isGlobal)
 }
 
 func (ic *InstallCommand) writePluginInfoManifest(target plugincommon.AgentTarget) error {
@@ -274,7 +300,7 @@ func (ic *InstallCommand) verifyEvidence() error {
 // RunInstall is the CLI action for `jf agent plugins install`.
 func RunInstall(c *components.Context) error {
 	if c.GetNumberOfArgs() < 1 {
-		return fmt.Errorf("usage: jf agent plugins install <slug> (--harness <name> [--global] [--project-dir <dir>] | --path <dir>) [--repo <repo>] [--version <ver>]")
+		return fmt.Errorf("usage: jf agent plugins install <slug> (--harness <name[,name...]> [--global] [--project-dir <dir>] | --path <dir>) [--repo <repo>] [--version <ver>]")
 	}
 
 	slug := c.GetArgumentAt(0)
@@ -282,7 +308,7 @@ func RunInstall(c *components.Context) error {
 		return err
 	}
 
-	absoluteInstallBaseDir, spec, projectDirAbs, isGlobal, err := plugincommon.ValidateInstallFlags(c)
+	flags, err := plugincommon.ValidateInstallFlags(c)
 	if err != nil {
 		return err
 	}
@@ -311,13 +337,13 @@ func RunInstall(c *components.Context) error {
 		SetFormat(format).
 		SetQuiet(quiet)
 
-	if absoluteInstallBaseDir != "" {
-		return cmd.SetInstallPath(absoluteInstallBaseDir).Run()
+	if flags.PathMode() {
+		return cmd.SetInstallPath(flags.AbsoluteInstallBaseDir).Run()
 	}
 
 	return cmd.
-		SetAgent(spec).
-		SetGlobal(isGlobal).
-		SetProjectDir(projectDirAbs).
+		SetAgents(flags.Specs).
+		SetGlobal(flags.IsGlobal).
+		SetProjectDir(flags.ProjectDirAbs).
 		Run()
 }

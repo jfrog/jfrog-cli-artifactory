@@ -11,21 +11,22 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 )
 
-// Keys recognized inside ~/.jfrog/agents/agent-config.json.
 const (
+	jfrogHomeDirName = ".jfrog"
+
 	agentsConfigSubdir = "agents"
 	agentsConfigFile   = "agent-config.json"
 
-	// SkillsAgentsKey holds the per-agent skills directory overrides.
+	// SkillsAgentsKey holds the per-agent skills directory overrides in agent-config.json.
 	SkillsAgentsKey = "skills-agents"
-	// PluginsAgentsKey holds the per-agent plugins directory overrides.
+	// PluginsAgentsKey holds the per-agent plugins directory overrides in agent-config.json.
 	PluginsAgentsKey = "plugins-agents"
 	// PluginManifestPathsKey holds the ordered list of relative plugin.json paths checked by publish.
 	PluginManifestPathsKey = "plugin-manifest-paths"
 )
 
-// AgentConfigPath returns ~/.jfrog/agents/agent-config.json. The file may not exist.
-func AgentConfigPath() (string, error) {
+// agentConfigPath returns ~/.jfrog/agents/agent-config.json. The file may not exist.
+func agentConfigPath() (string, error) {
 	home, err := coreutils.GetJfrogHomeDir()
 	if err != nil {
 		return "", err
@@ -33,12 +34,22 @@ func AgentConfigPath() (string, error) {
 	return filepath.Join(home, agentsConfigSubdir, agentsConfigFile), nil
 }
 
+// AgentConfigPathForDisplay returns the resolved agent-config.json path for help and error
+// messages. When JFrog home cannot be resolved, it returns the conventional default path.
+func AgentConfigPathForDisplay() string {
+	path, err := agentConfigPath()
+	if err != nil {
+		return filepath.Join("~", jfrogHomeDirName, agentsConfigSubdir, agentsConfigFile)
+	}
+	return path
+}
+
 // LoadAgentConfigSection reads ~/.jfrog/agents/agent-config.json and returns the
 // raw JSON for the requested top-level key. When the file or the key is missing
 // it returns (nil, path, nil). The resolved path is always returned so callers
 // can include it in error messages.
 func LoadAgentConfigSection(key string) (json.RawMessage, string, error) {
-	path, err := AgentConfigPath()
+	path, err := agentConfigPath()
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve agent config path: %w", err)
 	}

@@ -1,13 +1,12 @@
 package common
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-cli-artifactory/agent/common/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,23 +22,8 @@ func TestSupportedAgentsList_SortedAndStable(t *testing.T) {
 	}
 }
 
-// withJfrogHome sets JFROG_CLI_HOME_DIR to a temp dir.
-func withJfrogHome(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	t.Setenv(coreutils.HomeDir, dir)
-	return dir
-}
-
-func writeAgentConfig(t *testing.T, home, body string) {
-	t.Helper()
-	path := filepath.Join(home, "agents", "agent-config.json")
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
-}
-
 func TestLoadAgentRegistry_FallbackOnly(t *testing.T) {
-	withJfrogHome(t)
+	testutil.WithJfrogHome(t)
 
 	registry, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.SkillsAgentsKey)
 	require.NoError(t, err)
@@ -51,8 +35,8 @@ func TestLoadAgentRegistry_FallbackOnly(t *testing.T) {
 }
 
 func TestLoadAgentRegistry_OverridesAndAdds(t *testing.T) {
-	home := withJfrogHome(t)
-	writeAgentConfig(t, home, `{
+	home := testutil.WithJfrogHome(t)
+	testutil.WriteAgentConfig(t, home, `{
 		"skills-agents": {
 			"cursor": {"globalDir": "/abs/cursor", "projectDir": ".override/cursor"},
 			"my-agent": {"globalDir": "~/.my/skills", "projectDir": ".my/skills"}
@@ -78,8 +62,8 @@ func TestLoadAgentRegistry_OverridesAndAdds(t *testing.T) {
 }
 
 func TestLoadAgentRegistry_RejectsEmptyEntry(t *testing.T) {
-	home := withJfrogHome(t)
-	writeAgentConfig(t, home, `{"skills-agents": {"broken": {}}}`)
+	home := testutil.WithJfrogHome(t)
+	testutil.WriteAgentConfig(t, home, `{"skills-agents": {"broken": {}}}`)
 
 	_, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.SkillsAgentsKey)
 	require.Error(t, err)
@@ -87,8 +71,8 @@ func TestLoadAgentRegistry_RejectsEmptyEntry(t *testing.T) {
 }
 
 func TestLoadAgentRegistry_RejectsBadJSON(t *testing.T) {
-	home := withJfrogHome(t)
-	writeAgentConfig(t, home, `not-json`)
+	home := testutil.WithJfrogHome(t)
+	testutil.WriteAgentConfig(t, home, `not-json`)
 
 	_, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.SkillsAgentsKey)
 	require.Error(t, err)
@@ -127,7 +111,7 @@ func TestParseHarnessList_EmptyAndDuplicates(t *testing.T) {
 }
 
 func TestResolveAgent_Unknown(t *testing.T) {
-	withJfrogHome(t)
+	testutil.WithJfrogHome(t)
 	registry, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.SkillsAgentsKey)
 	require.NoError(t, err)
 
@@ -138,7 +122,7 @@ func TestResolveAgent_Unknown(t *testing.T) {
 }
 
 func TestResolveAgentInstallDir_GlobalAndProject(t *testing.T) {
-	withJfrogHome(t)
+	testutil.WithJfrogHome(t)
 	globalDir := "/var/data/.cursor/skills"
 	spec := AgentSpec{
 		Name:   "cursor",

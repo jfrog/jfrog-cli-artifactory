@@ -96,7 +96,7 @@ func AgentNames(registry map[string]AgentSpec) string {
 
 // AgentRegistryHelp lists agents/paths and how to edit agent-config.json.
 func AgentRegistryHelp(registry map[string]AgentSpec, helpExample AgentRegistryHelpExample) string {
-	configPath, _ := AgentConfigPath()
+	configPath := AgentConfigPathForDisplay()
 	keys := make([]string, 0, len(registry))
 	for name := range registry {
 		keys = append(keys, name)

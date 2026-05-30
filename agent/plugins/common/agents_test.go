@@ -1,33 +1,18 @@
 package common
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-cli-artifactory/agent/common/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func withJfrogHome(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	t.Setenv(coreutils.HomeDir, dir)
-	return dir
-}
-
-func writeAgentConfig(t *testing.T, home, body string) {
-	t.Helper()
-	path := filepath.Join(home, "agents", "agent-config.json")
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
-}
-
 func TestLoadAgentRegistry_BuiltInsOnly(t *testing.T) {
-	withJfrogHome(t)
+	testutil.WithJfrogHome(t)
 
 	registry, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.PluginsAgentsKey)
 	require.NoError(t, err)
@@ -42,8 +27,8 @@ func TestLoadAgentRegistry_BuiltInsOnly(t *testing.T) {
 }
 
 func TestLoadAgentRegistry_OverridesAndAdds(t *testing.T) {
-	home := withJfrogHome(t)
-	writeAgentConfig(t, home, `{
+	home := testutil.WithJfrogHome(t)
+	testutil.WriteAgentConfig(t, home, `{
 		"plugins-agents": {
 			"cursor": {"globalDir": "/abs/cursor", "projectDir": ".override/cursor"},
 			"my-agent": {"globalDir": "~/.my/plugins", "projectDir": ".my/plugins"}
@@ -67,8 +52,8 @@ func TestLoadAgentRegistry_OverridesAndAdds(t *testing.T) {
 }
 
 func TestLoadAgentRegistry_IgnoresSkillsAgents(t *testing.T) {
-	home := withJfrogHome(t)
-	writeAgentConfig(t, home, `{
+	home := testutil.WithJfrogHome(t)
+	testutil.WriteAgentConfig(t, home, `{
 		"skills-agents": {"my-agent": {"projectDir": "x", "globalDir": "y"}}
 	}`)
 
@@ -80,30 +65,35 @@ func TestLoadAgentRegistry_IgnoresSkillsAgents(t *testing.T) {
 }
 
 func TestLoadAgentRegistry_RejectsEmptyEntry(t *testing.T) {
-	home := withJfrogHome(t)
-	writeAgentConfig(t, home, `{"plugins-agents": {"broken": {}}}`)
+	home := testutil.WithJfrogHome(t)
+	testutil.WriteAgentConfig(t, home, `{"plugins-agents": {"broken": {}}}`)
 
 	_, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.PluginsAgentsKey)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must define globalDir and/or projectDir")
 }
 
-func TestParseSingleHarness(t *testing.T) {
-	got, err := ParseSingleHarness("Claude")
+func TestParseHarnessList(t *testing.T) {
+	got, err := ParseHarnessList("cursor, Claude")
 	require.NoError(t, err)
-	assert.Equal(t, "claude", got)
+	assert.Equal(t, []string{"cursor", "claude"}, got)
+}
 
-	_, err = ParseSingleHarness("")
+func TestParseHarnessList_EmptyAndDuplicates(t *testing.T) {
+	_, err := ParseHarnessList("")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "required")
 
-	_, err = ParseSingleHarness("claude,cursor")
+	_, err = ParseHarnessList("cursor,,claude")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "single harness name")
+	assert.Contains(t, err.Error(), "empty name")
+
+	_, err = ParseHarnessList("cursor,cursor")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "more than once")
 }
 
 func TestResolveAgent_Unknown(t *testing.T) {
-	withJfrogHome(t)
+	testutil.WithJfrogHome(t)
 	registry, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.PluginsAgentsKey)
 	require.NoError(t, err)
 
@@ -114,7 +104,7 @@ func TestResolveAgent_Unknown(t *testing.T) {
 }
 
 func TestResolveAgentInstallDir_GlobalAndProject(t *testing.T) {
-	withJfrogHome(t)
+	testutil.WithJfrogHome(t)
 	spec := AgentSpec{Name: "cursor", Config: AgentConfig{GlobalDir: "/abs/cursor/plugins", ProjectDir: ".cursor/plugins"}}
 
 	abs, err := agentcommon.ResolveAgentInstallDir(spec, "", true)
@@ -132,7 +122,7 @@ func TestResolveAgentInstallDir_GlobalAndProject(t *testing.T) {
 }
 
 func TestSupportedAgentsList_OnlyPluginAgents(t *testing.T) {
-	withJfrogHome(t)
+	testutil.WithJfrogHome(t)
 	got := agentcommon.SupportedAgentsList(Agents, agentcommon.PluginsAgentsKey)
 	parts := strings.Split(got, ", ")
 	assert.ElementsMatch(t, []string{"claude", "cursor", "codex"}, parts)

@@ -9,9 +9,9 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
 
-// ListPluginVersions returns the version folders published under <repoKey>/<slug>/ using
+// listPluginVersions returns the version folders published under <repoKey>/<slug>/ using
 // the generic Artifactory storage API. Folder children that are not directories are skipped.
-func ListPluginVersions(serverDetails *config.ServerDetails, repoKey, slug string) ([]string, error) {
+func listPluginVersions(serverDetails *config.ServerDetails, repoKey, slug string) ([]string, error) {
 	if serverDetails == nil {
 		return nil, fmt.Errorf("server details are required to list plugin versions")
 	}
@@ -43,9 +43,9 @@ func ListPluginVersions(serverDetails *config.ServerDetails, repoKey, slug strin
 	return versions, nil
 }
 
-// ResolveLatestPluginVersion returns the greatest semver from ListPluginVersions.
+// ResolveLatestPluginVersion returns the greatest semver from listPluginVersions.
 func ResolveLatestPluginVersion(serverDetails *config.ServerDetails, repoKey, slug string) (string, error) {
-	versions, err := ListPluginVersions(serverDetails, repoKey, slug)
+	versions, err := listPluginVersions(serverDetails, repoKey, slug)
 	if err != nil {
 		return "", fmt.Errorf("failed to list versions for plugin '%s': %w", slug, err)
 	}

@@ -9,7 +9,7 @@ import (
 )
 
 func TestParseMarketplace_ClaudeFixture(t *testing.T) {
-	marketplace, err := ParseMarketplace(filepath.Join("testdata", "claude-marketplace.json"))
+	marketplace, err := parseMarketplace(filepath.Join("testdata", "claude-marketplace.json"))
 	require.NoError(t, err)
 	require.NotNil(t, marketplace)
 	assert.Equal(t, "test-marketplace", marketplace.Name)
@@ -19,7 +19,7 @@ func TestParseMarketplace_ClaudeFixture(t *testing.T) {
 }
 
 func TestParseMarketplace_CursorFixture(t *testing.T) {
-	marketplace, err := ParseMarketplace(filepath.Join("testdata", "cursor-marketplace.json"))
+	marketplace, err := parseMarketplace(filepath.Join("testdata", "cursor-marketplace.json"))
 	require.NoError(t, err)
 	require.Len(t, marketplace.Plugins, 1)
 	assert.Equal(t, "dummy-plugin-gamma", marketplace.Plugins[0].Name)
@@ -27,7 +27,7 @@ func TestParseMarketplace_CursorFixture(t *testing.T) {
 }
 
 func TestParseMarketplace_CodexFixtureWithExtraFields(t *testing.T) {
-	marketplace, err := ParseMarketplace(filepath.Join("testdata", "codex-marketplace.json"))
+	marketplace, err := parseMarketplace(filepath.Join("testdata", "codex-marketplace.json"))
 	require.NoError(t, err)
 	require.Len(t, marketplace.Plugins, 1)
 	assert.Equal(t, "dummy-plugin-delta", marketplace.Plugins[0].Name)
@@ -35,25 +35,30 @@ func TestParseMarketplace_CodexFixtureWithExtraFields(t *testing.T) {
 }
 
 func TestFindEntry(t *testing.T) {
-	marketplace, err := ParseMarketplace(filepath.Join("testdata", "claude-marketplace.json"))
+	marketplace, err := parseMarketplace(filepath.Join("testdata", "claude-marketplace.json"))
 	require.NoError(t, err)
 
-	entry, ok := FindEntry(marketplace, "dummy-plugin-beta")
+	entry, ok := findEntry(marketplace, "dummy-plugin-beta")
 	require.True(t, ok)
 	assert.Equal(t, "1.0.1", entry.Version)
 
-	_, ok = FindEntry(marketplace, "missing")
+	_, ok = findEntry(marketplace, "missing")
 	assert.False(t, ok)
 
 	// case-insensitive match
-	entry, ok = FindEntry(marketplace, "Dummy-Plugin-Alpha")
+	entry, ok = findEntry(marketplace, "Dummy-Plugin-Alpha")
 	require.True(t, ok)
 	assert.Equal(t, "1.0.2", entry.Version)
 }
 
 func TestParseMarketplace_MissingFile(t *testing.T) {
-	_, err := ParseMarketplace(filepath.Join(t.TempDir(), "missing.json"))
+	_, err := parseMarketplace(filepath.Join(t.TempDir(), "missing.json"))
 	require.Error(t, err)
+}
+
+func TestInstallBypassMarketplaceHint(t *testing.T) {
+	assert.Contains(t, InstallBypassMarketplaceHint, "--version")
+	assert.Contains(t, InstallBypassMarketplaceHint, "without using the marketplace")
 }
 
 func TestMarketplaceFileName(t *testing.T) {
