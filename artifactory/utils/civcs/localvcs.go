@@ -25,10 +25,8 @@ type UploadPatternOptions struct {
 }
 
 var (
-	findDotGitFromDirFn = func(startDir string) (string, error) {
-		return utils.GetDotGitFromDir(startDir)
-	}
-	newGitManagerFn = func(dotGitPath string) gitConfigReader {
+	findDotGitFromDirFn = utils.GetDotGitFromDir
+	newGitManagerFn     = func(dotGitPath string) gitConfigReader {
 		return clientutils.NewGitManager(dotGitPath)
 	}
 )
