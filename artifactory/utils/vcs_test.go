@@ -1,11 +1,14 @@
 package utils
 
 import (
-	"github.com/jfrog/jfrog-cli-core/v2/utils/tests"
-	"github.com/stretchr/testify/assert"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jfrog/jfrog-cli-core/v2/utils/tests"
+	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestGetPlainGitLogFromLastVcsRevision(t *testing.T) {
@@ -30,4 +33,30 @@ func runGitLogAndCountCommits(t *testing.T, gitDetails GitLogDetails, vcsRevisio
 	assert.NoError(t, err)
 	commits := strings.Split(strings.TrimSpace(gitLog), "\n")
 	assert.Len(t, commits, expectedCommits)
+}
+
+func TestGetDotGitFromDir_FindsGitInParent(t *testing.T) {
+	baseDir, dotGitPath := tests.PrepareDotGitDir(t, "git_test_.git_suffix",
+		filepath.Join("..", "commands", "testdata"))
+	defer tests.RenamePath(dotGitPath, filepath.Join(baseDir, "git_test_.git_suffix"), t)
+
+	subDir := filepath.Join(baseDir, "nested", "pkg")
+	assert.NoError(t, os.MkdirAll(subDir, 0o755))
+
+	found, err := GetDotGitFromDir(subDir)
+	assert.NoError(t, err)
+	assert.Equal(t, baseDir, found)
+	assert.True(t, fileutils.IsPathExists(filepath.Join(found, ".git"), false))
+}
+
+func TestGetDotGitFromDir_EmptyStartDirUsesCwd(t *testing.T) {
+	_, err := GetDotGitFromDir("")
+	assert.NoError(t, err)
+}
+
+func TestGetDotGitFromDir_NoGitRepo(t *testing.T) {
+	tmp := t.TempDir()
+	found, err := GetDotGitFromDir(tmp)
+	assert.NoError(t, err)
+	assert.Empty(t, found)
 }

@@ -204,7 +204,22 @@ func enrichUploadFileProps(file *spec.File, syncDeletesProp string) {
 	file.TargetProps = clientUtils.AddProps(file.TargetProps, file.Props)
 	file.TargetProps = clientUtils.AddProps(file.TargetProps, syncDeletesProp)
 	file.Props += syncDeletesProp
-	file.TargetProps = mergeVcsPropsForUpload(file.TargetProps, file.Pattern)
+
+	isRegexp, err := file.IsRegexp(false)
+	if err != nil {
+		log.Debug("Failed to check if pattern is a regular expression:", err.Error())
+		isRegexp = false
+	}
+	isAnt, err := file.IsAnt(false)
+	if err != nil {
+		log.Debug("Failed to check if pattern is an Ant pattern:", err.Error())
+		isAnt = false
+	}
+	searchDir := civcs.DeriveSearchDirFromUploadPattern(file.Pattern, civcs.UploadPatternOptions{
+		IsRegexp: isRegexp,
+		IsAnt:    isAnt,
+	})
+	file.TargetProps = mergeVcsPropsForUpload(file.TargetProps, searchDir)
 }
 
 func getUploadParams(f *spec.File, configuration *utils.UploadConfiguration, buildProps string, addVcsProps bool, dryRun bool) (uploadParams services.UploadParams, err error) {

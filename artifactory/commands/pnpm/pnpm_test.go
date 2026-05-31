@@ -552,3 +552,22 @@ func TestPublishBuildInfoGracefulDegradation(t *testing.T) {
 	assert.Error(t, err, "collectSinglePublishBuildInfo should fail with invalid JSON")
 	assert.Contains(t, err.Error(), "parsing pnpm publish --json output")
 }
+
+
+func TestMergeVcsPropsForPnpmPublish(t *testing.T) {
+	originalMerge := mergeVcsPropsForPnpmPublish
+	mergeVcsPropsForPnpmPublish = func(userProps, searchDir string) string {
+		assert.Equal(t, "build.name=my-build", userProps)
+		assert.Equal(t, "/tmp/pnpm-app", searchDir)
+		return "build.name=my-build;vcs.revision=abc123"
+	}
+	defer func() { mergeVcsPropsForPnpmPublish = originalMerge }()
+
+	got := mergeVcsPropsForPnpmPublish("build.name=my-build", "/tmp/pnpm-app")
+	assert.Equal(t, "build.name=my-build;vcs.revision=abc123", got)
+}
+
+func TestMergeVcsPropsForPnpmPublish_NoGitRepo(t *testing.T) {
+	got := mergeVcsPropsForPnpmPublish("", "/nonexistent/path/without/git")
+	assert.Equal(t, "", got)
+}

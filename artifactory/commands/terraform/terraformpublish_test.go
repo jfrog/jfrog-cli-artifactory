@@ -103,3 +103,24 @@ func getTaskMock(t *testing.T, expectedPaths []string) func(parallel.Runner, *co
 func mockEmptyModule(_ parallel.Runner, _ *config.ServerDetails, _ *[][]*clientServicesUtils.OperationSummary, _ *services.UploadParams, _ *clientUtils.ErrorsQueue) (int, error) {
 	return 0, errors.New("failed: testing empty directory. this function shouldn't be called. ")
 }
+
+func TestUploadParamsForTerraformPublish_IncludesVcsProps(t *testing.T) {
+	tpc := &TerraformPublishCommand{TerraformPublishCommandArgs: &TerraformPublishCommandArgs{}}
+	tpc.repo = "terraform-local"
+	tpc.namespace = "acme"
+	tpc.provider = "aws"
+	tpc.tag = "1.0.0"
+
+	mergeCalledWith := ""
+	originalMerge := mergeVcsPropsForTerraform
+	mergeVcsPropsForTerraform = func(userProps, searchDir string) string {
+		mergeCalledWith = searchDir
+		return userProps + ";vcs.revision=deadbeef"
+	}
+	defer func() { mergeVcsPropsForTerraform = originalMerge }()
+
+	params := tpc.uploadParamsForTerraformPublish("vpc", "/modules/vpc")
+	assert.Equal(t, "/modules/vpc", mergeCalledWith)
+	revisions := params.TargetProps.ToMap()["vcs.revision"]
+	assert.Contains(t, revisions, "deadbeef")
+}

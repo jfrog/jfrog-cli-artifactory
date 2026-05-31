@@ -219,8 +219,12 @@ func createMvnRunProps(vConfig *viper.Viper, buildArtifactsDetailsFile string, t
 		vConfig.Set("buildInfoConfig.artifactoryResolutionEnabled", "true")
 	}
 
-	// Set CI VCS properties if in CI environment
-	civcs.SetCIVcsPropsToConfig(vConfig)
+	// Set CI and local git VCS properties for the Maven extractor.
+	workingDir, wdErr := os.Getwd()
+	if wdErr != nil {
+		workingDir = "."
+	}
+	civcs.SetVcsPropsToConfig(vConfig, workingDir)
 
 	buildInfoProps, err := buildUtils.CreateBuildInfoProps(buildArtifactsDetailsFile, vConfig, project.Maven)
 	if err != nil {

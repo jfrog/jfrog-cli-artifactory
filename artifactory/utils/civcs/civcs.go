@@ -90,23 +90,19 @@ func MergeWithUserProps(userProps string) string {
 
 // MergeWithUserAndDetectedProps adds CI and local git VCS props to user-provided props.
 // Precedence: user props > CI props > local git props.
-func MergeWithUserAndDetectedProps(userProps, sourcePattern string) string {
+// searchDir is the directory to start upstream .git discovery from (not a raw upload pattern).
+func MergeWithUserAndDetectedProps(userProps, searchDir string) string {
 	ciPropsMerged := MergeWithUserProps(userProps)
 	if hasAllLocalGitProps(ciPropsMerged) || IsCIVcsPropsDisabled() {
-		// All local git props are already present or CI VCS props collection is disabled, return merged props
 		return ciPropsMerged
 	}
-	log.Debug("Local git VCS props not present in user props, getting from source pattern:", sourcePattern)
-	localInfo, err := getLocalGitVcsInfo(sourcePattern)
+	log.Debug("Local git VCS props not present, searching from directory:", searchDir)
+	localInfo, err := getLocalGitVcsInfo(searchDir)
 	if err != nil {
 		log.Debug("Skipping local git VCS props, failed getting VCS info:", err.Error())
 		return ciPropsMerged
 	}
 	return MergeVcsProps(ciPropsMerged, localInfo)
-}
-
-func hasAllLocalGitProps(props string) bool {
-	return hasProp(props, VcsUrlKey) && hasProp(props, VcsRevisionKey) && hasProp(props, VcsBranchKey)
 }
 
 func MergeVcsProps(userProps string, info cienv.CIVcsInfo) string {
@@ -136,6 +132,9 @@ func MergeVcsProps(userProps string, info cienv.CIVcsInfo) string {
 	if props != "" {
 		log.Debug("VCS properties to add:", props)
 	}
+	if userProps == "" {
+		return props
+	}
 	return userProps + ";" + props
 }
 
@@ -163,22 +162,42 @@ func SetCIVcsPropsToConfig(vConfig *viper.Viper) {
 		return
 	}
 	log.Debug("Setting CI VCS properties for extractor: provider=", ciVcsInfo.Provider, ", org=", ciVcsInfo.Org, ", repo=", ciVcsInfo.Repo)
-	if ciVcsInfo.Provider != "" && !vConfig.IsSet(VcsProviderKey) {
-		vConfig.Set(VcsProviderKey, ciVcsInfo.Provider)
+	mergeViperConfig(vConfig, ciVcsInfo)
+}
+
+// SetVcsPropsToConfig sets CI and local git VCS properties on the extractor viper config.
+// CI properties are applied first; local git fills any keys still unset.
+func SetVcsPropsToConfig(vConfig *viper.Viper, searchDir string) {
+	SetCIVcsPropsToConfig(vConfig)
+	if hasAllConfigGitProps(vConfig) || IsCIVcsPropsDisabled() {
+		return
 	}
-	if ciVcsInfo.Org != "" && !vConfig.IsSet(VcsOrgKey) {
-		vConfig.Set(VcsOrgKey, ciVcsInfo.Org)
+	log.Debug("Local git VCS props not present, searching from directory:", searchDir)
+	localInfo, err := getLocalGitVcsInfo(searchDir)
+	if err != nil {
+		log.Debug("Skipping local git VCS props, failed getting VCS info:", err.Error())
+		return
 	}
-	if ciVcsInfo.Repo != "" && !vConfig.IsSet(VcsRepoKey) {
-		vConfig.Set(VcsRepoKey, ciVcsInfo.Repo)
+	mergeViperConfig(vConfig, localInfo)
+}
+
+func mergeViperConfig(vConfig *viper.Viper, info cienv.CIVcsInfo) {
+	if info.Url != "" && !vConfig.IsSet(VcsUrlKey) {
+		vConfig.Set(VcsUrlKey, info.Url)
 	}
-	if ciVcsInfo.Url != "" && !vConfig.IsSet(VcsUrlKey) {
-		vConfig.Set(VcsUrlKey, ciVcsInfo.Url)
+	if info.Revision != "" && !vConfig.IsSet(VcsRevisionKey) {
+		vConfig.Set(VcsRevisionKey, info.Revision)
 	}
-	if ciVcsInfo.Revision != "" && !vConfig.IsSet(VcsRevisionKey) {
-		vConfig.Set(VcsRevisionKey, ciVcsInfo.Revision)
+	if info.Branch != "" && !vConfig.IsSet(VcsBranchKey) {
+		vConfig.Set(VcsBranchKey, info.Branch)
 	}
-	if ciVcsInfo.Branch != "" && !vConfig.IsSet(VcsBranchKey) {
-		vConfig.Set(VcsBranchKey, ciVcsInfo.Branch)
+	if info.Provider != "" && !vConfig.IsSet(VcsProviderKey) {
+		vConfig.Set(VcsProviderKey, info.Provider)
+	}
+	if info.Org != "" && !vConfig.IsSet(VcsOrgKey) {
+		vConfig.Set(VcsOrgKey, info.Org)
+	}
+	if info.Repo != "" && !vConfig.IsSet(VcsRepoKey) {
+		vConfig.Set(VcsRepoKey, info.Repo)
 	}
 }

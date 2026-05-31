@@ -11,17 +11,32 @@ import (
 func TestEnrichUploadFileProps_MergesDetectedVcsProps(t *testing.T) {
 	file := &spec.File{Pattern: "dist/*.zip", Props: "team=payments", TargetProps: "tier=backend"}
 
-	calledPattern := ""
-	mergeVcsPropsForUpload = func(userProps, sourcePattern string) string {
-		calledPattern = sourcePattern
+	calledSearchDir := ""
+	mergeVcsPropsForUpload = func(userProps, searchDir string) string {
+		calledSearchDir = searchDir
 		return userProps + ";vcs.revision=abc123"
 	}
 	defer func() { mergeVcsPropsForUpload = civcs.MergeWithUserAndDetectedProps }()
 
 	enrichUploadFileProps(file, "")
-	assert.Equal(t, "dist/*.zip", calledPattern)
+	assert.Equal(t, "dist", calledSearchDir)
 	assert.Contains(t, file.TargetProps, "team=payments")
 	assert.Contains(t, file.TargetProps, "vcs.revision=abc123")
+}
+
+func TestEnrichUploadFileProps_RegexpUsesWorkingDirSearch(t *testing.T) {
+	file := &spec.File{Pattern: `(release)/.*\.jar`, Props: "team=payments", TargetProps: ""}
+	file.Regexp = "true"
+
+	calledSearchDir := ""
+	mergeVcsPropsForUpload = func(userProps, searchDir string) string {
+		calledSearchDir = searchDir
+		return userProps
+	}
+	defer func() { mergeVcsPropsForUpload = civcs.MergeWithUserAndDetectedProps }()
+
+	enrichUploadFileProps(file, "")
+	assert.Equal(t, ".", calledSearchDir)
 }
 
 func TestEnrichUploadFileProps_AddsSyncDeletesProp(t *testing.T) {

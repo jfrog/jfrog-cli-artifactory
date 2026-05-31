@@ -6,8 +6,10 @@ import (
 	"strings"
 
 	"github.com/jfrog/build-info-go/utils/cienv"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
-	"github.com/jfrog/jfrog-client-go/utils/log"
+	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
+	"github.com/spf13/viper"
 )
 
 type gitConfigReader interface {
@@ -17,82 +19,67 @@ type gitConfigReader interface {
 	GetBranch() string
 }
 
+type UploadPatternOptions struct {
+	IsRegexp bool
+	IsAnt    bool
+}
+
 var (
-	findDotGitUpstreamFn = findDotGitUpstream
-	newGitManagerFn      = func(dotGitPath string) gitConfigReader {
+	findDotGitFromDirFn = func(startDir string) (string, error) {
+		return utils.GetDotGitFromDir(startDir)
+	}
+	newGitManagerFn = func(dotGitPath string) gitConfigReader {
 		return clientutils.NewGitManager(dotGitPath)
 	}
 )
 
-func getLocalGitVcsInfo(sourcePattern string) (cienv.CIVcsInfo, error) {
-	startDir := deriveSearchDirFromPattern(sourcePattern)
-	dotGitPath, err := findDotGitUpstreamFn(startDir)
-	if err != nil || dotGitPath == "" {
-		return cienv.CIVcsInfo{}, err
+func DeriveSearchDirFromUploadPattern(pattern string, opts UploadPatternOptions) string {
+	if opts.IsRegexp {
+		return "."
 	}
-
-	gitManager := newGitManagerFn(dotGitPath)
-	if err = gitManager.ReadConfig(); err != nil {
-		return cienv.CIVcsInfo{}, err
-	}
-
-	return cienv.CIVcsInfo{
-		Url:      gitManager.GetUrl(),
-		Revision: gitManager.GetRevision(),
-		Branch:   gitManager.GetBranch(),
-	}, nil
-}
-
-func getLocalGitPropsFromSourcePattern(sourcePattern string) string {
-	info, err := getLocalGitVcsInfo(sourcePattern)
-	if err != nil {
-		log.Debug("Skipping local git VCS props, failed getting VCS info:", err.Error())
-		return ""
-	}
-	return BuildCIVcsPropsString(info)
-}
-
-func deriveSearchDirFromPattern(sourcePattern string) string {
-	wildcardIdx := strings.IndexAny(sourcePattern, "*?[")
+	wildcardIdx := strings.IndexAny(pattern, "*?[")
 	if wildcardIdx == -1 {
-		dir := filepath.Dir(sourcePattern)
+		if fileutils.IsPathExists(pattern, false) {
+			if info, err := os.Stat(pattern); err == nil && info.IsDir() {
+				return pattern
+			}
+		}
+		dir := filepath.Dir(pattern)
 		if dir == "." {
 			return "."
 		}
 		return dir
 	}
-
-	prefix := strings.TrimRight(sourcePattern[:wildcardIdx], "/\\")
+	prefix := strings.TrimRight(pattern[:wildcardIdx], "/\\")
 	if prefix == "" {
 		return "."
 	}
 	return prefix
 }
 
-func findDotGitUpstream(startDir string) (string, error) {
-	if startDir == "" || startDir == "." {
-		var err error
-		startDir, err = os.Getwd()
-		if err != nil {
-			return "", err
-		}
-	}
+func hasAllLocalGitProps(props string) bool {
+	return hasProp(props, VcsUrlKey) && hasProp(props, VcsRevisionKey) && hasProp(props, VcsBranchKey)
+}
 
-	absDir, err := filepath.Abs(startDir)
-	if err != nil {
-		return "", err
-	}
+func hasAllConfigGitProps(vConfig *viper.Viper) bool {
+	return vConfig.IsSet(VcsUrlKey) && vConfig.IsSet(VcsRevisionKey) && vConfig.IsSet(VcsBranchKey)
+}
 
-	for {
-		dotGitPath := filepath.Join(absDir, ".git")
-		if _, statErr := os.Stat(dotGitPath); statErr == nil {
-			return dotGitPath, nil
-		}
-
-		parent := filepath.Dir(absDir)
-		if parent == absDir {
-			return "", nil
-		}
-		absDir = parent
+func getLocalGitVcsInfo(searchDir string) (cienv.CIVcsInfo, error) {
+	if IsCIVcsPropsDisabled() {
+		return cienv.CIVcsInfo{}, nil
 	}
+	dotGitPath, err := findDotGitFromDirFn(searchDir)
+	if err != nil || dotGitPath == "" {
+		return cienv.CIVcsInfo{}, err
+	}
+	gitManager := newGitManagerFn(dotGitPath)
+	if err = gitManager.ReadConfig(); err != nil {
+		return cienv.CIVcsInfo{}, err
+	}
+	return cienv.CIVcsInfo{
+		Url:      gitManager.GetUrl(),
+		Revision: gitManager.GetRevision(),
+		Branch:   gitManager.GetBranch(),
+	}, nil
 }

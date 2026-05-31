@@ -3,6 +3,7 @@ package npm
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
@@ -111,25 +112,37 @@ func (nru *npmRtUpload) addDistTagIfSet(params *specutils.CommonParams) error {
 	return nil
 }
 
-// addCIVcsProps adds CI VCS properties to the upload params if in CI environment.
+var mergeVcsPropsForNpmPublish = civcs.MergeWithUserAndDetectedProps
+
+func targetPropsToString(props *specutils.Properties) string {
+	if props == nil {
+		return ""
+	}
+	var parts []string
+	for key, values := range props.ToMap() {
+		for _, value := range values {
+			parts = append(parts, key+"="+value)
+		}
+	}
+	return strings.Join(parts, ";")
+}
+
+// addCIVcsProps adds detected VCS properties to the upload params.
 func (nru *npmRtUpload) addCIVcsProps(params *specutils.CommonParams) error {
-	ciProps := civcs.GetCIVcsPropsString()
-	if ciProps == "" {
+	existingProps := targetPropsToString(params.TargetProps)
+	merged := mergeVcsPropsForNpmPublish(existingProps, nru.workingDirectory)
+	if merged == "" || merged == existingProps {
 		return nil
 	}
 	if params.TargetProps == nil {
-		props, err := specutils.ParseProperties(ciProps)
+		props, err := specutils.ParseProperties(merged)
 		if err != nil {
 			return err
 		}
 		params.TargetProps = props
-	} else {
-		// Merge with existing properties
-		if err := params.TargetProps.ParseAndAddProperties(ciProps); err != nil {
-			return err
-		}
+		return nil
 	}
-	return nil
+	return params.TargetProps.ParseAndAddProperties(merged)
 }
 
 func (nru *npmRtUpload) appendReader(summary *specutils.OperationSummary) error {

@@ -12,6 +12,7 @@ import (
 	buildInfo "github.com/jfrog/build-info-go/entities"
 	ioutils "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/gofrog/parallel"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	commandsUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -28,6 +29,8 @@ import (
 )
 
 const threads = 3
+
+var mergeVcsPropsForTerraform = civcs.MergeWithUserAndDetectedProps
 
 type TerraformPublishCommandArgs struct {
 	namespace          string
@@ -321,6 +324,14 @@ func (tpc *TerraformPublishCommand) uploadParamsForTerraformPublish(moduleName, 
 	uploadParams.Archive = "zip"
 	uploadParams.Recursive = true
 	uploadParams.TargetProps = servicesUtils.NewProperties()
+	if mergedVcsProps := mergeVcsPropsForTerraform("", dirPath); mergedVcsProps != "" {
+		props, parseErr := servicesUtils.ParseProperties(mergedVcsProps)
+		if parseErr != nil {
+			log.Warn("Failed parsing VCS properties for terraform module:", parseErr.Error())
+		} else {
+			uploadParams.TargetProps = props
+		}
+	}
 	uploadParams.Exclusions = append(slices.Clone(tpc.exclusions), "*.git", "*.DS_Store")
 	uploadParams.BuildProps = tpc.buildProps
 	return &uploadParams

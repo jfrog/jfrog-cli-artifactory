@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -130,6 +131,41 @@ func GetDotGit(providedDotGitPath string) (string, error) {
 		return "", errorutils.CheckErrorf("Could not find .git")
 	}
 	return dotGitPath, nil
+}
+
+// GetDotGitFromDir looks for a git repository root starting at startDir (file or directory) and walking up.
+// Uses fileutils.FindUpstream with the same semantics as GetDotGit.
+// Returns ("", nil) when not found. Empty startDir delegates to GetDotGit("").
+func GetDotGitFromDir(startDir string) (repoRoot string, err error) {
+	if startDir == "" || startDir == "." {
+		return GetDotGit("")
+	}
+
+	absDir, err := filepath.Abs(startDir)
+	if err != nil {
+		return "", errorutils.CheckError(err)
+	}
+	if fileutils.IsPathExists(absDir, false) {
+		if info, statErr := os.Stat(absDir); statErr == nil && !info.IsDir() {
+			absDir = filepath.Dir(absDir)
+		}
+	}
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		return "", errorutils.CheckError(err)
+	}
+	defer func() {
+		err = errors.Join(err, errorutils.CheckError(os.Chdir(origWd)))
+	}()
+	if err = os.Chdir(absDir); err != nil {
+		return "", errorutils.CheckError(err)
+	}
+	repoRoot, exists, err := fileutils.FindUpstream(".git", fileutils.Any)
+	if err != nil || !exists {
+		return "", errorutils.CheckError(err)
+	}
+	return repoRoot, nil
 }
 
 // Gets the vcs revision from the latest build in Artifactory.

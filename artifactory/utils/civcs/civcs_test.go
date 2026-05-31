@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/jfrog/build-info-go/utils/cienv"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -190,25 +191,25 @@ func (s *fakeGitManager) GetBranch() string {
 
 func withStubGitManager(t *testing.T, stub gitStub) func() {
 	t.Helper()
-	originalFindDotGit := findDotGitUpstreamFn
+	originalFindDotGit := findDotGitFromDirFn
 	originalNewGitManager := newGitManagerFn
-	findDotGitUpstreamFn = func(string) (string, error) {
+	findDotGitFromDirFn = func(string) (string, error) {
 		return "/tmp/test/.git", nil
 	}
 	newGitManagerFn = func(string) gitConfigReader {
 		return &fakeGitManager{gitStub: stub}
 	}
 	return func() {
-		findDotGitUpstreamFn = originalFindDotGit
+		findDotGitFromDirFn = originalFindDotGit
 		newGitManagerFn = originalNewGitManager
 	}
 }
 
 func withStubLocalGitProps(t *testing.T) func() {
 	t.Helper()
-	originalFindDotGit := findDotGitUpstreamFn
+	originalFindDotGit := findDotGitFromDirFn
 	originalNewGitManager := newGitManagerFn
-	findDotGitUpstreamFn = func(string) (string, error) {
+	findDotGitFromDirFn = func(string) (string, error) {
 		return "/tmp/test/.git", nil
 	}
 	newGitManagerFn = func(string) gitConfigReader {
@@ -219,12 +220,12 @@ func withStubLocalGitProps(t *testing.T) func() {
 		}}
 	}
 	return func() {
-		findDotGitUpstreamFn = originalFindDotGit
+		findDotGitFromDirFn = originalFindDotGit
 		newGitManagerFn = originalNewGitManager
 	}
 }
 
-func TestGetLocalGitPropsFromSourcePattern(t *testing.T) {
+func TestGetLocalGitVcsInfo(t *testing.T) {
 	t.Setenv(CIVcsPropsDisabledEnvVar, "false")
 	restore := withStubGitManager(t, gitStub{
 		url:      "https://github.com/acme/service.git",
@@ -233,22 +234,34 @@ func TestGetLocalGitPropsFromSourcePattern(t *testing.T) {
 	})
 	defer restore()
 
-	props := getLocalGitPropsFromSourcePattern("services/app/**/*.zip")
-	assert.Equal(t, "vcs.url=https://github.com/acme/service.git;vcs.revision=abc123;vcs.branch=main", props)
+	info, err := getLocalGitVcsInfo("services/app")
+	assert.NoError(t, err)
+	assert.Equal(t, "vcs.url=https://github.com/acme/service.git;vcs.revision=abc123;vcs.branch=main", BuildCIVcsPropsString(info))
 }
 
-func TestGetLocalGitPropsFromSourcePattern_NoGitRepo(t *testing.T) {
-	originalFindDotGit := findDotGitUpstreamFn
-	findDotGitUpstreamFn = func(string) (string, error) {
+func TestGetLocalGitVcsInfo_NoGitRepo(t *testing.T) {
+	originalFindDotGit := findDotGitFromDirFn
+	findDotGitFromDirFn = func(string) (string, error) {
 		return "", nil
 	}
-	defer func() { findDotGitUpstreamFn = originalFindDotGit }()
+	defer func() { findDotGitFromDirFn = originalFindDotGit }()
 
-	props := getLocalGitPropsFromSourcePattern("build/output/*.zip")
-	assert.Equal(t, "", props)
+	info, err := getLocalGitVcsInfo("build/output")
+	assert.NoError(t, err)
+	assert.Equal(t, "", BuildCIVcsPropsString(info))
 }
 
-func TestDeriveSearchDirFromPattern(t *testing.T) {
+func TestDeriveSearchDirFromUploadPattern_RegexpFallsBackToCwd(t *testing.T) {
+	got := DeriveSearchDirFromUploadPattern(`(release)/.*\.jar`, UploadPatternOptions{IsRegexp: true})
+	assert.Equal(t, ".", got)
+}
+
+func TestDeriveSearchDirFromUploadPattern_WildcardPrefix(t *testing.T) {
+	got := DeriveSearchDirFromUploadPattern("services/app/**/*.zip", UploadPatternOptions{})
+	assert.Equal(t, "services/app", got)
+}
+
+func TestDeriveSearchDirFromUploadPattern(t *testing.T) {
 	tests := []struct {
 		pattern  string
 		expected string
@@ -260,9 +273,34 @@ func TestDeriveSearchDirFromPattern(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.pattern, func(t *testing.T) {
-			assert.Equal(t, tt.expected, deriveSearchDirFromPattern(tt.pattern))
+			assert.Equal(t, tt.expected, DeriveSearchDirFromUploadPattern(tt.pattern, UploadPatternOptions{}))
 		})
 	}
+}
+
+func TestMergeWithUserAndDetectedProps_UsesSearchDirDirectly(t *testing.T) {
+	t.Setenv(CIVcsPropsDisabledEnvVar, "false")
+	clearCIEnvVars(t)
+
+	calledDir := ""
+	originalFindDotGit := findDotGitFromDirFn
+	originalNewGitManager := newGitManagerFn
+	findDotGitFromDirFn = func(startDir string) (string, error) {
+		calledDir = startDir
+		return "/tmp/test/.git", nil
+	}
+	newGitManagerFn = func(string) gitConfigReader {
+		return &fakeGitManager{gitStub: gitStub{
+			url: "https://github.com/acme/service.git", revision: "abc123", branch: "main",
+		}}
+	}
+	defer func() {
+		findDotGitFromDirFn = originalFindDotGit
+		newGitManagerFn = originalNewGitManager
+	}()
+
+	MergeWithUserAndDetectedProps("qa=true", "/abs/project/root")
+	assert.Equal(t, "/abs/project/root", calledDir)
 }
 
 func TestMergeWithUserAndDetectedProps_PreferenceOrder(t *testing.T) {
@@ -281,7 +319,7 @@ func TestMergeWithUserAndDetectedProps_PreferenceOrder(t *testing.T) {
 	restore := withStubLocalGitProps(t)
 	defer restore()
 
-	got := MergeWithUserAndDetectedProps("vcs.revision=user-sha;qa=true", "src/**/*.tgz")
+	got := MergeWithUserAndDetectedProps("vcs.revision=user-sha;qa=true", "src")
 	assert.Contains(t, got, "vcs.revision=user-sha")
 	assert.Contains(t, got, "vcs.branch=ci-branch")
 	assert.Contains(t, got, "vcs.url=https://github.com/acme/repo")
@@ -299,9 +337,26 @@ func TestMergeWithUserAndDetectedProps_LocalGitFallback(t *testing.T) {
 	})
 	defer restore()
 
-	got := MergeWithUserAndDetectedProps("qa=true", "services/app/**/*.zip")
+	got := MergeWithUserAndDetectedProps("qa=true", "services/app")
 	assert.Contains(t, got, "qa=true")
 	assert.Contains(t, got, "vcs.url=https://github.com/acme/service.git")
 	assert.Contains(t, got, "vcs.revision=abc123")
 	assert.Contains(t, got, "vcs.branch=main")
+}
+
+func TestSetVcsPropsToConfig_LocalGitFallback(t *testing.T) {
+	t.Setenv(CIVcsPropsDisabledEnvVar, "false")
+	clearCIEnvVars(t)
+
+	restore := withStubGitManager(t, gitStub{
+		url: "https://github.com/acme/lib.git", revision: "abc123", branch: "main",
+	})
+	defer restore()
+
+	vConfig := viper.New()
+	SetVcsPropsToConfig(vConfig, "/tmp/project")
+
+	assert.Equal(t, "https://github.com/acme/lib.git", vConfig.GetString(VcsUrlKey))
+	assert.Equal(t, "abc123", vConfig.GetString(VcsRevisionKey))
+	assert.Equal(t, "main", vConfig.GetString(VcsBranchKey))
 }
