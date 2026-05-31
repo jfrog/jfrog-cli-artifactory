@@ -151,6 +151,10 @@ func TestBuildArtifactQuery(t *testing.T) {
 }
 
 func TestBuildPropertySetter_FormatBuildProperties(t *testing.T) {
+	originalMerge := mergeVcsPropsForConan
+	mergeVcsPropsForConan = func(userProps, _ string) string { return userProps }
+	defer func() { mergeVcsPropsForConan = originalMerge }()
+
 	tests := []struct {
 		name        string
 		buildName   string
@@ -190,6 +194,22 @@ func TestBuildPropertySetter_FormatBuildProperties(t *testing.T) {
 	}
 }
 
+func TestBuildPropertySetter_FormatBuildProperties_IncludesVcs(t *testing.T) {
+	originalMerge := mergeVcsPropsForConan
+	mergeVcsPropsForConan = func(userProps, searchDir string) string {
+		assert.Equal(t, "/conan/project", searchDir)
+		return userProps + ";vcs.revision=conan-sha"
+	}
+	defer func() { mergeVcsPropsForConan = originalMerge }()
+
+	setter := &BuildPropertySetter{
+		buildName: "my-build", buildNumber: "123", searchDir: "/conan/project",
+	}
+	got := setter.formatBuildProperties("1234567890")
+	assert.Contains(t, got, "vcs.revision=conan-sha")
+	assert.Contains(t, got, "build.name=my-build")
+}
+
 func TestNewArtifactCollector(t *testing.T) {
 	targetRepo := "conan-local"
 
@@ -205,14 +225,16 @@ func TestNewBuildPropertySetter(t *testing.T) {
 	buildNumber := "1"
 	projectKey := "test-project"
 	targetRepo := "conan-local"
+	searchDir := "/conan/project"
 
-	setter := NewBuildPropertySetter(nil, targetRepo, buildName, buildNumber, projectKey)
+	setter := NewBuildPropertySetter(nil, targetRepo, buildName, buildNumber, projectKey, searchDir)
 
 	assert.NotNil(t, setter)
 	assert.Equal(t, buildName, setter.buildName)
 	assert.Equal(t, buildNumber, setter.buildNumber)
 	assert.Equal(t, projectKey, setter.projectKey)
 	assert.Equal(t, targetRepo, setter.targetRepo)
+	assert.Equal(t, searchDir, setter.searchDir)
 }
 
 func TestConvertToResultItems_NoPathDuplication(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	ioutils "github.com/jfrog/gofrog/io"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
@@ -14,6 +15,12 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
+
+var mergeVcsPropsForDockerBuild = civcs.MergeWithUserAndDetectedProps
+
+func mergeBuildPropsWithVcs(buildProps, searchDir string) string {
+	return mergeVcsPropsForDockerBuild(buildProps, searchDir)
+}
 
 // DockerBuildInfoBuilder is a simplified builder for docker build command
 type DockerBuildInfoBuilder struct {
@@ -26,6 +33,7 @@ type DockerBuildInfoBuilder struct {
 	baseImages     []DockerImage
 	isImagePushed  bool
 	cmdArgs        []string
+	searchDir      string
 }
 
 type DockerRepositoryDetails struct {
@@ -43,7 +51,11 @@ const (
 
 // NewDockerBuildInfoBuilder creates a new builder for docker build command
 func NewDockerBuildInfoBuilder(buildName, buildNumber, project string, module string, serviceManager artifactory.ArtifactoryServicesManager,
-	imageTag string, baseImages []DockerImage, isImagePushed bool, cmdArgs []string) *DockerBuildInfoBuilder {
+	imageTag string, baseImages []DockerImage, isImagePushed bool, cmdArgs []string, searchDir string) *DockerBuildInfoBuilder {
+
+	if searchDir == "" {
+		searchDir = "."
+	}
 
 	biImage := NewImage(imageTag)
 
@@ -66,6 +78,7 @@ func NewDockerBuildInfoBuilder(buildName, buildNumber, project string, module st
 		baseImages:     baseImages,
 		isImagePushed:  isImagePushed,
 		cmdArgs:        cmdArgs,
+		searchDir:      searchDir,
 	}
 }
 
@@ -116,6 +129,7 @@ func (dbib *DockerBuildInfoBuilder) applyBuildProps(items []utils.ResultItem, pu
 	if err != nil {
 		return
 	}
+	props = mergeVcsPropsForDockerBuild(props, dbib.searchDir)
 	if pushedRepo == "" {
 		log.Warn("Pushed repository is empty, skipping applying build properties.")
 		return nil

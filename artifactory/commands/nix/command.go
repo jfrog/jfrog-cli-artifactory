@@ -13,6 +13,7 @@ import (
 
 	"github.com/jfrog/build-info-go/entities"
 	nixpkg "github.com/jfrog/build-info-go/flexpack/nix"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -39,6 +40,8 @@ type NixCommand struct {
 	netrcPath          string
 	servicesManager    artifactory.ArtifactoryServicesManager
 }
+
+var mergeVcsPropsForNix = civcs.MergeWithUserAndDetectedProps
 
 // Nix store + binary-cache layout used across this file.
 const (
@@ -535,6 +538,11 @@ func (c *NixCommand) tagUploadedArtifacts() error {
 	// 1. ONE SetProps for every file in every closure directory.
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	props := fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp)
+	searchDir := c.workingDir
+	if searchDir == "" {
+		searchDir = "."
+	}
+	props = mergeVcsPropsForNix(props, searchDir)
 	if err := c.setBuildPropertiesBatch(c.repo, dirPaths, "*", props); err != nil {
 		log.Warn("Failed to set build properties on uploaded artifacts: " + err.Error())
 	}

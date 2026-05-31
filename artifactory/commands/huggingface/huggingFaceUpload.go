@@ -15,6 +15,7 @@ import (
 
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	coreUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -24,6 +25,8 @@ import (
 
 const HF_ENDPOINT = "HF_ENDPOINT"
 const huggingfaceAPI = "api/huggingfaceml"
+
+var mergeVcsPropsForHuggingFace = civcs.MergeWithUserAndDetectedProps
 
 // HuggingFaceUpload represents a command to upload models or datasets to HuggingFace Hub
 type HuggingFaceUpload struct {
@@ -131,6 +134,11 @@ func (hfu *HuggingFaceUpload) CollectArtifactsForBuildInfo(serviceManager artifa
 	if ctx.Project != "" {
 		buildProps += fmt.Sprintf(";build.project=%s", ctx.Project)
 	}
+	searchDir := hfu.folderPath
+	if searchDir == "" {
+		searchDir = "."
+	}
+	buildProps = mergeVcsPropsForHuggingFace(buildProps, searchDir)
 	artifacts, err := hfu.GetArtifacts(serviceManager, buildProps)
 	if err != nil {
 		return errorutils.CheckError(err)

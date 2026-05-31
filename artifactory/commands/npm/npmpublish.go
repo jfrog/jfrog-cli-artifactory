@@ -7,6 +7,7 @@ import (
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	gofrogcmd "github.com/jfrog/gofrog/io"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
@@ -14,6 +15,8 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
+
+var mergeVcsPropsForNpmSetProps = civcs.MergeWithUserAndDetectedProps
 
 type npmPublish struct {
 	*NpmPublishCommand
@@ -88,6 +91,11 @@ func (npu *npmPublish) publishPackage(executablePath, filePath string, serverDet
 			return err
 		}
 
+		searchDir := npu.workingDirectory
+		if searchDir == "" {
+			searchDir = "."
+		}
+		buildProps = mergeVcsPropsForNpmSetProps(buildProps, searchDir)
 		propsParams := services.PropsParams{
 			Reader: searchReader,
 			Props:  buildProps,

@@ -5,11 +5,13 @@ import (
 	"fmt"
 	ioutils "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +19,8 @@ import (
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
+
+var mergeVcsPropsForHelmPush = civcs.MergeWithUserAndDetectedProps
 
 func handlePushCommand(buildInfo *entities.BuildInfo, helmArgs []string, serviceManager artifactory.ArtifactoryServicesManager, buildName, buildNumber, project string) error {
 	filePath, registryURL := getPushChartPathAndRegistryURL(helmArgs)
@@ -36,10 +40,15 @@ func handlePushCommand(buildInfo *entities.BuildInfo, helmArgs []string, service
 	}
 
 	timestamp := strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10)
+	searchDir := "."
+	if filePath != "" {
+		searchDir = filepath.Dir(filePath)
+	}
 	buildProps := fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp)
 	if project != "" {
 		buildProps += fmt.Sprintf(";build.project=%s", project)
 	}
+	buildProps = mergeVcsPropsForHelmPush(buildProps, searchDir)
 	applyBuildPropertiesOnManifestFolder(serviceManager, repoName, ociChartPath, buildProps)
 
 	artifactManifest, err := getManifest(resultMap, serviceManager, repoName)

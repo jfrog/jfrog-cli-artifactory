@@ -41,3 +41,15 @@ func TestAddCIVcsProps_NoChangeWhenMergeUnchanged(t *testing.T) {
 	assert.NoError(t, nru.addCIVcsProps(params))
 	assert.Nil(t, params.TargetProps)
 }
+
+func TestNpmPublishSetProps_MergesVcs(t *testing.T) {
+	originalMerge := mergeVcsPropsForNpmSetProps
+	mergeVcsPropsForNpmSetProps = func(userProps, searchDir string) string {
+		assert.Equal(t, "/tmp/npm-app", searchDir)
+		return userProps + ";vcs.revision=npm-sha"
+	}
+	defer func() { mergeVcsPropsForNpmSetProps = originalMerge }()
+
+	got := mergeVcsPropsForNpmSetProps("build.name=b;build.number=1", "/tmp/npm-app")
+	assert.Contains(t, got, "vcs.revision=npm-sha")
+}

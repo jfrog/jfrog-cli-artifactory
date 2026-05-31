@@ -3,6 +3,7 @@ package ocicontainer
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"path"
 	"strings"
 
@@ -27,7 +28,11 @@ func NewLocalAgentBuildInfoBuilder(image *Image, repository, buildName, buildNum
 	if err != nil {
 		return nil, err
 	}
-	builder, err := newBuildInfoBuilder(image, repository, buildName, buildNumber, project, serviceManager)
+	searchDir, wdErr := os.Getwd()
+	if wdErr != nil {
+		searchDir = "."
+	}
+	builder, err := newBuildInfoBuilder(image, repository, buildName, buildNumber, project, serviceManager, searchDir)
 	if err != nil {
 		return nil, err
 	}

@@ -267,7 +267,7 @@ func (up *UploadProcessor) setBuildProperties(artifacts []entities.Artifact, tar
 
 	projectKey := up.buildConfiguration.GetProject()
 
-	setter := NewBuildPropertySetter(up.serverDetails, targetRepo, buildName, buildNumber, projectKey)
+	setter := NewBuildPropertySetter(up.serverDetails, targetRepo, buildName, buildNumber, projectKey, up.workingDir)
 	return setter.SetProperties(artifacts)
 }
 

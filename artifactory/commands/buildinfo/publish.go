@@ -4,12 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
-	"github.com/jfrog/build-info-go/utils/cienv"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/formats"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -25,6 +25,8 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
+
+var mergeVcsPropsForBuildPublish = civcs.MergeWithUserAndDetectedProps
 
 type BuildPublishCommand struct {
 	buildConfiguration *build.BuildConfiguration
@@ -236,10 +238,9 @@ func (bpc *BuildPublishCommand) Run() error {
 		return err
 	}
 
-	// Set CI VCS properties on artifacts from build info.
-	// This only runs if we're in a supported CI environment (GitHub Actions, GitLab CI, etc.)
+	// Set VCS properties on artifacts from build info (CI and local git).
 	// Note: This never returns an error - it only logs warnings on failure
-	bpc.setCIVcsPropsOnArtifacts(servicesManager, buildInfo)
+	bpc.setVcsPropsOnArtifacts(servicesManager, buildInfo)
 
 	majorVersion, err := utils.GetRtMajorVersion(servicesManager)
 	if err != nil {
@@ -359,52 +360,45 @@ func (bpc *BuildPublishCommand) getNextBuildNumber(buildName string, servicesMan
 	return strconv.Itoa(latestBuildNumber), nil
 }
 
-// setCIVcsPropsOnArtifacts sets CI VCS properties on all artifacts in the build info.
+// setVcsPropsOnArtifacts sets VCS properties on all artifacts in the build info.
 // This method:
-// - Only runs when in a supported CI environment (GitHub Actions, GitLab CI, etc.)
+// - Merges CI and local git VCS props via mergeVcsPropsForBuildPublish
 // - Never fails the build publish - only logs warnings on errors
 // - Retries transient failures but not 404 errors
-// - Does nothing if CI VCS props collection is disabled via JFROG_CLI_CI_VCS_PROPS_DISABLED
-func (bpc *BuildPublishCommand) setCIVcsPropsOnArtifacts(
+// - Does nothing if VCS props collection is disabled via JFROG_CLI_CI_VCS_PROPS_DISABLED
+func (bpc *BuildPublishCommand) setVcsPropsOnArtifacts(
 	servicesManager artifactory.ArtifactoryServicesManager,
 	buildInfo *buildinfo.BuildInfo,
 ) {
-	// Check if CI VCS props collection is disabled
 	if civcs.IsCIVcsPropsDisabled() {
 		return
 	}
-	// Check if running in a supported CI environment
-	// This requires CI=true AND a registered provider (GitHub, GitLab, etc.)
-	ciVcsInfo := cienv.GetCIVcsInfo()
-	if ciVcsInfo.IsEmpty() {
-		// Not in CI or no registered provider - silently skip
-		return
+	searchDir, err := os.Getwd()
+	if err != nil || searchDir == "" {
+		searchDir = "."
 	}
-	log.Debug("CI VCS: Detected provider:", ciVcsInfo.Provider, ", org:", ciVcsInfo.Org, ", repo:", ciVcsInfo.Repo)
-
-	// Build props string
-	props := civcs.BuildCIVcsPropsString(ciVcsInfo)
+	props := mergeVcsPropsForBuildPublish("", searchDir)
 	if props == "" {
-		log.Debug("CI VCS: Empty props string, skipping")
+		log.Debug("VCS: No VCS properties detected, skipping")
 		return
 	}
 
 	// Extract artifact paths from build info (with warnings for missing repo paths)
 	artifactPaths, skippedCount := extractArtifactPathsWithWarnings(buildInfo)
-	log.Debug("CI VCS: Extracted", len(artifactPaths), "artifact paths,", skippedCount, "skipped")
+	log.Debug("VCS: Extracted", len(artifactPaths), "artifact paths,", skippedCount, "skipped")
 	if len(artifactPaths) == 0 && skippedCount == 0 {
-		log.Debug("CI VCS: No artifacts found in build info")
+		log.Debug("VCS: No artifacts found in build info")
 		return
 	}
 	if len(artifactPaths) == 0 {
 		// All artifacts were skipped due to missing repo paths
-		log.Debug("CI VCS: All artifacts skipped due to missing repo paths")
+		log.Debug("VCS: All artifacts skipped due to missing repo paths")
 		return
 	}
-	log.Debug("CI VCS: Setting properties on", len(artifactPaths), "artifacts with props:", props)
+	log.Debug("VCS: Setting properties on", len(artifactPaths), "artifacts with props:", props)
 	// Set properties on all artifacts in a single batch call
 	setPropsOnArtifacts(servicesManager, artifactPaths, props)
-	log.Debug("CI VCS: Property setting completed")
+	log.Debug("VCS: Property setting completed")
 }
 
 func (bpc *BuildPublishCommand) excludeDependenciesByScope(buildInfo *buildinfo.BuildInfo) {

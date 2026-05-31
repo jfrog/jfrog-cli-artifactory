@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
@@ -172,6 +173,8 @@ func buildArtifactQuery(repo string, pkg *ConanPackageInfo) string {
 		repo, pkg.User, pkg.Name, pkg.Version, pkg.Channel)
 }
 
+var mergeVcsPropsForConan = civcs.MergeWithUserAndDetectedProps
+
 // BuildPropertySetter sets build properties on Conan artifacts in Artifactory.
 // This is required to link artifacts to build info in Artifactory UI.
 type BuildPropertySetter struct {
@@ -180,16 +183,21 @@ type BuildPropertySetter struct {
 	buildName     string
 	buildNumber   string
 	projectKey    string
+	searchDir     string
 }
 
 // NewBuildPropertySetter creates a new build property setter.
-func NewBuildPropertySetter(serverDetails *config.ServerDetails, targetRepo, buildName, buildNumber, projectKey string) *BuildPropertySetter {
+func NewBuildPropertySetter(serverDetails *config.ServerDetails, targetRepo, buildName, buildNumber, projectKey, searchDir string) *BuildPropertySetter {
+	if searchDir == "" {
+		searchDir = "."
+	}
 	return &BuildPropertySetter{
 		serverDetails: serverDetails,
 		targetRepo:    targetRepo,
 		buildName:     buildName,
 		buildNumber:   buildNumber,
 		projectKey:    projectKey,
+		searchDir:     searchDir,
 	}
 }
 
@@ -282,7 +290,7 @@ func (bps *BuildPropertySetter) formatBuildProperties(timestamp string) string {
 		props += fmt.Sprintf(";build.project=%s", bps.projectKey)
 	}
 
-	return props
+	return mergeVcsPropsForConan(props, bps.searchDir)
 }
 
 // closeReader safely closes a content reader.

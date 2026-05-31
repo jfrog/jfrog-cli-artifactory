@@ -17,6 +17,7 @@ import (
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/build-info-go/flexpack"
 	"github.com/jfrog/gofrog/crypto"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -25,6 +26,8 @@ import (
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
+
+var mergeVcsPropsForUv = civcs.MergeWithUserAndDetectedProps
 
 // NativeUVCommand runs `uv` directly (no config file required) and collects build info.
 type NativeUVCommand struct {
@@ -761,7 +764,7 @@ func uvGetBuildInfo(workingDir string, buildConfiguration *buildUtils.BuildConfi
 						bi.Modules[0].Artifacts = artifacts
 					}
 				}
-				if propErr := uvSetBuildProperties(sd, repoKey, buildName, buildNumber, buildConfiguration.GetProject(), bi); propErr != nil {
+				if propErr := uvSetBuildProperties(sd, repoKey, buildName, buildNumber, buildConfiguration.GetProject(), bi, workingDir); propErr != nil {
 					log.Warn("Failed to set build properties on artifacts: " + propErr.Error())
 				}
 			}
@@ -1106,7 +1109,7 @@ func uvAddArtifactsToBuildInfo(bi *buildinfo.BuildInfo, serverDetails *coreConfi
 }
 
 // uvSetBuildProperties sets build.name / build.number properties on uploaded Python dist artifacts.
-func uvSetBuildProperties(serverDetails *coreConfig.ServerDetails, targetRepo, buildName, buildNumber, project string, bi *buildinfo.BuildInfo) error {
+func uvSetBuildProperties(serverDetails *coreConfig.ServerDetails, targetRepo, buildName, buildNumber, project string, bi *buildinfo.BuildInfo, searchDir string) error {
 	servicesManager, err := utils.CreateServiceManager(serverDetails, -1, 0, false)
 	if err != nil {
 		return fmt.Errorf("failed to create services manager: %w", err)
@@ -1119,6 +1122,10 @@ func uvSetBuildProperties(serverDetails *coreConfig.ServerDetails, targetRepo, b
 	if err != nil {
 		return fmt.Errorf("CreateBuildProperties failed: %w", err)
 	}
+	if searchDir == "" {
+		searchDir = "."
+	}
+	buildProps = mergeVcsPropsForUv(buildProps, searchDir)
 
 	if len(bi.Modules) == 0 || len(bi.Modules[0].Artifacts) == 0 {
 		return nil

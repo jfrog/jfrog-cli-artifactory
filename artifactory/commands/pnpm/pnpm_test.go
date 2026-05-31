@@ -553,7 +553,6 @@ func TestPublishBuildInfoGracefulDegradation(t *testing.T) {
 	assert.Contains(t, err.Error(), "parsing pnpm publish --json output")
 }
 
-
 func TestMergeVcsPropsForPnpmPublish(t *testing.T) {
 	originalMerge := mergeVcsPropsForPnpmPublish
 	mergeVcsPropsForPnpmPublish = func(userProps, searchDir string) string {

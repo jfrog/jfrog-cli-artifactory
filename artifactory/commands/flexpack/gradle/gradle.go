@@ -14,6 +14,7 @@ import (
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/build-info-go/flexpack"
 	gradle "github.com/jfrog/build-info-go/flexpack/gradle"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -23,6 +24,8 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
+
+var mergeVcsPropsForFlexpack = civcs.MergeWithUserAndDetectedProps
 
 func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, tasks []string, buildConfiguration *buildUtils.BuildConfiguration, serverDetails *config.ServerDetails) error {
 	if workingDir == "" {
@@ -145,6 +148,11 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, pro
 	if projectKey != "" {
 		buildProps += fmt.Sprintf(";build.project=%s", projectKey)
 	}
+	searchDir := workingDir
+	if searchDir == "" {
+		searchDir = "."
+	}
+	buildProps = mergeVcsPropsForFlexpack(buildProps, searchDir)
 
 	writer, err := content.NewContentWriter(content.DefaultKey, true, false)
 	if err != nil {

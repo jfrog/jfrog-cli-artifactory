@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,33 +53,45 @@ func createTestSearchReader(t *testing.T) (*content.ContentReader, func()) {
 	}
 }
 
+func clearCIEnvVars(t *testing.T) {
+	envVars := []string{
+		"CI",
+		"GITHUB_ACTIONS",
+		"GITHUB_WORKFLOW",
+		"GITHUB_RUN_ID",
+		"GITHUB_REPOSITORY_OWNER",
+		"GITHUB_REPOSITORY",
+		"GITHUB_SERVER_URL",
+		"GITHUB_SHA",
+		"GITHUB_REF",
+		"GITHUB_REF_NAME",
+		"GITHUB_HEAD_REF",
+		"GITLAB_CI",
+		"CI_PROJECT_PATH",
+	}
+	for _, v := range envVars {
+		t.Setenv(v, "")
+	}
+}
+
 func TestSetCIVcsPropsOnArtifacts(t *testing.T) {
-	t.Setenv("GITHUB_SERVER_URL", "")
-	t.Setenv("GITHUB_SHA", "")
-	t.Setenv("GITHUB_REF", "")
-	t.Setenv("GITHUB_REF_NAME", "")
-	t.Setenv("GITHUB_HEAD_REF", "")
-	t.Setenv("CI", "true")
-	t.Setenv("GITHUB_ACTIONS", "true")
-	t.Setenv("GITHUB_WORKFLOW", "test")
-	t.Setenv("GITHUB_RUN_ID", "123")
-	t.Setenv("GITHUB_REPOSITORY_OWNER", "jfrog")
-	t.Setenv("GITHUB_REPOSITORY", "jfrog/jfrog-cli")
+	t.Setenv(civcs.CIVcsPropsDisabledEnvVar, "false")
 
-	// 2. Mock services manager
-	mockSM := new(mockServicesManager)
 	expectedProps := "vcs.provider=github;vcs.org=jfrog;vcs.repo=jfrog-cli"
+	originalMerge := mergeVcsPropsForBuildPublish
+	mergeVcsPropsForBuildPublish = func(userProps, searchDir string) string {
+		return expectedProps
+	}
+	defer func() { mergeVcsPropsForBuildPublish = originalMerge }()
 
+	mockSM := new(mockServicesManager)
 	searchReader, cleanup := createTestSearchReader(t)
 	defer cleanup()
 	mockSM.On("SearchFiles", mock.Anything).Return(searchReader, nil)
-
-	// Expect SetProps to be called for the artifact
 	mockSM.On("SetProps", mock.MatchedBy(func(params services.PropsParams) bool {
 		return params.Props == expectedProps
 	})).Return(1, nil)
 
-	// 3. Setup build info
 	bi := &buildinfo.BuildInfo{
 		Modules: []buildinfo.Module{
 			{
@@ -93,11 +106,35 @@ func TestSetCIVcsPropsOnArtifacts(t *testing.T) {
 		},
 	}
 
-	// 4. Run command
 	bpc := NewBuildPublishCommand()
-	bpc.setCIVcsPropsOnArtifacts(mockSM, bi)
+	bpc.setVcsPropsOnArtifacts(mockSM, bi)
 
-	// 5. Verify
+	mockSM.AssertExpectations(t)
+}
+
+func TestSetVcsPropsOnArtifacts_LocalGitFallback(t *testing.T) {
+	t.Setenv(civcs.CIVcsPropsDisabledEnvVar, "false")
+	clearCIEnvVars(t)
+
+	originalMerge := mergeVcsPropsForBuildPublish
+	mergeVcsPropsForBuildPublish = func(userProps, searchDir string) string {
+		return "vcs.revision=local-sha;vcs.url=https://github.com/acme/repo.git"
+	}
+	defer func() { mergeVcsPropsForBuildPublish = originalMerge }()
+
+	mockSM := new(mockServicesManager)
+	searchReader, cleanup := createTestSearchReader(t)
+	defer cleanup()
+	mockSM.On("SearchFiles", mock.Anything).Return(searchReader, nil)
+	mockSM.On("SetProps", mock.MatchedBy(func(params services.PropsParams) bool {
+		return strings.Contains(params.Props, "vcs.revision=local-sha")
+	})).Return(1, nil)
+
+	bpc := &BuildPublishCommand{}
+	bi := &buildinfo.BuildInfo{Modules: []buildinfo.Module{{Artifacts: []buildinfo.Artifact{{
+		Name: "file.jar", Path: "com/example/file.jar", OriginalDeploymentRepo: "libs-release",
+	}}}}}
+	bpc.setVcsPropsOnArtifacts(mockSM, bi)
 	mockSM.AssertExpectations(t)
 }
 

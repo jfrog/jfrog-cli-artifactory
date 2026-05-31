@@ -1,6 +1,7 @@
 package ocicontainer
 
 import (
+	"os"
 	"strings"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
@@ -17,7 +18,11 @@ type RemoteAgentBuildInfoBuilder struct {
 }
 
 func NewRemoteAgentBuildInfoBuilder(image *Image, repository, buildName, buildNumber, project string, serviceManager artifactory.ArtifactoryServicesManager, manifestSha256 string) (*RemoteAgentBuildInfoBuilder, error) {
-	builder, err := newBuildInfoBuilder(image, repository, buildName, buildNumber, project, serviceManager)
+	searchDir, wdErr := os.Getwd()
+	if wdErr != nil {
+		searchDir = "."
+	}
+	builder, err := newBuildInfoBuilder(image, repository, buildName, buildNumber, project, serviceManager, searchDir)
 	return &RemoteAgentBuildInfoBuilder{
 		buildInfoBuilder: builder,
 		manifestSha2:     manifestSha256,

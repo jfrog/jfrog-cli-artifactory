@@ -142,6 +142,18 @@ func TestForeignDependenciesInManifestLayer(t *testing.T) {
 	assert.Len(t, dependencies, 1)
 }
 
+func TestSetBuildProperties_MergesVcsFromSearchDir(t *testing.T) {
+	originalMerge := mergeVcsPropsForDockerPush
+	mergeVcsPropsForDockerPush = func(userProps, searchDir string) string {
+		assert.Equal(t, ".", searchDir)
+		return userProps + ";vcs.branch=main"
+	}
+	defer func() { mergeVcsPropsForDockerPush = originalMerge }()
+
+	got := mergePushBuildPropsWithVcs("build.name=a;build.number=1", ".")
+	assert.Contains(t, got, "vcs.branch=main")
+}
+
 func createManifestConfigWithForeignLayer() (map[string]*utils.ResultItem, *manifest) {
 	manifest := &manifest{
 		Layers: []layer{

@@ -2,6 +2,8 @@ package strategies
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/container/dockerfileutils"
 	container "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -96,6 +98,10 @@ func (s *RunNativeStrategy) collectBuildInfo(cmdParams []string, buildConfig *bu
 	project := buildConfig.GetProject()
 
 	// Create simplified DockerBuildInfoBuilder (no image or repository needed)
+	searchDir, wdErr := os.Getwd()
+	if wdErr != nil {
+		searchDir = "."
+	}
 	builder := container.NewDockerBuildInfoBuilder(
 		buildName,
 		buildNumber,
@@ -106,6 +112,7 @@ func (s *RunNativeStrategy) collectBuildInfo(cmdParams []string, buildConfig *bu
 		baseImageInfos,
 		s.dockerBuildOptions.PushExpected,
 		cmdParams,
+		searchDir,
 	)
 
 	// Build the build-info (just pass the image tag for module ID)
