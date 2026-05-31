@@ -567,6 +567,28 @@ func TestMergeVcsPropsForPnpmPublish(t *testing.T) {
 }
 
 func TestMergeVcsPropsForPnpmPublish_NoGitRepo(t *testing.T) {
-	got := mergeVcsPropsForPnpmPublish("", "/nonexistent/path/without/git")
+	clearCIEnvVarsForTest(t)
+	got := mergeVcsPropsForPnpmPublish("", t.TempDir())
 	assert.Equal(t, "", got)
+}
+
+func clearCIEnvVarsForTest(t *testing.T) {
+	t.Helper()
+	for _, v := range []string{
+		"CI",
+		"GITHUB_ACTIONS",
+		"GITHUB_WORKFLOW",
+		"GITHUB_RUN_ID",
+		"GITHUB_REPOSITORY_OWNER",
+		"GITHUB_REPOSITORY",
+		"GITHUB_SERVER_URL",
+		"GITHUB_SHA",
+		"GITHUB_REF",
+		"GITHUB_REF_NAME",
+		"GITHUB_HEAD_REF",
+		"GITLAB_CI",
+		"CI_PROJECT_PATH",
+	} {
+		t.Setenv(v, "")
+	}
 }
