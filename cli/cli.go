@@ -6,7 +6,6 @@ import (
 	distributionCLI "github.com/jfrog/jfrog-cli-artifactory/distribution/cli"
 	ideCLI "github.com/jfrog/jfrog-cli-artifactory/ide/cli"
 	"github.com/jfrog/jfrog-cli-artifactory/lifecycle"
-	skillsCLI "github.com/jfrog/jfrog-cli-artifactory/skills/cli"
 	"github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 )
@@ -32,14 +31,6 @@ func GetJfrogCliArtifactoryApp() components.App {
 		Name:        "ide",
 		Description: "IDE commands.",
 		Commands:    ideCLI.GetCommands(),
-		Category:    "Command Namespaces",
-	})
-	app.Subcommands = append(app.Subcommands, components.Namespace{
-		Name:        "skills",
-		Aliases:     []string{"skill"},
-		Description: "Skills commands.",
-		Hidden:      true,
-		Commands:    skillsCLI.GetCommands(),
 		Category:    "Command Namespaces",
 	})
 	app.Subcommands = append(app.Subcommands, components.Namespace{

@@ -89,7 +89,7 @@ func getFatManifest(resultMap map[string]*utils.ResultItem, serviceManager artif
 	if len(resultMap) == 0 {
 		return
 	}
-	manifestSearchResult, ok := resultMap["list.manifest.json"]
+	manifestSearchResult, ok := resultMap[FatManifestJsonFile]
 	if !ok {
 		return
 	}

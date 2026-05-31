@@ -1,0 +1,35 @@
+{
+  "name": "test-marketplace",
+  "owner": {
+    "name": "test-owner"
+  },
+  "plugins": [
+    {
+      "name": "dummy-plugin-alpha",
+      "source": {
+        "source": "url",
+        "url": "dummy-plugin-alpha/1.0.2/dummy-plugin-alpha-1.0.2.zip",
+        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "description": "First dummy plugin for marketplace parser tests.",
+      "author": {
+        "name": "Test Author",
+        "email": "author@example.com"
+      },
+      "version": "1.0.2"
+    },
+    {
+      "name": "dummy-plugin-beta",
+      "source": {
+        "source": "url",
+        "url": "dummy-plugin-beta/1.0.1/dummy-plugin-beta-1.0.1.zip",
+        "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "description": "Second dummy plugin for marketplace parser tests.",
+      "author": {
+        "name": "Example Corp"
+      },
+      "version": "1.0.1"
+    }
+  ]
+}

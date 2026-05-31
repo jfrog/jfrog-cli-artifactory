@@ -51,8 +51,9 @@ func ExtractLayersFromManifestData(candidateLayers map[string]*utils.ResultItem,
 
 // SearchLayersForDetailedSummary searches for container image layers in Artifactory
 // without using build info builders, returning layers for detailed summary display.
-// This function searches for layers, extracts them from the manifest, and returns them
-// in a format suitable for displaying a detailed summary.
+// This function searches for layers, extracts them from the manifest (single-platform
+// or fat / multi-platform manifest), and returns them in a format suitable for
+// displaying a detailed summary.
 func SearchLayersForDetailedSummary(image *Image, repo string, serviceManager artifactory.ArtifactoryServicesManager, imageSha256 string) (*[]utils.ResultItem, error) {
 	// Get repository details to determine searchable repo
 	repoDetails := &services.RepositoryDetails{}
@@ -79,6 +80,8 @@ func SearchLayersForDetailedSummary(image *Image, repo string, serviceManager ar
 
 	var resultMap map[string]*utils.ResultItem
 	var imageManifest *manifest
+	var foundResultMap map[string]*utils.ResultItem
+	isFatManifest := false
 
 	// Search for manifest and layers
 	for _, searchPath := range manifestPathsCandidates {
@@ -90,6 +93,15 @@ func SearchLayersForDetailedSummary(image *Image, repo string, serviceManager ar
 		}
 		if len(resultMap) == 0 {
 			continue
+		}
+
+		// Fat-manifest (multi-platform) image: list.manifest.json is present at the
+		// tag path while platform-specific manifest.json files live in sibling folders.
+		if _, ok := resultMap[FatManifestJsonFile]; ok {
+			log.Debug("Found list.manifest.json (fat-manifest).")
+			foundResultMap = resultMap
+			isFatManifest = true
+			break
 		}
 
 		imageManifest, err = getManifest(resultMap, serviceManager, repo)
@@ -122,8 +134,13 @@ func SearchLayersForDetailedSummary(image *Image, repo string, serviceManager ar
 					continue
 				}
 			}
+			foundResultMap = resultMap
 			break
 		}
+	}
+
+	if isFatManifest {
+		return searchLayersForFatManifest(foundResultMap, serviceManager, repo)
 	}
 
 	if imageManifest == nil {
@@ -139,10 +156,93 @@ func SearchLayersForDetailedSummary(image *Image, repo string, serviceManager ar
 		}
 	}
 
-	imageLayers, err := ExtractLayersFromManifestData(resultMap, imageManifest.Config.Digest, layerDigests)
+	imageLayers, err := ExtractLayersFromManifestData(foundResultMap, imageManifest.Config.Digest, layerDigests)
 	if err != nil {
 		return nil, err
 	}
 
 	return &imageLayers, nil
+}
+
+// searchLayersForFatManifest aggregates all artifacts that belong to a multi-platform
+// (fat) manifest image: the fat manifest itself, and each platform's manifest.json,
+// config layer and content layers. It downloads the fat manifest to know which
+// platform digests to include and performs a recursive search to find their layers.
+func searchLayersForFatManifest(resultMap map[string]*utils.ResultItem, serviceManager artifactory.ArtifactoryServicesManager, repo string) (*[]utils.ResultItem, error) {
+	fatManifestResult, ok := resultMap[FatManifestJsonFile]
+	if !ok {
+		return nil, errorutils.CheckErrorf("could not find fat manifest in Artifactory")
+	}
+
+	fatManifest, err := getFatManifest(resultMap, serviceManager, repo)
+	if err != nil {
+		// If Xray blocks the download, fall back to whatever was already discovered
+		// at the tag path so users still get a useful summary.
+		if strings.Contains(err.Error(), "download blocking policy configured in Xray") {
+			log.Info("Artifact download blocked by Xray policy. Returning basic summary with available files.")
+			basicSummary := collectBasicSummary(resultMap)
+			return &basicSummary, nil
+		}
+		return nil, err
+	}
+	if fatManifest == nil {
+		return nil, errorutils.CheckErrorf("could not parse fat manifest in Artifactory")
+	}
+
+	// The fat manifest sits at <root>/<tag>/list.manifest.json. Each platform manifest
+	// lives in a sibling folder named after its digest, so search the parent root.
+	fatManifestRootPath := getFatManifestRoot(fatManifestResult.GetItemRelativeLocation()) + "/*"
+	multiPlatformImages, err := performMultiPlatformImageSearch(fatManifestRootPath, serviceManager)
+	if err != nil {
+		return nil, err
+	}
+
+	imageLayers := aggregateFatManifestLayers(fatManifestResult, fatManifest, multiPlatformImages)
+	return &imageLayers, nil
+}
+
+// aggregateFatManifestLayers collects every artifact that should be reported as
+// part of a multi-platform image: the fat manifest result item itself, plus all
+// layers belonging to each platform-specific manifest digest. Layers shared
+// across platforms are returned once.
+func aggregateFatManifestLayers(fatManifestResult *utils.ResultItem, fatManifest *FatManifest, multiPlatformImages map[string][]*utils.ResultItem) []utils.ResultItem {
+	imageLayers := []utils.ResultItem{*fatManifestResult}
+	seen := map[string]bool{layerKey(fatManifestResult): true}
+
+	for _, platformManifest := range fatManifest.Manifests {
+		platformLayers, found := multiPlatformImages[platformManifest.Digest]
+		if !found || len(platformLayers) == 0 {
+			log.Debug("No layers found in Artifactory for platform manifest digest:", platformManifest.Digest)
+			continue
+		}
+		for _, layer := range platformLayers {
+			key := layerKey(layer)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			imageLayers = append(imageLayers, *layer)
+		}
+	}
+	return imageLayers
+}
+
+// collectBasicSummary returns every file in the search result map (skipping the
+// manifest entries) so we can still surface a useful summary when the manifest
+// itself can't be downloaded.
+func collectBasicSummary(resultMap map[string]*utils.ResultItem) []utils.ResultItem {
+	var basicSummary []utils.ResultItem
+	for fileName, item := range resultMap {
+		if fileName == ManifestJsonFile || fileName == FatManifestJsonFile {
+			continue
+		}
+		basicSummary = append(basicSummary, *item)
+	}
+	return basicSummary
+}
+
+// layerKey returns a stable key for a layer's location in Artifactory, used to
+// deduplicate layers shared across platforms in a fat-manifest image.
+func layerKey(item *utils.ResultItem) string {
+	return item.Repo + "/" + item.Path + "/" + item.Name
 }

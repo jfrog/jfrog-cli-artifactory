@@ -34,6 +34,7 @@ const (
 	unknownPlatformPlaceholder string      = "unknown"
 
 	ManifestJsonFile                  = "manifest.json"
+	FatManifestJsonFile               = "list.manifest.json"
 	AttestationsModuleIdPrefix string = "attestations"
 )
 
@@ -297,7 +298,7 @@ func getManifestArtifact(manifest *utils.ResultItem) (artifact buildinfo.Artifac
 // Return - fat manifest artifacts as buildinfo.Artifact struct.
 func getFatManifestArtifact(fatManifest *utils.ResultItem) (artifact buildinfo.Artifact) {
 	return buildinfo.Artifact{
-		Name:                   "list.manifest.json",
+		Name:                   FatManifestJsonFile,
 		Type:                   "json",
 		Checksum:               buildinfo.Checksum{Sha1: fatManifest.Actual_Sha1, Md5: fatManifest.Actual_Md5, Sha256: fatManifest.Sha256},
 		Path:                   path.Join(fatManifest.Path, fatManifest.Name),
