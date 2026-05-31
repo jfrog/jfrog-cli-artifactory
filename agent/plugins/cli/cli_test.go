@@ -14,7 +14,7 @@ func TestGetSubCommands_HasPublishAndInstall(t *testing.T) {
 	for _, cmd := range commands {
 		names = append(names, cmd.Name)
 	}
-	assert.ElementsMatch(t, []string{"publish", "install", "delete"}, names)
+	assert.ElementsMatch(t, []string{"publish", "install", "delete", "list"}, names)
 
 	byName := make(map[string]components.Command, len(commands))
 	for _, cmd := range commands {
@@ -39,4 +39,8 @@ func TestGetSubCommands_HasPublishAndInstall(t *testing.T) {
 	require.Len(t, del.Arguments, 1)
 	assert.Equal(t, "slug", del.Arguments[0].Name)
 	assert.Contains(t, del.Description, "Delete a specific agent plugin version")
+
+	lst := byName["list"]
+	assert.NotNil(t, lst.Action)
+	assert.Contains(t, lst.Description, "List agent plugins")
 }

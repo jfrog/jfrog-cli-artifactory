@@ -26,6 +26,18 @@ var RegistryHelp = agentcommon.AgentRegistryHelpExample{
 	ExampleGlobalDir:  "~/.my-agent/plugins",
 }
 
+// ParseHarnessForList parses --harness for list: exactly one name; commas are rejected.
+func ParseHarnessForList(raw string) (string, error) {
+	names, err := ParseHarnessList(raw)
+	if err != nil {
+		return "", err
+	}
+	if len(names) != 1 {
+		return "", fmt.Errorf("--harness for list accepts one harness name, not a comma-separated list: %q", raw)
+	}
+	return names[0], nil
+}
+
 // ParseHarnessList parses comma-separated harness names (trim, lowercase, reject empty/duplicates).
 func ParseHarnessList(raw string) ([]string, error) {
 	if strings.TrimSpace(raw) == "" {

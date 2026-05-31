@@ -86,8 +86,9 @@ func mergePluginManifestPaths(fromConfig []string) []string {
 // ValidateAndResolvePluginMeta, Version is the final publish version and
 // ManifestVersion holds the on-disk consensus before --version.
 type PluginMeta struct {
-	Name    string `json:"name"`
-	Version string `json:"version,omitempty"`
+	Name        string `json:"name"`
+	Version     string `json:"version,omitempty"`
+	Description string `json:"description,omitempty"`
 	// ManifestVersion is the consensus version from plugin.json files only (before --version).
 	ManifestVersion string `json:"-"`
 }
