@@ -24,6 +24,10 @@ const manifestJSONIndent = "    "
 // not pass --version.
 const defaultPluginVersion = "1.0.0"
 
+// ErrPluginManifestNotFound is returned when no plugin.json could be located in any of
+// the searched paths under a plugin directory.
+var ErrPluginManifestNotFound = errors.New("no plugin.json")
+
 // knownManifestRelPaths lists the built-in relative locations checked for plugin.json.
 // agent-config.json "plugin-manifest-paths" entries are prepended (higher priority);
 // defaults fill in any path not already listed. The first existing file wins.
@@ -123,7 +127,7 @@ func findPrimaryPluginManifest(pluginRoot string) (relativePath string, meta Plu
 func pluginManifestNotFoundError(pluginRoot string, relPaths []string) error {
 	configPath := agentcommon.AgentConfigPathForDisplay()
 	return fmt.Errorf(
-		"no %s found under %s (checked: %s).\n\n"+
+		"%w found under %s (checked: %s).\n\n"+
 			"To search additional locations, edit %s and add relative paths under %q "+
 			"(paths are relative to the plugin directory). Custom paths are checked first, "+
 			"then built-in defaults.\n\n"+
@@ -133,7 +137,7 @@ func pluginManifestNotFoundError(pluginRoot string, relPaths []string) error {
 			"      \"my-layout/%s\"\n"+
 			"    ]\n"+
 			"  }",
-		manifestFileName,
+		ErrPluginManifestNotFound,
 		pluginRoot,
 		strings.Join(relPaths, ", "),
 		configPath,

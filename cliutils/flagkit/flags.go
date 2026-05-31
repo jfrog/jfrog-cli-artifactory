@@ -514,6 +514,7 @@ const (
 	// Agent plugin commands keys
 	AgentPluginsPublish = "agent-plugins-publish"
 	AgentPluginsInstall = "agent-plugins-install"
+	AgentPluginsUpdate  = "agent-plugins-update"
 
 	// Agent namespace-specific flags (shared by skills and agent-plugins commands)
 	version    = "version"
@@ -522,6 +523,7 @@ const (
 	// Skills-specific flags
 	installPath         = "path"
 	agentForce          = "force"
+	agentAll            = "all"
 	signingKey          = "signing-key"
 	keyAlias            = "key-alias"
 	propSearch          = "prop"
@@ -887,6 +889,9 @@ var commandFlags = map[string][]string{
 	AgentPluginsInstall: {
 		url, user, password, accessToken, serverId, repo, version, harness, projectDir, agentGlobal, installPath, agentFormat, agentQuiet,
 	},
+	AgentPluginsUpdate: {
+		url, user, password, accessToken, serverId, repo, version, harness, projectDir, agentGlobal, installPath, agentFormat, agentQuiet, dryRun, agentForce, agentAll,
+	},
 	SkillsInstall: {
 		url, user, password, accessToken, serverId, repo, version, harness, projectDir, agentGlobal, installPath, agentFormat, agentQuiet,
 	},
@@ -1211,6 +1216,7 @@ var flagsMap = map[string]components.Flag{
 	// Skills-specific flags
 	installPath:         components.NewStringFlag(installPath, "Base directory for a direct install or update: files go under <path>/<slug>. Mutually exclusive with --harness, --project-dir, and --global.", components.SetMandatoryFalse()),
 	agentForce:          components.NewBoolFlag(agentForce, "Re-download and reinstall even if the skill is already at the target version.", components.WithBoolDefaultValueFalse()),
+	agentAll:            components.NewBoolFlag(agentAll, "Update every installed plugin for the given --harness list to its latest version. Mutually exclusive with a slug argument, --version, and --path.", components.WithBoolDefaultValueFalse()),
 	signingKey:          components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
 	keyAlias:            components.NewStringFlag(keyAlias, "Alias for the signing key. Overrides EVD_KEY_ALIAS env var.", components.SetMandatoryFalse()),
 	agentFormat:         components.NewStringFlag(Format, "Output format: \"table\" (default) or \"json\".", components.SetMandatoryFalse()),
