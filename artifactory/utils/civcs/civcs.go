@@ -1,6 +1,7 @@
 package civcs
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -52,22 +53,22 @@ func GetCIVcsPropsString() string {
 func BuildCIVcsPropsString(info cienv.CIVcsInfo) string {
 	var parts []string
 	if info.Provider != "" {
-		parts = append(parts, "vcs.provider="+info.Provider)
+		parts = append(parts, fmt.Sprintf("%s=%s", VcsProviderKey, info.Provider))
 	}
 	if info.Org != "" {
-		parts = append(parts, "vcs.org="+info.Org)
+		parts = append(parts, fmt.Sprintf("%s=%s", VcsOrgKey, info.Org))
 	}
 	if info.Repo != "" {
-		parts = append(parts, "vcs.repo="+info.Repo)
+		parts = append(parts, fmt.Sprintf("%s=%s", VcsRepoKey, info.Repo))
 	}
 	if info.Url != "" {
-		parts = append(parts, "vcs.url="+info.Url)
+		parts = append(parts, fmt.Sprintf("%s=%s", VcsUrlKey, info.Url))
 	}
 	if info.Revision != "" {
-		parts = append(parts, "vcs.revision="+info.Revision)
+		parts = append(parts, fmt.Sprintf("%s=%s", VcsRevisionKey, info.Revision))
 	}
 	if info.Branch != "" {
-		parts = append(parts, "vcs.branch="+info.Branch)
+		parts = append(parts, fmt.Sprintf("%s=%s", VcsBranchKey, info.Branch))
 	}
 	return strings.Join(parts, ";")
 }
@@ -84,37 +85,58 @@ func MergeWithUserProps(userProps string) string {
 	if info.IsEmpty() {
 		return userProps
 	}
-	var ciParts []string
-	// Only add CI properties that user hasn't specified (case-sensitive)
-	if info.Provider != "" && !hasProp(userProps, "vcs.provider") {
-		ciParts = append(ciParts, "vcs.provider="+info.Provider)
+	return MergeVcsProps(userProps, info)
+}
+
+// MergeWithUserAndDetectedProps adds CI and local git VCS props to user-provided props.
+// Precedence: user props > CI props > local git props.
+func MergeWithUserAndDetectedProps(userProps, sourcePattern string) string {
+	ciPropsMerged := MergeWithUserProps(userProps)
+	if hasAllLocalGitProps(ciPropsMerged) || IsCIVcsPropsDisabled() {
+		// All local git props are already present or CI VCS props collection is disabled, return merged props
+		return ciPropsMerged
 	}
-	if info.Org != "" && !hasProp(userProps, "vcs.org") {
-		ciParts = append(ciParts, "vcs.org="+info.Org)
+	log.Debug("Local git VCS props not present in user props, getting from source pattern:", sourcePattern)
+	localInfo, err := getLocalGitVcsInfo(sourcePattern)
+	if err != nil {
+		log.Debug("Skipping local git VCS props, failed getting VCS info:", err.Error())
+		return ciPropsMerged
 	}
-	if info.Repo != "" && !hasProp(userProps, "vcs.repo") {
-		ciParts = append(ciParts, "vcs.repo="+info.Repo)
+	return MergeVcsProps(ciPropsMerged, localInfo)
+}
+
+func hasAllLocalGitProps(props string) bool {
+	return hasProp(props, VcsUrlKey) && hasProp(props, VcsRevisionKey) && hasProp(props, VcsBranchKey)
+}
+
+func MergeVcsProps(userProps string, info cienv.CIVcsInfo) string {
+	var newProps []string
+	if info.Provider != "" && !hasProp(userProps, VcsProviderKey) {
+		newProps = append(newProps, fmt.Sprintf("%s=%s", VcsProviderKey, info.Provider))
 	}
-	if info.Url != "" && !hasProp(userProps, "vcs.url") {
-		ciParts = append(ciParts, "vcs.url="+info.Url)
+	if info.Org != "" && !hasProp(userProps, VcsOrgKey) {
+		newProps = append(newProps, fmt.Sprintf("%s=%s", VcsOrgKey, info.Org))
 	}
-	if info.Revision != "" && !hasProp(userProps, "vcs.revision") {
-		ciParts = append(ciParts, "vcs.revision="+info.Revision)
+	if info.Repo != "" && !hasProp(userProps, VcsRepoKey) {
+		newProps = append(newProps, fmt.Sprintf("%s=%s", VcsRepoKey, info.Repo))
 	}
-	if info.Branch != "" && !hasProp(userProps, "vcs.branch") {
-		ciParts = append(ciParts, "vcs.branch="+info.Branch)
+	if info.Url != "" && !hasProp(userProps, VcsUrlKey) {
+		newProps = append(newProps, fmt.Sprintf("%s=%s", VcsUrlKey, info.Url))
 	}
-	if len(ciParts) == 0 {
+	if info.Revision != "" && !hasProp(userProps, VcsRevisionKey) {
+		newProps = append(newProps, fmt.Sprintf("%s=%s", VcsRevisionKey, info.Revision))
+	}
+	if info.Branch != "" && !hasProp(userProps, VcsBranchKey) {
+		newProps = append(newProps, fmt.Sprintf("%s=%s", VcsBranchKey, info.Branch))
+	}
+	if len(newProps) == 0 {
 		return userProps
 	}
-	ciProps := strings.Join(ciParts, ";")
-	if ciProps != "" {
-		log.Debug("CI VCS properties to add:", ciProps)
+	props := strings.Join(newProps, ";")
+	if props != "" {
+		log.Debug("VCS properties to add:", props)
 	}
-	if userProps == "" {
-		return ciProps
-	}
-	return userProps + ";" + ciProps
+	return userProps + ";" + props
 }
 
 // hasProp checks if the property key is already present in the semicolon-separated props string.

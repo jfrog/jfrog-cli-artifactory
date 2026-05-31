@@ -117,11 +117,7 @@ func (uc *UploadCommand) upload() (err error) {
 	// Create UploadParams for all File-Spec groups.
 	for i := 0; i < len(uc.Spec().Files); i++ {
 		file := uc.Spec().Get(i)
-		file.TargetProps = clientUtils.AddProps(file.TargetProps, file.Props)
-		file.TargetProps = clientUtils.AddProps(file.TargetProps, syncDeletesProp)
-		file.Props += syncDeletesProp
-		// Add CI VCS properties if in CI environment (respects user precedence)
-		file.TargetProps = civcs.MergeWithUserProps(file.TargetProps)
+		enrichUploadFileProps(file, syncDeletesProp)
 		uploadParams, err := getUploadParams(file, uc.uploadConfiguration, buildProps, addVcsProps, uc.DryRun())
 		if err != nil {
 			errorOccurred = true
@@ -200,6 +196,15 @@ func (uc *UploadCommand) upload() (err error) {
 	}
 
 	return
+}
+
+var mergeVcsPropsForUpload = civcs.MergeWithUserAndDetectedProps
+
+func enrichUploadFileProps(file *spec.File, syncDeletesProp string) {
+	file.TargetProps = clientUtils.AddProps(file.TargetProps, file.Props)
+	file.TargetProps = clientUtils.AddProps(file.TargetProps, syncDeletesProp)
+	file.Props += syncDeletesProp
+	file.TargetProps = mergeVcsPropsForUpload(file.TargetProps, file.Pattern)
 }
 
 func getUploadParams(f *spec.File, configuration *utils.UploadConfiguration, buildProps string, addVcsProps bool, dryRun bool) (uploadParams services.UploadParams, err error) {

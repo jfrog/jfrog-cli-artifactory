@@ -160,3 +160,148 @@ func clearCIEnvVars(t *testing.T) {
 		t.Setenv(v, "")
 	}
 }
+
+type gitStub struct {
+	url      string
+	revision string
+	branch   string
+	readErr  error
+}
+
+type fakeGitManager struct {
+	gitStub
+}
+
+func (s *fakeGitManager) ReadConfig() error {
+	return s.readErr
+}
+
+func (s *fakeGitManager) GetUrl() string {
+	return s.url
+}
+
+func (s *fakeGitManager) GetRevision() string {
+	return s.revision
+}
+
+func (s *fakeGitManager) GetBranch() string {
+	return s.branch
+}
+
+func withStubGitManager(t *testing.T, stub gitStub) func() {
+	t.Helper()
+	originalFindDotGit := findDotGitUpstreamFn
+	originalNewGitManager := newGitManagerFn
+	findDotGitUpstreamFn = func(string) (string, error) {
+		return "/tmp/test/.git", nil
+	}
+	newGitManagerFn = func(string) gitConfigReader {
+		return &fakeGitManager{gitStub: stub}
+	}
+	return func() {
+		findDotGitUpstreamFn = originalFindDotGit
+		newGitManagerFn = originalNewGitManager
+	}
+}
+
+func withStubLocalGitProps(t *testing.T) func() {
+	t.Helper()
+	originalFindDotGit := findDotGitUpstreamFn
+	originalNewGitManager := newGitManagerFn
+	findDotGitUpstreamFn = func(string) (string, error) {
+		return "/tmp/test/.git", nil
+	}
+	newGitManagerFn = func(string) gitConfigReader {
+		return &fakeGitManager{gitStub: gitStub{
+			url:      "https://git.local/repo.git",
+			revision: "local-sha",
+			branch:   "local-branch",
+		}}
+	}
+	return func() {
+		findDotGitUpstreamFn = originalFindDotGit
+		newGitManagerFn = originalNewGitManager
+	}
+}
+
+func TestGetLocalGitPropsFromSourcePattern(t *testing.T) {
+	t.Setenv(CIVcsPropsDisabledEnvVar, "false")
+	restore := withStubGitManager(t, gitStub{
+		url:      "https://github.com/acme/service.git",
+		revision: "abc123",
+		branch:   "main",
+	})
+	defer restore()
+
+	props := getLocalGitPropsFromSourcePattern("services/app/**/*.zip")
+	assert.Equal(t, "vcs.url=https://github.com/acme/service.git;vcs.revision=abc123;vcs.branch=main", props)
+}
+
+func TestGetLocalGitPropsFromSourcePattern_NoGitRepo(t *testing.T) {
+	originalFindDotGit := findDotGitUpstreamFn
+	findDotGitUpstreamFn = func(string) (string, error) {
+		return "", nil
+	}
+	defer func() { findDotGitUpstreamFn = originalFindDotGit }()
+
+	props := getLocalGitPropsFromSourcePattern("build/output/*.zip")
+	assert.Equal(t, "", props)
+}
+
+func TestDeriveSearchDirFromPattern(t *testing.T) {
+	tests := []struct {
+		pattern  string
+		expected string
+	}{
+		{pattern: "services/app/**/*.zip", expected: "services/app"},
+		{pattern: "dist/*.zip", expected: "dist"},
+		{pattern: "*.zip", expected: "."},
+		{pattern: "build/output/file.jar", expected: "build/output"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.pattern, func(t *testing.T) {
+			assert.Equal(t, tt.expected, deriveSearchDirFromPattern(tt.pattern))
+		})
+	}
+}
+
+func TestMergeWithUserAndDetectedProps_PreferenceOrder(t *testing.T) {
+	t.Setenv(CIVcsPropsDisabledEnvVar, "false")
+	clearCIEnvVars(t)
+	t.Setenv("CI", "true")
+	t.Setenv("GITHUB_ACTIONS", "true")
+	t.Setenv("GITHUB_WORKFLOW", "test")
+	t.Setenv("GITHUB_RUN_ID", "123")
+	t.Setenv("GITHUB_SHA", "ci-sha")
+	t.Setenv("GITHUB_REF", "refs/heads/ci-branch")
+	t.Setenv("GITHUB_REPOSITORY", "acme/repo")
+	t.Setenv("GITHUB_REPOSITORY_OWNER", "acme")
+	t.Setenv("GITHUB_SERVER_URL", "https://github.com")
+
+	restore := withStubLocalGitProps(t)
+	defer restore()
+
+	got := MergeWithUserAndDetectedProps("vcs.revision=user-sha;qa=true", "src/**/*.tgz")
+	assert.Contains(t, got, "vcs.revision=user-sha")
+	assert.Contains(t, got, "vcs.branch=ci-branch")
+	assert.Contains(t, got, "vcs.url=https://github.com/acme/repo")
+	assert.NotContains(t, got, "vcs.revision=local-sha")
+}
+
+func TestMergeWithUserAndDetectedProps_LocalGitFallback(t *testing.T) {
+	t.Setenv(CIVcsPropsDisabledEnvVar, "false")
+	clearCIEnvVars(t)
+
+	restore := withStubGitManager(t, gitStub{
+		url:      "https://github.com/acme/service.git",
+		revision: "abc123",
+		branch:   "main",
+	})
+	defer restore()
+
+	got := MergeWithUserAndDetectedProps("qa=true", "services/app/**/*.zip")
+	assert.Contains(t, got, "qa=true")
+	assert.Contains(t, got, "vcs.url=https://github.com/acme/service.git")
+	assert.Contains(t, got, "vcs.revision=abc123")
+	assert.Contains(t, got, "vcs.branch=main")
+}

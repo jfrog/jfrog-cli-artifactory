@@ -67,7 +67,7 @@ func publishPackage(packageVersion, targetRepo, buildName, buildNumber, projectK
 	params := _go.NewGoParams()
 	params.Version = packageVersion
 	// Add CI VCS properties if in CI environment (respects user precedence)
-	params.Props = civcs.MergeWithUserProps(props)
+	params.Props = civcs.MergeWithUserAndDetectedProps(props, projectPath)
 	params.TargetRepo = targetRepo
 	params.ModuleId = moduleName
 	params.ModContent = modContent
