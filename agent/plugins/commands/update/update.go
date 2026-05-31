@@ -130,24 +130,48 @@ func runUpdateOne(opts updateOptions, slug, requestedVersion string) error {
 	return finalError(results)
 }
 
+// updateAllOutcome tracks aggregate success/failure for a --all run.
+type updateAllOutcome struct {
+	anyOK            bool
+	anyFailed        bool
+	firstResolveErr  error
+	updatedSlugCount int
+}
+
 // runUpdateAll enumerates every installed plugin under each --harness and updates each to its latest version.
 func runUpdateAll(opts updateOptions) error {
-	// slugToTargets groups all install targets by slug so we update each plugin once
-	// with one summary block, regardless of how many harnesses it is installed under.
-	slugToTargets := map[string][]plugincommon.AgentTarget{}
+	slugOrder, slugToTargets, err := discoverInstalledPluginTargets(opts.flags)
+	if err != nil {
+		return err
+	}
+	if len(slugOrder) == 0 {
+		log.Info("No installed plugins found for the given --harness list; nothing to update.")
+		return nil
+	}
+
+	combined, outcome, err := applyUpdateAllForSlugs(opts, slugOrder, slugToTargets)
+	if err != nil {
+		return err
+	}
+	return finalizeUpdateAll(combined, outcome, opts.format)
+}
+
+// discoverInstalledPluginTargets maps each installed slug to its harness install targets.
+func discoverInstalledPluginTargets(flags agentcommon.InstallFlagsResult) ([]string, map[string][]plugincommon.AgentTarget, error) {
+	slugToTargets := make(map[string][]plugincommon.AgentTarget)
 	slugOrder := make([]string, 0)
-	for _, spec := range opts.flags.Specs {
-		installDir, err := agentcommon.ResolveAgentInstallDir(spec, opts.flags.ProjectDirAbs, opts.flags.IsGlobal)
+	scope := plugincommon.ScopeProject
+	if flags.IsGlobal {
+		scope = plugincommon.ScopeGlobal
+	}
+	for _, spec := range flags.Specs {
+		installDir, err := agentcommon.ResolveAgentInstallDir(spec, flags.ProjectDirAbs, flags.IsGlobal)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 		slugs, err := agentcommon.DiscoverInstalledSlugs(installDir, plugincommon.PluginInfoManifestFile)
 		if err != nil {
-			return err
-		}
-		scope := plugincommon.ScopeProject
-		if opts.flags.IsGlobal {
-			scope = plugincommon.ScopeGlobal
+			return nil, nil, err
 		}
 		for _, slug := range slugs {
 			if _, seen := slugToTargets[slug]; !seen {
@@ -160,50 +184,60 @@ func runUpdateAll(opts updateOptions) error {
 			})
 		}
 	}
+	return slugOrder, slugToTargets, nil
+}
 
-	if len(slugOrder) == 0 {
-		log.Info("No installed plugins found for the given --harness list; nothing to update.")
-		return nil
-	}
-
+// applyUpdateAllForSlugs resolves latest version per slug, updates targets, and builds combined summary rows.
+func applyUpdateAllForSlugs(
+	opts updateOptions,
+	slugOrder []string,
+	slugToTargets map[string][]plugincommon.AgentTarget,
+) ([]agentcommon.UpdateAllSummaryRow, updateAllOutcome, error) {
 	combined := make([]agentcommon.UpdateAllSummaryRow, 0)
-	var anyOK, anyFailed bool
-	var firstResolveErr error
-	var updatedSlugCount int
-
+	var outcome updateAllOutcome
 	for _, slug := range slugOrder {
 		targetVersion, err := resolveLatestPluginVersion(opts.serverDetails, opts.repoKey, slug)
 		if err != nil {
-			if firstResolveErr == nil {
-				firstResolveErr = err
+			if outcome.firstResolveErr == nil {
+				outcome.firstResolveErr = err
 			}
 			log.Warn(fmt.Sprintf("Skipping plugin '%s': could not resolve latest version: %s", slug, err.Error()))
 			continue
 		}
 		results, err := updateSlugAcrossTargets(opts, slug, targetVersion, slugToTargets[slug])
 		if err != nil {
-			return err
+			return nil, updateAllOutcome{}, err
 		}
 		combined = agentcommon.AppendUpdateAllSummaryRows(combined, slug, targetVersion, results)
-		updatedSlugCount++
-		for _, row := range results {
-			switch row.Status {
-			case agentcommon.SummaryStatusOK:
-				anyOK = true
-			case agentcommon.SummaryStatusFailed:
-				anyFailed = true
-			}
+		outcome.updatedSlugCount++
+		ok, failed := tallySummaryRows(results)
+		outcome.anyOK = outcome.anyOK || ok
+		outcome.anyFailed = outcome.anyFailed || failed
+	}
+	return combined, outcome, nil
+}
+
+func tallySummaryRows(results []agentcommon.SummaryRow) (anyOK, anyFailed bool) {
+	for _, row := range results {
+		switch row.Status {
+		case agentcommon.SummaryStatusOK:
+			anyOK = true
+		case agentcommon.SummaryStatusFailed:
+			anyFailed = true
 		}
 	}
+	return anyOK, anyFailed
+}
 
-	if err := agentcommon.PrintUpdateAllSummary("Plugin", combined, opts.format); err != nil {
+func finalizeUpdateAll(combined []agentcommon.UpdateAllSummaryRow, outcome updateAllOutcome, format string) error {
+	if err := agentcommon.PrintUpdateAllSummary("Plugin", combined, format); err != nil {
 		return err
 	}
-	if !anyOK && anyFailed {
+	if !outcome.anyOK && outcome.anyFailed {
 		return fmt.Errorf("update failed for all targets (see summary above)")
 	}
-	if !anyOK && updatedSlugCount == 0 && firstResolveErr != nil {
-		return firstResolveErr
+	if !outcome.anyOK && outcome.updatedSlugCount == 0 && outcome.firstResolveErr != nil {
+		return outcome.firstResolveErr
 	}
 	return nil
 }
@@ -332,46 +366,73 @@ func logDryRun(slug, targetVersion string, checks []preUpdate) {
 	}
 }
 
-// updateOnePlugin updates a single install target using the already-fetched tree in unzipDir:
-// it renames the live install aside, copies from unzipDir, restores the backup on failure, then removes the backup on success.
+// updateOnePlugin updates a single install target using the already-fetched tree in unzipDir.
 func updateOnePlugin(unzipDir string, installCommand *install.InstallCommand, check preUpdate) agentcommon.SummaryRow {
 	agentTarget := check.agentTarget
+	backupPath, errRow, ok := movePluginAsideForUpdate(agentTarget)
+	if !ok {
+		return errRow
+	}
+	row := applyPluginUpdateCopy(unzipDir, installCommand, agentTarget, backupPath)
+	if row.Status != agentcommon.SummaryStatusOK {
+		return row
+	}
+	removePluginUpdateBackup(backupPath, filepath.Dir(agentTarget.DestinationDir))
+	return summaryRowFor(agentTarget, agentcommon.SummaryStatusOK, agentcommon.SummaryDetailOKInstall)
+}
+
+// movePluginAsideForUpdate reserves a backup path and renames the live install directory aside.
+func movePluginAsideForUpdate(agentTarget plugincommon.AgentTarget) (backupPath string, errRow agentcommon.SummaryRow, ok bool) {
 	slugBase := filepath.Base(agentTarget.DestinationDir)
 	parent := filepath.Dir(agentTarget.DestinationDir)
-
 	backupPath, err := reserveUpdateBackupPath(parent, slugBase)
 	if err != nil {
-		return summaryRowFor(agentTarget, agentcommon.SummaryStatusFailed, err.Error())
+		return "", summaryRowFor(agentTarget, agentcommon.SummaryStatusFailed, err.Error()), false
 	}
 	if err := os.Rename(agentTarget.DestinationDir, backupPath); err != nil {
-		return summaryRowFor(agentTarget, agentcommon.SummaryStatusFailed, fmt.Sprintf("could not move current plugin aside for update: %s", err.Error()))
+		return "", summaryRowFor(agentTarget, agentcommon.SummaryStatusFailed, fmt.Sprintf("could not move current plugin aside for update: %s", err.Error())), false
 	}
+	return backupPath, agentcommon.SummaryRow{}, true
+}
 
+// restorePluginFromBackup removes a failed new install and renames the backup back into place.
+func restorePluginFromBackup(agentTarget plugincommon.AgentTarget, backupPath string) error {
+	_ = os.RemoveAll(agentTarget.DestinationDir)
+	return os.Rename(backupPath, agentTarget.DestinationDir)
+}
+
+// applyPluginUpdateCopy copies the extracted tree onto the target and restores the backup on failure.
+func applyPluginUpdateCopy(
+	unzipDir string,
+	installCommand *install.InstallCommand,
+	agentTarget plugincommon.AgentTarget,
+	backupPath string,
+) agentcommon.SummaryRow {
 	rows := installCommand.CopyExtractedToTargets(unzipDir, []plugincommon.AgentTarget{agentTarget})
 	if len(rows) != 1 {
-		_ = os.RemoveAll(agentTarget.DestinationDir)
-		if restoreErr := os.Rename(backupPath, agentTarget.DestinationDir); restoreErr != nil {
+		if restoreErr := restorePluginFromBackup(agentTarget, backupPath); restoreErr != nil {
 			return summaryRowFor(agentTarget, agentcommon.SummaryStatusFailed, fmt.Sprintf("internal error: unexpected copy result count; restore failed: %s", restoreErr.Error()))
 		}
 		return summaryRowFor(agentTarget, agentcommon.SummaryStatusFailed, "internal error: unexpected copy result count")
 	}
 	row := rows[0]
 	if row.Status != agentcommon.SummaryStatusOK {
-		_ = os.RemoveAll(agentTarget.DestinationDir)
-		if restoreErr := os.Rename(backupPath, agentTarget.DestinationDir); restoreErr != nil {
+		if restoreErr := restorePluginFromBackup(agentTarget, backupPath); restoreErr != nil {
 			row.Detail = fmt.Sprintf("%s; could not restore previous install: %s", row.Detail, restoreErr.Error())
 		}
 		return row
 	}
+	return row
+}
 
+// removePluginUpdateBackup deletes the backup tree after a successful update.
+func removePluginUpdateBackup(backupPath, parent string) {
 	if err := os.RemoveAll(backupPath); err != nil {
 		log.Warn(fmt.Sprintf("Update succeeded but previous copy at %s could not be deleted: %s", backupPath, err.Error()))
-	} else {
-		backupRoot := filepath.Join(parent, pluginBackupDirName)
-		_ = os.Remove(backupRoot)
+		return
 	}
-
-	return summaryRowFor(agentTarget, agentcommon.SummaryStatusOK, agentcommon.SummaryDetailOKInstall)
+	backupRoot := filepath.Join(parent, pluginBackupDirName)
+	_ = os.Remove(backupRoot)
 }
 
 func finalError(results []agentcommon.SummaryRow) error {
