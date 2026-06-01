@@ -14,14 +14,14 @@ func TestListCommand_NoMode(t *testing.T) {
 }
 
 func TestListCommand_BothModes(t *testing.T) {
-	cmd := &ListCommand{repoKey: "my-repo", agentName: "claude"}
+	cmd := &ListCommand{repoKey: "my-repo", agentNames: []string{"claude"}}
 	err := cmd.Run()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "mutually exclusive")
 }
 
 func TestListCommand_GlobalAndProjectDir(t *testing.T) {
-	cmd := &ListCommand{agentName: "claude", global: true, projectDir: "/some/path"}
+	cmd := &ListCommand{agentNames: []string{"claude"}, global: true, projectDir: "/some/path"}
 	err := cmd.Run()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "mutually exclusive")

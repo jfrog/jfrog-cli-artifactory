@@ -57,7 +57,7 @@ type localListRow struct {
 type ListCommand struct {
 	serverDetails *config.ServerDetails
 	repoKey       string
-	agentName     string
+	agentNames    []string
 	projectDir    string
 	global        bool
 	format        string
@@ -77,8 +77,8 @@ func (lc *ListCommand) SetRepoKey(repoKey string) *ListCommand {
 	return lc
 }
 
-func (lc *ListCommand) SetAgentName(agentName string) *ListCommand {
-	lc.agentName = agentName
+func (lc *ListCommand) SetAgentNames(names []string) *ListCommand {
+	lc.agentNames = names
 	return lc
 }
 
@@ -118,17 +118,17 @@ func (lc *ListCommand) SetCheckUpdates(v bool) *ListCommand {
 }
 
 func (lc *ListCommand) Run() error {
-	if lc.repoKey == "" && lc.agentName == "" {
+	if lc.repoKey == "" && len(lc.agentNames) == 0 {
 		return fmt.Errorf(
 			"jf agent plugins list requires exactly one of:\n"+
-				"  Registry: jf agent plugins list --repo <repository-key> [--limit N] [--sort-by updated|downloads]\n"+
-				"  Local:    jf agent plugins list --harness <name> [--project-dir <path>]\n"+
-				"  Global:   jf agent plugins list --harness <name> --global\n\n"+
+				"  Registry: jf agent plugins list --repo <repository-key> [--limit N]\n"+
+				"  Local:    jf agent plugins list --harness <name[,name...]> [--project-dir <path>]\n"+
+				"  Global:   jf agent plugins list --harness <name[,name...]> --global\n\n"+
 				"Supported agents: %s",
 			agentcommon.SupportedAgentsList(pluginscommon.Agents, agentcommon.PluginsAgentsKey),
 		)
 	}
-	if lc.repoKey != "" && lc.agentName != "" {
+	if lc.repoKey != "" && len(lc.agentNames) > 0 {
 		return fmt.Errorf("--repo and --harness are mutually exclusive; specify only one")
 	}
 	if lc.global && lc.projectDir != "" {
@@ -137,60 +137,93 @@ func (lc *ListCommand) Run() error {
 	if lc.checkUpdates && lc.repoKey != "" {
 		return fmt.Errorf("--check-updates is only supported with --harness, not with --repo")
 	}
+	if lc.checkUpdates && lc.serverDetails == nil {
+		return fmt.Errorf("--check-updates requires a configured Artifactory server (same as other jf agent plugins commands)")
+	}
 
-	if lc.agentName != "" {
-		parsed, err := pluginscommon.ParseHarnessForList(lc.agentName)
-		if err != nil {
-			return err
-		}
-		lc.agentName = parsed
-		if lc.checkUpdates && lc.serverDetails == nil {
-			return fmt.Errorf("--check-updates requires a configured Artifactory server (same as other jf agent plugins commands)")
-		}
+	if len(lc.agentNames) > 0 {
 		return lc.listLocalPlugins()
 	}
 	return lc.listRepoPlugins()
 }
 
 func (lc *ListCommand) listRepoPlugins() error {
-	items, err := pluginscommon.ListPlugins(lc.serverDetails, lc.repoKey, lc.limit, lc.sortBy)
+	pluginEntries, err := pluginscommon.ListPlugins(lc.serverDetails, lc.repoKey, lc.limit)
 	if err != nil {
 		return err
 	}
 
-	results := make([]repoListRow, 0, len(items))
-	for _, item := range items {
-		results = append(results, repoListRow{
-			Name:    item.Slug,
-			Version: item.LatestVersion,
+	rows := make([]repoListRow, 0, len(pluginEntries))
+	for _, entry := range pluginEntries {
+		rows = append(rows, repoListRow{
+			Name:    entry.Slug,
+			Version: entry.LatestVersion,
 			Source:  repoListSourcePrefix + lc.repoKey,
 		})
 	}
-	return lc.printRepoResults(results)
+	return lc.printRepoResults(rows)
 }
 
+// listLocalPlugins lists installed plugins for each harness in lc.agentNames.
+// For multiple harnesses, each gets its own labelled table.
 func (lc *ListCommand) listLocalPlugins() error {
 	registry, err := agentcommon.LoadAgentRegistry(pluginscommon.Agents, agentcommon.PluginsAgentsKey)
 	if err != nil {
 		return err
 	}
-	spec, err := agentcommon.ResolveAgent(registry, lc.agentName, pluginscommon.RegistryHelp)
+
+	// For JSON with multiple harnesses, collect into a map keyed by harness name.
+	if strings.EqualFold(lc.format, "json") && len(lc.agentNames) > 1 {
+		allResults := make(map[string][]localListRow, len(lc.agentNames))
+		for _, agentName := range lc.agentNames {
+			rows, err := lc.buildPluginRowsForHarness(registry, agentName)
+			if err != nil {
+				return err
+			}
+			if rows == nil {
+				rows = []localListRow{}
+			}
+			allResults[agentName] = rows
+		}
+		data, err := json.MarshalIndent(allResults, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal results: %w", err)
+		}
+		fmt.Println(string(data))
+		return nil
+	}
+
+	for _, agentName := range lc.agentNames {
+		rows, err := lc.buildPluginRowsForHarness(registry, agentName)
+		if err != nil {
+			return err
+		}
+		if err := lc.printLocalResults(rows, agentName); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// buildPluginRowsForHarness resolves the install dir for agentName and builds a sorted, limited row slice.
+func (lc *ListCommand) buildPluginRowsForHarness(registry map[string]agentcommon.AgentSpec, agentName string) ([]localListRow, error) {
+	spec, err := agentcommon.ResolveAgent(registry, agentName, pluginscommon.RegistryHelp)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	dir, err := agentcommon.ResolveAgentInstallDir(spec, lc.projectDir, lc.global)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			log.Info(fmt.Sprintf("No plugins directory found for agent %q (expected: %s)", lc.agentName, dir))
-			return nil
+			log.Info(fmt.Sprintf("No plugins directory found for agent %q (expected: %s)", agentName, dir))
+			return nil, nil
 		}
-		return fmt.Errorf("failed to read plugins directory %s: %w", dir, err)
+		return nil, fmt.Errorf("failed to read plugins directory %s: %w", dir, err)
 	}
 
 	projectDir := ""
@@ -198,59 +231,67 @@ func (lc *ListCommand) listLocalPlugins() error {
 		projectDir = lc.projectDir
 	}
 
-	var results []localListRow
+	var rows []localListRow
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		pluginDir := filepath.Join(dir, entry.Name())
-		meta, err := pluginscommon.ReadPluginMeta(pluginDir)
-		if err != nil {
-			log.Warn(fmt.Sprintf("Skipping plugin '%s': %s", entry.Name(), err.Error()))
-			continue
+		row, ok := lc.buildRowForPlugin(filepath.Join(dir, entry.Name()), entry.Name(), projectDir)
+		if ok {
+			rows = append(rows, row)
 		}
-		manifest, err := agentcommon.ReadInstallInfoManifest(pluginDir, pluginscommon.PluginInfoManifestFile)
-		if err != nil {
-			log.Warn(fmt.Sprintf("Plugin '%s': invalid install manifest (%s); treating as missing", entry.Name(), err.Error()))
-			manifest = nil
-		}
-
-		repo := manifestRepoUnknownDisplay
-		if manifest != nil && strings.TrimSpace(manifest.Repo) != "" {
-			repo = manifest.Repo
-		}
-		installedVer := strings.TrimSpace(meta.Version)
-		if manifest != nil && strings.TrimSpace(manifest.InstalledVersion) != "" {
-			installedVer = strings.TrimSpace(manifest.InstalledVersion)
-		}
-
-		row := localListRow{
-			Name:        entry.Name(),
-			Version:     installedVer,
-			Description: meta.Description,
-			Repo:        repo,
-			Path:        pluginDisplayPath(pluginDir, projectDir, lc.global),
-		}
-		if lc.checkUpdates {
-			lc.fillUpdateStatus(&row)
-		}
-		results = append(results, row)
 	}
 
 	desc := strings.ToLower(lc.sortOrder) == sortOrderDesc
-	sort.Slice(results, func(i, j int) bool {
-		ni, nj := strings.ToLower(results[i].Name), strings.ToLower(results[j].Name)
+	sort.Slice(rows, func(i, j int) bool {
+		ni, nj := strings.ToLower(rows[i].Name), strings.ToLower(rows[j].Name)
 		if desc {
 			return ni > nj
 		}
 		return ni < nj
 	})
 
-	if lc.limit > 0 && len(results) > lc.limit {
-		results = results[:lc.limit]
+	if lc.limit > 0 && len(rows) > lc.limit {
+		rows = rows[:lc.limit]
+	}
+	return rows, nil
+}
+
+// buildRowForPlugin reads plugin.json and install manifest for a single plugin directory.
+// Returns (row, true) on success, (zero, false) if the plugin should be skipped.
+func (lc *ListCommand) buildRowForPlugin(pluginDir, name, projectDir string) (localListRow, bool) {
+	meta, err := pluginscommon.ReadPluginMeta(pluginDir)
+	if err != nil {
+		log.Warn(fmt.Sprintf("Skipping plugin '%s': %s", name, err.Error()))
+		return localListRow{}, false
 	}
 
-	return lc.printLocalResults(results)
+	manifest, err := agentcommon.ReadInstallInfoManifest(pluginDir, pluginscommon.PluginInfoManifestFile)
+	if err != nil {
+		log.Warn(fmt.Sprintf("Plugin '%s': invalid install manifest (%s); treating as missing", name, err.Error()))
+		manifest = nil
+	}
+
+	repo := manifestRepoUnknownDisplay
+	if manifest != nil && strings.TrimSpace(manifest.Repo) != "" {
+		repo = manifest.Repo
+	}
+	installedVer := strings.TrimSpace(meta.Version)
+	if manifest != nil && strings.TrimSpace(manifest.InstalledVersion) != "" {
+		installedVer = strings.TrimSpace(manifest.InstalledVersion)
+	}
+
+	row := localListRow{
+		Name:        name,
+		Version:     installedVer,
+		Description: meta.Description,
+		Repo:        repo,
+		Path:        pluginDisplayPath(pluginDir, projectDir, lc.global),
+	}
+	if lc.checkUpdates {
+		lc.fillUpdateStatus(&row)
+	}
+	return row, true
 }
 
 func pluginDisplayPath(pluginDirAbs, projectDir string, global bool) string {
@@ -298,94 +339,74 @@ func (lc *ListCommand) fillUpdateStatus(row *localListRow) {
 	}
 }
 
-func (lc *ListCommand) printRepoResults(results []repoListRow) error {
-	if results == nil {
-		results = []repoListRow{}
-	}
+func (lc *ListCommand) printRepoResults(rows []repoListRow) error {
 	if strings.EqualFold(lc.format, "json") {
-		data, err := json.MarshalIndent(results, "", "  ")
+		if rows == nil {
+			rows = []repoListRow{}
+		}
+		data, err := json.MarshalIndent(rows, "", "  ")
 		if err != nil {
 			return fmt.Errorf("failed to marshal results: %w", err)
 		}
 		fmt.Println(string(data))
 		return nil
 	}
-	if len(results) == 0 {
+	if len(rows) == 0 {
 		log.Info("No plugins found.")
 		return nil
 	}
-	return coreutils.PrintTable(results, "Plugins", "No plugins found", false)
+	return coreutils.PrintTable(rows, "Plugins", "No plugins found", false)
 }
 
-func (lc *ListCommand) printLocalResults(results []localListRow) error {
-	if results == nil {
-		results = []localListRow{}
-	}
+// printLocalResults prints one harness's plugin rows. When multiple harnesses are listed,
+// agentName is used as a section label above the table.
+func (lc *ListCommand) printLocalResults(rows []localListRow, agentName string) error {
 	if strings.EqualFold(lc.format, "json") {
-		data, err := json.MarshalIndent(results, "", "  ")
+		if rows == nil {
+			rows = []localListRow{}
+		}
+		data, err := json.MarshalIndent(rows, "", "  ")
 		if err != nil {
 			return fmt.Errorf("failed to marshal results: %w", err)
 		}
 		fmt.Println(string(data))
 		return nil
 	}
-	if len(results) == 0 {
+	if len(lc.agentNames) > 1 {
+		log.Output(fmt.Sprintf("\n%s", agentName))
+	}
+	if len(rows) == 0 {
 		log.Info("No plugins found.")
 		return nil
 	}
-	return coreutils.PrintTable(results, "Plugins", "No plugins found", false)
+	return coreutils.PrintTable(rows, "Plugins", "No plugins found", false)
 }
 
 // RunList is the CLI action for `jf agent plugins list`.
 func RunList(c *components.Context) error {
 	repoKey := c.GetStringFlagValue("repo")
-	agentName := strings.TrimSpace(c.GetStringFlagValue("harness"))
+	rawHarness := strings.TrimSpace(c.GetStringFlagValue("harness"))
 
 	format := "table"
-	if c.GetStringFlagValue("format") != "" {
-		format = c.GetStringFlagValue("format")
+	if v := c.GetStringFlagValue("format"); v != "" {
+		format = v
 	}
 
-	checkUpdates := c.GetBoolFlagValue("check-updates")
+	limit, err := parseLimitFlag(c)
+	if err != nil {
+		return err
+	}
+
+	sortBy, sortOrder, err := parseSortConfig(c, repoKey)
+	if err != nil {
+		return err
+	}
+
 	isGlobal := c.GetBoolFlagValue("global")
-
-	limit := 0
-	if limitStr := c.GetStringFlagValue("limit"); limitStr != "" {
-		var err error
-		limit, err = strconv.Atoi(limitStr)
-		if err != nil || limit <= 0 {
-			return fmt.Errorf("--limit must be a positive integer, got: %q", limitStr)
-		}
-	}
-
-	var sortBy, sortOrder string
-	if repoKey != "" {
-		sortBy = sortByUpdated
-		if raw := strings.ToLower(c.GetStringFlagValue("sort-by")); raw != "" {
-			if raw != sortByUpdated && raw != sortByDownloads {
-				return fmt.Errorf("--sort-by for --repo accepts 'updated' or 'downloads', got: %q", raw)
-			}
-			sortBy = raw
-		}
-	} else {
-		sortBy = sortByName
-		sortOrder = sortOrderAsc
-		if raw := strings.ToLower(c.GetStringFlagValue("sort-by")); raw != "" {
-			if raw != sortByName {
-				return fmt.Errorf("--sort-by for --harness only accepts 'name', got: %q", raw)
-			}
-			sortBy = raw
-		}
-		if raw := strings.ToLower(c.GetStringFlagValue("sort-order")); raw != "" {
-			if raw != sortOrderAsc && raw != sortOrderDesc {
-				return fmt.Errorf("--sort-order must be 'asc' or 'desc', got: %q", raw)
-			}
-			sortOrder = raw
-		}
-	}
+	checkUpdates := c.GetBoolFlagValue("check-updates")
 
 	projectDir := c.GetStringFlagValue("project-dir")
-	if !isGlobal && projectDir == "" && agentName != "" {
+	if !isGlobal && projectDir == "" && rawHarness != "" {
 		projectDir = "."
 	}
 	if projectDir != "" {
@@ -396,9 +417,17 @@ func RunList(c *components.Context) error {
 		projectDir = abs
 	}
 
+	var agentNames []string
+	if rawHarness != "" {
+		agentNames, err = pluginscommon.ParseHarnessList(rawHarness)
+		if err != nil {
+			return err
+		}
+	}
+
 	cmd := &ListCommand{}
 	cmd.SetRepoKey(repoKey).
-		SetAgentName(agentName).
+		SetAgentNames(agentNames).
 		SetProjectDir(projectDir).
 		SetGlobal(isGlobal).
 		SetFormat(format).
@@ -407,7 +436,7 @@ func RunList(c *components.Context) error {
 		SetSortOrder(sortOrder).
 		SetCheckUpdates(checkUpdates)
 
-	if repoKey != "" || (agentName != "" && checkUpdates) {
+	if repoKey != "" || (len(agentNames) > 0 && checkUpdates) {
 		serverDetails, err := agentcommon.GetServerDetails(c)
 		if err != nil {
 			return err
@@ -416,4 +445,45 @@ func RunList(c *components.Context) error {
 	}
 
 	return cmd.Run()
+}
+
+func parseLimitFlag(c *components.Context) (int, error) {
+	limitStr := c.GetStringFlagValue("limit")
+	if limitStr == "" {
+		return 0, nil
+	}
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 {
+		return 0, fmt.Errorf("--limit must be a positive integer, got: %q", limitStr)
+	}
+	return limit, nil
+}
+
+func parseSortConfig(c *components.Context, repoKey string) (sortBy, sortOrder string, err error) {
+	if repoKey != "" {
+		sortBy = sortByUpdated
+		if raw := strings.ToLower(c.GetStringFlagValue("sort-by")); raw != "" {
+			if raw != sortByUpdated && raw != sortByDownloads {
+				return "", "", fmt.Errorf("--sort-by for --repo accepts 'updated' or 'downloads', got: %q", raw)
+			}
+			sortBy = raw
+		}
+		return sortBy, "", nil
+	}
+
+	sortBy = sortByName
+	sortOrder = sortOrderAsc
+	if raw := strings.ToLower(c.GetStringFlagValue("sort-by")); raw != "" {
+		if raw != sortByName {
+			return "", "", fmt.Errorf("--sort-by for --harness only accepts 'name', got: %q", raw)
+		}
+		sortBy = raw
+	}
+	if raw := strings.ToLower(c.GetStringFlagValue("sort-order")); raw != "" {
+		if raw != sortOrderAsc && raw != sortOrderDesc {
+			return "", "", fmt.Errorf("--sort-order must be 'asc' or 'desc', got: %q", raw)
+		}
+		sortOrder = raw
+	}
+	return sortBy, sortOrder, nil
 }

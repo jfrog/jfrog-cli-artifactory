@@ -18,7 +18,7 @@ type PluginListItem struct {
 
 // ListPlugins lists all plugin slugs in repoKey by reading the root folder's children,
 // resolves the latest version for each, sorts by name, and applies limit.
-func ListPlugins(serverDetails *config.ServerDetails, repoKey string, limit int, _ string) ([]PluginListItem, error) {
+func ListPlugins(serverDetails *config.ServerDetails, repoKey string, limit int) ([]PluginListItem, error) {
 	if serverDetails == nil {
 		return nil, fmt.Errorf("server details are required to list plugins")
 	}
@@ -36,13 +36,13 @@ func ListPlugins(serverDetails *config.ServerDetails, repoKey string, limit int,
 		return nil, fmt.Errorf("failed to list plugins in repository '%s': %w", repoKey, err)
 	}
 
-	items := make([]PluginListItem, 0, len(info.Children))
+	pluginEntries := make([]PluginListItem, 0, len(info.Children))
 	for _, child := range info.Children {
 		if !child.Folder {
 			continue
 		}
 		slug := strings.TrimPrefix(child.Uri, "/")
-		if slug == "" {
+		if slug == "" || strings.HasPrefix(slug, ".") {
 			continue
 		}
 		latest, err := ResolveLatestPluginVersion(serverDetails, repoKey, slug)
@@ -50,18 +50,18 @@ func ListPlugins(serverDetails *config.ServerDetails, repoKey string, limit int,
 			log.Warn(fmt.Sprintf("Could not resolve latest version for plugin '%s': %s", slug, err.Error()))
 			latest = ""
 		}
-		items = append(items, PluginListItem{Slug: slug, LatestVersion: latest})
+		pluginEntries = append(pluginEntries, PluginListItem{Slug: slug, LatestVersion: latest})
 	}
 
-	sort.Slice(items, func(i, j int) bool {
-		return strings.ToLower(items[i].Slug) < strings.ToLower(items[j].Slug)
+	sort.Slice(pluginEntries, func(i, j int) bool {
+		return strings.ToLower(pluginEntries[i].Slug) < strings.ToLower(pluginEntries[j].Slug)
 	})
 
-	if limit > 0 && len(items) > limit {
-		items = items[:limit]
+	if limit > 0 && len(pluginEntries) > limit {
+		pluginEntries = pluginEntries[:limit]
 	}
 
-	return items, nil
+	return pluginEntries, nil
 }
 
 // ReadPluginMeta reads the primary plugin.json under pluginDir and returns the parsed PluginMeta.
