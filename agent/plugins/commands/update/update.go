@@ -420,12 +420,7 @@ func restorePluginFromBackup(agentTarget plugincommon.AgentTarget, backupPath st
 }
 
 // applyPluginUpdateCopy copies the extracted tree onto the target and restores the backup on failure.
-func applyPluginUpdateCopy(
-	unzipDir string,
-	installCommand *install.InstallCommand,
-	agentTarget plugincommon.AgentTarget,
-	backupPath string,
-) agentcommon.SummaryRow {
+func applyPluginUpdateCopy(unzipDir string, installCommand *install.InstallCommand, agentTarget plugincommon.AgentTarget, backupPath string) agentcommon.SummaryRow {
 	rows := installCommand.CopyExtractedToTargets(unzipDir, []plugincommon.AgentTarget{agentTarget})
 	if len(rows) != 1 {
 		if restoreErr := restorePluginFromBackup(agentTarget, backupPath); restoreErr != nil {
