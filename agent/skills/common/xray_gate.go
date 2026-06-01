@@ -170,7 +170,6 @@ func DeleteSkillVersion(serverDetails *config.ServerDetails, repoKey, slug, vers
 	return agentcommon.DeleteVersion(serverDetails, repoKey, slug, version)
 }
 
-
 func resolveTimeout() time.Duration {
 	if v := os.Getenv(envScanTimeout); v != "" {
 		d, err := time.ParseDuration(v)
