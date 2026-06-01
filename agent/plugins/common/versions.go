@@ -54,3 +54,27 @@ func ResolveLatestPluginVersion(serverDetails *config.ServerDetails, repoKey, sl
 	}
 	return agentcommon.LatestVersion(versions)
 }
+
+// ResolvePluginVersion lists remote versions then applies SelectPackageVersion rules.
+// Used by install and update when --version is set or when resolving latest from Artifactory.
+func ResolvePluginVersion(serverDetails *config.ServerDetails, repoKey, slug, requested string, quiet bool) (string, error) {
+	requested = strings.TrimSpace(requested)
+	if requested != "" && requested != "latest" {
+		if err := ValidateVersion(requested); err != nil {
+			return "", err
+		}
+	}
+	versions, err := listPluginVersions(serverDetails, repoKey, slug)
+	if err != nil {
+		if agentcommon.IsHTTPNotFound(err) {
+			return "", fmt.Errorf("plugin '%s' not found in repository '%s'", slug, repoKey)
+		}
+		return "", fmt.Errorf("failed to list versions: %w", err)
+	}
+	return agentcommon.SelectPackageVersion(agentcommon.SelectPackageVersionOpts{
+		Available: versions,
+		Requested: requested,
+		RepoKey:   repoKey,
+		Quiet:     quiet,
+	})
+}

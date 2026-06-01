@@ -67,6 +67,13 @@ func PackageVersionExists(serverDetails *config.ServerDetails, repoKey, slug, ve
 	return false, fmt.Errorf("%w: %w", ErrVersionExistenceUnknown, err)
 }
 
+// IsHTTPNotFound reports whether err is an HTTP 404 from jfrog-client-go (typed StatusCode or
+// errorutils.GenerateResponseError). Returns false when the status cannot be determined.
+func IsHTTPNotFound(err error) bool {
+	code, ok := jfrogClientHTTPStatusCode(err)
+	return ok && code == http.StatusNotFound
+}
+
 // jfrogClientHTTPStatusCode extracts an HTTP status from jfrog-client-go errors by walking the chain.
 // It prefers errors.As against types that implement StatusCode(). When jfrog-client-go does not expose
 // a typed response error, it falls back to parsing messages from errorutils.GenerateResponseError only.
