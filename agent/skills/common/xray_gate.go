@@ -12,7 +12,6 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/progressbar"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
-	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -67,7 +66,7 @@ func CheckXrayGate(params XrayGateParams) error {
 		log.Info(fmt.Sprintf("[SUCCESS] Skill \"%s\" v%s passed security scan.", params.Slug, params.Version))
 		return nil
 	case services.SkillXrayStatusBlocked:
-		return handleBlocked(sm, params)
+		return handleBlocked(params)
 	case services.SkillXrayStatusScanInProgress:
 		return pollUntilDone(sm, params)
 	default:
@@ -141,7 +140,7 @@ func pollUntilDone(sm artifactory.ArtifactoryServicesManager, params XrayGatePar
 				return nil
 			case services.SkillXrayStatusBlocked:
 				stopSpinner()
-				return handleBlocked(sm, params)
+				return handleBlocked(params)
 			case services.SkillXrayStatusScanInProgress:
 				continue
 			default:
@@ -153,11 +152,11 @@ func pollUntilDone(sm artifactory.ArtifactoryServicesManager, params XrayGatePar
 	}
 }
 
-func handleBlocked(sm artifactory.ArtifactoryServicesManager, params XrayGateParams) error {
+func handleBlocked(params XrayGateParams) error {
 	log.Error(fmt.Sprintf("[VIOLATION] Skill \"%s\" v%s identified as malicious.", params.Slug, params.Version))
 	if params.AutoDeleteOnFailure {
 		deletePath := fmt.Sprintf("%s/%s/%s/", params.RepoKey, params.Slug, params.Version)
-		if err := deleteSkillVersionWithManager(sm, params.RepoKey, params.Slug, params.Version); err != nil {
+		if err := agentcommon.DeleteVersion(params.ServerDetails, params.RepoKey, params.Slug, params.Version); err != nil {
 			log.Error(fmt.Sprintf("Failed to delete malicious skill artifact '%s' from '%s': %s", deletePath, params.RepoKey, err.Error()))
 		} else {
 			log.Info(fmt.Sprintf("Malicious artifact deleted: %s", deletePath))
@@ -167,32 +166,10 @@ func handleBlocked(sm artifactory.ArtifactoryServicesManager, params XrayGatePar
 }
 
 // DeleteSkillVersion deletes the entire version directory for a skill.
-// Creates its own service manager. For callers that already have one, use deleteSkillVersionWithManager.
 func DeleteSkillVersion(serverDetails *config.ServerDetails, repoKey, slug, version string) error {
-	sm, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
-	if err != nil {
-		return fmt.Errorf("failed to create service manager for deletion: %w", err)
-	}
-	return deleteSkillVersionWithManager(sm, repoKey, slug, version)
+	return agentcommon.DeleteVersion(serverDetails, repoKey, slug, version)
 }
 
-func deleteSkillVersionWithManager(sm artifactory.ArtifactoryServicesManager, repoKey, slug, version string) error {
-	if sm == nil {
-		return fmt.Errorf("service manager is nil")
-	}
-	artURL := clientutils.AddTrailingSlashIfNeeded(sm.GetConfig().GetServiceDetails().GetUrl())
-	deletePath := fmt.Sprintf("%s%s/%s/%s/", artURL, repoKey, slug, version)
-	httpDetails := sm.GetConfig().GetServiceDetails().CreateHttpClientDetails()
-
-	resp, body, err := sm.Client().SendDelete(deletePath, nil, &httpDetails)
-	if err != nil {
-		return fmt.Errorf("failed to delete %s/%s/%s: %w", repoKey, slug, version, err)
-	}
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("failed to delete %s/%s/%s: HTTP %d — %s", repoKey, slug, version, resp.StatusCode, string(body))
-	}
-	return nil
-}
 
 func resolveTimeout() time.Duration {
 	if v := os.Getenv(envScanTimeout); v != "" {
