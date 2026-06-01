@@ -1,7 +1,6 @@
 package search
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -10,16 +9,8 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
-
-type searchResult struct {
-	Name        string `json:"name" col-name:"Name"`
-	Version     string `json:"version" col-name:"Version"`
-	Repository  string `json:"repository" col-name:"Repository"`
-	Description string `json:"description" col-name:"Description"`
-}
 
 type SearchCommand struct {
 	serverDetails *config.ServerDetails
@@ -77,7 +68,7 @@ func (sc *SearchCommand) runSkillsAPISearch() error {
 		log.Debug(fmt.Sprintf("Discovered %d skills repositories: %v", len(repos), repos))
 	}
 
-	var results []searchResult
+	var results []agentcommon.SearchResultRow
 	var failedRepos []string
 	var firstErr error
 	for _, repo := range repos {
@@ -91,7 +82,7 @@ func (sc *SearchCommand) runSkillsAPISearch() error {
 			continue
 		}
 		for _, item := range items {
-			results = append(results, searchResult{
+			results = append(results, agentcommon.SearchResultRow{
 				Name:        item.Name,
 				Version:     item.Version,
 				Repository:  repo,
@@ -109,57 +100,28 @@ func (sc *SearchCommand) runSkillsAPISearch() error {
 }
 
 func (sc *SearchCommand) runPropSearch() error {
-	propResults, err := common.SearchSkillsByProperty(sc.serverDetails, sc.query)
+	rows, err := agentcommon.SearchRowsByProperty(sc.serverDetails, agentcommon.PropertySearchOptions{
+		NamePropertyKey: common.SearchNamePropertyKey,
+		Query:           sc.query,
+		RepoKey:         sc.repoKey,
+	}, common.SearchDescriptionPropertyKeys)
 	if err != nil {
 		return fmt.Errorf("property search failed: %w", err)
 	}
-
-	var results []searchResult
-	for _, pr := range propResults {
-		desc := ""
-		repoPath := fmt.Sprintf("%s/%s/%s/%s-%s.zip", pr.Repo, pr.Name, pr.Version, pr.Name, pr.Version)
-		d, err := common.GetSkillDescription(sc.serverDetails, repoPath)
-		if err != nil {
-			log.Debug(fmt.Sprintf("Could not fetch description for %s: %s", repoPath, err.Error()))
-		} else {
-			desc = d
-		}
-		results = append(results, searchResult{
-			Name:        pr.Name,
-			Version:     pr.Version,
-			Repository:  pr.Repo,
-			Description: desc,
-		})
-	}
-
-	return sc.printResults(results)
+	return sc.printResults(rows)
 }
 
-func (sc *SearchCommand) printResults(results []searchResult) error {
-	if len(results) == 0 {
-		log.Info(fmt.Sprintf("No skills found matching '%s'.", sc.query))
-		return nil
-	}
-
-	if strings.EqualFold(sc.format, "json") {
-		return printJSON(results)
-	}
-	return printTable(results)
+func (sc *SearchCommand) printResults(results []agentcommon.SearchResultRow) error {
+	return agentcommon.PrintSearchResults(results, agentcommon.PrintSearchResultsOptions{
+		Query:           sc.query,
+		Format:          sc.format,
+		TableTitle:      "Skills",
+		EmptyTableLabel: "No skills found",
+		NotFoundMessage: "No skills found matching '%s'.",
+	})
 }
 
-func printJSON(results []searchResult) error {
-	data, err := json.MarshalIndent(results, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal results: %w", err)
-	}
-	fmt.Println(string(data))
-	return nil
-}
-
-func printTable(results []searchResult) error {
-	return coreutils.PrintTable(results, "Skills", "No skills found", false)
-}
-
+// RunSearch is the CLI action for `jf agent skills search`.
 func RunSearch(c *components.Context) error {
 	if c.GetNumberOfArgs() < 1 {
 		return fmt.Errorf("usage: jf agent skills search <query> [--repo <repo>] [--format json] [--prop]")
