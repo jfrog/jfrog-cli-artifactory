@@ -189,10 +189,7 @@ func discoverInstalledPluginTargets(flags agentcommon.InstallFlagsResult) ([]str
 
 // applyUpdateAllForSlugs resolves latest version per slug, updates targets, and builds combined summary rows.
 // Download failures for one slug are logged and recorded as failed rows; remaining slugs still run.
-func applyUpdateAllForSlugs(
-	opts updateOptions,
-	slugOrder []string,
-	slugToTargets map[string][]plugincommon.AgentTarget,
+func applyUpdateAllForSlugs(opts updateOptions, slugOrder []string, slugToTargets map[string][]plugincommon.AgentTarget,
 ) ([]agentcommon.UpdateAllSummaryRow, updateAllOutcome) {
 	combined := make([]agentcommon.UpdateAllSummaryRow, 0)
 	var outcome updateAllOutcome
