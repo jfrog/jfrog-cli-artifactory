@@ -46,7 +46,7 @@ func DeriveSearchDirFromUploadPattern(pattern string, opts UploadPatternOptions)
 		if dir == "." {
 			return "."
 		}
-		return dir
+		return filepath.ToSlash(dir)
 	}
 	prefix := strings.TrimRight(pattern[:wildcardIdx], "/\\")
 	if prefix == "" {
