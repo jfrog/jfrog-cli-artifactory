@@ -22,15 +22,14 @@ func DiscoverInstalledSlugs(installDir, manifestFileName string) ([]string, erro
 	}
 	slugs := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
+		if entry.IsDir() {
+			manifestPath := filepath.Join(installDir, entry.Name(), jfrogInstallDirName, manifestFileName)
+		    info, err := os.Stat(manifestPath)
+		    if err != nil || info.IsDir() {
+			    continue
+		    }
+		    slugs = append(slugs, entry.Name())
 		}
-		manifestPath := filepath.Join(installDir, entry.Name(), jfrogInstallDirName, manifestFileName)
-		info, err := os.Stat(manifestPath)
-		if err != nil || info.IsDir() {
-			continue
-		}
-		slugs = append(slugs, entry.Name())
 	}
 	sort.Strings(slugs)
 	return slugs, nil
