@@ -771,7 +771,8 @@ func TestDeriveContainerRegistryHost(t *testing.T) {
 			wantHost:       "docker-virtual.acme.jfrog.io",
 		},
 		{
-			name:           "URL with embedded credentials does not leak into host",
+			name: "URL with embedded credentials does not leak into host",
+			// #nosec G101 -- test fixture: verifies userinfo is stripped from URL, not a real credential
 			artifactoryUrl: "https://user:secret-token@acme.jfrog.io/artifactory/",
 			platformUrl:    "",
 			wantHost:       "acme.jfrog.io",
