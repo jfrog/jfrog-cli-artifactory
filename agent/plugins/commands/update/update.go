@@ -92,7 +92,7 @@ func RunUpdate(c *components.Context) error {
 	if c.GetNumberOfArgs() > 0 {
 		return fmt.Errorf("unexpected positional argument(s); use --slug to specify the plugin")
 	}
-	if err := plugincommon.ValidateSlug(slugFlag); err != nil {
+	if err := agentcommon.ValidateSlug(slugFlag); err != nil {
 		return err
 	}
 	requestedVersion := strings.TrimSpace(c.GetStringFlagValue("version"))

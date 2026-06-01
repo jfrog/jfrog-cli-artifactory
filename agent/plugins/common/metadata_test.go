@@ -217,22 +217,7 @@ func TestFindPrimaryPluginManifest_OnlyKnownPaths(t *testing.T) {
 	}
 }
 
-func TestValidateSlug(t *testing.T) {
-	good := []string{"foo", "foo-bar", "foo123", "a", "4chan-reader"}
-	for _, s := range good {
-		if err := ValidateSlug(s); err != nil {
-			t.Fatalf("slug %q should be valid: %v", s, err)
-		}
-	}
-	bad := []string{"", "-foo", "Foo", "foo bar", "foo/bar"}
-	for _, s := range bad {
-		if err := ValidateSlug(s); err == nil {
-			t.Fatalf("slug %q should be invalid", s)
-		}
-	}
-}
-
-func TestUpdatePluginManifestVersions_UpdatesPrimaryManifest(t *testing.T) {
+func TestUpdatePluginManifestVersions_BeforePublishOrder(t *testing.T) {
 	dir := t.TempDir()
 	writePluginJSON(t, dir, "plugin.json", map[string]string{"name": "demo", "version": "1.0.0"})
 
@@ -259,7 +244,7 @@ func TestUpdatePluginManifestVersions_UpdatesPrimaryManifest(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	if doc["version"] != "1.0.2" {
-		t.Fatalf("version on disk = %q, want 1.0.2", doc["version"])
+		t.Fatalf("version on disk = %q, want 1.0.2 before zip/publish", doc["version"])
 	}
 }
 
@@ -382,20 +367,5 @@ func TestUpdatePluginManifestVersions_SkipsWhenNoManifestVersion(t *testing.T) {
 	}
 	if strings.Contains(string(data), `"version"`) {
 		t.Fatalf("expected no version field inserted, got %s", string(data))
-	}
-}
-
-func TestValidateVersion(t *testing.T) {
-	good := []string{"1.0.0", "1.2.3-rc.1", "0.1.0+build.1"}
-	for _, v := range good {
-		if err := ValidateVersion(v); err != nil {
-			t.Fatalf("version %q should be valid: %v", v, err)
-		}
-	}
-	bad := []string{"", "..", "1.0/.0", "not-a-version", "1.0..0"}
-	for _, v := range bad {
-		if err := ValidateVersion(v); err == nil {
-			t.Fatalf("version %q should be invalid", v)
-		}
 	}
 }
