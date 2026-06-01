@@ -5,6 +5,7 @@ import (
 
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetJfrogCliArtifactoryApp(t *testing.T) {
@@ -21,14 +22,35 @@ func TestGetJfrogCliArtifactoryApp(t *testing.T) {
 	}
 }
 
-func TestGetJfrogCliArtifactoryApp_NoTopLevelSkillsNamespace(t *testing.T) {
+func TestGetJfrogCliArtifactoryApp_TopLevelSkillsNamespace(t *testing.T) {
 	app := GetJfrogCliArtifactoryApp()
-	for _, ns := range app.Subcommands {
-		assert.NotEqual(t, "skills", ns.Name, "top-level 'skills' namespace must be removed; use 'jf agent skills' instead")
-		for _, alias := range ns.Aliases {
-			assert.NotEqual(t, "skill", alias, "'skill' alias must be removed")
-		}
+
+	skillsNS := findNamespaceByName(app.Subcommands, "skills")
+	require.NotNil(t, skillsNS, "top-level 'skills' namespace should exist for backward compatibility")
+	require.Equal(t, []string{"skill"}, skillsNS.Aliases)
+
+	agentNS := findNamespaceByName(app.Subcommands, "agent")
+	require.NotNil(t, agentNS)
+	agentSkills := findCommandByName(agentNS.Commands, "skills")
+	require.NotNil(t, agentSkills)
+
+	want := []string{"list", "publish", "install", "update", "search", "delete"}
+	topLevel := commandNames(skillsNS.Commands)
+	agentLevel := commandNames(agentSkills.Subcommands)
+	require.Equal(t, want, topLevel)
+	require.Equal(t, want, agentLevel)
+	for i := range want {
+		require.NotNil(t, skillsNS.Commands[i].Action)
+		require.NotNil(t, agentSkills.Subcommands[i].Action)
 	}
+}
+
+func commandNames(commands []components.Command) []string {
+	names := make([]string, 0, len(commands))
+	for _, cmd := range commands {
+		names = append(names, cmd.Name)
+	}
+	return names
 }
 
 // Helper function to find a command by name
