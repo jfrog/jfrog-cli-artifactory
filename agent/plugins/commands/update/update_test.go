@@ -160,13 +160,23 @@ func TestUpdateOnePlugin_SuccessRemovesBackup(t *testing.T) {
 }
 
 func TestResolveTargetVersion_ExplicitUsedDirectly(t *testing.T) {
-	got, err := resolveTargetVersion(nil, "repo", "slug", "1.2.3")
+	restore := resolvePluginVersion
+	resolvePluginVersion = func(_ *config.ServerDetails, repoKey, slug, requested string, quiet bool) (string, error) {
+		assert.Equal(t, "repo", repoKey)
+		assert.Equal(t, "slug", slug)
+		assert.Equal(t, "1.2.3", requested)
+		assert.True(t, quiet)
+		return "1.2.3", nil
+	}
+	t.Cleanup(func() { resolvePluginVersion = restore })
+
+	got, err := resolveTargetVersion(nil, "repo", "slug", "1.2.3", true)
 	require.NoError(t, err)
 	assert.Equal(t, "1.2.3", got)
 }
 
 func TestResolveTargetVersion_RejectsInvalid(t *testing.T) {
-	_, err := resolveTargetVersion(nil, "repo", "slug", "not-a-version")
+	_, err := resolveTargetVersion(nil, "repo", "slug", "not-a-version", true)
 	require.Error(t, err)
 }
 
