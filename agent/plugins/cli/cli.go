@@ -3,6 +3,7 @@ package cli
 import (
 	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/delete"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/install"
+	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/list"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/publish"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/update"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
@@ -47,6 +48,12 @@ func GetSubCommands() []components.Command {
 			Description: "Delete a specific agent plugin version from Artifactory.",
 			Arguments:   getDeleteArguments(),
 			Action:      delete.RunDelete,
+		},
+		{
+			Name:        "list",
+			Flags:       flagkit.GetCommandFlags(flagkit.AgentPluginsList),
+			Description: "List agent plugins from Artifactory (--repo) or locally installed (--harness).",
+			Action:      list.RunList,
 		},
 	}
 }
