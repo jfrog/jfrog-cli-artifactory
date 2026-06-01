@@ -8,13 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGetSubCommands_HasPublishAndInstall(t *testing.T) {
+func TestGetSubCommands_HasPublishInstallUpdateAndDelete(t *testing.T) {
 	commands := GetSubCommands()
-	names := make([]string, 0, len(commands))
-	for _, cmd := range commands {
-		names = append(names, cmd.Name)
-	}
-	assert.ElementsMatch(t, []string{"publish", "install", "delete", "list"}, names)
+	require.Len(t, commands, 5)
 
 	byName := make(map[string]components.Command, len(commands))
 	for _, cmd := range commands {
@@ -33,6 +29,14 @@ func TestGetSubCommands_HasPublishAndInstall(t *testing.T) {
 	require.Len(t, installCmd.Arguments, 1)
 	assert.Equal(t, "slug", installCmd.Arguments[0].Name)
 	assert.Contains(t, installCmd.Description, "Install an agent plugin from Artifactory")
+	assert.Contains(t, installCmd.Description, "marketplace")
+
+	updateCmd := byName["update"]
+	assert.NotNil(t, updateCmd.Action)
+	assert.Empty(t, updateCmd.Arguments)
+	assert.Contains(t, updateCmd.Description, "Update an installed plugin")
+	assert.Contains(t, updateCmd.Description, "--slug")
+	assert.Contains(t, updateCmd.Description, "--all")
 
 	del := byName["delete"]
 	assert.NotNil(t, del.Action)

@@ -5,6 +5,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/install"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/list"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/publish"
+	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/update"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 )
@@ -29,6 +30,17 @@ func GetSubCommands() []components.Command {
 				"published version is used. Use --format json for machine-readable install summary.",
 			Arguments: getInstallArguments(),
 			Action:    install.RunInstall,
+		},
+		{
+			Name:  "update",
+			Flags: flagkit.GetCommandFlags(flagkit.AgentPluginsUpdate),
+			Description: "Update an installed plugin to the latest (or a specific) version. " +
+				"Use --slug with --harness (comma-separated) and --project-dir or --global; or --slug with --path <dir>. " +
+				"With --all (requires --harness), updates every discovered plugin under those harnesses to latest in one summary table " +
+				"(interactive confirmation before proceeding; folder name is the slug, same as --slug). " +
+				"Resolves versions directly from Artifactory (no marketplace lookup). " +
+				"Skips targets not installed or already at the target version (use --force to re-download).",
+			Action: update.RunUpdate,
 		},
 		{
 			Name:        "delete",

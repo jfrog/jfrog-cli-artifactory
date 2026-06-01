@@ -139,12 +139,12 @@ func (ic *InstallCommand) Run() error {
 		_ = os.RemoveAll(tmpDir)
 	}()
 
-	unzipDir, err := ic.fetchAndExtractTo(tmpDir)
+	unzipDir, err := ic.FetchAndExtractTo(tmpDir)
 	if err != nil {
 		return err
 	}
 
-	results := ic.copyExtractedToTargets(unzipDir, installTargets)
+	results := ic.CopyExtractedToTargets(unzipDir, installTargets)
 
 	if err := agentcommon.PrintInstallSummary("Plugin", ic.slug, ic.version, results, ic.format); err != nil {
 		return err
@@ -203,7 +203,9 @@ func (ic *InstallCommand) resolveVersionFromMarketplaces() (string, error) {
 	return resolved, nil
 }
 
-func (ic *InstallCommand) fetchAndExtractTo(tmpDir string) (string, error) {
+// FetchAndExtractTo downloads the plugin zip into tmpDir, extracts it, and runs evidence checks.
+// The returned unzipDir is under tmpDir; callers must keep tmpDir until copies finish.
+func (ic *InstallCommand) FetchAndExtractTo(tmpDir string) (string, error) {
 	zipPath, err := ic.downloadZip(tmpDir)
 	if err != nil {
 		return "", fmt.Errorf("download failed: %w", err)
@@ -218,7 +220,9 @@ func (ic *InstallCommand) fetchAndExtractTo(tmpDir string) (string, error) {
 	return unzipDir, nil
 }
 
-func (ic *InstallCommand) copyExtractedToTargets(unzipDir string, installTargets []plugincommon.AgentTarget) []agentcommon.SummaryRow {
+// CopyExtractedToTargets copies an unpacked plugin tree to the given resolved targets and
+// writes a plugin-info manifest per target.
+func (ic *InstallCommand) CopyExtractedToTargets(unzipDir string, installTargets []plugincommon.AgentTarget) []agentcommon.SummaryRow {
 	results := make([]agentcommon.SummaryRow, 0, len(installTargets))
 	for _, target := range installTargets {
 		if err := agentcommon.EnsureDestinationDir(target.DestinationDir); err != nil {
