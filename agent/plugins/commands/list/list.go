@@ -305,7 +305,7 @@ func pluginDisplayPath(pluginDirAbs, projectDir string, global bool) string {
 	if err == nil && home != "" {
 		rel, err := filepath.Rel(home, pluginDirAbs)
 		if err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
-			return "~/" + filepath.ToSlash(rel)
+			return "$HOME/" + filepath.ToSlash(rel)
 		}
 	}
 	return filepath.ToSlash(pluginDirAbs)
