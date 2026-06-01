@@ -82,7 +82,7 @@ func TestReadInstalledPluginVersion_CorruptManifestFallsBackToPluginJSON(t *test
 
 func TestDiscoverInstalledPluginSlugs_MatchesReadInstalledPluginVersion(t *testing.T) {
 	base := t.TempDir()
-	_ = makePluginDirInRoot(t, base, "alpha", `{"name":"alpha","version":"1.0.0"}`)
+	makePluginDirInRoot(t, base, "alpha", `{"name":"alpha","version":"1.0.0"}`)
 
 	betaDir := filepath.Join(base, "beta")
 	manifestDir := filepath.Join(betaDir, ".jfrog")
@@ -100,19 +100,18 @@ func TestDiscoverInstalledPluginSlugs_MatchesReadInstalledPluginVersion(t *testi
 func TestDiscoverInstalledPluginSlugs_SortsOutput(t *testing.T) {
 	base := t.TempDir()
 	for _, slug := range []string{"zeta", "alpha"} {
-		_ = makePluginDirInRoot(t, base, slug, fmt.Sprintf(`{"name":%q,"version":"1.0.0"}`, slug))
+		makePluginDirInRoot(t, base, slug, fmt.Sprintf(`{"name":%q,"version":"1.0.0"}`, slug))
 	}
 	got, err := DiscoverInstalledPluginSlugs(base)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"alpha", "zeta"}, got)
 }
 
-func makePluginDirInRoot(t *testing.T, root, slug, manifest string) string {
+func makePluginDirInRoot(t *testing.T, root, slug, manifest string) {
 	t.Helper()
 	dir := filepath.Join(root, slug)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(manifest), 0o644))
-	return dir
 }
 
 func makePluginDir(t *testing.T, manifest string) string {
