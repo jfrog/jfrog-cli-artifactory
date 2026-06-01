@@ -30,8 +30,8 @@ func TestGetSubCommands_HasPublishInstallAndUpdate(t *testing.T) {
 	updateCmd := commands[2]
 	assert.Equal(t, "update", updateCmd.Name)
 	assert.NotNil(t, updateCmd.Action)
-	require.Len(t, updateCmd.Arguments, 1)
-	assert.Equal(t, "slug", updateCmd.Arguments[0].Name)
+	assert.Empty(t, updateCmd.Arguments)
 	assert.Contains(t, updateCmd.Description, "Update an installed plugin")
+	assert.Contains(t, updateCmd.Description, "--slug")
 	assert.Contains(t, updateCmd.Description, "--all")
 }

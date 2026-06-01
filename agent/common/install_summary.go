@@ -44,7 +44,7 @@ func InstallFailureRow(agentName, scope, destinationDir string, err error) Summa
 }
 
 // UpdateAllSummaryRow is one row in a combined install/update summary for update --all.
-// Table columns (struct field order): Agent, Name, Scope, Path, Status, Detail.
+// Table columns (struct field order): Agent, Name, Scope, Path, Status, Detail, Version.
 type UpdateAllSummaryRow struct {
 	Agent   string `json:"agent" col-name:"Agent"`
 	Name    string `json:"name" col-name:"Name"`
@@ -52,7 +52,7 @@ type UpdateAllSummaryRow struct {
 	Path    string `json:"path" col-name:"Path"`
 	Status  string `json:"status" col-name:"Status"`
 	Detail  string `json:"detail" col-name:"Detail"`
-	Version string `json:"version,omitempty"`
+	Version string `json:"version,omitempty" col-name:"Version"`
 }
 
 // AppendUpdateAllSummaryRows copies per-target summary rows into a combined --all summary.

@@ -18,11 +18,11 @@ import (
 
 func TestReserveUpdateBackupPath(t *testing.T) {
 	base := t.TempDir()
-	p, err := reserveUpdateBackupPath(base, "plugin-a")
+	reservedBackupPath, err := reserveUpdateBackupPath(base, "plugin-a")
 	require.NoError(t, err)
-	require.Equal(t, filepath.Join(base, pluginBackupDirName), filepath.Dir(p))
-	assert.Contains(t, filepath.Base(p), "plugin-a-backup-")
-	_, err = os.Stat(p)
+	require.Equal(t, filepath.Join(base, pluginBackupDirName), filepath.Dir(reservedBackupPath))
+	assert.Contains(t, filepath.Base(reservedBackupPath), "plugin-a-backup-")
+	_, err = os.Stat(reservedBackupPath)
 	require.True(t, errors.Is(err, fs.ErrNotExist), "reserved path must not exist until rename")
 }
 
@@ -135,10 +135,10 @@ func TestUpdateOnePlugin_SuccessRemovesBackup(t *testing.T) {
 	}
 
 	src := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(src, "plugin.json"), []byte(`{"name":"web","version":"2.0.0"}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(src, "plugin.json"), []byte(`{"name":"web","version":"2.0.0"}`), agentcommon.DefaultFileMode))
 
 	installCommand := install.NewInstallCommand().SetSlug("web").SetVersion("2.0.0").SetRepoKey("r")
-	row := updateOnePlugin(src, installCommand, check)
+	row := updatePlugin(src, installCommand, check)
 	assert.Equal(t, agentcommon.SummaryStatusOK, row.Status)
 	assert.Equal(t, agentcommon.SummaryDetailOKInstall, row.Detail)
 
@@ -170,11 +170,18 @@ func TestResolveTargetVersion_RejectsInvalid(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestRunUpdate_AllRejectsSlugArg(t *testing.T) {
+func TestRunUpdate_AllRejectsSlugFlag(t *testing.T) {
+	ctx := newUpdateContext(t, nil, map[string]string{"harness": "claude", "slug": "web"}, map[string]bool{"all": true})
+	err := RunUpdate(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--all cannot be combined with --slug")
+}
+
+func TestRunUpdate_AllRejectsPositionalArg(t *testing.T) {
 	ctx := newUpdateContext(t, []string{"web"}, map[string]string{"harness": "claude"}, map[string]bool{"all": true})
 	err := RunUpdate(ctx)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--all cannot be combined with a slug argument")
+	assert.Contains(t, err.Error(), "unexpected positional argument")
 }
 
 func TestRunUpdate_AllRejectsVersion(t *testing.T) {
@@ -196,8 +203,8 @@ func TestDiscoverInstalledPluginTargets_MergesHarnesses(t *testing.T) {
 	pluginsDir := "plugins"
 	installRoot := filepath.Join(projectRoot, pluginsDir)
 
-	require.NoError(t, os.MkdirAll(filepath.Join(installRoot, "shared"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(installRoot, "shared", "plugin.json"), []byte(`{"name":"shared","version":"1.0.0"}`), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(installRoot, "shared"), agentcommon.InstallDirMode))
+	require.NoError(t, os.WriteFile(filepath.Join(installRoot, "shared", "plugin.json"), []byte(`{"name":"shared","version":"1.0.0"}`), agentcommon.DefaultFileMode))
 
 	flags := agentcommon.InstallFlagsResult{
 		Specs: []plugincommon.AgentSpec{
@@ -218,8 +225,8 @@ func TestDiscoverInstalledPluginTargets_PluginJSONOnly(t *testing.T) {
 	pluginsDir := "plugins"
 	installRoot := filepath.Join(projectRoot, pluginsDir)
 	pluginDir := filepath.Join(installRoot, "legacy")
-	require.NoError(t, os.MkdirAll(pluginDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(pluginDir, "plugin.json"), []byte(`{"name":"legacy","version":"0.9.0"}`), 0o644))
+	require.NoError(t, os.MkdirAll(pluginDir, agentcommon.InstallDirMode))
+	require.NoError(t, os.WriteFile(filepath.Join(pluginDir, "plugin.json"), []byte(`{"name":"legacy","version":"0.9.0"}`), agentcommon.DefaultFileMode))
 
 	flags := agentcommon.InstallFlagsResult{
 		Specs:         []plugincommon.AgentSpec{{Name: "cursor", Config: agentcommon.AgentConfig{ProjectDir: pluginsDir}}},
@@ -249,6 +256,39 @@ func TestFinalizeUpdateAll_ReturnsFirstResolveErrWhenNothingUpdated(t *testing.T
 	assert.ErrorIs(t, err, resolveErr)
 }
 
+func TestApplyUpdateAllForSlugs_ContinuesOnResolveError(t *testing.T) {
+	oldResolve := resolveLatestPluginVersion
+	defer func() {
+		resolveLatestPluginVersion = oldResolve
+	}()
+
+	resolveLatestPluginVersion = func(_ *config.ServerDetails, _, slug string) (string, error) {
+		if slug == "missing" {
+			return "", errors.New("plugin 'missing' has no versions in repository 'repo'")
+		}
+		return "2.0.0", nil
+	}
+
+	target := plugincommon.AgentTarget{
+		Agent:          plugincommon.AgentSpec{Name: "cursor"},
+		Scope:          plugincommon.ScopeProject,
+		DestinationDir: "/tmp/missing",
+	}
+	opts := update{serverDetails: &config.ServerDetails{}, repoKey: "repo"}
+	combined, outcome := applyUpdateAllForSlugs(opts, []string{"missing"}, map[string][]plugincommon.AgentTarget{
+		"missing": {target},
+	})
+
+	require.Len(t, combined, 1)
+	assert.Equal(t, "missing", combined[0].Name)
+	assert.Equal(t, agentcommon.SummaryStatusFailed, combined[0].Status)
+	assert.Contains(t, combined[0].Detail, "no versions in repository")
+	assert.Empty(t, combined[0].Version)
+	assert.True(t, outcome.anyFailed)
+	assert.False(t, outcome.anyOK)
+	assert.Equal(t, 1, outcome.updatedSlugCount)
+}
+
 func TestApplyUpdateAllForSlugs_ContinuesOnDownloadError(t *testing.T) {
 	oldResolve := resolveLatestPluginVersion
 	oldUpdate := updateSlugAcrossTargetsFn
@@ -260,7 +300,7 @@ func TestApplyUpdateAllForSlugs_ContinuesOnDownloadError(t *testing.T) {
 	resolveLatestPluginVersion = func(*config.ServerDetails, string, string) (string, error) {
 		return "2.0.0", nil
 	}
-	updateSlugAcrossTargetsFn = func(opts updateOptions, slug, targetVersion string, targets []plugincommon.AgentTarget) ([]agentcommon.SummaryRow, error) {
+	updateSlugAcrossTargetsFn = func(opts update, slug, targetVersion string, targets []plugincommon.AgentTarget) ([]agentcommon.SummaryRow, error) {
 		if slug == "bad" {
 			return nil, errors.New("download failed")
 		}
@@ -274,7 +314,7 @@ func TestApplyUpdateAllForSlugs_ContinuesOnDownloadError(t *testing.T) {
 		Scope:          plugincommon.ScopeProject,
 		DestinationDir: "/tmp/bad",
 	}
-	opts := updateOptions{serverDetails: &config.ServerDetails{}, repoKey: "repo"}
+	opts := update{serverDetails: &config.ServerDetails{}, repoKey: "repo"}
 	combined, outcome := applyUpdateAllForSlugs(opts, []string{"bad", "good"}, map[string][]plugincommon.AgentTarget{
 		"bad":  {target},
 		"good": {{Agent: plugincommon.AgentSpec{Name: "cursor"}, Scope: plugincommon.ScopeProject, DestinationDir: "/tmp/good"}},
@@ -288,13 +328,13 @@ func TestApplyUpdateAllForSlugs_ContinuesOnDownloadError(t *testing.T) {
 	assert.Equal(t, 2, outcome.updatedSlugCount)
 }
 
-func TestMovePluginAsideForUpdate_MissingInstallDir(t *testing.T) {
+func TestCreatePluginBackupForUpdate_MissingInstallDir(t *testing.T) {
 	target := plugincommon.AgentTarget{
 		Agent:          plugincommon.AgentSpec{Name: "cursor"},
 		Scope:          plugincommon.ScopeProject,
 		DestinationDir: filepath.Join(t.TempDir(), "missing"),
 	}
-	_, err := movePluginAsideForUpdate(target)
+	_, err := createPluginBackupForUpdate(target)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "move current plugin aside")
 }
@@ -304,12 +344,12 @@ func TestRestorePluginFromBackup_RestoresPreviousInstall(t *testing.T) {
 	live := filepath.Join(parent, "web")
 	backup := filepath.Join(parent, ".plugin-backup", "web-backup-test")
 
-	require.NoError(t, os.MkdirAll(live, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(live, "plugin.json"), []byte(`{"name":"web","version":"1.0.0"}`), 0o644))
-	require.NoError(t, os.MkdirAll(backup, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(backup, "plugin.json"), []byte(`{"name":"web","version":"0.9.0"}`), 0o644))
+	require.NoError(t, os.MkdirAll(live, agentcommon.InstallDirMode))
+	require.NoError(t, os.WriteFile(filepath.Join(live, "plugin.json"), []byte(`{"name":"web","version":"1.0.0"}`), agentcommon.DefaultFileMode))
+	require.NoError(t, os.MkdirAll(backup, agentcommon.InstallDirMode))
+	require.NoError(t, os.WriteFile(filepath.Join(backup, "plugin.json"), []byte(`{"name":"web","version":"0.9.0"}`), agentcommon.DefaultFileMode))
 
-	require.NoError(t, os.MkdirAll(filepath.Join(live, "failed-copy"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(live, "failed-copy"), agentcommon.InstallDirMode))
 
 	target := plugincommon.AgentTarget{DestinationDir: live}
 	require.NoError(t, restorePluginFromBackup(target, backup))
@@ -321,11 +361,62 @@ func TestRestorePluginFromBackup_RestoresPreviousInstall(t *testing.T) {
 	require.True(t, os.IsNotExist(err))
 }
 
-func TestRunUpdate_RequiresArgWithoutAll(t *testing.T) {
+func TestConfirmUpdateAll_SkipsWhenDryRun(t *testing.T) {
+	require.NoError(t, confirmUpdateAll(update{dryRun: true}))
+}
+
+func TestConfirmUpdateAll_SkipsWhenQuiet(t *testing.T) {
+	require.NoError(t, confirmUpdateAll(update{quiet: true}))
+}
+
+func TestConfirmUpdateAll_SkipsWhenNonInteractive(t *testing.T) {
+	oldCheck := isNonInteractive
+	defer func() { isNonInteractive = oldCheck }()
+	isNonInteractive = func() bool { return true }
+
+	require.NoError(t, confirmUpdateAll(update{}))
+}
+
+func TestConfirmUpdateAll_AbortsWhenUserDeclines(t *testing.T) {
+	oldAsk := askYesNo
+	oldCheck := isNonInteractive
+	defer func() {
+		askYesNo = oldAsk
+		isNonInteractive = oldCheck
+	}()
+	isNonInteractive = func() bool { return false }
+	askYesNo = func(_ string, _ bool) bool { return false }
+
+	err := confirmUpdateAll(update{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "aborted by user")
+}
+
+func TestConfirmUpdateAll_ContinuesWhenUserAccepts(t *testing.T) {
+	oldAsk := askYesNo
+	oldCheck := isNonInteractive
+	defer func() {
+		askYesNo = oldAsk
+		isNonInteractive = oldCheck
+	}()
+	isNonInteractive = func() bool { return false }
+	askYesNo = func(_ string, _ bool) bool { return true }
+
+	require.NoError(t, confirmUpdateAll(update{}))
+}
+
+func TestRunUpdate_RequiresSlugWithoutAll(t *testing.T) {
 	ctx := newUpdateContext(t, nil, map[string]string{"harness": "claude"}, nil)
 	err := RunUpdate(ctx)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "usage:")
+}
+
+func TestRunUpdate_RejectsPositionalSlug(t *testing.T) {
+	ctx := newUpdateContext(t, []string{"web"}, map[string]string{"harness": "claude"}, nil)
+	err := RunUpdate(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "use --slug")
 }
 
 func newUpdateContext(t *testing.T, args []string, stringFlags map[string]string, boolFlags map[string]bool) *components.Context {
@@ -345,7 +436,7 @@ func pluginDir(t *testing.T, manifest string) string {
 	t.Helper()
 	base := t.TempDir()
 	dir := filepath.Join(base, "web")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(manifest), 0o644))
+	require.NoError(t, os.MkdirAll(dir, agentcommon.InstallDirMode))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(manifest), agentcommon.DefaultFileMode))
 	return dir
 }

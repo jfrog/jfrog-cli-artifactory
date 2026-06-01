@@ -33,13 +33,12 @@ func GetSubCommands() []components.Command {
 			Name:  "update",
 			Flags: flagkit.GetCommandFlags(flagkit.AgentPluginsUpdate),
 			Description: "Update an installed plugin to the latest (or a specific) version. " +
-				"Use --harness (comma-separated) with --project-dir or --global; or --path <dir>. " +
-				"With --all (requires --harness), updates every installed plugin under those harnesses to latest in one summary table; " +
-				"discovery includes installs with plugin-info.json or plugin.json (same as single-slug update). " +
+				"Use --slug with --harness (comma-separated) and --project-dir or --global; or --slug with --path <dir>. " +
+				"With --all (requires --harness), updates every discovered plugin under those harnesses to latest in one summary table " +
+				"(interactive confirmation before proceeding; folder name is the slug, same as --slug). " +
 				"Resolves versions directly from Artifactory (no marketplace lookup). " +
 				"Skips targets not installed or already at the target version (use --force to re-download).",
-			Arguments: getUpdateArguments(),
-			Action:    update.RunUpdate,
+			Action: update.RunUpdate,
 		},
 	}
 }
@@ -58,15 +57,6 @@ func getInstallArguments() []components.Argument {
 		{
 			Name:        "slug",
 			Description: "Slug (name) of the plugin to install.",
-		},
-	}
-}
-
-func getUpdateArguments() []components.Argument {
-	return []components.Argument{
-		{
-			Name:        "slug",
-			Description: "Slug (name) of the plugin to update. Omit when using --all.",
 		},
 	}
 }

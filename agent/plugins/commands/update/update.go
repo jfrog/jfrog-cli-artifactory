@@ -13,8 +13,19 @@ import (
 	plugincommon "github.com/jfrog/jfrog-cli-artifactory/agent/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
+
+// askYesNo is swappable in tests.
+var askYesNo = coreutils.AskYesNo
+
+// isNonInteractive is swappable in tests (GitHub Actions sets CI=true).
+var isNonInteractive = agentcommon.IsNonInteractive
+
+const updateAllConfirmPrompt = "Update all discovered plugins under the given harness(es) to their latest version in the repository? " +
+	"Each install folder name is used as the repository slug (same as update --slug). " +
+	"Matching packages will be updated, including installs that were not made with JFrog CLI."
 
 // pluginBackupDirName is the directory under the plugins parent where update backups are stored.
 const pluginBackupDirName = ".plugin-backup"
@@ -35,13 +46,19 @@ type preUpdate struct {
 // RunUpdate is the CLI action for `jf agent plugins update`.
 func RunUpdate(c *components.Context) error {
 	all := c.GetBoolFlagValue("all")
-	hasSlugArg := c.GetNumberOfArgs() >= 1
-	if !all && !hasSlugArg {
-		return fmt.Errorf("usage: jf agent plugins update <slug> (--harness <name[,name...]> [--global] [--project-dir <dir>] | --path <dir>) [--repo <repo>] [--version <ver>] [--dry-run] [--force] [--format <table|json>]\n       jf agent plugins update --all --harness <name[,name...]> [--global] [--project-dir <dir>] [--repo <repo>] [--dry-run] [--force] [--format <table|json>]")
+	slugFlag := strings.TrimSpace(c.GetStringFlagValue("slug"))
+	if !all && slugFlag == "" {
+		if c.GetNumberOfArgs() > 0 {
+			return fmt.Errorf("unexpected positional argument(s); use --slug to specify the plugin")
+		}
+		return fmt.Errorf("usage: jf agent plugins update --slug <slug> (--harness <name[,name...]> [--global] [--project-dir <dir>] | --path <dir>) [--repo <repo>] [--version <ver>] [--dry-run] [--force] [--format <table|json>]\n       jf agent plugins update --all --harness <name[,name...]> [--global] [--project-dir <dir>] [--repo <repo>] [--dry-run] [--force] [--format <table|json>]")
 	}
 	if all {
-		if hasSlugArg {
-			return fmt.Errorf("--all cannot be combined with a slug argument; it updates every installed plugin for the given --harness list")
+		if slugFlag != "" {
+			return fmt.Errorf("--all cannot be combined with --slug; it updates every installed plugin for the given --harness list")
+		}
+		if c.GetNumberOfArgs() > 0 {
+			return fmt.Errorf("unexpected positional argument(s); use --slug or --all")
 		}
 		if strings.TrimSpace(c.GetStringFlagValue("version")) != "" {
 			return fmt.Errorf("--all cannot be combined with --version; it always updates to the latest version")
@@ -51,57 +68,35 @@ func RunUpdate(c *components.Context) error {
 		}
 	}
 
-	flags, err := plugincommon.ValidateInstallFlags(c)
+	opts, err := newUpdate(c)
 	if err != nil {
 		return err
 	}
-	if all && flags.AbsoluteInstallBaseDir != "" {
+	if all && opts.flags.AbsoluteInstallBaseDir != "" {
 		return fmt.Errorf("--all requires --harness; --path is not supported")
 	}
-	if all && len(flags.Specs) == 0 {
+	if all && len(opts.flags.Specs) == 0 {
 		return fmt.Errorf("--all requires --harness <name[,name...]>")
 	}
 
-	serverDetails, err := agentcommon.GetServerDetails(c)
-	if err != nil {
-		return err
-	}
-	quiet := agentcommon.IsQuiet(c)
-	repoKey, err := agentcommon.ResolveRepo(serverDetails, c.GetStringFlagValue("repo"), quiet, plugincommon.RepoOptions())
-	if err != nil {
-		return err
-	}
-
-	dryRun := c.GetBoolFlagValue("dry-run")
-	force := c.GetBoolFlagValue("force")
-	format := "table"
-	if c.GetStringFlagValue("format") != "" {
-		format = c.GetStringFlagValue("format")
-	}
-
-	opts := updateOptions{
-		serverDetails: serverDetails,
-		repoKey:       repoKey,
-		flags:         flags,
-		dryRun:        dryRun,
-		force:         force,
-		format:        format,
-		quiet:         quiet,
-	}
-
 	if all {
+		if err := confirmUpdateAll(opts); err != nil {
+			return err
+		}
 		return runUpdateAll(opts)
 	}
 
-	slug := c.GetArgumentAt(0)
-	if err := plugincommon.ValidateSlug(slug); err != nil {
+	if c.GetNumberOfArgs() > 0 {
+		return fmt.Errorf("unexpected positional argument(s); use --slug to specify the plugin")
+	}
+	if err := plugincommon.ValidateSlug(slugFlag); err != nil {
 		return err
 	}
 	requestedVersion := strings.TrimSpace(c.GetStringFlagValue("version"))
-	return runUpdateOne(opts, slug, requestedVersion)
+	return runUpdateOnSlug(opts, slugFlag, requestedVersion)
 }
 
-type updateOptions struct {
+type update struct {
 	serverDetails *config.ServerDetails
 	repoKey       string
 	flags         agentcommon.InstallFlagsResult
@@ -111,8 +106,37 @@ type updateOptions struct {
 	quiet         bool
 }
 
-// runUpdateOne updates a single slug across all resolved targets.
-func runUpdateOne(opts updateOptions, slug, requestedVersion string) error {
+func newUpdate(c *components.Context) (update, error) {
+	flags, err := plugincommon.ValidateInstallFlags(c)
+	if err != nil {
+		return update{}, err
+	}
+	serverDetails, err := agentcommon.GetServerDetails(c)
+	if err != nil {
+		return update{}, err
+	}
+	quiet := agentcommon.IsQuiet(c)
+	repoKey, err := agentcommon.ResolveRepo(serverDetails, c.GetStringFlagValue("repo"), quiet, plugincommon.RepoOptions())
+	if err != nil {
+		return update{}, err
+	}
+	format := "table"
+	if c.GetStringFlagValue("format") != "" {
+		format = c.GetStringFlagValue("format")
+	}
+	return update{
+		serverDetails: serverDetails,
+		repoKey:       repoKey,
+		flags:         flags,
+		dryRun:        c.GetBoolFlagValue("dry-run"),
+		force:         c.GetBoolFlagValue("force"),
+		format:        format,
+		quiet:         quiet,
+	}, nil
+}
+
+// runUpdateOnSlug updates a single slug across all resolved targets.
+func runUpdateOnSlug(opts update, slug, requestedVersion string) error {
 	targets, err := plugincommon.ResolveAgentTargets(slug, opts.flags.AbsoluteInstallBaseDir, opts.flags.Specs, opts.flags.ProjectDirAbs, opts.flags.IsGlobal)
 	if err != nil {
 		return err
@@ -141,8 +165,19 @@ type updateAllOutcome struct {
 	updatedSlugCount int
 }
 
+// confirmUpdateAll asks for interactive confirmation before update --all (skipped for --dry-run, --quiet, and CI).
+func confirmUpdateAll(opts update) error {
+	if opts.dryRun || opts.quiet || isNonInteractive() {
+		return nil
+	}
+	if !askYesNo(updateAllConfirmPrompt, false) {
+		return fmt.Errorf("update --all aborted by user")
+	}
+	return nil
+}
+
 // runUpdateAll enumerates every installed plugin under each --harness and updates each to its latest version.
-func runUpdateAll(opts updateOptions) error {
+func runUpdateAll(opts update) error {
 	slugOrder, slugToTargets, err := discoverInstalledPluginTargets(opts.flags)
 	if err != nil {
 		return err
@@ -188,8 +223,8 @@ func discoverInstalledPluginTargets(flags agentcommon.InstallFlagsResult) ([]str
 }
 
 // applyUpdateAllForSlugs resolves latest version per slug, updates targets, and builds combined summary rows.
-// Download failures for one slug are logged and recorded as failed rows; remaining slugs still run.
-func applyUpdateAllForSlugs(opts updateOptions, slugOrder []string, slugToTargets map[string][]plugincommon.AgentTarget,
+// Resolve and download failures for one slug are logged and recorded as failed rows; remaining slugs still run.
+func applyUpdateAllForSlugs(opts update, slugOrder []string, slugToTargets map[string][]plugincommon.AgentTarget,
 ) ([]agentcommon.UpdateAllSummaryRow, updateAllOutcome) {
 	combined := make([]agentcommon.UpdateAllSummaryRow, 0)
 	var outcome updateAllOutcome
@@ -200,6 +235,11 @@ func applyUpdateAllForSlugs(opts updateOptions, slugOrder []string, slugToTarget
 				outcome.firstResolveErr = err
 			}
 			log.Warn(fmt.Sprintf("Skipping plugin '%s': could not resolve latest version: %s", slug, err.Error()))
+			results := failedRowsForTargets(slugToTargets[slug], err.Error())
+			combined = agentcommon.AppendUpdateAllSummaryRows(combined, slug, "", results)
+			outcome.updatedSlugCount++
+			_, slugFailed := tallySummaryRows(results)
+			outcome.anyFailed = outcome.anyFailed || slugFailed
 			continue
 		}
 		results, err := updateSlugAcrossTargetsFn(opts, slug, targetVersion, slugToTargets[slug])
@@ -209,9 +249,9 @@ func applyUpdateAllForSlugs(opts updateOptions, slugOrder []string, slugToTarget
 		}
 		combined = agentcommon.AppendUpdateAllSummaryRows(combined, slug, targetVersion, results)
 		outcome.updatedSlugCount++
-		ok, failed := tallySummaryRows(results)
-		outcome.anyOK = outcome.anyOK || ok
-		outcome.anyFailed = outcome.anyFailed || failed
+		slugOK, slugFailed := tallySummaryRows(results)
+		outcome.anyOK = outcome.anyOK || slugOK
+		outcome.anyFailed = outcome.anyFailed || slugFailed
 	}
 	return combined, outcome
 }
@@ -224,6 +264,8 @@ func failedRowsForTargets(targets []plugincommon.AgentTarget, detail string) []a
 	return rows
 }
 
+// tallySummaryRows reports whether any per-target row succeeded (ok) or failed.
+// Skipped rows are ignored. Used during update --all to aggregate exit conditions across slugs.
 func tallySummaryRows(results []agentcommon.SummaryRow) (anyOK, anyFailed bool) {
 	for _, row := range results {
 		switch row.Status {
@@ -263,7 +305,7 @@ func resolveTargetVersion(serverDetails *config.ServerDetails, repoKey, slug, re
 // updateSlugAcrossTargets fetches the slug once and runs the backup+copy loop per target.
 // Returns the per-target summary rows. Targets that are not installed or already at the
 // target version are reported without performing a download.
-func updateSlugAcrossTargets(opts updateOptions, slug, targetVersion string, targets []plugincommon.AgentTarget) ([]agentcommon.SummaryRow, error) {
+func updateSlugAcrossTargets(opts update, slug, targetVersion string, targets []plugincommon.AgentTarget) ([]agentcommon.SummaryRow, error) {
 	checks := preUpdateTargets(targets, targetVersion, opts.force, opts.quiet)
 	results, updatable := initialResultsAndUpdatable(checks, targetVersion)
 
@@ -286,7 +328,7 @@ func updateSlugAcrossTargets(opts updateOptions, slug, targetVersion string, tar
 		}
 	}()
 
-	cmd := install.NewInstallCommand().
+	installCmd := install.NewInstallCommand().
 		SetServerDetails(opts.serverDetails).
 		SetRepoKey(opts.repoKey).
 		SetSlug(slug).
@@ -295,44 +337,44 @@ func updateSlugAcrossTargets(opts updateOptions, slug, targetVersion string, tar
 		SetProjectDir(opts.flags.ProjectDirAbs).
 		SetGlobal(opts.flags.IsGlobal)
 
-	unzipDir, err := cmd.FetchAndExtractTo(tmpDir)
+	unzipDir, err := installCmd.FetchAndExtractTo(tmpDir)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, preUpdateCheck := range updatable {
-		results = append(results, updateOnePlugin(unzipDir, cmd, preUpdateCheck))
+		results = append(results, updatePlugin(unzipDir, installCmd, preUpdateCheck))
 	}
 	return results, nil
 }
 
 func preUpdateTargets(targets []plugincommon.AgentTarget, targetVersion string, force, quiet bool) []preUpdate {
-	out := make([]preUpdate, 0, len(targets))
+	checks := make([]preUpdate, 0, len(targets))
 	for _, agentTarget := range targets {
-		record := preUpdate{agentTarget: agentTarget}
+		preUpdateCheck := preUpdate{agentTarget: agentTarget}
 		installedVersion, err := plugincommon.ReadInstalledPluginVersion(agentTarget.DestinationDir)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
-				record.failureReason = fmt.Sprintf("plugin not installed at %s; run 'jf agent plugins install' first", agentTarget.DestinationDir)
+				preUpdateCheck.failureReason = fmt.Sprintf("plugin not installed at %s; run 'jf agent plugins install' first", agentTarget.DestinationDir)
 			} else {
-				record.failureReason = err.Error()
+				preUpdateCheck.failureReason = err.Error()
 			}
 			if !quiet {
-				log.Info(fmt.Sprintf("Skipping update for agent %s at %s: %s", agentTarget.Agent.Name, agentTarget.DestinationDir, record.failureReason))
+				log.Info(fmt.Sprintf("Skipping update for agent %s at %s: %s", agentTarget.Agent.Name, agentTarget.DestinationDir, preUpdateCheck.failureReason))
 			}
-			out = append(out, record)
+			checks = append(checks, preUpdateCheck)
 			continue
 		}
-		record.installedVersion = installedVersion
+		preUpdateCheck.installedVersion = installedVersion
 		if installedVersion == targetVersion && !force {
-			record.alreadyAtTargetVersion = true
+			preUpdateCheck.alreadyAtTargetVersion = true
 			if !quiet {
 				log.Info(fmt.Sprintf("Skipping update for agent %s at %s: already at version %s (use --force to re-download)", agentTarget.Agent.Name, agentTarget.DestinationDir, targetVersion))
 			}
 		}
-		out = append(out, record)
+		checks = append(checks, preUpdateCheck)
 	}
-	return out
+	return checks
 }
 
 func initialResultsAndUpdatable(checks []preUpdate, targetVersion string) ([]agentcommon.SummaryRow, []preUpdate) {
@@ -376,10 +418,11 @@ func logDryRun(slug, targetVersion string, checks []preUpdate) {
 	}
 }
 
-// updateOnePlugin updates a single install target using the already-fetched tree in unzipDir.
-func updateOnePlugin(unzipDir string, installCommand *install.InstallCommand, check preUpdate) agentcommon.SummaryRow {
+// updatePlugin updates a single install target using the already-fetched tree in unzipDir.
+// On success the backup is deleted; on copy failure applyPluginUpdateCopy restores the backup first.
+func updatePlugin(unzipDir string, installCommand *install.InstallCommand, check preUpdate) agentcommon.SummaryRow {
 	agentTarget := check.agentTarget
-	backupPath, err := movePluginAsideForUpdate(agentTarget)
+	backupPath, err := createPluginBackupForUpdate(agentTarget)
 	if err != nil {
 		return summaryRowFor(agentTarget, agentcommon.SummaryStatusFailed, err.Error())
 	}
@@ -391,8 +434,8 @@ func updateOnePlugin(unzipDir string, installCommand *install.InstallCommand, ch
 	return summaryRowFor(agentTarget, agentcommon.SummaryStatusOK, agentcommon.SummaryDetailOKInstall)
 }
 
-// movePluginAsideForUpdate reserves a backup path and renames the live install directory aside.
-func movePluginAsideForUpdate(agentTarget plugincommon.AgentTarget) (string, error) {
+// createPluginBackupForUpdate reserves a backup path and renames the live install directory aside.
+func createPluginBackupForUpdate(agentTarget plugincommon.AgentTarget) (string, error) {
 	slugBase := filepath.Base(agentTarget.DestinationDir)
 	parent := filepath.Dir(agentTarget.DestinationDir)
 	backupPath, err := reserveUpdateBackupPath(parent, slugBase)
@@ -416,7 +459,10 @@ func restorePluginFromBackup(agentTarget plugincommon.AgentTarget, backupPath st
 	return nil
 }
 
-// applyPluginUpdateCopy copies the extracted tree onto the target and restores the backup on failure.
+// applyPluginUpdateCopy installs the extracted plugin tree at agentTarget.
+// The live install must already have been moved aside to backupPath (createPluginBackupForUpdate).
+// If the copy fails or returns a non-ok summary row, restorePluginFromBackup removes any partial
+// new install and renames the backup back to DestinationDir so the previous version remains in place.
 func applyPluginUpdateCopy(unzipDir string, installCommand *install.InstallCommand, agentTarget plugincommon.AgentTarget, backupPath string) agentcommon.SummaryRow {
 	rows := installCommand.CopyExtractedToTargets(unzipDir, []plugincommon.AgentTarget{agentTarget})
 	if len(rows) != 1 {
@@ -461,17 +507,16 @@ func finalError(results []agentcommon.SummaryRow) error {
 
 func reserveUpdateBackupPath(installBase, slug string) (string, error) {
 	backupRoot := filepath.Join(installBase, pluginBackupDirName)
-	// #nosec G301 -- update backup dir under user plugin tree; permissive mode matches install copy behavior for tooling access.
-	if err := os.MkdirAll(backupRoot, 0o755); err != nil {
+	if err := os.MkdirAll(backupRoot, agentcommon.InstallDirMode); err != nil {
 		return "", fmt.Errorf("could not create %s directory: %w", pluginBackupDirName, err)
 	}
 	pattern := slug + "-backup-*"
-	d, err := os.MkdirTemp(backupRoot, pattern)
+	reservedBackupPath, err := os.MkdirTemp(backupRoot, pattern)
 	if err != nil {
 		return "", fmt.Errorf("could not reserve update backup path: %w", err)
 	}
-	if err := os.Remove(d); err != nil {
+	if err := os.Remove(reservedBackupPath); err != nil {
 		return "", fmt.Errorf("could not prepare update backup path: %w", err)
 	}
-	return d, nil
+	return reservedBackupPath, nil
 }

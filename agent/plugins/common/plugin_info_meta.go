@@ -40,16 +40,21 @@ func ReadInstalledPluginVersion(pluginDir string) (string, error) {
 }
 
 // DiscoverInstalledPluginSlugs returns sorted plugin directory names under installDir that
-// ReadInstalledPluginVersion recognizes (plugin-info.json and/or plugin.json), matching
-// single-slug update rather than manifest-only discovery.
+// ReadInstalledPluginVersion recognizes (plugin-info.json and/or plugin.json).
+// The directory name is the slug used for Artifactory, matching update --slug behavior.
 func DiscoverInstalledPluginSlugs(installDir string) ([]string, error) {
-	entries, err := os.ReadDir(installDir)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read install dir %s: %w", installDir, err)
+	entries, readErr := os.ReadDir(installDir)
+	if readErr != nil && errors.Is(readErr, os.ErrNotExist) {
+		return nil, nil
 	}
+	slugs := pluginSlugsFromInstallDirEntries(installDir, entries)
+	if readErr != nil {
+		return slugs, fmt.Errorf("read install dir %s: %w", installDir, readErr)
+	}
+	return slugs, nil
+}
+
+func pluginSlugsFromInstallDirEntries(installDir string, entries []os.DirEntry) []string {
 	slugs := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -66,5 +71,5 @@ func DiscoverInstalledPluginSlugs(installDir string) ([]string, error) {
 		slugs = append(slugs, name)
 	}
 	sort.Strings(slugs)
-	return slugs, nil
+	return slugs
 }
