@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
@@ -35,4 +37,34 @@ func ReadInstalledPluginVersion(pluginDir string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(meta.Version), nil
+}
+
+// DiscoverInstalledPluginSlugs returns sorted plugin directory names under installDir that
+// ReadInstalledPluginVersion recognizes (plugin-info.json and/or plugin.json), matching
+// single-slug update rather than manifest-only discovery.
+func DiscoverInstalledPluginSlugs(installDir string) ([]string, error) {
+	entries, err := os.ReadDir(installDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read install dir %s: %w", installDir, err)
+	}
+	slugs := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		pluginDir := filepath.Join(installDir, name)
+		if _, err := ReadInstalledPluginVersion(pluginDir); err != nil {
+			continue
+		}
+		slugs = append(slugs, name)
+	}
+	sort.Strings(slugs)
+	return slugs, nil
 }

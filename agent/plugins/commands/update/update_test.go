@@ -11,6 +11,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/install"
 	plugincommon "github.com/jfrog/jfrog-cli-artifactory/agent/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -188,6 +189,136 @@ func TestRunUpdate_AllRejectsPath(t *testing.T) {
 	err := RunUpdate(ctx)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "--all cannot be combined with --path")
+}
+
+func TestDiscoverInstalledPluginTargets_MergesHarnesses(t *testing.T) {
+	projectRoot := t.TempDir()
+	pluginsDir := "plugins"
+	installRoot := filepath.Join(projectRoot, pluginsDir)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(installRoot, "shared"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(installRoot, "shared", "plugin.json"), []byte(`{"name":"shared","version":"1.0.0"}`), 0o644))
+
+	flags := agentcommon.InstallFlagsResult{
+		Specs: []plugincommon.AgentSpec{
+			{Name: "cursor", Config: agentcommon.AgentConfig{ProjectDir: pluginsDir}},
+			{Name: "claude", Config: agentcommon.AgentConfig{ProjectDir: pluginsDir}},
+		},
+		ProjectDirAbs: projectRoot,
+	}
+
+	slugOrder, slugToTargets, err := discoverInstalledPluginTargets(flags)
+	require.NoError(t, err)
+	require.Equal(t, []string{"shared"}, slugOrder)
+	require.Len(t, slugToTargets["shared"], 2)
+}
+
+func TestDiscoverInstalledPluginTargets_PluginJSONOnly(t *testing.T) {
+	projectRoot := t.TempDir()
+	pluginsDir := "plugins"
+	installRoot := filepath.Join(projectRoot, pluginsDir)
+	pluginDir := filepath.Join(installRoot, "legacy")
+	require.NoError(t, os.MkdirAll(pluginDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(pluginDir, "plugin.json"), []byte(`{"name":"legacy","version":"0.9.0"}`), 0o644))
+
+	flags := agentcommon.InstallFlagsResult{
+		Specs:         []plugincommon.AgentSpec{{Name: "cursor", Config: agentcommon.AgentConfig{ProjectDir: pluginsDir}}},
+		ProjectDirAbs: projectRoot,
+	}
+
+	slugOrder, _, err := discoverInstalledPluginTargets(flags)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"legacy"}, slugOrder)
+}
+
+func TestFinalizeUpdateAll_AllFailed(t *testing.T) {
+	combined := []agentcommon.UpdateAllSummaryRow{
+		{Agent: "cursor", Name: "a", Status: agentcommon.SummaryStatusFailed},
+	}
+	outcome := updateAllOutcome{anyFailed: true}
+	err := finalizeUpdateAll(combined, outcome, "table")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed for all targets")
+}
+
+func TestFinalizeUpdateAll_ReturnsFirstResolveErrWhenNothingUpdated(t *testing.T) {
+	resolveErr := errors.New("no versions in repo")
+	outcome := updateAllOutcome{firstResolveErr: resolveErr}
+	err := finalizeUpdateAll(nil, outcome, "table")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, resolveErr)
+}
+
+func TestApplyUpdateAllForSlugs_ContinuesOnDownloadError(t *testing.T) {
+	oldResolve := resolveLatestPluginVersion
+	oldUpdate := updateSlugAcrossTargetsFn
+	defer func() {
+		resolveLatestPluginVersion = oldResolve
+		updateSlugAcrossTargetsFn = oldUpdate
+	}()
+
+	resolveLatestPluginVersion = func(*config.ServerDetails, string, string) (string, error) {
+		return "2.0.0", nil
+	}
+	updateSlugAcrossTargetsFn = func(opts updateOptions, slug, targetVersion string, targets []plugincommon.AgentTarget) ([]agentcommon.SummaryRow, error) {
+		if slug == "bad" {
+			return nil, errors.New("download failed")
+		}
+		return []agentcommon.SummaryRow{
+			{Agent: targets[0].Agent.Name, Scope: string(targets[0].Scope), Path: targets[0].DestinationDir, Status: agentcommon.SummaryStatusOK},
+		}, nil
+	}
+
+	target := plugincommon.AgentTarget{
+		Agent:          plugincommon.AgentSpec{Name: "cursor"},
+		Scope:          plugincommon.ScopeProject,
+		DestinationDir: "/tmp/bad",
+	}
+	opts := updateOptions{serverDetails: &config.ServerDetails{}, repoKey: "repo"}
+	combined, outcome := applyUpdateAllForSlugs(opts, []string{"bad", "good"}, map[string][]plugincommon.AgentTarget{
+		"bad":  {target},
+		"good": {{Agent: plugincommon.AgentSpec{Name: "cursor"}, Scope: plugincommon.ScopeProject, DestinationDir: "/tmp/good"}},
+	})
+
+	require.Equal(t, 2, len(combined))
+	assert.Equal(t, agentcommon.SummaryStatusFailed, combined[0].Status)
+	assert.Equal(t, agentcommon.SummaryStatusOK, combined[1].Status)
+	assert.True(t, outcome.anyOK)
+	assert.True(t, outcome.anyFailed)
+	assert.Equal(t, 2, outcome.updatedSlugCount)
+}
+
+func TestMovePluginAsideForUpdate_MissingInstallDir(t *testing.T) {
+	target := plugincommon.AgentTarget{
+		Agent:          plugincommon.AgentSpec{Name: "cursor"},
+		Scope:          plugincommon.ScopeProject,
+		DestinationDir: filepath.Join(t.TempDir(), "missing"),
+	}
+	_, err := movePluginAsideForUpdate(target)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "move current plugin aside")
+}
+
+func TestRestorePluginFromBackup_RestoresPreviousInstall(t *testing.T) {
+	parent := t.TempDir()
+	live := filepath.Join(parent, "web")
+	backup := filepath.Join(parent, ".plugin-backup", "web-backup-test")
+
+	require.NoError(t, os.MkdirAll(live, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(live, "plugin.json"), []byte(`{"name":"web","version":"1.0.0"}`), 0o644))
+	require.NoError(t, os.MkdirAll(backup, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(backup, "plugin.json"), []byte(`{"name":"web","version":"0.9.0"}`), 0o644))
+
+	require.NoError(t, os.MkdirAll(filepath.Join(live, "failed-copy"), 0o755))
+
+	target := plugincommon.AgentTarget{DestinationDir: live}
+	require.NoError(t, restorePluginFromBackup(target, backup))
+
+	data, err := os.ReadFile(filepath.Join(live, "plugin.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "0.9.0")
+	_, err = os.Stat(backup)
+	require.True(t, os.IsNotExist(err))
 }
 
 func TestRunUpdate_RequiresArgWithoutAll(t *testing.T) {

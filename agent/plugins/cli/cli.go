@@ -34,7 +34,8 @@ func GetSubCommands() []components.Command {
 			Flags: flagkit.GetCommandFlags(flagkit.AgentPluginsUpdate),
 			Description: "Update an installed plugin to the latest (or a specific) version. " +
 				"Use --harness (comma-separated) with --project-dir or --global; or --path <dir>. " +
-				"With --all (requires --harness), updates every installed plugin under those harnesses to latest in one summary table. " +
+				"With --all (requires --harness), updates every installed plugin under those harnesses to latest in one summary table; " +
+				"discovery includes installs with plugin-info.json or plugin.json (same as single-slug update). " +
 				"Resolves versions directly from Artifactory (no marketplace lookup). " +
 				"Skips targets not installed or already at the target version (use --force to re-download).",
 			Arguments: getUpdateArguments(),
