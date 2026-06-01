@@ -43,7 +43,7 @@ func TestHandleBlocked_NoAutoDelete(t *testing.T) {
 		Version:             "1.0.0",
 		AutoDeleteOnFailure: false,
 	}
-	err := handleBlocked(nil, params)
+	err := handleBlocked(params)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "blocked by Xray security scan")
 }
