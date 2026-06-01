@@ -97,7 +97,7 @@ func TestCopyExtractedToTargets_WritesPluginInfoManifest(t *testing.T) {
 		DestinationDir: dest,
 		Scope:          plugincommon.ScopeProject,
 	}
-	rows := ic.copyExtractedToTargets(src, []plugincommon.AgentTarget{target})
+	rows := ic.CopyExtractedToTargets(src, []plugincommon.AgentTarget{target})
 	require.Len(t, rows, 1)
 	assert.Equal(t, agentcommon.SummaryStatusOK, rows[0].Status)
 
