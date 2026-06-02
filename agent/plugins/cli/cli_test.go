@@ -10,7 +10,7 @@ import (
 
 func TestGetSubCommands_HasPublishInstallUpdateAndDelete(t *testing.T) {
 	commands := GetSubCommands()
-	require.Len(t, commands, 5)
+	require.Len(t, commands, 6)
 
 	byName := make(map[string]components.Command, len(commands))
 	for _, cmd := range commands {
@@ -47,4 +47,11 @@ func TestGetSubCommands_HasPublishInstallUpdateAndDelete(t *testing.T) {
 	lst := byName["list"]
 	assert.NotNil(t, lst.Action)
 	assert.Contains(t, lst.Description, "List agent plugins")
+
+	srch := byName["search"]
+	assert.NotNil(t, srch.Action)
+	require.Len(t, srch.Arguments, 1)
+	assert.Equal(t, "query", srch.Arguments[0].Name)
+	assert.Contains(t, srch.Description, "agentplugins.name")
+	assert.Contains(t, srch.Description, "property search")
 }

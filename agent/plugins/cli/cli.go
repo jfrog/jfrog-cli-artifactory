@@ -5,6 +5,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/install"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/list"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/publish"
+	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/search"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/plugins/commands/update"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
@@ -54,6 +55,22 @@ func GetSubCommands() []components.Command {
 			Flags:       flagkit.GetCommandFlags(flagkit.AgentPluginsList),
 			Description: "List agent plugins from Artifactory (--repo) or locally installed (--harness).",
 			Action:      list.RunList,
+		},
+		{
+			Name:        "search",
+			Flags:       flagkit.GetCommandFlags(flagkit.AgentPluginsSearch),
+			Description: "Search for agent plugins by agentplugins.name via Artifactory property search. Use --repo to limit to one repository (otherwise all repos are searched).",
+			Arguments:   getSearchArguments(),
+			Action:      search.RunSearch,
+		},
+	}
+}
+
+func getSearchArguments() []components.Argument {
+	return []components.Argument{
+		{
+			Name:        "query",
+			Description: "Plugin name or search term.",
 		},
 	}
 }
