@@ -96,6 +96,17 @@ func TestValidateSemver(t *testing.T) {
 	}
 }
 
+func TestValidateSemver_ErrorMessageIsDirect(t *testing.T) {
+	t.Parallel()
+	err := ValidateSemver("1.9.e")
+	require.Error(t, err)
+	msg := err.Error()
+	assert.Equal(t, `invalid version "1.9.e": patch must be a number (got "e")`, msg)
+	assert.NotContains(t, msg, "strconv")
+	assert.NotContains(t, msg, "invalid semver version")
+	assert.NotContains(t, msg, "invalid patch version in")
+}
+
 func TestNextMinorVersion(t *testing.T) {
 	tests := []struct {
 		name     string
