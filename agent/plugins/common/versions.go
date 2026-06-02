@@ -60,7 +60,7 @@ func ResolveLatestPluginVersion(serverDetails *config.ServerDetails, repoKey, sl
 func ResolvePluginVersion(serverDetails *config.ServerDetails, repoKey, slug, requested string, quiet bool) (string, error) {
 	requested = strings.TrimSpace(requested)
 	if requested != "" && requested != "latest" {
-		if err := ValidateVersion(requested); err != nil {
+		if err := agentcommon.ValidateSemver(requested); err != nil {
 			return "", err
 		}
 	}
