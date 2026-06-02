@@ -24,7 +24,6 @@ var askYesNo = coreutils.AskYesNo
 var isNonInteractive = agentcommon.IsNonInteractive
 
 const updateAllConfirmPrompt = "Update all discovered plugins under the given harness(es) to their latest version in the repository? " +
-	"Each install folder name is used as the repository slug (same as update --slug). " +
 	"Matching packages will be updated, including installs that were not made with JFrog CLI."
 
 // pluginBackupDirName is the directory under the plugins parent where update backups are stored.
@@ -50,45 +49,66 @@ type preUpdate struct {
 func RunUpdate(c *components.Context) error {
 	all := c.GetBoolFlagValue("all")
 	slugFlag := strings.TrimSpace(c.GetStringFlagValue("slug"))
-	if !all && slugFlag == "" {
-		if c.GetNumberOfArgs() > 0 {
-			return fmt.Errorf("unexpected positional argument(s); use --slug to specify the plugin")
-		}
-		return fmt.Errorf("usage: jf agent plugins update --slug <slug> (--harness <name[,name...]> [--global] [--project-dir <dir>] | --path <dir>) [--repo <repo>] [--version <ver>] [--dry-run] [--force] [--format <table|json>]\n       jf agent plugins update --all --harness <name[,name...]> [--global] [--project-dir <dir>] [--repo <repo>] [--dry-run] [--force] [--format <table|json>]")
-	}
-	if all {
-		if slugFlag != "" {
-			return fmt.Errorf("--all cannot be combined with --slug; it updates every installed plugin for the given --harness list")
-		}
-		if c.GetNumberOfArgs() > 0 {
-			return fmt.Errorf("unexpected positional argument(s); use --slug or --all")
-		}
-		if strings.TrimSpace(c.GetStringFlagValue("version")) != "" {
-			return fmt.Errorf("--all cannot be combined with --version; it always updates to the latest version")
-		}
-		if strings.TrimSpace(c.GetStringFlagValue("path")) != "" {
-			return fmt.Errorf("--all cannot be combined with --path; --path targets a single install directory")
-		}
+	if err := validateUpdateArgs(c, all, slugFlag); err != nil {
+		return err
 	}
 
 	opts, err := newUpdate(c)
 	if err != nil {
 		return err
 	}
-	if all && opts.flags.AbsoluteInstallBaseDir != "" {
+	if all {
+		return runUpdateAllMode(opts)
+	}
+	return runSingleSlugUpdate(c, opts, slugFlag)
+}
+
+func validateUpdateArgs(c *components.Context, all bool, slugFlag string) error {
+	if !all && slugFlag == "" {
+		if c.GetNumberOfArgs() > 0 {
+			return fmt.Errorf("unexpected positional argument(s); use --slug to specify the plugin")
+		}
+		return fmt.Errorf("usage: jf agent plugins update --slug <slug> (--harness <name[,name...]> [--global] [--project-dir <dir>] | --path <dir>) [--repo <repo>] [--version <ver>] [--dry-run] [--force] [--format <table|json>]\n       jf agent plugins update --all --harness <name[,name...]> [--global] [--project-dir <dir>] [--repo <repo>] [--dry-run] [--force] [--format <table|json>]")
+	}
+	if !all {
+		return nil
+	}
+	if slugFlag != "" {
+		return fmt.Errorf("--all cannot be combined with --slug; it updates every installed plugin for the given --harness list")
+	}
+	if c.GetNumberOfArgs() > 0 {
+		return fmt.Errorf("unexpected positional argument(s); use --slug or --all")
+	}
+	if strings.TrimSpace(c.GetStringFlagValue("version")) != "" {
+		return fmt.Errorf("--all cannot be combined with --version; it always updates to the latest version")
+	}
+	if strings.TrimSpace(c.GetStringFlagValue("path")) != "" {
+		return fmt.Errorf("--all cannot be combined with --path; --path targets a single install directory")
+	}
+	return nil
+}
+
+func validateUpdateAllTargets(flags agentcommon.InstallFlagsResult) error {
+	if flags.AbsoluteInstallBaseDir != "" {
 		return fmt.Errorf("--all requires --harness; --path is not supported")
 	}
-	if all && len(opts.flags.Specs) == 0 {
+	if len(flags.Specs) == 0 {
 		return fmt.Errorf("--all requires --harness <name[,name...]>")
 	}
+	return nil
+}
 
-	if all {
-		if err := confirmUpdateAll(opts); err != nil {
-			return err
-		}
-		return runUpdateAll(opts)
+func runUpdateAllMode(opts update) error {
+	if err := validateUpdateAllTargets(opts.flags); err != nil {
+		return err
 	}
+	if err := confirmUpdateAll(opts); err != nil {
+		return err
+	}
+	return runUpdateAll(opts)
+}
 
+func runSingleSlugUpdate(c *components.Context, opts update, slugFlag string) error {
 	if c.GetNumberOfArgs() > 0 {
 		return fmt.Errorf("unexpected positional argument(s); use --slug to specify the plugin")
 	}
@@ -145,7 +165,7 @@ func runUpdateOnSlug(opts update, slug, requestedVersion string) error {
 		return err
 	}
 
-	targetVersion, err := resolveTargetVersion(opts.serverDetails, opts.repoKey, slug, requestedVersion, opts.quiet)
+	targetVersion, err := resolvePluginVersion(opts.serverDetails, opts.repoKey, slug, requestedVersion, opts.quiet)
 	if err != nil {
 		return err
 	}
@@ -292,10 +312,6 @@ func finalizeUpdateAll(combined []agentcommon.UpdateAllSummaryRow, outcome updat
 		return outcome.firstResolveErr
 	}
 	return nil
-}
-
-func resolveTargetVersion(serverDetails *config.ServerDetails, repoKey, slug, requested string, quiet bool) (string, error) {
-	return resolvePluginVersion(serverDetails, repoKey, slug, requested, quiet)
 }
 
 // updateSlugAcrossTargets fetches the slug once and runs the backup+copy loop per target.

@@ -21,10 +21,21 @@ func ResolveSkillVersion(serverDetails *config.ServerDetails, repoKey, slug, req
 	for idx, skillVersion := range versions {
 		available[idx] = skillVersion.Version
 	}
-	return agentcommon.SelectPackageVersion(available, requested, repoKey, quiet)
+	return agentcommon.SelectPackageVersion(available, strings.TrimSpace(requested), repoKey, quiet)
 }
 
-// SelectSkillVersion resolves "" / "latest" / exact match / prompt.
-func SelectSkillVersion(available []string, requested, repoKey string, quiet bool) (string, error) {
-	return agentcommon.SelectPackageVersion(available, requested, repoKey, quiet)
+// ResolveLatestSkillVersion returns the greatest semver from ListVersions.
+func ResolveLatestSkillVersion(serverDetails *config.ServerDetails, repoKey, slug string) (string, error) {
+	versions, err := ListVersions(serverDetails, repoKey, slug)
+	if err != nil {
+		return "", fmt.Errorf("failed to list versions for skill '%s': %w", slug, err)
+	}
+	if len(versions) == 0 {
+		return "", fmt.Errorf("skill '%s' has no versions in repository '%s'", slug, repoKey)
+	}
+	versionStrs := make([]string, len(versions))
+	for idx, skillVersion := range versions {
+		versionStrs[idx] = skillVersion.Version
+	}
+	return agentcommon.LatestVersion(versionStrs)
 }

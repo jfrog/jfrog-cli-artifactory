@@ -35,11 +35,15 @@ func GetSubCommands() []components.Command {
 			Action:      install.RunInstall,
 		},
 		{
-			Name:        "update",
-			Flags:       flagkit.GetCommandFlags(flagkit.SkillsUpdate),
-			Description: "Update an installed skill to the latest (or a specific) version. Same targeting flags as install: use --harness (comma-separated) with --project-dir (default: current directory) or --global, or --path <dir> for a direct update at <dir>/<slug>. Pre-update checks skip targets that are not installed or already at the target version (use --force to re-download). Logs skip and failure reasons when not quiet. Downloads once for all targets. Use --dry-run to preview, --format json for machine-readable summaries.",
-			Arguments:   getUpdateArguments(),
-			Action:      update.RunUpdate,
+			Name:  "update",
+			Flags: flagkit.GetCommandFlags(flagkit.SkillsUpdate),
+			Description: "Update an installed skill to the latest (or a specific) version. " +
+				"Use --slug with --harness (comma-separated) and --project-dir or --global; or --slug with --path <dir>. " +
+				"With --all (requires --harness), updates every discovered skill under those harnesses to latest in one summary table " +
+				"(interactive confirmation before proceeding; folder name is the slug, same as --slug). " +
+				"Skips targets not installed or already at the target version (use --force to re-download). " +
+				"Use --dry-run to preview, --format json for machine-readable summaries.",
+			Action: update.RunUpdate,
 		},
 		{
 			Name:        "search",
@@ -81,15 +85,6 @@ func getInstallArguments() []components.Argument {
 		{
 			Name:        "slug",
 			Description: "Skill name/slug to install.",
-		},
-	}
-}
-
-func getUpdateArguments() []components.Argument {
-	return []components.Argument{
-		{
-			Name:        "slug",
-			Description: "Skill name/slug to update.",
 		},
 	}
 }
