@@ -66,6 +66,7 @@ func pluginSlugsFromInstallDirEntries(installDir string, entries []os.DirEntry) 
 		}
 		pluginDir := filepath.Join(installDir, name)
 		if _, err := ReadInstalledPluginVersion(pluginDir); err != nil {
+			log.Warn(fmt.Sprintf("Skipping plugin '%s': %s", name, err.Error()))
 			continue
 		}
 		slugs = append(slugs, name)
