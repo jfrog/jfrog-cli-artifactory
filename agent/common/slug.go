@@ -1,6 +1,9 @@
 package common
 
-import "fmt"
+import (
+	"fmt"
+	"unicode"
+)
 
 // ValidateSlug checks that a package slug is safe for repository paths and Artifactory layout.
 // It must start with a lowercase letter or digit, then contain only lowercase letters, digits, or hyphens.
@@ -15,7 +18,8 @@ func ValidateSlug(slug string) error {
 		return fmt.Errorf("invalid slug %q: must start with a lowercase letter or digit", slug)
 	}
 	for charIndex := 1; charIndex < len(slug); charIndex++ {
-		if !isSlugChar(slug[charIndex]) {
+		c := slug[charIndex]
+		if c != '-' && !isSlugStartChar(c) {
 			return fmt.Errorf("invalid slug %q: may contain only lowercase letters, digits, and hyphens", slug)
 		}
 	}
@@ -23,9 +27,6 @@ func ValidateSlug(slug string) error {
 }
 
 func isSlugStartChar(character byte) bool {
-	return (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9')
-}
-
-func isSlugChar(character byte) bool {
-	return isSlugStartChar(character) || character == '-'
+	r := rune(character)
+	return unicode.IsLower(r) || unicode.IsDigit(r)
 }
