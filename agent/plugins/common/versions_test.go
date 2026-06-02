@@ -19,3 +19,8 @@ func TestListPluginVersions_EmptyRepoKey(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "repository is required")
 }
+
+func TestResolvePluginVersion_RejectsInvalidSemver(t *testing.T) {
+	_, err := ResolvePluginVersion(nil, "repo", "slug", "not-a-version", true)
+	require.Error(t, err)
+}

@@ -51,6 +51,15 @@ func TestResolveAgentTargetDirectories_LegacyInstallPath(t *testing.T) {
 }
 
 func TestResolveVersion_ExplicitOverridesMarketplace(t *testing.T) {
+	restore := resolvePluginVersion
+	resolvePluginVersion = func(_ *config.ServerDetails, _, slug, requested string, quiet bool) (string, error) {
+		assert.Equal(t, "my-plugin", slug)
+		assert.Equal(t, "1.0.0", requested)
+		assert.False(t, quiet)
+		return "1.0.0", nil
+	}
+	t.Cleanup(func() { resolvePluginVersion = restore })
+
 	cmd := NewInstallCommand().
 		SetSlug("my-plugin").
 		SetAgents([]plugincommon.AgentSpec{{Name: "claude"}}).
@@ -62,13 +71,15 @@ func TestResolveVersion_ExplicitOverridesMarketplace(t *testing.T) {
 }
 
 func TestResolveVersion_EmptyVersionWithPathResolvesLatest(t *testing.T) {
-	restore := resolveLatestPluginVersion
-	resolveLatestPluginVersion = func(_ *config.ServerDetails, repoKey, slug string) (string, error) {
+	restore := resolvePluginVersion
+	resolvePluginVersion = func(_ *config.ServerDetails, repoKey, slug, requested string, quiet bool) (string, error) {
 		assert.Equal(t, "plugins-repo", repoKey)
 		assert.Equal(t, "my-plugin", slug)
+		assert.Equal(t, "", requested)
+		assert.False(t, quiet)
 		return "1.2.3", nil
 	}
-	t.Cleanup(func() { resolveLatestPluginVersion = restore })
+	t.Cleanup(func() { resolvePluginVersion = restore })
 
 	cmd := NewInstallCommand().
 		SetSlug("my-plugin").

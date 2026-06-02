@@ -15,8 +15,8 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-// resolveLatestPluginVersion is swappable in tests.
-var resolveLatestPluginVersion = plugincommon.ResolveLatestPluginVersion
+// resolvePluginVersion is swappable in tests.
+var resolvePluginVersion = plugincommon.ResolvePluginVersion
 
 // InstallCommand installs an agent plugin for configured agents or a direct --path target.
 type InstallCommand struct {
@@ -160,20 +160,17 @@ func (ic *InstallCommand) Run() error {
 
 // resolveVersion picks the version to install based on the requested --version and --harness.
 //
-//   - --version 1.0.0 (exact) → use directly
+//   - --version 1.0.0 (exact) → verify in repository; prompt to pick if missing (interactive)
 //   - --version latest         → ListPluginVersions on Artifactory, pick latest semver
 //   - --version "" + harness   → download <harness>-marketplace.json, look up slug, use that version,
 //     then delete marketplace.json (deferred cleanup)
 //   - --version "" + path-only → ListPluginVersions on Artifactory, pick latest semver (same as skills)
 func (ic *InstallCommand) resolveVersion() (string, error) {
 	requested := strings.TrimSpace(ic.version)
-	if requested != "" && requested != "latest" {
-		return requested, nil
+	if requested == "" && len(ic.agents) > 0 {
+		return ic.resolveVersionFromMarketplaces()
 	}
-	if requested == "latest" || len(ic.agents) == 0 {
-		return resolveLatestPluginVersion(ic.serverDetails, ic.repoKey, ic.slug)
-	}
-	return ic.resolveVersionFromMarketplaces()
+	return resolvePluginVersion(ic.serverDetails, ic.repoKey, ic.slug, requested, ic.quiet)
 }
 
 func (ic *InstallCommand) resolveVersionFromMarketplaces() (string, error) {
