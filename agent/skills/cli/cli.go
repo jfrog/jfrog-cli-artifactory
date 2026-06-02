@@ -35,15 +35,10 @@ func GetSubCommands() []components.Command {
 			Action:      install.RunInstall,
 		},
 		{
-			Name:  "update",
-			Flags: flagkit.GetCommandFlags(flagkit.SkillsUpdate),
-			Description: "Update an installed skill to the latest (or a specific) version. " +
-				"Use --slug with --harness (comma-separated) and --project-dir or --global; or --slug with --path <dir>. " +
-				"With --all (requires --harness), updates every discovered skill under those harnesses to latest in one summary table " +
-				"(interactive confirmation before proceeding; folder name is the slug, same as --slug). " +
-				"Skips targets not installed or already at the target version (use --force to re-download). " +
-				"Use --dry-run to preview, --format json for machine-readable summaries.",
-			Action: update.RunUpdate,
+			Name:        "update",
+			Flags:       flagkit.GetCommandFlags(flagkit.SkillsUpdate),
+			Description: "Update an installed skill from Artifactory (latest or --version). --slug with --harness (--project-dir or --global) or --path; --all batch-updates under --harness (confirmation prompt). Skips unchanged targets unless --force. --dry-run and --format json supported.",
+			Action:      update.RunUpdate,
 		},
 		{
 			Name:        "search",
