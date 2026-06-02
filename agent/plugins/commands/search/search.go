@@ -50,9 +50,9 @@ func (sc *SearchCommand) Run() error {
 	return agentcommon.PrintSearchResults(rows, agentcommon.PrintSearchResultsOptions{
 		Query:           sc.query,
 		Format:          sc.format,
-		TableTitle:      "Plugins",
-		EmptyTableLabel: "No plugins found",
-		NotFoundMessage: "No plugins found matching '%s'.",
+		TableTitle:      plugincommon.SearchTableTitle,
+		EmptyTableLabel: plugincommon.SearchEmptyTableLabel,
+		NotFoundMessage: plugincommon.SearchNotFoundMessage,
 	})
 }
 

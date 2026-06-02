@@ -8,7 +8,7 @@ import (
 )
 
 func ListSkills(serverDetails *config.ServerDetails, repoKey string, limit int, sortBy string) ([]services.SkillListItem, error) {
-	sm, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
+	serviceManager, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
 	if err != nil {
 		return nil, err
 	}
@@ -16,7 +16,7 @@ func ListSkills(serverDetails *config.ServerDetails, repoKey string, limit int, 
 	cursor := ""
 	pageSize := 100
 	for {
-		items, nextCursor, err := sm.ListSkills(repoKey, pageSize, cursor, sortBy)
+		items, nextCursor, err := serviceManager.ListSkills(repoKey, pageSize, cursor, sortBy)
 		if err != nil {
 			return nil, err
 		}
@@ -33,27 +33,27 @@ func ListSkills(serverDetails *config.ServerDetails, repoKey string, limit int, 
 }
 
 func ListVersions(serverDetails *config.ServerDetails, repoKey, slug string) ([]services.SkillVersion, error) {
-	sm, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
+	serviceManager, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
 	if err != nil {
 		return nil, err
 	}
-	return sm.ListSkillVersions(repoKey, slug)
+	return serviceManager.ListSkillVersions(repoKey, slug)
 }
 
 func SearchSkills(serverDetails *config.ServerDetails, repoKey, query string, limit int) ([]services.SkillSearchResult, error) {
-	sm, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
+	serviceManager, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
 	if err != nil {
 		return nil, err
 	}
-	return sm.SearchSkills(repoKey, query, limit)
+	return serviceManager.SearchSkills(repoKey, query, limit)
 }
 
 func VersionExists(serverDetails *config.ServerDetails, repoKey, slug, version string) (bool, error) {
-	sm, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
+	serviceManager, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
 	if err != nil {
 		return false, err
 	}
-	return sm.SkillVersionExists(repoKey, slug, version)
+	return serviceManager.SkillVersionExists(repoKey, slug, version)
 }
 
 func SearchSkillsByProperty(serverDetails *config.ServerDetails, query, repoKey string) ([]services.SkillPropertySearchResult, error) {

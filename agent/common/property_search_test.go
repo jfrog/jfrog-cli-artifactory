@@ -9,7 +9,7 @@ import (
 
 func TestParsePropertySearchURI_Valid(t *testing.T) {
 	uri := "https://example.com/artifactory/api/storage/plugins-local/my-plugin/1.0.0/my-plugin-1.0.0.zip"
-	got, ok := ParsePropertySearchURI(uri)
+	got, ok := parsePropertySearchURI(uri)
 	require.True(t, ok)
 	assert.Equal(t, "plugins-local", got.Repo)
 	assert.Equal(t, "my-plugin", got.Name)
@@ -18,7 +18,7 @@ func TestParsePropertySearchURI_Valid(t *testing.T) {
 }
 
 func TestParsePropertySearchURI_Invalid(t *testing.T) {
-	_, ok := ParsePropertySearchURI("https://example.com/artifactory/plugins-local/foo")
+	_, ok := parsePropertySearchURI("https://example.com/artifactory/plugins-local/foo")
 	assert.False(t, ok)
 }
 
@@ -41,6 +41,6 @@ func TestPropertySearchRequestURL(t *testing.T) {
 		RepoKey:         "plugins-local",
 	}
 	got := propertySearchRequestURL("https://example.com/artifactory/", opts, "demo")
-	assert.Contains(t, got, "https://example.com/artifactory/api/search/prop?agentplugins.name=demo")
+	assert.Contains(t, got, "https://example.com/artifactory/"+artifactoryPropertySearchAPI+"?agentplugins.name=demo")
 	assert.Contains(t, got, "repos=plugins-local")
 }

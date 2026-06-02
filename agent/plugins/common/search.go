@@ -1,8 +1,12 @@
 package common
 
-// Property keys used for agent plugin search (Artifactory property search API).
+// Property keys and CLI output labels for agent plugin search.
 const (
 	SearchNamePropertyKey = "agentplugins.name"
+
+	SearchTableTitle      = "Plugins"
+	SearchEmptyTableLabel = "No plugins found"
+	SearchNotFoundMessage = "No plugins found matching '%s'."
 )
 
 // SearchDescriptionPropertyKeys lists description property keys tried in order.

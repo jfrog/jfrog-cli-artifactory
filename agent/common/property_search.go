@@ -10,10 +10,19 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory"
+	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
+
+// artifactoryPropertySearchAPI is the Artifactory REST path for GET property search.
+// See https://jfrog.com/help/r/jfrog-rest-apis/property-search
+const artifactoryPropertySearchAPI = "api/search/prop"
+
+// artifactoryStorageURIInfix is the "/api/storage/" segment in item URIs returned by property search.
+// Built from jfrog-client-go StorageRestApi (Artifactory Storage REST API path).
+const artifactoryStorageURIInfix = "/" + services.StorageRestApi
 
 // PropertySearchResult is one artifact hit from Artifactory GET api/search/prop.
 type PropertySearchResult struct {
@@ -38,19 +47,35 @@ type propSearchResultItem struct {
 	URI string `json:"uri"`
 }
 
+// HTTP client settings for property search: same defaults as jfrog-client-go config.NewConfigBuilder
+// (3 retries, 0 ms retry wait) and standard CLI lightweight API calls via utils.CreateServiceManager.
+const (
+	propertySearchHTTPRetries            = 3
+	propertySearchHTTPRetryWaitMilliSecs = 0
+)
+
+func createPropertySearchServiceManager(serverDetails *config.ServerDetails) (artifactory.ArtifactoryServicesManager, error) {
+	return utils.CreateServiceManager(
+		serverDetails,
+		propertySearchHTTPRetries,
+		propertySearchHTTPRetryWaitMilliSecs,
+		false,
+	)
+}
+
 // SearchByProperty calls GET api/search/prop?{namePropertyKey}={query}[&repos={repoKey}].
 func SearchByProperty(serverDetails *config.ServerDetails, opts PropertySearchOptions) ([]PropertySearchResult, error) {
 	query, err := validatePropertySearchOpts(opts)
 	if err != nil {
 		return nil, err
 	}
-	sm, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
+	serviceManager, err := createPropertySearchServiceManager(serverDetails)
 	if err != nil {
 		return nil, err
 	}
-	artURL := clientutils.AddTrailingSlashIfNeeded(sm.GetConfig().GetServiceDetails().GetUrl())
+	artURL := clientutils.AddTrailingSlashIfNeeded(serviceManager.GetConfig().GetServiceDetails().GetUrl())
 	searchURL := propertySearchRequestURL(artURL, opts, query)
-	uris, err := fetchPropertySearchURIs(sm, searchURL)
+	uris, err := fetchPropertySearchURIs(serviceManager, searchURL)
 	if err != nil {
 		return nil, err
 	}
@@ -69,18 +94,18 @@ func validatePropertySearchOpts(opts PropertySearchOptions) (string, error) {
 }
 
 func propertySearchRequestURL(artURL string, opts PropertySearchOptions, query string) string {
-	searchURL := fmt.Sprintf("%sapi/search/prop?%s=%s", artURL, opts.NamePropertyKey, url.QueryEscape(query))
+	searchURL := fmt.Sprintf("%s%s?%s=%s", artURL, artifactoryPropertySearchAPI, opts.NamePropertyKey, url.QueryEscape(query))
 	if strings.TrimSpace(opts.RepoKey) != "" {
 		searchURL += "&repos=" + url.QueryEscape(opts.RepoKey)
 	}
 	return searchURL
 }
 
-func fetchPropertySearchURIs(sm artifactory.ArtifactoryServicesManager, searchURL string) ([]string, error) {
+func fetchPropertySearchURIs(serviceManager artifactory.ArtifactoryServicesManager, searchURL string) ([]string, error) {
 	log.Debug("Property search request:", searchURL)
 
-	httpDetails := sm.GetConfig().GetServiceDetails().CreateHttpClientDetails()
-	resp, body, _, err := sm.Client().SendGet(searchURL, true, &httpDetails)
+	httpDetails := serviceManager.GetConfig().GetServiceDetails().CreateHttpClientDetails()
+	resp, body, _, err := serviceManager.Client().SendGet(searchURL, true, &httpDetails)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +126,7 @@ func fetchPropertySearchURIs(sm artifactory.ArtifactoryServicesManager, searchUR
 func propertySearchResultsFromURIs(uris []string) []PropertySearchResult {
 	results := make([]PropertySearchResult, 0, len(uris))
 	for _, uri := range uris {
-		parsed, ok := ParsePropertySearchURI(uri)
+		parsed, ok := parsePropertySearchURI(uri)
 		if !ok {
 			log.Warn(fmt.Sprintf("Skipping property search result with unparseable URI: %s", uri))
 			continue
@@ -111,14 +136,14 @@ func propertySearchResultsFromURIs(uris []string) []PropertySearchResult {
 	return results
 }
 
-// ParsePropertySearchURI extracts repo, slug, and version from a storage URI like:
+// parsePropertySearchURI extracts repo, slug, and version from a storage URI like:
 // https://host/artifactory/api/storage/{repo}/{slug}/{version}/{slug}-{version}.zip
-func ParsePropertySearchURI(uri string) (PropertySearchResult, bool) {
-	idx := strings.Index(uri, "/api/storage/")
+func parsePropertySearchURI(uri string) (PropertySearchResult, bool) {
+	idx := strings.Index(uri, artifactoryStorageURIInfix)
 	if idx == -1 {
 		return PropertySearchResult{}, false
 	}
-	path := uri[idx+len("/api/storage/"):]
+	path := uri[idx+len(artifactoryStorageURIInfix):]
 	parts := strings.SplitN(path, "/", 4)
 	if len(parts) < 3 {
 		return PropertySearchResult{}, false
@@ -137,11 +162,11 @@ func GetItemPropertyDescription(
 	repoPath string,
 	descriptionPropertyKeys []string,
 ) (string, error) {
-	sm, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
+	serviceManager, err := createPropertySearchServiceManager(serverDetails)
 	if err != nil {
 		return "", err
 	}
-	props, err := sm.GetItemProps(repoPath)
+	props, err := serviceManager.GetItemProps(repoPath)
 	if err != nil {
 		return "", err
 	}

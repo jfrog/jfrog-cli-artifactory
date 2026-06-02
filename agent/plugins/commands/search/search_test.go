@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
+	plugincommon "github.com/jfrog/jfrog-cli-artifactory/agent/plugins/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -13,9 +14,9 @@ func TestSearchCommand_RunEmptyResults(t *testing.T) {
 	err := agentcommon.PrintSearchResults(nil, agentcommon.PrintSearchResultsOptions{
 		Query:           sc.query,
 		Format:          sc.format,
-		TableTitle:      "Plugins",
-		EmptyTableLabel: "No plugins found",
-		NotFoundMessage: "No plugins found matching '%s'.",
+		TableTitle:      plugincommon.SearchTableTitle,
+		EmptyTableLabel: plugincommon.SearchEmptyTableLabel,
+		NotFoundMessage: plugincommon.SearchNotFoundMessage,
 	})
 	require.NoError(t, err)
 }
