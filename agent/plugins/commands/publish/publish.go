@@ -101,19 +101,6 @@ func (pc *PublishCommand) Run() error {
 		return err
 	}
 
-	// Update plugin.json on disk before zipping, matching jf agent skills publish (SKILL.md is updated
-	// before zip there too). If a later step fails, the manifest stays at the new version; skills
-	// publish behaves the same way and does not roll back.
-	if meta.ManifestVersion != "" && meta.ManifestVersion != version {
-		log.Info(fmt.Sprintf(
-			"Updating plugin.json on disk from '%s' to '%s' before publish",
-			meta.ManifestVersion, version,
-		))
-		if err := plugincommon.UpdatePluginManifestVersions(pc.pluginDir, version); err != nil {
-			return fmt.Errorf("failed to update plugin.json version: %w", err)
-		}
-	}
-
 	log.Info(fmt.Sprintf("Publishing plugin '%s' version '%s'", slug, version))
 
 	zipPath, sha256Hex, zipTmpDir, _, err := pc.resolveZip(slug, version)

@@ -232,7 +232,7 @@ func TestValidateSlug(t *testing.T) {
 	}
 }
 
-func TestUpdatePluginManifestVersions_BeforePublishOrder(t *testing.T) {
+func TestUpdatePluginManifestVersions_UpdatesPrimaryManifest(t *testing.T) {
 	dir := t.TempDir()
 	writePluginJSON(t, dir, "plugin.json", map[string]string{"name": "demo", "version": "1.0.0"})
 
@@ -259,7 +259,7 @@ func TestUpdatePluginManifestVersions_BeforePublishOrder(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	if doc["version"] != "1.0.2" {
-		t.Fatalf("version on disk = %q, want 1.0.2 before zip/publish", doc["version"])
+		t.Fatalf("version on disk = %q, want 1.0.2", doc["version"])
 	}
 }
 
