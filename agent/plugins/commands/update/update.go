@@ -354,13 +354,12 @@ func preUpdateTargets(targets []plugincommon.AgentTarget, targetVersion string, 
 		preUpdateCheck := preUpdate{agentTarget: agentTarget}
 		installedVersion, err := plugincommon.ReadInstalledPluginVersion(agentTarget.DestinationDir)
 		if err != nil {
+			slug := filepath.Base(agentTarget.DestinationDir)
+			log.Warn(fmt.Sprintf("Skipping plugin '%s': %s", slug, err.Error()))
 			if errors.Is(err, fs.ErrNotExist) {
 				preUpdateCheck.failureReason = fmt.Sprintf("plugin not installed at %s; run 'jf agent plugins install' first", agentTarget.DestinationDir)
 			} else {
 				preUpdateCheck.failureReason = err.Error()
-			}
-			if !quiet {
-				log.Info(fmt.Sprintf("Skipping update for agent %s at %s: %s", agentTarget.Agent.Name, agentTarget.DestinationDir, preUpdateCheck.failureReason))
 			}
 			checks = append(checks, preUpdateCheck)
 			continue
