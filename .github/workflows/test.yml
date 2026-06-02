@@ -21,7 +21,7 @@ jobs:
         os: [ ubuntu, windows, macos ]
         pnpm-version: [ 10 ]
     env:
-      GOPROXY: direct
+      GOPROXY: https://proxy.golang.org,direct
       GRADLE_OPTS: -Dorg.gradle.daemon=false
       JFROG_CLI_LOG_LEVEL: "DEBUG"
     steps:
