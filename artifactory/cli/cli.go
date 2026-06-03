@@ -621,7 +621,6 @@ func printSummaryJSON(succeeded, failed int, failNoOp bool, originalErr error) e
 	return nil
 }
 
-
 func containerPushCmd(c *components.Context, containerManagerType containerutils.ContainerManagerType) (err error) {
 	if c.GetNumberOfArgs() != 2 {
 		return common.WrongNumberOfArgumentsHandler(c)

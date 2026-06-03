@@ -2,11 +2,11 @@ package cli
 
 import (
 	agentCLI "github.com/jfrog/jfrog-cli-artifactory/agent/cli"
+	skillsCLI "github.com/jfrog/jfrog-cli-artifactory/agent/skills/cli"
 	artifactoryCLI "github.com/jfrog/jfrog-cli-artifactory/artifactory/cli"
 	distributionCLI "github.com/jfrog/jfrog-cli-artifactory/distribution/cli"
 	ideCLI "github.com/jfrog/jfrog-cli-artifactory/ide/cli"
 	"github.com/jfrog/jfrog-cli-artifactory/lifecycle"
-	skillsCLI "github.com/jfrog/jfrog-cli-artifactory/skills/cli"
 	"github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 )
@@ -35,17 +35,16 @@ func GetJfrogCliArtifactoryApp() components.App {
 		Category:    "Command Namespaces",
 	})
 	app.Subcommands = append(app.Subcommands, components.Namespace{
-		Name:        "skills",
-		Aliases:     []string{"skill"},
-		Description: "Skills commands.",
-		Hidden:      true,
-		Commands:    skillsCLI.GetCommands(),
-		Category:    "Command Namespaces",
-	})
-	app.Subcommands = append(app.Subcommands, components.Namespace{
 		Name:        "agent",
 		Description: "Agent commands.",
 		Commands:    agentCLI.GetCommands(),
+		Category:    "Command Namespaces",
+	})
+	app.Subcommands = append(app.Subcommands, components.Namespace{
+		Name:        "skills",
+		Aliases:     []string{"skill"},
+		Description: "Agent skill commands (same as jf agent skills).",
+		Commands:    skillsCLI.GetSubCommands(),
 		Category:    "Command Namespaces",
 	})
 	app.Commands = append(app.Commands, lifecycle.GetCommands()...)

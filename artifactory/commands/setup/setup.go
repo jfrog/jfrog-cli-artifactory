@@ -432,14 +432,12 @@ func (sc *SetupCommand) configureContainer() error {
 	default:
 		return errorutils.CheckErrorf("unsupported container manager: %s", sc.packageManager)
 	}
-	// Parse the URL to remove the scheme (https:// or http://)
-	parsedPlatformURL, err := url.Parse(sc.serverDetails.GetUrl())
+	registryHost, err := deriveContainerRegistryHost(sc.serverDetails.GetArtifactoryUrl(), sc.serverDetails.GetUrl())
 	if err != nil {
-		return fmt.Errorf("failed to parse server URL: %w", err)
+		return err
 	}
-	urlWithoutScheme := parsedPlatformURL.Host + parsedPlatformURL.Path
 	if err := container.ContainerManagerLogin(
-		strings.TrimSuffix(urlWithoutScheme, "/"),
+		registryHost,
 		&container.ContainerManagerLoginConfig{ServerDetails: sc.serverDetails},
 		containerManagerType,
 		false,
@@ -447,6 +445,40 @@ func (sc *SetupCommand) configureContainer() error {
 		return fmt.Errorf("failed to login to container registry: %w", err)
 	}
 	return nil
+}
+
+// deriveContainerRegistryHost returns the docker/podman registry hostname
+// (no scheme, no path) for `docker login` / `podman login`.
+//
+// createServerDetailsFromFlags (jfrog-cli/utils/cliutils/utils.go) clears the
+// platform Url for the Rt domain after copying it into ArtifactoryUrl, so on
+// the --url path GetUrl() is empty and we must read GetArtifactoryUrl().
+// GetUrl() IS populated on the --server-id path (loaded from saved config),
+// so we fall back to it there. Returning an explicit error when both are
+// empty avoids the historical failure mode where `docker login ""` was
+// resolved by the daemon to Docker Hub and produced a misleading 401.
+func deriveContainerRegistryHost(artifactoryUrl, platformUrl string) (string, error) {
+	rawUrl := artifactoryUrl
+	if rawUrl == "" {
+		rawUrl = platformUrl
+	}
+	if rawUrl == "" {
+		return "", errorutils.CheckErrorf("server URL is empty; provide --url or --server-id")
+	}
+	parsedUrl, err := url.Parse(rawUrl)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse server URL: %w", err)
+	}
+	// url.Parse accepts scheme-less inputs (e.g. "acme.jfrog.io/artifactory") and
+	// treats the whole string as Path with an empty Host. Surface a specific
+	// error so users know to add http:// or https://.
+	if parsedUrl.Scheme == "" {
+		return "", errorutils.CheckErrorf("server URL %q is missing a scheme; expected http:// or https://", rawUrl)
+	}
+	if parsedUrl.Host == "" {
+		return "", errorutils.CheckErrorf("server URL %q has no host component", rawUrl)
+	}
+	return parsedUrl.Host, nil
 }
 
 // configureMaven updates the Maven settings.xml file to use the repo Url as mirror.

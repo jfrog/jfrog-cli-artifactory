@@ -91,6 +91,18 @@ func TestJfrogClientHTTPStatusCode(t *testing.T) {
 	}
 }
 
+func TestIsHTTPNotFound(t *testing.T) {
+	if !IsHTTPNotFound(errors.New("server response: 404 Not Found")) {
+		t.Fatal("expected 404")
+	}
+	if IsHTTPNotFound(errors.New("server response: 403 Forbidden")) {
+		t.Fatal("expected not 404")
+	}
+	if IsHTTPNotFound(errors.New("connection refused")) {
+		t.Fatal("expected unparseable error")
+	}
+}
+
 func TestPackageVersionExistsUnknownError(t *testing.T) {
 	err := fmt.Errorf("%w: %w", ErrVersionExistenceUnknown, errors.New("connection refused"))
 	if !errors.Is(err, ErrVersionExistenceUnknown) {
