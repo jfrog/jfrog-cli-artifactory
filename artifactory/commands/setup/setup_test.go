@@ -699,6 +699,112 @@ func TestSetupCommand_UV(t *testing.T) {
 	}
 }
 
+// TestDeriveContainerRegistryHost covers the URL-derivation logic for
+// `jf setup docker` / `jf setup podman`.
+//
+// The bug it guards against (RTECO-1352): createServerDetailsFromFlags in
+// jfrog-cli clears ServerDetails.Url for the Rt command domain after copying
+// it into ArtifactoryUrl. Before the fix, configureContainer read GetUrl()
+// directly, producing an empty registry host and `docker login ""`, which
+// docker silently resolves to Docker Hub (registry-1.docker.io) and fails
+// with a misleading 401.
+func TestDeriveContainerRegistryHost(t *testing.T) {
+	cases := []struct {
+		name           string
+		artifactoryUrl string
+		platformUrl    string
+		wantHost       string
+		wantErrContain string
+	}{
+		{
+			name:           "--url path: ArtifactoryUrl populated, Url cleared",
+			artifactoryUrl: "https://acme.jfrog.io/artifactory/",
+			platformUrl:    "",
+			wantHost:       "acme.jfrog.io",
+		},
+		{
+			name:           "--server-id path: Url populated from saved config",
+			artifactoryUrl: "",
+			platformUrl:    "https://acme.jfrog.io/",
+			wantHost:       "acme.jfrog.io",
+		},
+		{
+			name:           "ArtifactoryUrl takes precedence when both are set",
+			artifactoryUrl: "https://acme.jfrog.io/artifactory/",
+			platformUrl:    "https://wrong.example.com/",
+			wantHost:       "acme.jfrog.io",
+		},
+		{
+			name:           "self-hosted with explicit port preserves port in host",
+			artifactoryUrl: "https://artifactory.acme.com:8082/artifactory/",
+			platformUrl:    "",
+			wantHost:       "artifactory.acme.com:8082",
+		},
+		{
+			name:           "http scheme is accepted",
+			artifactoryUrl: "http://localhost:8081/artifactory/",
+			platformUrl:    "",
+			wantHost:       "localhost:8081",
+		},
+		{
+			name:           "self-hosted IP over HTTP",
+			artifactoryUrl: "http://10.0.0.10/artifactory",
+			platformUrl:    "",
+			wantHost:       "10.0.0.10",
+		},
+		{
+			name:           "self-hosted IP with port",
+			artifactoryUrl: "http://192.168.1.100:8082/artifactory/",
+			platformUrl:    "",
+			wantHost:       "192.168.1.100:8082",
+		},
+		{
+			name:           "IPv6 host with port",
+			artifactoryUrl: "https://[::1]:8082/artifactory/",
+			platformUrl:    "",
+			wantHost:       "[::1]:8082",
+		},
+		{
+			name:           "subdomain registry method preserves full subdomain",
+			artifactoryUrl: "https://docker-virtual.acme.jfrog.io/",
+			platformUrl:    "",
+			wantHost:       "docker-virtual.acme.jfrog.io",
+		},
+		{
+			name: "URL with embedded credentials does not leak into host",
+			// #nosec G101 -- test fixture: verifies userinfo is stripped from URL, not a real credential
+			artifactoryUrl: "https://user:secret-token@acme.jfrog.io/artifactory/",
+			platformUrl:    "",
+			wantHost:       "acme.jfrog.io",
+		},
+		{
+			name:           "URL without scheme returns scheme-specific error",
+			artifactoryUrl: "acme.jfrog.io/artifactory/",
+			platformUrl:    "",
+			wantErrContain: "is missing a scheme",
+		},
+		{
+			name:           "both empty returns explicit error, not empty host",
+			artifactoryUrl: "",
+			platformUrl:    "",
+			wantErrContain: "server URL is empty",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			host, err := deriveContainerRegistryHost(tc.artifactoryUrl, tc.platformUrl)
+			if tc.wantErrContain != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErrContain)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantHost, host)
+		})
+	}
+}
+
 func TestSetupCommand_Helm(t *testing.T) {
 	// Create a mock server to simulate Helm registry login
 	mockServer := setupMockHelmServer()
