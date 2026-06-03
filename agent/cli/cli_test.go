@@ -38,6 +38,6 @@ func TestGetCommands_HasPluginsAndSkillsNamespaces(t *testing.T) {
 func TestGetCommands_PluginsPublishDescription(t *testing.T) {
 	commands := GetCommands()
 	publish := commands[0].Subcommands[0]
-	assert.Contains(t, publish.Description, "Publish an agent plugin to Artifactory")
-	assert.Contains(t, publish.Description, "Signs and attaches evidence")
+	assert.Equal(t, "publish", publish.Name)
+	assert.Equal(t, "Publish an agent plugin to Artifactory.", publish.Description)
 }

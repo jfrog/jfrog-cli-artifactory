@@ -21,37 +21,36 @@ func TestGetSubCommands_HasPublishInstallUpdateAndDelete(t *testing.T) {
 	assert.NotNil(t, publish.Action)
 	require.Len(t, publish.Arguments, 1)
 	assert.Equal(t, "path", publish.Arguments[0].Name)
-	assert.Contains(t, publish.Description, "Publish an agent plugin to Artifactory")
-	assert.Contains(t, publish.Description, "Signs and attaches evidence")
+	assert.Equal(t, "Publish an agent plugin to Artifactory.", publish.Description)
+	assert.Equal(t, "Path to the agent plugin folder containing plugin.json.", publish.Arguments[0].Description)
 
 	installCmd := byName["install"]
 	assert.NotNil(t, installCmd.Action)
 	require.Len(t, installCmd.Arguments, 1)
 	assert.Equal(t, "slug", installCmd.Arguments[0].Name)
-	assert.Contains(t, installCmd.Description, "Install an agent plugin from Artifactory")
-	assert.Contains(t, installCmd.Description, "marketplace")
+	assert.Equal(t, "Install an agent plugin from Artifactory.", installCmd.Description)
+	assert.Equal(t, "Agent plugin slug to install.", installCmd.Arguments[0].Description)
 
 	updateCmd := byName["update"]
 	assert.NotNil(t, updateCmd.Action)
 	assert.Empty(t, updateCmd.Arguments)
-	assert.Contains(t, updateCmd.Description, "Update an installed plugin")
-	assert.Contains(t, updateCmd.Description, "--slug")
-	assert.Contains(t, updateCmd.Description, "--all")
+	assert.Equal(t, "Update an installed agent plugin.", updateCmd.Description)
 
 	del := byName["delete"]
 	assert.NotNil(t, del.Action)
 	require.Len(t, del.Arguments, 1)
 	assert.Equal(t, "slug", del.Arguments[0].Name)
-	assert.Contains(t, del.Description, "Delete a specific agent plugin version")
+	assert.Equal(t, "Delete a specific agent plugin version from Artifactory.", del.Description)
+	assert.Equal(t, "Agent plugin slug to delete.", del.Arguments[0].Description)
 
 	lst := byName["list"]
 	assert.NotNil(t, lst.Action)
-	assert.Contains(t, lst.Description, "List agent plugins")
+	assert.Equal(t, "List agent plugins from Artifactory or on the local machine.", lst.Description)
 
 	srch := byName["search"]
 	assert.NotNil(t, srch.Action)
 	require.Len(t, srch.Arguments, 1)
 	assert.Equal(t, "query", srch.Arguments[0].Name)
-	assert.Contains(t, srch.Description, "agentplugins.name")
-	assert.Contains(t, srch.Description, "property search")
+	assert.Equal(t, "Search for agent plugins in Artifactory.", srch.Description)
+	assert.Equal(t, "Agent plugin name or search term.", srch.Arguments[0].Description)
 }
