@@ -17,7 +17,7 @@ func TestGetSubCommands_DescriptionsAndArguments(t *testing.T) {
 		byName[cmd.Name] = cmd
 	}
 
-	assert.Equal(t, "List skills in Artifactory or locally.", byName["list"].Description)
+	assert.Equal(t, "List skills from Artifactory or on the local machine.", byName["list"].Description)
 
 	publish := byName["publish"]
 	assert.Equal(t, "Publish a skill to Artifactory.", publish.Description)

@@ -17,7 +17,7 @@ func GetSubCommands() []components.Command {
 		{
 			Name:        "list",
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsList),
-			Description: "List skills in Artifactory or locally.",
+			Description: "List skills from Artifactory or on the local machine.",
 			Action:      skillslist.RunList,
 		},
 		{

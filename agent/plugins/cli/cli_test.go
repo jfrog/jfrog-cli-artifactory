@@ -45,7 +45,7 @@ func TestGetSubCommands_HasPublishInstallUpdateAndDelete(t *testing.T) {
 
 	lst := byName["list"]
 	assert.NotNil(t, lst.Action)
-	assert.Equal(t, "List agent plugins in Artifactory or locally.", lst.Description)
+	assert.Equal(t, "List agent plugins from Artifactory or on the local machine.", lst.Description)
 
 	srch := byName["search"]
 	assert.NotNil(t, srch.Action)

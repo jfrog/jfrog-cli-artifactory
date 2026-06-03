@@ -44,7 +44,7 @@ func GetSubCommands() []components.Command {
 		{
 			Name:        "list",
 			Flags:       flagkit.GetCommandFlags(flagkit.AgentPluginsList),
-			Description: "List agent plugins in Artifactory or locally.",
+			Description: "List agent plugins from Artifactory or on the local machine.",
 			Action:      list.RunList,
 		},
 		{
