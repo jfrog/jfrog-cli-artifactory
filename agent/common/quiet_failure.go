@@ -4,7 +4,7 @@ const (
 	// EnvDisableQuietFailureSkills allows skills install without evidence in quiet/CI mode.
 	EnvDisableQuietFailureSkills = "JFROG_SKILLS_DISABLE_QUIET_FAILURE"
 	// EnvDisableQuietFailurePlugins allows plugins install without evidence in quiet/CI mode.
-	EnvDisableQuietFailurePlugins = "JFROG_PLUGINS_DISABLE_QUIET_FAILURE"
+	EnvDisableQuietFailurePlugins = "JFROG_AGENT_PLUGINS_DISABLE_QUIET_FAILURE"
 )
 
 // ShouldFailOnMissingEvidenceForSkills returns true when quiet/CI mode should fail on missing evidence.
