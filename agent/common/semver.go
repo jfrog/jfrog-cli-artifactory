@@ -52,11 +52,11 @@ func LatestVersion(versions []string) (string, error) {
 func CompareSemver(firstVersion, secondVersion string) (int, error) {
 	firstVersionParts, err := parseSemver(strings.TrimSpace(firstVersion))
 	if err != nil {
-		return 0, fmt.Errorf("compare semver: invalid first version %q: %w", firstVersion, err)
+		return 0, err
 	}
 	secondVersionParts, err := parseSemver(strings.TrimSpace(secondVersion))
 	if err != nil {
-		return 0, fmt.Errorf("compare semver: invalid second version %q: %w", secondVersion, err)
+		return 0, err
 	}
 	if firstVersionParts.Major != secondVersionParts.Major {
 		return firstVersionParts.Major - secondVersionParts.Major, nil
@@ -92,26 +92,24 @@ func ValidateSemver(version string) error {
 	if strings.ContainsAny(version, "/\\") {
 		return fmt.Errorf("invalid version %q: must not contain path separators", version)
 	}
-	if _, err := parseSemver(version); err != nil {
-		return fmt.Errorf("invalid semver version %q: %w", version, err)
-	}
-	return nil
+	_, err := parseSemver(version)
+	return err
 }
 
 func parseSemver(version string) (semverParts, error) {
 	versionWithoutPrefix := strings.TrimPrefix(version, "v")
 	versionSegments := strings.SplitN(versionWithoutPrefix, ".", 3)
 	if len(versionSegments) != 3 {
-		return semverParts{}, fmt.Errorf("invalid semver: %s", version)
+		return semverParts{}, fmt.Errorf("invalid version %q: expected format major.minor.patch", version)
 	}
 
 	major, err := strconv.Atoi(versionSegments[0])
 	if err != nil {
-		return semverParts{}, fmt.Errorf("invalid major version in %s: %w", version, err)
+		return semverParts{}, fmt.Errorf("invalid version %q: major must be a number (got %q)", version, versionSegments[0])
 	}
 	minor, err := strconv.Atoi(versionSegments[1])
 	if err != nil {
-		return semverParts{}, fmt.Errorf("invalid minor version in %s: %w", version, err)
+		return semverParts{}, fmt.Errorf("invalid version %q: minor must be a number (got %q)", version, versionSegments[1])
 	}
 
 	// Patch may contain pre-release or build metadata; take numeric part only for comparison
@@ -119,7 +117,7 @@ func parseSemver(version string) (semverParts, error) {
 	patchSegment = strings.SplitN(patchSegment, "+", 2)[0]
 	patch, err := strconv.Atoi(patchSegment)
 	if err != nil {
-		return semverParts{}, fmt.Errorf("invalid patch version in %s: %w", version, err)
+		return semverParts{}, fmt.Errorf("invalid version %q: patch must be a number (got %q)", version, patchSegment)
 	}
 
 	return semverParts{Major: major, Minor: minor, Patch: patch, Raw: version}, nil
