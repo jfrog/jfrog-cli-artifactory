@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
-	"github.com/jfrog/jfrog-cli-artifactory/agent/skills/commands/publish"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/skills/common"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
@@ -311,7 +310,7 @@ func RunInstall(c *components.Context) error {
 	}
 
 	slug := c.GetArgumentAt(0)
-	if err := publish.ValidateSlug(slug); err != nil {
+	if err := agentcommon.ValidateSlug(slug); err != nil {
 		return err
 	}
 

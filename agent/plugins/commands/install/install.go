@@ -120,7 +120,7 @@ func (ic *InstallCommand) Run() error {
 	}
 	ic.version = resolvedVersion
 
-	if err := plugincommon.ValidateVersion(ic.version); err != nil {
+	if err := agentcommon.ValidateSemver(ic.version); err != nil {
 		return err
 	}
 
@@ -305,7 +305,7 @@ func RunInstall(c *components.Context) error {
 	}
 
 	slug := c.GetArgumentAt(0)
-	if err := plugincommon.ValidateSlug(slug); err != nil {
+	if err := agentcommon.ValidateSlug(slug); err != nil {
 		return err
 	}
 

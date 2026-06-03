@@ -517,6 +517,7 @@ const (
 	AgentPluginsUpdate  = "agent-plugins-update"
 	AgentPluginsDelete  = "agent-plugins-delete"
 	AgentPluginsList    = "agent-plugins-list"
+	AgentPluginsSearch  = "agent-plugins-search"
 
 	// Agent namespace-specific flags (shared by skills and agent-plugins commands)
 	version    = "version"
@@ -900,6 +901,9 @@ var commandFlags = map[string][]string{
 	},
 	AgentPluginsList: {
 		url, user, password, accessToken, serverId, repo, harness, projectDir, agentGlobal, agentFormat, agentLimit, agentSortBy, agentSortOrder, agentCheckUpdates,
+	},
+	AgentPluginsSearch: {
+		url, user, password, accessToken, serverId, repo, agentFormat,
 	},
 	SkillsInstall: {
 		url, user, password, accessToken, serverId, repo, version, harness, projectDir, agentGlobal, installPath, agentFormat, agentQuiet,

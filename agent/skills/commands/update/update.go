@@ -125,7 +125,7 @@ func runSingleSlugUpdate(c *components.Context, updateParams update, slugFlag st
 	if c.GetNumberOfArgs() > 0 {
 		return fmt.Errorf("unexpected positional argument(s); use --slug to specify the skill")
 	}
-	if err := publish.ValidateSlug(slugFlag); err != nil {
+	if err := agentcommon.ValidateSlug(slugFlag); err != nil {
 		return err
 	}
 	requestedVersion := strings.TrimSpace(c.GetStringFlagValue("version"))

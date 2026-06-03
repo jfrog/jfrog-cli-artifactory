@@ -112,7 +112,7 @@ func runSingleSlugUpdate(c *components.Context, opts update, slugFlag string) er
 	if c.GetNumberOfArgs() > 0 {
 		return fmt.Errorf("unexpected positional argument(s); use --slug to specify the plugin")
 	}
-	if err := plugincommon.ValidateSlug(slugFlag); err != nil {
+	if err := agentcommon.ValidateSlug(slugFlag); err != nil {
 		return err
 	}
 	requestedVersion := strings.TrimSpace(c.GetStringFlagValue("version"))
@@ -165,7 +165,7 @@ func runUpdateOnSlug(opts update, slug, requestedVersion string) error {
 		return err
 	}
 
-	targetVersion, err := resolvePluginVersion(opts.serverDetails, opts.repoKey, slug, requestedVersion, opts.quiet)
+	targetVersion, err := resolveTargetVersion(opts.serverDetails, opts.repoKey, slug, requestedVersion, opts.quiet)
 	if err != nil {
 		return err
 	}
@@ -312,6 +312,10 @@ func finalizeUpdateAll(combined []agentcommon.UpdateAllSummaryRow, outcome updat
 		return outcome.firstResolveErr
 	}
 	return nil
+}
+
+func resolveTargetVersion(serverDetails *config.ServerDetails, repoKey, slug, requested string, quiet bool) (string, error) {
+	return resolvePluginVersion(serverDetails, repoKey, slug, requested, quiet)
 }
 
 // updateSlugAcrossTargets fetches the slug once and runs the backup+copy loop per target.
