@@ -9,40 +9,66 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+const latestVersionKeyword = "latest"
+
+// SelectPackageVersionOpts configures version resolution for install and update.
+type SelectPackageVersionOpts struct {
+	Available []string
+	Requested string
+	RepoKey   string
+	Quiet     bool
+}
+
 // SelectPackageVersion resolves "" / "latest" / exact match / interactive prompt for install and update.
-func SelectPackageVersion(available []string, requested, repoKey string, quiet bool) (string, error) {
-	if requested == "" || requested == "latest" {
-		latest, err := LatestVersion(available)
-		if err != nil {
-			return "", fmt.Errorf("failed to determine latest version: %w", err)
-		}
-		log.Info(fmt.Sprintf("Using latest version: %s", latest))
-		return latest, nil
+func SelectPackageVersion(opts SelectPackageVersionOpts) (string, error) {
+	requested := strings.TrimSpace(opts.Requested)
+	if isLatestVersionRequest(requested) {
+		return selectLatestPackageVersion(opts.Available)
 	}
-
-	for _, version := range available {
-		if version == requested {
-			return requested, nil
-		}
+	if version, found := findPackageVersion(opts.Available, requested); found {
+		return version, nil
 	}
-
-	if quiet || IsNonInteractive() {
+	if opts.Quiet || IsNonInteractive() {
 		return "", fmt.Errorf(
 			"version '%s' not found in repository '%s'.\nAvailable versions: %s",
-			requested, repoKey, strings.Join(available, ", "),
+			requested, opts.RepoKey, strings.Join(opts.Available, ", "),
 		)
 	}
+	return promptPackageVersionFromList(requested, opts.Available), nil
+}
 
+func isLatestVersionRequest(requested string) bool {
+	return requested == "" || requested == latestVersionKeyword
+}
+
+func selectLatestPackageVersion(available []string) (string, error) {
+	latest, err := LatestVersion(available)
+	if err != nil {
+		return "", fmt.Errorf("failed to determine latest version: %w", err)
+	}
+	log.Info(fmt.Sprintf("Using latest version: %s", latest))
+	return latest, nil
+}
+
+func findPackageVersion(available []string, requested string) (string, bool) {
+	for _, version := range available {
+		if version == requested {
+			return requested, true
+		}
+	}
+	return "", false
+}
+
+func promptPackageVersionFromList(requested string, available []string) string {
 	log.Warn(fmt.Sprintf("Version '%s' not found. Please select from the available versions below.", requested))
 
 	options := make([]prompt.Suggest, len(available))
 	for idx, version := range available {
 		options[idx] = prompt.Suggest{Text: version}
 	}
-	selected := ioutils.AskFromListWithMismatchConfirmation(
+	return ioutils.AskFromListWithMismatchConfirmation(
 		"Select a version:",
 		fmt.Sprintf("'%s' is not in the list of available versions.", requested),
 		options,
 	)
-	return selected, nil
 }

@@ -8,12 +8,6 @@ import (
 	"strings"
 )
 
-var slugRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
-
-// versionSafeRegex permits semver-like strings: digits, dots, hyphens, plus, and alphanumerics.
-// It rejects path separators, "..", null bytes, and other characters that could cause path traversal.
-var versionSafeRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.\-+]*$`)
-
 type SkillMeta struct {
 	Name        string
 	Description string
@@ -150,29 +144,6 @@ func UpdateSkillMetaVersion(skillDir, newVersion string) error {
 	// #nosec G306 G703 -- SKILL.md is a user-owned source file; path constructed from user-provided skill directory
 	if err := os.WriteFile(skillMDPath, []byte(updated), 0644); err != nil {
 		return fmt.Errorf("failed to write updated SKILL.md: %w", err)
-	}
-	return nil
-}
-
-// ValidateSlug checks that a skill slug matches the required pattern.
-func ValidateSlug(slug string) error {
-	if !slugRegex.MatchString(slug) {
-		return fmt.Errorf("invalid skill slug '%s': must match pattern ^[a-z0-9][a-z0-9-]*$", slug)
-	}
-	return nil
-}
-
-// ValidateVersion checks that a version string is safe for use in file paths.
-// It rejects path traversal sequences and characters that could escape the intended directory.
-func ValidateVersion(version string) error {
-	if version == "" {
-		return fmt.Errorf("version must not be empty")
-	}
-	if strings.Contains(version, "..") {
-		return fmt.Errorf("invalid version '%s': must not contain '..'", version)
-	}
-	if !versionSafeRegex.MatchString(version) {
-		return fmt.Errorf("invalid version '%s': must contain only alphanumeric characters, dots, hyphens, and plus signs", version)
 	}
 	return nil
 }

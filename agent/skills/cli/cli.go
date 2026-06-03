@@ -17,33 +17,33 @@ func GetSubCommands() []components.Command {
 		{
 			Name:        "list",
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsList),
-			Description: "List skills: registry (--repo), project-local (--harness [--project-dir], default .), or global-local (--harness --global). Use --check-updates with --harness to compare installs to the registry. --repo and --harness are mutually exclusive; --global and --project-dir are mutually exclusive.",
+			Description: "List skills from Artifactory or on the local machine.",
 			Action:      skillslist.RunList,
 		},
 		{
 			Name:        "publish",
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsPublish),
-			Description: "Publish a skill to Artifactory. Signs and attaches evidence if a signing key is provided. Runs Xray security scan after upload (use --skip-scan or JFROG_CLI_SKIP_SKILLS_SCAN=true to bypass). Scan timeout is configurable via JFROG_CLI_SKILLS_SCAN_TIMEOUT (default: 5m, e.g. 2m, 30s).",
+			Description: "Publish a skill to Artifactory.",
 			Arguments:   getPublishArguments(),
 			Action:      publish.RunPublish,
 		},
 		{
 			Name:        "install",
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsInstall),
-			Description: "Install a skill from Artifactory. Use --harness (comma-separated) with --project-dir (default: current directory) or --global, or use --path <dir> for a direct install to <dir>/<slug> (same layout as skills update). Harness paths use ~/.jfrog/agents/agent-config.json with built-in fallbacks. Verifies evidence when signing keys are configured. Use --format json for machine-readable install summary.",
+			Description: "Install a skill from Artifactory.",
 			Arguments:   getInstallArguments(),
 			Action:      install.RunInstall,
 		},
 		{
 			Name:        "update",
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsUpdate),
-			Description: "Update an installed skill from Artifactory (latest or --version). --slug with --harness (--project-dir or --global) or --path; --all batch-updates under --harness (confirmation prompt). Skips unchanged targets unless --force. --dry-run and --format json supported.",
+			Description: "Update an installed skill.",
 			Action:      update.RunUpdate,
 		},
 		{
 			Name:        "search",
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsSearch),
-			Description: "Search for skills across Artifactory repositories.",
+			Description: "Search for skills in Artifactory.",
 			Arguments:   getSearchArguments(),
 			Action:      search.RunSearch,
 		},
@@ -79,7 +79,7 @@ func getInstallArguments() []components.Argument {
 	return []components.Argument{
 		{
 			Name:        "slug",
-			Description: "Skill name/slug to install.",
+			Description: "Skill slug to install.",
 		},
 	}
 }
@@ -88,7 +88,7 @@ func getDeleteArguments() []components.Argument {
 	return []components.Argument{
 		{
 			Name:        "slug",
-			Description: "Skill name/slug to delete.",
+			Description: "Skill slug to delete.",
 		},
 	}
 }

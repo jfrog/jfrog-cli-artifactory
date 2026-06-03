@@ -245,36 +245,3 @@ func writePluginManifestVersion(path, newVersion string) error {
 	// #nosec G306,G703 -- path is pluginRoot + knownManifestRelPaths allowlist; user-owned manifest.
 	return os.WriteFile(path, updated, agentcommon.PrivateFileMode)
 }
-
-// ValidateSlug checks that a plugin slug is safe for repository paths and Artifactory layout.
-// It must start with a lowercase letter or digit, then contain only lowercase letters, digits, or hyphens.
-//
-// Accepted examples: "my-plugin", "skill123", "a", "4chan-reader"
-// Not accepted examples: "", "-invalid", "My-Skill", "has space", "foo/bar"
-func ValidateSlug(slug string) error {
-	if slug == "" {
-		return fmt.Errorf("invalid plugin slug %q: must not be empty", slug)
-	}
-	if !isSlugStartChar(slug[0]) {
-		return fmt.Errorf("invalid plugin slug %q: must start with a lowercase letter or digit", slug)
-	}
-	for charIndex := 1; charIndex < len(slug); charIndex++ {
-		if !isSlugChar(slug[charIndex]) {
-			return fmt.Errorf("invalid plugin slug %q: may contain only lowercase letters, digits, and hyphens", slug)
-		}
-	}
-	return nil
-}
-
-func isSlugStartChar(character byte) bool {
-	return (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9')
-}
-
-func isSlugChar(character byte) bool {
-	return isSlugStartChar(character) || character == '-'
-}
-
-// ValidateVersion checks that version is a valid semantic version for publish paths and Artifactory layout.
-func ValidateVersion(version string) error {
-	return agentcommon.ValidateSemver(version)
-}

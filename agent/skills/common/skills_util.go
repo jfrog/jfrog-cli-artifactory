@@ -2,7 +2,6 @@ package common
 
 import (
 	"fmt"
-	"strings"
 
 	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -12,7 +11,7 @@ import (
 func ResolveSkillVersion(serverDetails *config.ServerDetails, repoKey, slug, requested string, quiet bool) (string, error) {
 	versions, err := ListVersions(serverDetails, repoKey, slug)
 	if err != nil {
-		if strings.Contains(err.Error(), "404 Not Found") {
+		if agentcommon.IsHTTPNotFound(err) {
 			return "", fmt.Errorf("skill '%s' not found in repository '%s'", slug, repoKey)
 		}
 		return "", fmt.Errorf("failed to list versions: %w", err)
@@ -21,7 +20,12 @@ func ResolveSkillVersion(serverDetails *config.ServerDetails, repoKey, slug, req
 	for idx, skillVersion := range versions {
 		available[idx] = skillVersion.Version
 	}
-	return agentcommon.SelectPackageVersion(available, strings.TrimSpace(requested), repoKey, quiet)
+	return agentcommon.SelectPackageVersion(agentcommon.SelectPackageVersionOpts{
+		Available: available,
+		Requested: requested,
+		RepoKey:   repoKey,
+		Quiet:     quiet,
+	})
 }
 
 // ResolveLatestSkillVersion returns the greatest semver from ListVersions.
