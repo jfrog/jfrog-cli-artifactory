@@ -19,7 +19,7 @@ func TestGetCommands_HasPluginsAndSkillsNamespaces(t *testing.T) {
 		assert.NotNil(t, sub.Action, "plugins subcommand %q must have an Action", sub.Name)
 		pluginsNames = append(pluginsNames, sub.Name)
 	}
-	assert.ElementsMatch(t, []string{"publish", "install", "update", "delete", "list"}, pluginsNames)
+	assert.ElementsMatch(t, []string{"publish", "install", "update", "delete", "list", "search"}, pluginsNames)
 
 	skills := commands[1]
 	assert.Equal(t, "skills", skills.Name)
@@ -38,6 +38,6 @@ func TestGetCommands_HasPluginsAndSkillsNamespaces(t *testing.T) {
 func TestGetCommands_PluginsPublishDescription(t *testing.T) {
 	commands := GetCommands()
 	publish := commands[0].Subcommands[0]
-	assert.Contains(t, publish.Description, "Publish an agent plugin to Artifactory")
-	assert.Contains(t, publish.Description, "Signs and attaches evidence")
+	assert.Equal(t, "publish", publish.Name)
+	assert.Equal(t, "Publish an agent plugin to Artifactory.", publish.Description)
 }

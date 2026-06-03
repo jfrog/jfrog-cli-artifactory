@@ -83,14 +83,28 @@ func TestCompareSemver(t *testing.T) {
 }
 
 func TestValidateSemver(t *testing.T) {
-	valid := []string{"1.0.0", "1.2.3-rc.1", "0.1.0+build.1", "v2.0.0", "1.0.0+build.123"}
+	valid := []string{"1.0.0", "1.2.3-rc.1", "2.3.4-beta", "0.1.0+build.1", "v2.0.0", "1.0.0+build.123"}
 	for _, version := range valid {
 		assert.NoError(t, ValidateSemver(version), "version %q should be valid", version)
 	}
-	invalid := []string{"", "..", "1.0/.0", "not-a-version", "1.0..0", "../etc/passwd"}
+	invalid := []string{
+		"", "..", "1.0/.0", "not-a-version", "1.0..0", "../etc/passwd",
+		"1.0.0/../../etc", "valid..version", "has space", "/leading-slash", "-leading-hyphen",
+	}
 	for _, version := range invalid {
 		assert.Error(t, ValidateSemver(version), "version %q should be invalid", version)
 	}
+}
+
+func TestValidateSemver_ErrorMessageIsDirect(t *testing.T) {
+	t.Parallel()
+	err := ValidateSemver("1.9.e")
+	require.Error(t, err)
+	msg := err.Error()
+	assert.Equal(t, `invalid version "1.9.e": patch must be a number (got "e")`, msg)
+	assert.NotContains(t, msg, "strconv")
+	assert.NotContains(t, msg, "invalid semver version")
+	assert.NotContains(t, msg, "invalid patch version in")
 }
 
 func TestNextMinorVersion(t *testing.T) {

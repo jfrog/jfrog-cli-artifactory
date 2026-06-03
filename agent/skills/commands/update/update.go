@@ -32,7 +32,7 @@ func RunUpdate(c *components.Context) error {
 	}
 
 	slug := c.GetArgumentAt(0)
-	if err := publish.ValidateSlug(slug); err != nil {
+	if err := agentcommon.ValidateSlug(slug); err != nil {
 		return err
 	}
 

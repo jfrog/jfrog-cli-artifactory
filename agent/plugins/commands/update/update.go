@@ -33,6 +33,9 @@ const pluginBackupDirName = ".plugin-backup"
 // resolveLatestPluginVersion is swappable in tests.
 var resolveLatestPluginVersion = plugincommon.ResolveLatestPluginVersion
 
+// resolvePluginVersion is swappable in tests.
+var resolvePluginVersion = plugincommon.ResolvePluginVersion
+
 // updateSlugAcrossTargetsFn is swappable in tests.
 var updateSlugAcrossTargetsFn = updateSlugAcrossTargets
 
@@ -89,7 +92,7 @@ func RunUpdate(c *components.Context) error {
 	if c.GetNumberOfArgs() > 0 {
 		return fmt.Errorf("unexpected positional argument(s); use --slug to specify the plugin")
 	}
-	if err := plugincommon.ValidateSlug(slugFlag); err != nil {
+	if err := agentcommon.ValidateSlug(slugFlag); err != nil {
 		return err
 	}
 	requestedVersion := strings.TrimSpace(c.GetStringFlagValue("version"))
@@ -142,7 +145,7 @@ func runUpdateOnSlug(opts update, slug, requestedVersion string) error {
 		return err
 	}
 
-	targetVersion, err := resolveTargetVersion(opts.serverDetails, opts.repoKey, slug, requestedVersion)
+	targetVersion, err := resolveTargetVersion(opts.serverDetails, opts.repoKey, slug, requestedVersion, opts.quiet)
 	if err != nil {
 		return err
 	}
@@ -291,15 +294,8 @@ func finalizeUpdateAll(combined []agentcommon.UpdateAllSummaryRow, outcome updat
 	return nil
 }
 
-func resolveTargetVersion(serverDetails *config.ServerDetails, repoKey, slug, requested string) (string, error) {
-	requested = strings.TrimSpace(requested)
-	if requested != "" && requested != "latest" {
-		if err := plugincommon.ValidateVersion(requested); err != nil {
-			return "", err
-		}
-		return requested, nil
-	}
-	return resolveLatestPluginVersion(serverDetails, repoKey, slug)
+func resolveTargetVersion(serverDetails *config.ServerDetails, repoKey, slug, requested string, quiet bool) (string, error) {
+	return resolvePluginVersion(serverDetails, repoKey, slug, requested, quiet)
 }
 
 // updateSlugAcrossTargets fetches the slug once and runs the backup+copy loop per target.
