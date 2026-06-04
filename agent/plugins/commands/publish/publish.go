@@ -90,28 +90,15 @@ func (pc *PublishCommand) Run() error {
 		return err
 	}
 	slug := meta.Name
-	if err := plugincommon.ValidateSlug(slug); err != nil {
+	if err := common.ValidateSlug(slug); err != nil {
 		return err
 	}
 	version, err := pc.resolveVersionCollision(slug, meta.Version)
 	if err != nil {
 		return err
 	}
-	if err := plugincommon.ValidateVersion(version); err != nil {
+	if err := common.ValidateSemver(version); err != nil {
 		return err
-	}
-
-	// Update plugin.json on disk before zipping, matching jf agent skills publish (SKILL.md is updated
-	// before zip there too). If a later step fails, the manifest stays at the new version; skills
-	// publish behaves the same way and does not roll back.
-	if meta.ManifestVersion != "" && meta.ManifestVersion != version {
-		log.Info(fmt.Sprintf(
-			"Updating plugin.json on disk from '%s' to '%s' before publish",
-			meta.ManifestVersion, version,
-		))
-		if err := plugincommon.UpdatePluginManifestVersions(pc.pluginDir, version); err != nil {
-			return fmt.Errorf("failed to update plugin.json version: %w", err)
-		}
 	}
 
 	log.Info(fmt.Sprintf("Publishing plugin '%s' version '%s'", slug, version))
@@ -221,7 +208,7 @@ func (pc *PublishCommand) resolveVersionCollision(slug, version string) (string,
 		if newVersion == "" {
 			return "", fmt.Errorf("no version provided, aborting")
 		}
-		if err := plugincommon.ValidateVersion(newVersion); err != nil {
+		if err := common.ValidateSemver(newVersion); err != nil {
 			return "", err
 		}
 		return pc.resolveVersionCollision(slug, newVersion)

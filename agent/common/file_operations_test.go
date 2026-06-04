@@ -83,7 +83,7 @@ func TestEnsureDestinationDir_CreatesUnderExistingParent(t *testing.T) {
 
 func TestEnsureDestinationDir_CreatesNestedPath(t *testing.T) {
 	root := t.TempDir()
-	dest := filepath.Join(root, ".cursor", "plugins", "alpha")
+	dest := filepath.Join(root, "nested", "plugins", "alpha")
 	require.NoError(t, EnsureDestinationDir(dest))
 	info, err := os.Stat(dest)
 	require.NoError(t, err)

@@ -14,13 +14,14 @@ import (
 func GetCommands() []components.Command {
 	return []components.Command{
 		{
-			Name:        "setup",
-			Description: docs.GetDescription(),
-			Arguments:   docs.GetArguments(),
-			Flags:       getSetupFlags(),
-			Action:      setupCmd,
-			Aliases:     []string{"s"},
-			Category:    ideCategory,
+			Name:          "setup",
+			Description:   docs.GetDescription(),
+			AIDescription: docs.GetAIDescription(),
+			Arguments:     docs.GetArguments(),
+			Flags:         getSetupFlags(),
+			Action:        setupCmd,
+			Aliases:       []string{"s"},
+			Category:      ideCategory,
 		},
 	}
 }

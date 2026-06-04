@@ -257,10 +257,11 @@ func (lc *ListCommand) buildPluginRowsForHarness(registry map[string]agentcommon
 	return rows, nil
 }
 
-// buildRowForPlugin reads plugin.json and install manifest for a single plugin directory.
-// Returns (row, true) on success, (zero, false) if the plugin should be skipped.
+// buildRowForPlugin builds one local list row. Inclusion and installed version match update:
+// ReadInstalledPluginVersion (plugin-info.json, then plugin.json). Description comes from
+// plugin.json when present.
 func (lc *ListCommand) buildRowForPlugin(pluginDir, name, projectDir string) (localListRow, bool) {
-	meta, err := pluginscommon.ReadPluginMeta(pluginDir)
+	installedVer, err := pluginscommon.ReadInstalledPluginVersion(pluginDir)
 	if err != nil {
 		log.Warn(fmt.Sprintf("Skipping plugin '%s': %s", name, err.Error()))
 		return localListRow{}, false
@@ -276,15 +277,18 @@ func (lc *ListCommand) buildRowForPlugin(pluginDir, name, projectDir string) (lo
 	if manifest != nil && strings.TrimSpace(manifest.Repo) != "" {
 		repo = manifest.Repo
 	}
-	installedVer := strings.TrimSpace(meta.Version)
-	if manifest != nil && strings.TrimSpace(manifest.InstalledVersion) != "" {
-		installedVer = strings.TrimSpace(manifest.InstalledVersion)
+
+	description := ""
+	if meta, metaErr := pluginscommon.ReadPluginMeta(pluginDir); metaErr != nil {
+		log.Warn(fmt.Sprintf("Plugin '%s': could not read plugin.json (%s)", name, metaErr.Error()))
+	} else {
+		description = meta.Description
 	}
 
 	row := localListRow{
 		Name:        name,
 		Version:     installedVer,
-		Description: meta.Description,
+		Description: description,
 		Repo:        repo,
 		Path:        pluginDisplayPath(pluginDir, projectDir, lc.global),
 	}

@@ -119,7 +119,7 @@ func (pc *PublishCommand) Run() error {
 	}
 
 	slug := meta.Name
-	if err := ValidateSlug(slug); err != nil {
+	if err := agentcommon.ValidateSlug(slug); err != nil {
 		return err
 	}
 
@@ -134,7 +134,7 @@ func (pc *PublishCommand) Run() error {
 		}
 	}
 
-	if err := ValidateVersion(version); err != nil {
+	if err := agentcommon.ValidateSemver(version); err != nil {
 		return err
 	}
 
@@ -304,10 +304,7 @@ func (pc *PublishCommand) resolveVersionCollision(slug, version string) (string,
 		if newVersion == "" {
 			return "", fmt.Errorf("no version provided, aborting")
 		}
-		if strings.Contains(newVersion, "..") || strings.ContainsAny(newVersion, "/\\") {
-			return "", fmt.Errorf("invalid version '%s': contains path traversal characters", newVersion)
-		}
-		if err := ValidateVersion(newVersion); err != nil {
+		if err := agentcommon.ValidateSemver(newVersion); err != nil {
 			return "", err
 		}
 		return pc.resolveVersionCollision(slug, newVersion)
