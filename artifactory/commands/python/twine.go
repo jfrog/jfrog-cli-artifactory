@@ -11,6 +11,7 @@ import (
 
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/utils/pythonutils"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	rtUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -46,6 +47,7 @@ type TwineCommand struct {
 	commandName        string
 	args               []string
 	targetRepo         string
+	workingDirectory   string
 	buildConfiguration *buildUtils.BuildConfiguration
 }
 
@@ -79,6 +81,13 @@ func (tc *TwineCommand) SetArgs(args []string) *TwineCommand {
 }
 
 func (tc *TwineCommand) Run() (err error) {
+	if tc.workingDirectory == "" {
+		tc.workingDirectory, err = os.Getwd()
+		if err != nil {
+			log.Warn("Failed to get working directory: " + err.Error())
+			tc.workingDirectory = "."
+		}
+	}
 	// Assert no forbidden flags were provided.
 	if tc.isRepoConfigFlagProvided() {
 		return errorutils.CheckError(errors.New(tc.getRepoConfigFlagProvidedErr()))
@@ -212,9 +221,10 @@ func (tc *TwineCommand) uploadAndCollectBuildInfo() error {
 		return err
 	}
 	timestamp := strconv.FormatInt(buildInfo.GetBuildTimestamp().UnixNano()/int64(time.Millisecond), 10)
+	props := fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp)
 	propsParams := services.PropsParams{
 		Reader: searchReader,
-		Props:  fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp),
+		Props:  civcs.MergeWithUserProps(props, tc.workingDirectory),
 	}
 	_, err = servicesManager.SetProps(propsParams)
 	if err != nil {
