@@ -134,7 +134,7 @@ func TestMergeWithUserProps(t *testing.T) {
 				t.Setenv("GITHUB_REPOSITORY", "myorg/myrepo")
 			}
 
-			result := MergeWithUserProps(tt.userProps)
+			result := MergeWithUserProps(tt.userProps, "")
 			assert.Equal(t, tt.expected, result)
 		})
 	}

@@ -121,7 +121,7 @@ func (uc *UploadCommand) upload() (err error) {
 		file.TargetProps = clientUtils.AddProps(file.TargetProps, syncDeletesProp)
 		file.Props += syncDeletesProp
 		// Add CI VCS properties if in CI environment (respects user precedence)
-		file.TargetProps = civcs.MergeWithUserProps(file.TargetProps)
+		file.TargetProps = civcs.MergeWithUserProps(file.TargetProps, civcs.DeriveSearchDirFromFileSpec(file))
 		uploadParams, err := getUploadParams(file, uc.uploadConfiguration, buildProps, addVcsProps, uc.DryRun())
 		if err != nil {
 			errorOccurred = true
