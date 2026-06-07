@@ -94,9 +94,9 @@ func MergeWithUserProps(userProps string, searchDir string) string {
 	gitVcsInfo, err := utils.GetLocalGitVcsInfo(searchDir)
 	if err != nil {
 		log.Error("Error getting local Git VCS info:", err)
-		return userProps
+		return props
 	}
-	return MergeVcsProps(userProps, gitVcsInfo)
+	return MergeVcsProps(props, gitVcsInfo)
 }
 
 func MergeVcsProps(userProps string, info cienv.CIVcsInfo) string {
