@@ -147,11 +147,7 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, pro
 		buildProps += fmt.Sprintf(";build.project=%s", projectKey)
 	}
 
-	searchDir := workingDir
-	if searchDir == "" {
-		searchDir = "."
-	}
-	buildProps = civcs.MergeWithUserProps(buildProps, searchDir)
+	buildProps = civcs.MergeWithUserProps(buildProps, workingDir)
 
 	writer, err := content.NewContentWriter(content.DefaultKey, true, false)
 	if err != nil {

@@ -117,9 +117,6 @@ func (nru *npmRtUpload) addCIVcsProps(params *specutils.CommonParams) error {
 	if searchDir == "" {
 		searchDir = civcs.DeriveSearchDirFromFileSpec(params.Pattern, params.Regexp)
 	}
-	if searchDir == "" {
-		searchDir = "."
-	}
 	ciProps := civcs.GetCIVcsPropsString(searchDir)
 	if ciProps == "" {
 		return nil

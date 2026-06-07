@@ -228,11 +228,7 @@ func setMavenBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber strin
 		buildProps += fmt.Sprintf(";build.project=%s", projectKey)
 	}
 
-	searchDir := workingDir
-	if searchDir == "" {
-		searchDir = "."
-	}
-	buildProps = civcs.MergeWithUserProps(buildProps, searchDir)
+	buildProps = civcs.MergeWithUserProps(buildProps, workingDir)
 
 	// Set properties on each recent artifact individually
 	for _, artifact := range recentArtifacts {
