@@ -203,7 +203,7 @@ func DeriveSearchDirFromFileSpec(fileSpec *spec.File) string {
 	if wildcardIdx == -1 {
 		if fileutils.IsPathExists(fileSpec.Pattern, false) {
 			if info, err := os.Stat(fileSpec.Pattern); err == nil && info.IsDir() {
-				return fileSpec.Pattern
+				return filepath.ToSlash(fileSpec.Pattern)
 			}
 		}
 		dir := filepath.Dir(fileSpec.Pattern)
@@ -216,7 +216,7 @@ func DeriveSearchDirFromFileSpec(fileSpec *spec.File) string {
 	if prefix == "" {
 		return "."
 	}
-	return prefix
+	return filepath.ToSlash(prefix)
 }
 
 func propsIncludeAllLocalGitProps(props string) bool {
