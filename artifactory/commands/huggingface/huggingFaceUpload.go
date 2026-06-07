@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/jfrog/jfrog-client-go/artifactory"
 	"io"
 	"os"
 	"os/exec"
@@ -13,8 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jfrog/jfrog-client-go/artifactory"
+
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	coreUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -131,7 +133,7 @@ func (hfu *HuggingFaceUpload) CollectArtifactsForBuildInfo(serviceManager artifa
 	if ctx.Project != "" {
 		buildProps += fmt.Sprintf(";build.project=%s", ctx.Project)
 	}
-	artifacts, err := hfu.GetArtifacts(serviceManager, buildProps)
+	artifacts, err := hfu.GetArtifacts(serviceManager, civcs.MergeWithUserProps(buildProps, hfu.folderPath))
 	if err != nil {
 		return errorutils.CheckError(err)
 	}
