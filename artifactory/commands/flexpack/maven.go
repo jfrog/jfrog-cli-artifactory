@@ -14,6 +14,7 @@ import (
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/build-info-go/flexpack"
 	"github.com/jfrog/gofrog/crypto"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -226,6 +227,12 @@ func setMavenBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber strin
 	if projectKey := buildArgs.GetProject(); projectKey != "" {
 		buildProps += fmt.Sprintf(";build.project=%s", projectKey)
 	}
+
+	searchDir := workingDir
+	if searchDir == "" {
+		searchDir = "."
+	}
+	buildProps = civcs.MergeWithUserProps(buildProps, searchDir)
 
 	// Set properties on each recent artifact individually
 	for _, artifact := range recentArtifacts {
