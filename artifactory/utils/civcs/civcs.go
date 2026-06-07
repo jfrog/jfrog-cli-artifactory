@@ -12,8 +12,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/spf13/viper"
-
-	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 )
 
 // CI VCS property keys used by Maven/Gradle extractors
@@ -40,19 +38,20 @@ func IsCIVcsPropsDisabled() bool {
 // GetCIVcsPropsString returns CI VCS props if running in a CI environment, empty string otherwise.
 // Returns format: "vcs.provider=github;vcs.org=myorg;vcs.repo=myrepo"
 // Returns empty string if CI VCS props collection is disabled via JFROG_CLI_CI_VCS_PROPS_DISABLED.
-func GetCIVcsPropsString() string {
+func GetCIVcsPropsString(searchDir string) string {
 	if IsCIVcsPropsDisabled() {
 		return ""
 	}
-	info := cienv.GetCIVcsInfo()
-	if info.IsEmpty() {
-		return ""
+	props := BuildCIVcsPropsString(cienv.GetCIVcsInfo())
+	if propsIncludeAllLocalGitProps(props) {
+		return props
 	}
-	result := BuildCIVcsPropsString(info)
-	if result != "" {
-		log.Debug("CI VCS properties detected:", result)
+	gitVcsInfo, err := utils.GetLocalGitVcsInfo(searchDir)
+	if err != nil {
+		log.Error("Error getting local Git VCS info:", err)
+		return props
 	}
-	return result
+	return MergeVcsProps(props, gitVcsInfo)
 }
 
 // BuildCIVcsPropsString constructs the properties string from CI VCS info.
@@ -190,27 +189,24 @@ func mergeViperConfig(vConfig *viper.Viper, info cienv.CIVcsInfo) {
 	}
 }
 
-func DeriveSearchDirFromFileSpec(fileSpec *spec.File) string {
-	if isRegexp, err := fileSpec.IsRegexp(false); err != nil {
-		log.Debug(fmt.Sprintf("Error checking if file spec is a regex: %s", err))
-	} else if isRegexp {
+func DeriveSearchDirFromFileSpec(pattern string, isRegexp bool) string {
+	if isRegexp {
 		return "."
 	}
-
-	wildcardIdx := strings.IndexAny(fileSpec.Pattern, "*?[")
+	wildcardIdx := strings.IndexAny(pattern, "*?[")
 	if wildcardIdx == -1 {
-		if fileutils.IsPathExists(fileSpec.Pattern, false) {
-			if info, err := os.Stat(fileSpec.Pattern); err == nil && info.IsDir() {
-				return filepath.ToSlash(fileSpec.Pattern)
+		if fileutils.IsPathExists(pattern, false) {
+			if info, err := os.Stat(pattern); err == nil && info.IsDir() {
+				return filepath.ToSlash(pattern)
 			}
 		}
-		dir := filepath.Dir(fileSpec.Pattern)
+		dir := filepath.Dir(pattern)
 		if dir == "." {
 			return "."
 		}
 		return filepath.ToSlash(dir)
 	}
-	prefix := strings.TrimRight(fileSpec.Pattern[:wildcardIdx], "/\\")
+	prefix := strings.TrimRight(pattern[:wildcardIdx], "/\\")
 	if prefix == "" {
 		return "."
 	}

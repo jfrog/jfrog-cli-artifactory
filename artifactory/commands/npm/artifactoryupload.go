@@ -113,7 +113,7 @@ func (nru *npmRtUpload) addDistTagIfSet(params *specutils.CommonParams) error {
 
 // addCIVcsProps adds CI VCS properties to the upload params if in CI environment.
 func (nru *npmRtUpload) addCIVcsProps(params *specutils.CommonParams) error {
-	ciProps := civcs.GetCIVcsPropsString()
+	ciProps := civcs.GetCIVcsPropsString(civcs.DeriveSearchDirFromFileSpec(params.Pattern, params.Regexp))
 	if ciProps == "" {
 		return nil
 	}

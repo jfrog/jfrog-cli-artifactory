@@ -8,7 +8,6 @@ import (
 
 	biutils "github.com/jfrog/build-info-go/utils"
 	"github.com/jfrog/build-info-go/utils/cienv"
-	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -28,15 +27,24 @@ func TestBuildCIVcsPropsString_UrlRevisionBranch(t *testing.T) {
 }
 
 func TestGetCIVcsPropsString(t *testing.T) {
+	nonGitDir := t.TempDir()
+	repoDir, expectedURL, expectedRev, expectedBranch := setupGitRepoFixture(t, "git_test_.git_suffix")
+	localGitExpected := "vcs.url=" + expectedURL + ";vcs.revision=" + expectedRev
+	if expectedBranch != "" {
+		localGitExpected += ";vcs.branch=" + expectedBranch
+	}
+
 	tests := []struct {
-		name     string
-		envVars  map[string]string
-		expected string
+		name      string
+		envVars   map[string]string
+		searchDir string
+		expected  string
 	}{
 		{
-			name:     "not in CI",
-			envVars:  map[string]string{},
-			expected: "",
+			name:      "not in CI",
+			envVars:   map[string]string{},
+			searchDir: nonGitDir,
+			expected:  "",
 		},
 		{
 			name: "GitHub Actions with all fields",
@@ -48,14 +56,36 @@ func TestGetCIVcsPropsString(t *testing.T) {
 				"GITHUB_REPOSITORY_OWNER": "myorg",
 				"GITHUB_REPOSITORY":       "myorg/myrepo",
 			},
-			expected: "vcs.provider=github;vcs.org=myorg;vcs.repo=myrepo",
+			searchDir: nonGitDir,
+			expected:  "vcs.provider=github;vcs.org=myorg;vcs.repo=myrepo",
+		},
+		{
+			name: "GitHub Actions Disabled VCS Props",
+			envVars: map[string]string{
+				"CI":                              "true",
+				"GITHUB_ACTIONS":                  "true",
+				"GITHUB_WORKFLOW":                 "test",
+				"GITHUB_RUN_ID":                   "123",
+				"GITHUB_REPOSITORY_OWNER":         "myorg",
+				"GITHUB_REPOSITORY":               "myorg/myrepo",
+				"JFROG_CLI_CI_VCS_PROPS_DISABLED": "true",
+			},
+			searchDir: nonGitDir,
+			expected:  "",
 		},
 		{
 			name: "CI without GitHub Actions",
 			envVars: map[string]string{
 				"CI": "true",
 			},
-			expected: "",
+			searchDir: nonGitDir,
+			expected:  "",
+		},
+		{
+			name:      "local git props when not in CI",
+			envVars:   map[string]string{},
+			searchDir: repoDir,
+			expected:  localGitExpected,
 		},
 	}
 
@@ -69,7 +99,7 @@ func TestGetCIVcsPropsString(t *testing.T) {
 				t.Setenv(k, v)
 			}
 
-			result := GetCIVcsPropsString()
+			result := GetCIVcsPropsString(tt.searchDir)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -299,44 +329,51 @@ func TestDeriveSearchDirFromFileSpec(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		fileSpec *spec.File
+		pattern  string
+		isRegexp bool
 		expected string
 	}{
 		{
 			name:     "regexp pattern uses current directory",
-			fileSpec: &spec.File{Pattern: "repo/.*", Regexp: "true"},
+			pattern:  "repo/.*",
+			isRegexp: true,
 			expected: ".",
 		},
 		{
 			name:     "wildcard uses prefix before wildcard",
-			fileSpec: &spec.File{Pattern: "repo/path/*.jar"},
+			pattern:  "repo/path/*.jar",
+			isRegexp: false,
 			expected: "repo/path",
 		},
 		{
 			name:     "wildcard at start uses current directory",
-			fileSpec: &spec.File{Pattern: "*.jar"},
+			pattern:  "*.jar",
+			isRegexp: false,
 			expected: ".",
 		},
 		{
 			name:     "plain file path uses parent directory",
-			fileSpec: &spec.File{Pattern: "repo/path/file.jar"},
+			pattern:  "repo/path/file.jar",
+			isRegexp: false,
 			expected: "repo/path",
 		},
 		{
 			name:     "existing directory path is preserved",
-			fileSpec: &spec.File{Pattern: existingDir},
+			pattern:  existingDir,
+			isRegexp: false,
 			expected: filepath.ToSlash(existingDir),
 		},
 		{
 			name:     "existing file path uses parent directory",
-			fileSpec: &spec.File{Pattern: existingFile},
+			pattern:  existingFile,
+			isRegexp: false,
 			expected: filepath.ToSlash(existingDir),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, DeriveSearchDirFromFileSpec(tt.fileSpec))
+			assert.Equal(t, tt.expected, DeriveSearchDirFromFileSpec(tt.pattern, tt.isRegexp))
 		})
 	}
 }
@@ -385,6 +422,7 @@ func clearCIEnvVars(t *testing.T) {
 		"GITHUB_HEAD_REF",
 		"GITLAB_CI",
 		"CI_PROJECT_PATH",
+		CIVcsPropsDisabledEnvVar,
 	}
 	for _, v := range envVars {
 		t.Setenv(v, "")

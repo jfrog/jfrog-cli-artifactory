@@ -2,6 +2,7 @@ package generic
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -121,7 +122,12 @@ func (uc *UploadCommand) upload() (err error) {
 		file.TargetProps = clientUtils.AddProps(file.TargetProps, syncDeletesProp)
 		file.Props += syncDeletesProp
 		// Add CI VCS properties if in CI environment (respects user precedence)
-		file.TargetProps = civcs.MergeWithUserProps(file.TargetProps, civcs.DeriveSearchDirFromFileSpec(file))
+		isRegexp, err := file.IsRegexp(false)
+		if err != nil {
+			log.Warn(fmt.Sprintf("Error checking if file spec is a regex: %s. Assuming non-regex pattern.", err))
+			isRegexp = false
+		}
+		file.TargetProps = civcs.MergeWithUserProps(file.TargetProps, civcs.DeriveSearchDirFromFileSpec(file.Pattern, isRegexp))
 		uploadParams, err := getUploadParams(file, uc.uploadConfiguration, buildProps, addVcsProps, uc.DryRun())
 		if err != nil {
 			errorOccurred = true
