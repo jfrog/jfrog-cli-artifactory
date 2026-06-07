@@ -152,12 +152,10 @@ func SetCIVcsPropsToConfig(vConfig *viper.Viper, searchDir string) {
 		return
 	}
 	ciVcsInfo := cienv.GetCIVcsInfo()
-	if ciVcsInfo.IsEmpty() {
-		return
+	if !ciVcsInfo.IsEmpty() {
+		log.Debug("Setting CI VCS properties for extractor: provider=", ciVcsInfo.Provider, ", org=", ciVcsInfo.Org, ", repo=", ciVcsInfo.Repo)
+		mergeViperConfig(vConfig, ciVcsInfo)
 	}
-	log.Debug("Setting CI VCS properties for extractor: provider=", ciVcsInfo.Provider, ", org=", ciVcsInfo.Org, ", repo=", ciVcsInfo.Repo)
-	mergeViperConfig(vConfig, ciVcsInfo)
-
 	if configIncludeAllLocalGitProps(vConfig) {
 		return
 	}
