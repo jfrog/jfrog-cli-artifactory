@@ -95,7 +95,7 @@ func TestSetCIVcsPropsOnArtifacts(t *testing.T) {
 
 	// 4. Run command
 	bpc := NewBuildPublishCommand()
-	bpc.setCIVcsPropsOnArtifacts(mockSM, bi)
+	bpc.setVcsPropsOnArtifacts(mockSM, bi)
 
 	// 5. Verify
 	mockSM.AssertExpectations(t)
