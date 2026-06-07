@@ -79,7 +79,7 @@ func (bdc *BuildDockerCreateCommand) Run() error {
 			log.Debug("Repository extracted from image name '%s': '%s'. The mandatory repository CLI argument is not used.", image.Name(), repo)
 		}
 
-		builder, err := container.NewRemoteAgentBuildInfoBuilder(image, repo, buildName, buildNumber, project, serviceManager, bdc.manifestSha256)
+		builder, err := container.NewRemoteAgentBuildInfoBuilder(image, repo, buildName, buildNumber, project, serviceManager, bdc.manifestSha256, bdc.workingDirectory)
 		if err != nil {
 			return errorutils.CheckErrorf("build info creation failed: %s", err.Error())
 		}
