@@ -11,7 +11,7 @@ import (
 )
 
 // CollectHelmBuildInfoWithFlexPack collects Helm build info using FlexPack
-func CollectHelmBuildInfoWithFlexPack(workingDir, buildName, buildNumber, project, commandName string, helmArgs []string, serverDetails *config.ServerDetails) error {
+func CollectHelmBuildInfoWithFlexPack(workingDir, buildName, buildNumber, project, commandName string, helmArgs []string, serverDetails *config.ServerDetails, workingDirectory string) error {
 	serviceManager, err := utils.CreateServiceManager(serverDetails, -1, 0, false)
 	if err != nil {
 		return fmt.Errorf("failed to create services manager: %w", err)
@@ -27,7 +27,7 @@ func CollectHelmBuildInfoWithFlexPack(workingDir, buildName, buildNumber, projec
 	}
 	switch commandName {
 	case "push":
-		return handlePushCommand(buildInfo, helmArgs, serviceManager, buildName, buildNumber, project)
+		return handlePushCommand(buildInfo, helmArgs, serviceManager, buildName, buildNumber, project, workingDirectory)
 	case "package":
 		return handlePackageCommand(buildInfo, helmArgs, serviceManager, buildName, buildNumber, project)
 	case "dependency":
