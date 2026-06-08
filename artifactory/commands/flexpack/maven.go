@@ -493,7 +493,51 @@ func getMavenArtifactCoordinates(workingDir string) (groupId, artifactId, versio
 		return "", "", "", fmt.Errorf("failed to extract complete Maven coordinates from pom.xml (groupId=%s, artifactId=%s, version=%s)", groupId, artifactId, version)
 	}
 
+	// Validate Maven coordinates to prevent path traversal attacks via crafted pom.xml.
+	// Maven groupId/artifactId/version legitimately cannot contain path separators or ".." sequences.
+	if err := validateMavenCoordinate(groupId); err != nil {
+		return "", "", "", fmt.Errorf("invalid groupId in pom.xml: %w", err)
+	}
+	if err := validateMavenCoordinate(artifactId); err != nil {
+		return "", "", "", fmt.Errorf("invalid artifactId in pom.xml: %w", err)
+	}
+	if err := validateMavenCoordinate(version); err != nil {
+		return "", "", "", fmt.Errorf("invalid version in pom.xml: %w", err)
+	}
+
 	return groupId, artifactId, version, nil
+}
+
+// validateMavenCoordinate rejects values containing path traversal sequences or path separators.
+//
+// Background: Maven coordinates (groupId, artifactId, version) and the packaging type are read
+// straight from a user-controlled pom.xml and later composed into a filename that is joined with
+// the project's "target" directory (see addDeployedArtifactsToBuildInfo). Without validation, a
+// crafted pom.xml could inject values like "../../etc" and cause the resulting filepath.Join to
+// escape the target directory (path traversal).
+//
+// This is safe to reject because legitimate Maven coordinates never contain these characters:
+//   - groupId uses dots as package separators (e.g. "com.example"), never "/" or "\".
+//   - artifactId/version are restricted to [A-Za-z0-9_.-] by Maven convention.
+//   - packaging types are short tokens (jar, war, pom, ear, bundle, ...).
+// None of them can legitimately contain "..", a path separator, or a null byte. The relative-path
+// form ("../pom.xml") only appears in the <parent><relativePath> element, which this code does not
+// parse and never feeds into a path, so this validation cannot reject a valid project.
+//
+// The same helper is reused to validate the composed artifact filename (defense in depth) so the
+// "trailing dot in version" edge case (e.g. version "1.0." -> "app-1.0..jar") and null bytes are
+// caught consistently in one place.
+func validateMavenCoordinate(value string) error {
+	if strings.Contains(value, "..") {
+		return fmt.Errorf("value %q contains path traversal sequence", value)
+	}
+	if strings.ContainsAny(value, "/\\") {
+		return fmt.Errorf("value %q contains path separator", value)
+	}
+	if strings.ContainsRune(value, 0) {
+		return fmt.Errorf("value %q contains null byte", value)
+	}
+	return nil
 }
 
 // addDeployedArtifactsToBuildInfo adds deployed artifacts to the build info
@@ -520,6 +564,13 @@ func addDeployedArtifactsToBuildInfo(buildInfo *entities.BuildInfo, workingDir s
 	// Only include the main artifact that matches the packaging type
 	// This follows traditional Maven behavior where intermediate build artifacts (e.g., .jar in WAR projects) are excluded
 	mainArtifactName := fmt.Sprintf("%s-%s.%s", artifactId, version, packagingType)
+	// Defense in depth: re-validate the composed filename before joining it with targetDir.
+	// The individual inputs are already sanitized at extraction, but composing them (version "." packaging)
+	// could still produce ".." at a boundary (e.g. a trailing-dot version "1.0." -> "app-1.0..jar").
+	// Reusing validateMavenCoordinate keeps the traversal/null-byte rules in a single place.
+	if err := validateMavenCoordinate(mainArtifactName); err != nil {
+		return fmt.Errorf("invalid artifact name: %w", err)
+	}
 	mainArtifactPath := filepath.Join(targetDir, mainArtifactName)
 
 	if _, err := os.Stat(mainArtifactPath); err == nil {
@@ -563,6 +614,15 @@ func getPackagingType(workingDir string) string {
 
 	if pom.Packaging == "" {
 		return "jar" // Maven default
+	}
+
+	// Sanitize against path traversal: the packaging type from pom.xml is user-controlled and is
+	// later used to build a filename joined with the target directory. Valid packaging types are
+	// short tokens (jar, war, pom, ear, bundle, ...) that never contain path separators or "..".
+	// On an invalid value we fall back to "jar" (Maven's default) rather than failing the build.
+	if err := validateMavenCoordinate(pom.Packaging); err != nil {
+		log.Warn("Invalid packaging type in pom.xml, falling back to jar: " + err.Error())
+		return "jar"
 	}
 
 	return pom.Packaging
