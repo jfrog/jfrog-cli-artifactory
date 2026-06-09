@@ -557,7 +557,7 @@ func dockerPromoteCmd(c *components.Context) error {
 	dockerPromoteCommand := container.NewDockerPromoteCommand()
 	dockerPromoteCommand.SetParams(params).SetServerDetails(artDetails)
 
-	if err = commands.Exec(dockerPromoteCommand); err != nil {
+	if err = commands.ExecWithPackageManager(dockerPromoteCommand, "docker"); err != nil {
 		return err
 	}
 
@@ -656,7 +656,7 @@ func containerPushCmd(c *components.Context, containerManagerType containerutils
 	if err != nil {
 		return
 	}
-	err = commands.Exec(dockerPushCommand)
+	err = commands.ExecWithPackageManager(dockerPushCommand, containerManagerType.String())
 	result := dockerPushCommand.Result()
 
 	// Cleanup.
@@ -736,7 +736,7 @@ func containerPullCmd(c *components.Context, containerManagerType containerutils
 	if err != nil {
 		return err
 	}
-	if err = commands.Exec(dockerPullCommand); err != nil {
+	if err = commands.ExecWithPackageManager(dockerPullCommand, containerManagerType.String()); err != nil {
 		return err
 	}
 	if outputFormat == coreformat.None {
@@ -804,7 +804,7 @@ func BuildDockerCreateCmd(c *components.Context) error {
 		return err
 	}
 	buildDockerCreateCommand.SetRepo(sourceRepo).SetServerDetails(artDetails).SetBuildConfiguration(buildConfiguration)
-	return commands.Exec(buildDockerCreateCommand)
+	return commands.ExecWithPackageManager(buildDockerCreateCommand, "docker")
 }
 
 func ocStartBuildCmd(c *components.Context) error {
@@ -851,7 +851,7 @@ func ocStartBuildCmd(c *components.Context) error {
 	coreutils.RemoveFlagFromCommand(&filteredOcArgs, flagIndex, valueIndex)
 
 	ocCmd := oc.NewOcStartBuildCommand().SetOcArgs(filteredOcArgs).SetRepo(repo).SetServerId(serverId).SetBuildConfiguration(buildConfiguration)
-	return commands.Exec(ocCmd)
+	return commands.ExecWithPackageManager(ocCmd, "docker")
 }
 
 func nugetDepsTreeCmd(c *components.Context) error {
