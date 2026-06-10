@@ -1,17 +1,12 @@
 package install
 
 import (
-	"archive/zip"
-	"errors"
 	"fmt"
-	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
 	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
-	"github.com/jfrog/jfrog-cli-artifactory/agent/skills/commands/publish"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/skills/common"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
@@ -21,21 +16,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-// scope is project (under project root) or global (agent home paths).
-type scope string
-
-const (
-	scopeProject scope = "project"
-	scopeGlobal  scope = "global"
-)
-
-// agentSkillInstallDir pairs an agent (or path-mode sentinel) with the absolute skill install directory (includes slug).
-type agentSkillInstallDir struct {
-	Agent          common.AgentSpec
-	DestinationDir string // absolute; ends with /<slug>
-	Scope          string
-}
-
 // InstallCommand installs a skill for configured agents or legacy --path (update).
 type InstallCommand struct {
 	serverDetails *config.ServerDetails
@@ -43,7 +23,7 @@ type InstallCommand struct {
 	slug          string
 	version       string
 	agents        []common.AgentSpec
-	scope         scope
+	scope         agentcommon.InstallScope
 	projectDir    string // project root for project scope (--project-dir)
 	// installPath is the base directory for jf agent skills install --path. The skill is installed at
 	// <installPath>/<slug> and takes precedence over --harness / --project-dir / --global.
@@ -56,7 +36,7 @@ type InstallCommand struct {
 }
 
 func NewInstallCommand() *InstallCommand {
-	return &InstallCommand{scope: scopeProject}
+	return &InstallCommand{scope: agentcommon.InstallScopeProject}
 }
 
 func (ic *InstallCommand) SetServerDetails(details *config.ServerDetails) *InstallCommand {
@@ -87,9 +67,9 @@ func (ic *InstallCommand) SetAgents(agents []common.AgentSpec) *InstallCommand {
 // SetGlobal sets global vs project scope.
 func (ic *InstallCommand) SetGlobal(isGlobal bool) *InstallCommand {
 	if isGlobal {
-		ic.scope = scopeGlobal
+		ic.scope = agentcommon.InstallScopeGlobal
 	} else {
-		ic.scope = scopeProject
+		ic.scope = agentcommon.InstallScopeProject
 	}
 	return ic
 }
@@ -164,6 +144,7 @@ func (ic *InstallCommand) Run() error {
 		return fmt.Errorf("failed to create temp dir: %w", err)
 	}
 	defer func() {
+		// Best-effort cleanup of install temp dir.
 		_ = os.RemoveAll(tmpDir)
 	}()
 
@@ -172,16 +153,16 @@ func (ic *InstallCommand) Run() error {
 		return err
 	}
 
-	results := ic.copyExtractedToTargets(unzipDir, installTargets)
+	results := ic.CopyExtractedToTargets(unzipDir, installTargets)
 
 	if !ic.suppressSummary {
-		if err := PrintSummary(ic.slug, ic.version, results, ic.format); err != nil {
+		if err := agentcommon.PrintInstallSummary("Skill", ic.slug, ic.version, results, ic.format); err != nil {
 			return err
 		}
 	}
 
 	for _, result := range results {
-		if result.Status != SummaryStatusOK {
+		if result.Status != agentcommon.SummaryStatusOK {
 			if ic.suppressSummary {
 				return fmt.Errorf("installation failed for one or more targets")
 			}
@@ -203,7 +184,7 @@ func (ic *InstallCommand) FetchAndExtractTo(tmpDir string) (unzipDir string, err
 	}
 
 	unzipDir = filepath.Join(tmpDir, "contents")
-	if err := unzipFile(zipPath, unzipDir); err != nil {
+	if err := agentcommon.UnzipFile(zipPath, unzipDir); err != nil {
 		return "", fmt.Errorf("unzip failed: %w", err)
 	}
 
@@ -213,50 +194,29 @@ func (ic *InstallCommand) FetchAndExtractTo(tmpDir string) (unzipDir string, err
 	return unzipDir, nil
 }
 
-// CopyExtractedToAgentTargets copies an unpacked skill tree to the given resolved targets.
-func (ic *InstallCommand) CopyExtractedToAgentTargets(unzipDir string, targets []common.AgentTarget) []SummaryRow {
-	return ic.copyExtractedToTargets(unzipDir, agentDirsFromTargets(targets))
-}
-
-func (ic *InstallCommand) copyExtractedToTargets(unzipDir string, installTargets []agentSkillInstallDir) []SummaryRow {
-	results := make([]SummaryRow, 0, len(installTargets))
+// CopyExtractedToTargets copies an unpacked skill tree to the given resolved targets and
+// writes a skill-info manifest per target.
+func (ic *InstallCommand) CopyExtractedToTargets(unzipDir string, installTargets []common.AgentTarget) []agentcommon.SummaryRow {
+	results := make([]agentcommon.SummaryRow, 0, len(installTargets))
 	for _, target := range installTargets {
-		if err := ensureDestinationDir(target.DestinationDir); err != nil {
-			results = append(results, SummaryRow{
-				Agent:  target.Agent.Name,
-				Scope:  target.Scope,
-				Path:   target.DestinationDir,
-				Status: SummaryStatusFailed,
-				Detail: err.Error(),
-			})
+		if err := agentcommon.EnsureDestinationDir(target.DestinationDir); err != nil {
+			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
 			continue
 		}
-		if err := copyDir(unzipDir, target.DestinationDir); err != nil {
-			results = append(results, SummaryRow{
-				Agent:  target.Agent.Name,
-				Scope:  target.Scope,
-				Path:   target.DestinationDir,
-				Status: SummaryStatusFailed,
-				Detail: err.Error(),
-			})
+		if err := agentcommon.CopyDir(unzipDir, target.DestinationDir); err != nil {
+			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
 			continue
 		}
 		if err := ic.writeSkillInfoManifest(target); err != nil {
-			results = append(results, SummaryRow{
-				Agent:  target.Agent.Name,
-				Scope:  target.Scope,
-				Path:   target.DestinationDir,
-				Status: SummaryStatusFailed,
-				Detail: err.Error(),
-			})
+			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
 			continue
 		}
-		results = append(results, SummaryRow{
+		results = append(results, agentcommon.SummaryRow{
 			Agent:  target.Agent.Name,
-			Scope:  target.Scope,
+			Scope:  string(target.Scope),
 			Path:   target.DestinationDir,
-			Status: SummaryStatusOK,
-			Detail: SummaryDetailOKInstall,
+			Status: agentcommon.SummaryStatusOK,
+			Detail: agentcommon.SummaryDetailOKInstall,
 		})
 	}
 	return results
@@ -268,8 +228,8 @@ func (ic *InstallCommand) handleEvidenceVerification() error {
 		return nil
 	}
 	if ic.quiet || agentcommon.IsNonInteractive() {
-		if common.ShouldFailOnMissingEvidence() {
-			return fmt.Errorf("evidence verification failed for skill '%s': %s. Set JFROG_SKILLS_DISABLE_QUIET_FAILURE=true to proceed without evidence", ic.slug, err.Error())
+		if agentcommon.ShouldFailOnMissingEvidenceForSkills() {
+			return fmt.Errorf("evidence verification failed for skill '%s': %s. %s", ic.slug, err.Error(), agentcommon.DisableQuietFailureEvidenceHintForSkills())
 		}
 		log.Warn(fmt.Sprintf("Evidence verification failed for skill '%s': %s. Proceeding with installation.", ic.slug, err.Error()))
 		return nil
@@ -282,87 +242,42 @@ func (ic *InstallCommand) handleEvidenceVerification() error {
 }
 
 // resolveAgentTargetDirectories builds per-agent dest dirs, or one direct target if installPath is set (install/update --path).
-func (ic *InstallCommand) resolveAgentTargetDirectories() ([]agentSkillInstallDir, error) {
+func (ic *InstallCommand) resolveAgentTargetDirectories() ([]common.AgentTarget, error) {
 	if len(ic.explicitTargets) > 0 {
-		return agentDirsFromTargets(ic.explicitTargets), nil
+		return ic.explicitTargets, nil
 	}
 	if ic.installPath != "" {
-		targets, err := common.ResolveAgentTargets(ic.slug, ic.installPath, nil, "", false)
-		if err != nil {
-			return nil, err
-		}
-		return agentDirsFromTargets(targets), nil
+		return common.ResolveAgentTargets(ic.slug, ic.installPath, nil, "", false)
 	}
-	if ic.scope == scopeProject && ic.projectDir == "" {
+	if ic.scope == agentcommon.InstallScopeProject && ic.projectDir == "" {
 		return nil, fmt.Errorf("project directory is required for project-scoped install")
 	}
-	isGlobal := ic.scope == scopeGlobal
-	targets, err := common.ResolveAgentTargets(ic.slug, "", ic.agents, ic.projectDir, isGlobal)
-	if err != nil {
-		return nil, err
-	}
-	return agentDirsFromTargets(targets), nil
+	isGlobal := ic.scope == agentcommon.InstallScopeGlobal
+	return common.ResolveAgentTargets(ic.slug, "", ic.agents, ic.projectDir, isGlobal)
 }
 
-func agentDirsFromTargets(targets []common.AgentTarget) []agentSkillInstallDir {
-	out := make([]agentSkillInstallDir, len(targets))
-	for i, t := range targets {
-		out[i] = agentSkillInstallDir{
-			Agent:          t.Agent,
-			DestinationDir: t.DestinationDir,
-			Scope:          string(t.Scope),
-		}
-	}
-	return out
-}
-
-func (ic *InstallCommand) writeSkillInfoManifest(target agentSkillInstallDir) error {
+func (ic *InstallCommand) writeSkillInfoManifest(target common.AgentTarget) error {
 	dirName := filepath.Base(target.DestinationDir)
 	slug := ic.slug
 	if dirName != "" && dirName != slug {
 		log.Warn(fmt.Sprintf("Install directory name %q differs from slug %q; manifest will record slug %q for API consistency", dirName, slug, slug))
 	}
-	manifest := common.SkillInfoManifest{
-		SchemaVersion:    common.SkillInfoManifestSchemaVersion,
+	manifest := agentcommon.InstallInfoManifest{
+		SchemaVersion:    agentcommon.InstallInfoManifestSchemaVersion,
 		Repo:             ic.repoKey,
 		Slug:             slug,
 		InstalledVersion: ic.version,
-		Scope:            target.Scope,
+		Scope:            string(target.Scope),
 		Agent:            target.Agent.Name,
 	}
-	if target.Scope == string(common.ScopeProject) && ic.projectDir != "" {
+	if target.Scope == common.ScopeProject && ic.projectDir != "" {
 		manifest.ProjectDir = ic.projectDir
 	}
-	return common.WriteSkillInfoManifest(target.DestinationDir, manifest)
+	return agentcommon.WriteInstallInfoManifest(target.DestinationDir, common.SkillInfoManifestFile, manifest)
 }
 
 func (ic *InstallCommand) downloadZip(tmpDir string) (string, error) {
-	serviceManager, err := utils.CreateDownloadServiceManager(ic.serverDetails, 1, 3, 0, false, nil)
-	if err != nil {
-		return "", err
-	}
-
-	pattern := fmt.Sprintf("%s/%s/%s/%s-%s.zip", ic.repoKey, ic.slug, ic.version, ic.slug, ic.version)
-
-	downloadParams := services.NewDownloadParams()
-	downloadParams.Pattern = pattern
-	downloadParams.Target = tmpDir + "/"
-	downloadParams.Flat = true
-
-	totalDownloaded, totalFailed, err := serviceManager.DownloadFiles(downloadParams)
-	if err != nil {
-		return "", err
-	}
-	if totalFailed > 0 {
-		return "", fmt.Errorf("download failed for %s", pattern)
-	}
-	if totalDownloaded == 0 {
-		return "", fmt.Errorf("skill '%s' version '%s' not found in repository '%s'", ic.slug, ic.version, ic.repoKey)
-	}
-
-	zipName := fmt.Sprintf("%s-%s.zip", ic.slug, ic.version)
-	zipPath := filepath.Join(tmpDir, zipName)
-	return zipPath, nil
+	return agentcommon.DownloadPackageZip(ic.serverDetails, ic.repoKey, ic.slug, ic.version, tmpDir, "skill")
 }
 
 // diagnoseDownloadForbidden checks the Xray status API when a download returns 403.
@@ -385,15 +300,7 @@ func (ic *InstallCommand) diagnoseDownloadForbidden(originalErr error) error {
 }
 
 func (ic *InstallCommand) verifyEvidence() error {
-	if ic.repoKey == "" || ic.slug == "" || ic.version == "" {
-		return fmt.Errorf("cannot verify evidence: repoKey, slug, and version must all be set")
-	}
-
-	subjectRepoPath := fmt.Sprintf("%s/%s/%s/%s-%s.zip", ic.repoKey, ic.slug, ic.version, ic.slug, ic.version)
-
-	return agentcommon.VerifyEvidence(ic.serverDetails, agentcommon.VerifyEvidenceOpts{
-		SubjectRepoPath: subjectRepoPath,
-	})
+	return agentcommon.VerifyPackageEvidence(ic.serverDetails, ic.repoKey, ic.slug, ic.version)
 }
 
 // RunInstall is the CLI action for `jf agent skills install`.
@@ -403,11 +310,11 @@ func RunInstall(c *components.Context) error {
 	}
 
 	slug := c.GetArgumentAt(0)
-	if err := publish.ValidateSlug(slug); err != nil {
+	if err := agentcommon.ValidateSlug(slug); err != nil {
 		return err
 	}
 
-	absoluteInstallBaseDir, specs, projectDirAbs, isGlobal, err := common.ValidateInstallFlags(c)
+	flags, err := common.ValidateInstallFlags(c)
 	if err != nil {
 		return err
 	}
@@ -427,13 +334,13 @@ func RunInstall(c *components.Context) error {
 	if c.GetStringFlagValue("format") != "" {
 		format = c.GetStringFlagValue("format")
 	}
-	if absoluteInstallBaseDir != "" {
+	if flags.PathMode() {
 		return NewInstallCommand().
 			SetServerDetails(serverDetails).
 			SetRepoKey(repoKey).
 			SetSlug(slug).
 			SetVersion(version).
-			SetInstallPath(absoluteInstallBaseDir).
+			SetInstallPath(flags.AbsoluteInstallBaseDir).
 			SetFormat(format).
 			SetQuiet(quiet).
 			Run()
@@ -444,149 +351,10 @@ func RunInstall(c *components.Context) error {
 		SetRepoKey(repoKey).
 		SetSlug(slug).
 		SetVersion(version).
-		SetAgents(specs).
-		SetGlobal(isGlobal).
-		SetProjectDir(projectDirAbs).
+		SetAgents(flags.Specs).
+		SetGlobal(flags.IsGlobal).
+		SetProjectDir(flags.ProjectDirAbs).
 		SetFormat(format).
 		SetQuiet(quiet).
 		Run()
-}
-
-// ensureDestinationDir mkdirs if missing, errors if path exists and is not a dir.
-func ensureDestinationDir(dest string) error {
-	info, err := os.Stat(dest)
-	switch {
-	case err == nil && !info.IsDir():
-		return fmt.Errorf("install destination %q exists and is not a directory", dest)
-	case err == nil:
-		return nil
-	case errors.Is(err, fs.ErrNotExist):
-		// #nosec G301 -- skill files need to be readable across the user's tools.
-		if mkErr := os.MkdirAll(dest, 0750); mkErr != nil {
-			return fmt.Errorf(
-				"failed to create install destination %q: %w. "+
-					"Create the directory at that path (including parent folders if needed), then run the command again",
-				dest, mkErr,
-			)
-		}
-		return nil
-	default:
-		return fmt.Errorf("install destination %q is not accessible: %w", dest, err)
-	}
-}
-
-func unzipFile(src, dest string) error {
-	r, err := zip.OpenReader(src)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = r.Close()
-	}()
-
-	if err := os.MkdirAll(dest, 0750); err != nil {
-		return err
-	}
-
-	for _, f := range r.File {
-		// #nosec G305 -- path traversal is checked immediately below
-		fpath := filepath.Join(dest, f.Name)
-
-		if !strings.HasPrefix(filepath.Clean(fpath), filepath.Clean(dest)+string(os.PathSeparator)) {
-			return fmt.Errorf("illegal file path in zip: %s", f.Name)
-		}
-
-		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(fpath, f.Mode()); err != nil {
-				return err
-			}
-			continue
-		}
-
-		// #nosec G301 -- skill files need to be readable
-		if err := os.MkdirAll(filepath.Dir(fpath), 0750); err != nil {
-			return err
-		}
-
-		if err := extractFile(f, fpath); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func extractFile(f *zip.File, dest string) error {
-	if strings.Contains(dest, "..") {
-		return fmt.Errorf("illegal file path: %s", dest)
-	}
-
-	rc, err := f.Open()
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = rc.Close()
-	}()
-
-	cleanDest := filepath.Clean(dest)
-	// #nosec G304 -- dest is validated in unzipFile and above to be under the extraction directory
-	outFile, err := os.OpenFile(cleanDest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = outFile.Close()
-	}()
-
-	// #nosec G110 -- skill zip files are size-bounded by Artifactory upload limits
-	_, err = io.Copy(outFile, rc)
-	return err
-}
-
-func copyDir(src, dst string) error {
-	// #nosec G301 -- skill files need to be readable
-	if err := os.MkdirAll(dst, 0750); err != nil {
-		return err
-	}
-
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		relPath, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		destPath := filepath.Join(dst, relPath)
-
-		if info.IsDir() {
-			return os.MkdirAll(destPath, info.Mode())
-		}
-
-		return copyFile(path, destPath)
-	})
-}
-
-func copyFile(src, dst string) error {
-	// #nosec G304 -- src comes from our own unzip temp directory
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = in.Close()
-	}()
-
-	// #nosec G304 -- dst is constructed from validated unzip output path
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = out.Close()
-	}()
-
-	_, err = io.Copy(out, in)
-	return err
 }

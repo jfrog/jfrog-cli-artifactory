@@ -32,11 +32,11 @@ func RunUpdate(c *components.Context) error {
 	}
 
 	slug := c.GetArgumentAt(0)
-	if err := publish.ValidateSlug(slug); err != nil {
+	if err := agentcommon.ValidateSlug(slug); err != nil {
 		return err
 	}
 
-	absoluteInstallBaseDir, specs, projectDirAbs, isGlobal, err := common.ValidateInstallFlags(c)
+	flags, err := common.ValidateInstallFlags(c)
 	if err != nil {
 		return err
 	}
@@ -59,7 +59,7 @@ func RunUpdate(c *components.Context) error {
 		format = c.GetStringFlagValue("format")
 	}
 
-	targets, err := common.ResolveAgentTargets(slug, absoluteInstallBaseDir, specs, projectDirAbs, isGlobal)
+	targets, err := common.ResolveAgentTargets(slug, flags.AbsoluteInstallBaseDir, flags.Specs, flags.ProjectDirAbs, flags.IsGlobal)
 	if err != nil {
 		return err
 	}
@@ -74,11 +74,11 @@ func RunUpdate(c *components.Context) error {
 
 	if dryRun {
 		logDryRun(slug, targetVersion, checks)
-		return install.PrintSummary(slug, targetVersion, results, format)
+		return agentcommon.PrintInstallSummary("Skill", slug, targetVersion, results, format)
 	}
 
 	if len(updatable) == 0 {
-		if err := install.PrintSummary(slug, targetVersion, results, format); err != nil {
+		if err := agentcommon.PrintInstallSummary("Skill", slug, targetVersion, results, format); err != nil {
 			return err
 		}
 		return finalError(results)
@@ -99,8 +99,8 @@ func RunUpdate(c *components.Context) error {
 		SetVersion(targetVersion).
 		SetQuiet(quiet).
 		SetSuppressSummary(true).
-		SetProjectDir(projectDirAbs).
-		SetGlobal(isGlobal)
+		SetProjectDir(flags.ProjectDirAbs).
+		SetGlobal(flags.IsGlobal)
 
 	unzipDir, err := cmd.FetchAndExtractTo(tmpDir)
 	if err != nil {
@@ -111,7 +111,7 @@ func RunUpdate(c *components.Context) error {
 		results = append(results, updateOneSkill(unzipDir, cmd, preUpdateCheck))
 	}
 
-	if err := install.PrintSummary(slug, targetVersion, results, format); err != nil {
+	if err := agentcommon.PrintInstallSummary("Skill", slug, targetVersion, results, format); err != nil {
 		return err
 	}
 	return finalError(results)
@@ -146,15 +146,15 @@ func preUpdateTargets(targets []common.AgentTarget, targetVersion string, force,
 	return out
 }
 
-func initialResultsAndUpdatable(checks []preUpdate, targetVersion string) ([]install.SummaryRow, []preUpdate) {
-	results := make([]install.SummaryRow, 0, len(checks))
+func initialResultsAndUpdatable(checks []preUpdate, targetVersion string) ([]agentcommon.SummaryRow, []preUpdate) {
+	results := make([]agentcommon.SummaryRow, 0, len(checks))
 	updatable := make([]preUpdate, 0, len(checks))
 	for _, preUpdateCheck := range checks {
 		switch {
 		case preUpdateCheck.failureReason != "":
-			results = append(results, summaryRowFor(preUpdateCheck.agentTarget, install.SummaryStatusFailed, preUpdateCheck.failureReason))
+			results = append(results, summaryRowFor(preUpdateCheck.agentTarget, agentcommon.SummaryStatusFailed, preUpdateCheck.failureReason))
 		case preUpdateCheck.alreadyAtTargetVersion:
-			results = append(results, summaryRowFor(preUpdateCheck.agentTarget, install.SummaryStatusSkipped, fmt.Sprintf("version already %s; use --force to reinstall", targetVersion)))
+			results = append(results, summaryRowFor(preUpdateCheck.agentTarget, agentcommon.SummaryStatusSkipped, fmt.Sprintf("version already %s; use --force to reinstall", targetVersion)))
 		default:
 			updatable = append(updatable, preUpdateCheck)
 		}
@@ -162,8 +162,8 @@ func initialResultsAndUpdatable(checks []preUpdate, targetVersion string) ([]ins
 	return results, updatable
 }
 
-func summaryRowFor(agentTarget common.AgentTarget, status, detail string) install.SummaryRow {
-	return install.SummaryRow{
+func summaryRowFor(agentTarget common.AgentTarget, status, detail string) agentcommon.SummaryRow {
+	return agentcommon.SummaryRow{
 		Agent:  agentTarget.Agent.Name,
 		Scope:  string(agentTarget.Scope),
 		Path:   agentTarget.DestinationDir,
@@ -189,29 +189,29 @@ func logDryRun(slug, targetVersion string, checks []preUpdate) {
 
 // updateOneSkill updates a single install target using the already-fetched tree in unzipDir:
 // it renames the live install aside, copies from unzipDir, restores the backup on failure, then removes the backup on success.
-func updateOneSkill(unzipDir string, installCommand *install.InstallCommand, check preUpdate) install.SummaryRow {
+func updateOneSkill(unzipDir string, installCommand *install.InstallCommand, check preUpdate) agentcommon.SummaryRow {
 	agentTarget := check.agentTarget
 	slugBase := filepath.Base(agentTarget.DestinationDir)
 	parent := filepath.Dir(agentTarget.DestinationDir)
 
 	backupPath, err := reserveUpdateBackupPath(parent, slugBase)
 	if err != nil {
-		return summaryRowFor(agentTarget, install.SummaryStatusFailed, err.Error())
+		return summaryRowFor(agentTarget, agentcommon.SummaryStatusFailed, err.Error())
 	}
 	if err := os.Rename(agentTarget.DestinationDir, backupPath); err != nil {
-		return summaryRowFor(agentTarget, install.SummaryStatusFailed, fmt.Sprintf("could not move current skill aside for update: %s", err.Error()))
+		return summaryRowFor(agentTarget, agentcommon.SummaryStatusFailed, fmt.Sprintf("could not move current skill aside for update: %s", err.Error()))
 	}
 
-	rows := installCommand.CopyExtractedToAgentTargets(unzipDir, []common.AgentTarget{agentTarget})
+	rows := installCommand.CopyExtractedToTargets(unzipDir, []common.AgentTarget{agentTarget})
 	if len(rows) != 1 {
 		_ = os.RemoveAll(agentTarget.DestinationDir)
 		if restoreErr := os.Rename(backupPath, agentTarget.DestinationDir); restoreErr != nil {
-			return summaryRowFor(agentTarget, install.SummaryStatusFailed, fmt.Sprintf("internal error: unexpected copy result count; restore failed: %s", restoreErr.Error()))
+			return summaryRowFor(agentTarget, agentcommon.SummaryStatusFailed, fmt.Sprintf("internal error: unexpected copy result count; restore failed: %s", restoreErr.Error()))
 		}
-		return summaryRowFor(agentTarget, install.SummaryStatusFailed, "internal error: unexpected copy result count")
+		return summaryRowFor(agentTarget, agentcommon.SummaryStatusFailed, "internal error: unexpected copy result count")
 	}
 	row := rows[0]
-	if row.Status != install.SummaryStatusOK {
+	if row.Status != agentcommon.SummaryStatusOK {
 		_ = os.RemoveAll(agentTarget.DestinationDir)
 		if restoreErr := os.Rename(backupPath, agentTarget.DestinationDir); restoreErr != nil {
 			row.Detail = fmt.Sprintf("%s; could not restore previous install: %s", row.Detail, restoreErr.Error())
@@ -226,15 +226,15 @@ func updateOneSkill(unzipDir string, installCommand *install.InstallCommand, che
 		_ = os.Remove(backupRoot)
 	}
 
-	return summaryRowFor(agentTarget, install.SummaryStatusOK, install.SummaryDetailOKInstall)
+	return summaryRowFor(agentTarget, agentcommon.SummaryStatusOK, agentcommon.SummaryDetailOKInstall)
 }
 
-func finalError(results []install.SummaryRow) error {
+func finalError(results []agentcommon.SummaryRow) error {
 	if len(results) == 0 {
 		return nil
 	}
 	for _, result := range results {
-		if result.Status != install.SummaryStatusFailed {
+		if result.Status != agentcommon.SummaryStatusFailed {
 			return nil
 		}
 	}

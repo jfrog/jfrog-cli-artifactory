@@ -133,7 +133,7 @@ func ErrSkillsListNoMode() error {
 			"  With --harness, add --check-updates to compare installs to the registry (needs jf config server).\n"+
 			"\n"+
 			"Supported agents: %s",
-		common.SupportedAgentsList(),
+		agentcommon.SupportedAgentsList(common.Agents, agentcommon.SkillsAgentsKey),
 	)
 }
 
@@ -204,16 +204,16 @@ func skillDisplayPath(skillDirAbs, projectDir string, global bool) string {
 }
 
 func (lc *ListCommand) listLocalSkills() error {
-	registry, err := common.LoadAgentRegistry()
+	registry, err := agentcommon.LoadAgentRegistry(common.Agents, agentcommon.SkillsAgentsKey)
 	if err != nil {
 		return err
 	}
-	spec, err := common.ResolveAgent(registry, lc.agentName)
+	spec, err := agentcommon.ResolveAgent(registry, lc.agentName, common.RegistryHelp)
 	if err != nil {
 		return err
 	}
 
-	dir, err := common.ResolveAgentInstallDir(spec, lc.projectDir, lc.global)
+	dir, err := agentcommon.ResolveAgentInstallDir(spec, lc.projectDir, lc.global)
 	if err != nil {
 		return err
 	}
@@ -243,7 +243,7 @@ func (lc *ListCommand) listLocalSkills() error {
 			log.Warn(fmt.Sprintf("Skipping skill '%s':\n %s", entry.Name(), err.Error()))
 			continue
 		}
-		manifest, err := common.ReadSkillInfoManifest(skillDir)
+		manifest, err := agentcommon.ReadInstallInfoManifest(skillDir, common.SkillInfoManifestFile)
 		if err != nil {
 			log.Warn(fmt.Sprintf("Skill '%s': invalid install manifest (%s); treating as missing", entry.Name(), err.Error()))
 			manifest = nil

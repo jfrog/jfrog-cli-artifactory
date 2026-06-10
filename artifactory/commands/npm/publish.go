@@ -129,11 +129,6 @@ func (npc *NpmPublishCommand) Init() error {
 	if err != nil {
 		return err
 	}
-	// Check for native mode (env var or deprecated flag)
-	useNative, filteredNpmArgs, err := CheckIsNativeAndFetchFilteredArgs(filteredNpmArgs)
-	if err != nil {
-		return err
-	}
 	filteredNpmArgs, tag, err := coreutils.ExtractTagFromArgs(filteredNpmArgs)
 	if err != nil {
 		return err
@@ -154,8 +149,20 @@ func (npc *NpmPublishCommand) Init() error {
 			return errorutils.CheckError(err)
 		}
 		npc.SetBuildConfiguration(buildConfiguration).SetRepo(deployerParams.TargetRepo()).SetNpmArgs(filteredNpmArgs).SetServerDetails(rtDetails)
+	} else if npc.UseNative() {
+		// No config file + native mode: CLI layer already set useNative and stripped --run-native.
+		// Extract --server-id for metrics reporting and strip it from args.
+		filteredNpmArgs, serverID, err := coreutils.ExtractServerIdFromCommand(filteredNpmArgs)
+		if err != nil {
+			return err
+		}
+		rtDetails, err := config.GetSpecificConfig(serverID, true, false)
+		if err != nil {
+			return err
+		}
+		npc.SetBuildConfiguration(buildConfiguration).SetNpmArgs(filteredNpmArgs).SetServerDetails(rtDetails)
 	}
-	npc.SetDetailedSummary(detailedSummary).SetXrayScan(xrayScan).SetScanOutputFormat(scanOutputFormat).SetDistTag(tag).SetUseNative(useNative)
+	npc.SetDetailedSummary(detailedSummary).SetXrayScan(xrayScan).SetScanOutputFormat(scanOutputFormat).SetDistTag(tag)
 	return nil
 }
 

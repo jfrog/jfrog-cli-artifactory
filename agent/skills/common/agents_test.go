@@ -1,20 +1,20 @@
 package common
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
+	"github.com/jfrog/jfrog-cli-artifactory/agent/common/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSupportedAgentsList_SortedAndStable(t *testing.T) {
-	first := SupportedAgentsList()
+	first := agentcommon.SupportedAgentsList(Agents, agentcommon.SkillsAgentsKey)
 	for range 20 {
-		assert.Equal(t, first, SupportedAgentsList())
+		assert.Equal(t, first, agentcommon.SupportedAgentsList(Agents, agentcommon.SkillsAgentsKey))
 	}
 	parts := strings.Split(first, ", ")
 	for i := 1; i < len(parts); i++ {
@@ -22,25 +22,10 @@ func TestSupportedAgentsList_SortedAndStable(t *testing.T) {
 	}
 }
 
-// withJfrogHome sets JFROG_CLI_HOME_DIR to a temp dir.
-func withJfrogHome(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	t.Setenv(coreutils.HomeDir, dir)
-	return dir
-}
-
-func writeAgentConfig(t *testing.T, home, body string) {
-	t.Helper()
-	path := filepath.Join(home, "agents", "agent-config.json")
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
-}
-
 func TestLoadAgentRegistry_FallbackOnly(t *testing.T) {
-	withJfrogHome(t)
+	testutil.WithJfrogHome(t)
 
-	registry, err := LoadAgentRegistry()
+	registry, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.SkillsAgentsKey)
 	require.NoError(t, err)
 
 	cursor, ok := registry["cursor"]
@@ -50,15 +35,15 @@ func TestLoadAgentRegistry_FallbackOnly(t *testing.T) {
 }
 
 func TestLoadAgentRegistry_OverridesAndAdds(t *testing.T) {
-	home := withJfrogHome(t)
-	writeAgentConfig(t, home, `{
-		"agents": {
+	home := testutil.WithJfrogHome(t)
+	testutil.WriteAgentConfig(t, home, `{
+		"skills-agents": {
 			"cursor": {"globalDir": "/abs/cursor", "projectDir": ".override/cursor"},
 			"my-agent": {"globalDir": "~/.my/skills", "projectDir": ".my/skills"}
 		}
 	}`)
 
-	registry, err := LoadAgentRegistry()
+	registry, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.SkillsAgentsKey)
 	require.NoError(t, err)
 
 	cursor := registry["cursor"]
@@ -77,19 +62,19 @@ func TestLoadAgentRegistry_OverridesAndAdds(t *testing.T) {
 }
 
 func TestLoadAgentRegistry_RejectsEmptyEntry(t *testing.T) {
-	home := withJfrogHome(t)
-	writeAgentConfig(t, home, `{"agents": {"broken": {}}}`)
+	home := testutil.WithJfrogHome(t)
+	testutil.WriteAgentConfig(t, home, `{"skills-agents": {"broken": {}}}`)
 
-	_, err := LoadAgentRegistry()
+	_, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.SkillsAgentsKey)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must define globalDir and/or projectDir")
 }
 
 func TestLoadAgentRegistry_RejectsBadJSON(t *testing.T) {
-	home := withJfrogHome(t)
-	writeAgentConfig(t, home, `not-json`)
+	home := testutil.WithJfrogHome(t)
+	testutil.WriteAgentConfig(t, home, `not-json`)
 
-	_, err := LoadAgentRegistry()
+	_, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.SkillsAgentsKey)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse agent config")
 }
@@ -126,18 +111,18 @@ func TestParseHarnessList_EmptyAndDuplicates(t *testing.T) {
 }
 
 func TestResolveAgent_Unknown(t *testing.T) {
-	withJfrogHome(t)
-	registry, err := LoadAgentRegistry()
+	testutil.WithJfrogHome(t)
+	registry, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.SkillsAgentsKey)
 	require.NoError(t, err)
 
-	_, err = ResolveAgent(registry, "no-such-agent")
+	_, err = agentcommon.ResolveAgent(registry, "no-such-agent", RegistryHelp)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Supported agents")
 	assert.Contains(t, err.Error(), "cursor")
 }
 
 func TestResolveAgentInstallDir_GlobalAndProject(t *testing.T) {
-	withJfrogHome(t)
+	testutil.WithJfrogHome(t)
 	globalDir := "/var/data/.cursor/skills"
 	spec := AgentSpec{
 		Name:   "cursor",
@@ -147,14 +132,14 @@ func TestResolveAgentInstallDir_GlobalAndProject(t *testing.T) {
 	wantGlobal, err := filepath.Abs(globalDir)
 	require.NoError(t, err)
 
-	abs, err := ResolveAgentInstallDir(spec, "", true)
+	abs, err := agentcommon.ResolveAgentInstallDir(spec, "", true)
 	require.NoError(t, err)
 	assert.Equal(t, wantGlobal, abs)
 
 	projectRoot := t.TempDir()
 	wantProject, err := filepath.Abs(filepath.Join(projectRoot, spec.Config.ProjectDir))
 	require.NoError(t, err)
-	abs, err = ResolveAgentInstallDir(spec, projectRoot, false)
+	abs, err = agentcommon.ResolveAgentInstallDir(spec, projectRoot, false)
 	require.NoError(t, err)
 	assert.Equal(t, wantProject, abs)
 }

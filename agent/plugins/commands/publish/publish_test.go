@@ -13,20 +13,14 @@ import (
 	"testing"
 
 	"github.com/jfrog/jfrog-cli-artifactory/agent/common"
-	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
+	"github.com/jfrog/jfrog-cli-artifactory/agent/common/testutil"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func newPublishTestContext(args ...string) *components.Context {
-	ctx := &components.Context{Arguments: args}
-	ctx.PrintCommandHelp = func(string) error { return nil }
-	return ctx
-}
-
 func TestRunPublish_MissingPathArgument(t *testing.T) {
-	err := RunPublish(newPublishTestContext())
+	err := RunPublish(testutil.NewCLIContext())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "usage: jf agent plugins publish")
 }

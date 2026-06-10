@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/skills/common"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
@@ -12,7 +13,7 @@ import (
 // It prefers .jfrog/skill-info.json (installedVersion) when present and non-empty,
 // otherwise the version from SKILL.md front matter.
 func ReadInstalledSkillVersion(skillDir string) (string, error) {
-	manifest, err := common.ReadSkillInfoManifest(skillDir)
+	manifest, err := agentcommon.ReadInstallInfoManifest(skillDir, common.SkillInfoManifestFile)
 	if err != nil {
 		log.Warn(fmt.Sprintf("Invalid skill-info manifest under %s (%v); using SKILL.md for installed version.", skillDir, err))
 	} else if manifest != nil && strings.TrimSpace(manifest.InstalledVersion) != "" {

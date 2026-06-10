@@ -113,7 +113,7 @@ func (pc *PushCommand) Run() error {
 		return err
 	}
 	if !toCollect && pc.IsDetailedSummary() {
-		repo, err := pc.image.ExtractArtifactoryRepoKey()
+		repo, err := pc.GetRepo()
 		if err != nil {
 			return err
 		}

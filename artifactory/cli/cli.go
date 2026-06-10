@@ -99,6 +99,7 @@ func GetCommands() []components.Command {
 			Flags:            flagkit.GetCommandFlags(flagkit.Upload),
 			Aliases:          []string{"u"},
 			Description:      upload.GetDescription(),
+			AIDescription:      upload.GetAIDescription(),
 			Arguments:        upload.GetArguments(),
 			Action:           uploadCmd,
 			Category:         filesCategory,
@@ -109,6 +110,7 @@ func GetCommands() []components.Command {
 			Flags:            flagkit.GetCommandFlags(flagkit.Download),
 			Aliases:          []string{"dl"},
 			Description:      download.GetDescription(),
+			AIDescription:      download.GetAIDescription(),
 			Arguments:        download.GetArguments(),
 			Action:           downloadCmd,
 			Category:         filesCategory,
@@ -119,6 +121,7 @@ func GetCommands() []components.Command {
 			Flags:            flagkit.GetCommandFlags(flagkit.DirectDownload),
 			Aliases:          []string{"ddl"},
 			Description:      directdownload.GetDescription(),
+			AIDescription:      directdownload.GetAIDescription(),
 			Arguments:        directdownload.GetArguments(),
 			Action:           directDownloadCmd,
 			Category:         filesCategory,
@@ -129,6 +132,7 @@ func GetCommands() []components.Command {
 			Flags:            flagkit.GetCommandFlags(flagkit.Move),
 			Aliases:          []string{"mv"},
 			Description:      move.GetDescription(),
+			AIDescription:      move.GetAIDescription(),
 			Arguments:        move.GetArguments(),
 			Action:           moveCmd,
 			Category:         filesCategory,
@@ -139,6 +143,7 @@ func GetCommands() []components.Command {
 			Flags:            flagkit.GetCommandFlags(flagkit.Copy),
 			Aliases:          []string{"cp"},
 			Description:      copydocs.GetDescription(),
+			AIDescription:      copydocs.GetAIDescription(),
 			Arguments:        copydocs.GetArguments(),
 			Action:           copyCmd,
 			Category:         filesCategory,
@@ -149,6 +154,7 @@ func GetCommands() []components.Command {
 			Flags:            flagkit.GetCommandFlags(flagkit.Delete),
 			Aliases:          []string{"del"},
 			Description:      delete.GetDescription(),
+			AIDescription:      delete.GetAIDescription(),
 			Arguments:        delete.GetArguments(),
 			Action:           deleteCmd,
 			Category:         filesCategory,
@@ -159,6 +165,7 @@ func GetCommands() []components.Command {
 			Flags:            flagkit.GetCommandFlags(flagkit.Search),
 			Aliases:          []string{"s"},
 			Description:      search.GetDescription(),
+			AIDescription:      search.GetAIDescription(),
 			Arguments:        search.GetArguments(),
 			Action:           searchCmd,
 			Category:         filesCategory,
@@ -170,6 +177,7 @@ func GetCommands() []components.Command {
 			Flags:            flagkit.GetCommandFlags(flagkit.Properties),
 			Aliases:          []string{"sp"},
 			Description:      setprops.GetDescription(),
+			AIDescription:      setprops.GetAIDescription(),
 			Arguments:        setprops.GetArguments(),
 			Action:           setPropsCmd,
 			Category:         filesCategory,
@@ -180,6 +188,7 @@ func GetCommands() []components.Command {
 			Flags:            flagkit.GetCommandFlags(flagkit.Properties),
 			Aliases:          []string{"delp"},
 			Description:      deleteprops.GetDescription(),
+			AIDescription:      deleteprops.GetAIDescription(),
 			Arguments:        deleteprops.GetArguments(),
 			Action:           deletePropsCmd,
 			Category:         filesCategory,
@@ -190,6 +199,7 @@ func GetCommands() []components.Command {
 			Flags:            flagkit.GetCommandFlags(flagkit.BuildPublish),
 			Aliases:          []string{"bp"},
 			Description:      buildpublish.GetDescription(),
+			AIDescription:      buildpublish.GetAIDescription(),
 			Arguments:        buildpublish.GetArguments(),
 			Action:           buildPublishCmd,
 			Category:         buildCategory,
@@ -200,6 +210,7 @@ func GetCommands() []components.Command {
 			Aliases:     []string{"bce"},
 			Flags:       flagkit.GetCommandFlags(flagkit.BuildCollectEnv),
 			Description: buildcollectenv.GetDescription(),
+			AIDescription: buildcollectenv.GetAIDescription(),
 			Arguments:   buildcollectenv.GetArguments(),
 			Action:      buildCollectEnvCmd,
 			Category:    buildCategory,
@@ -209,6 +220,7 @@ func GetCommands() []components.Command {
 			Flags:       flagkit.GetCommandFlags(flagkit.BuildAppend),
 			Aliases:     []string{"ba"},
 			Description: buildappend.GetDescription(),
+			AIDescription: buildappend.GetAIDescription(),
 			Arguments:   buildappend.GetArguments(),
 			Action:      buildAppendCmd,
 			Category:    buildCategory,
@@ -218,6 +230,7 @@ func GetCommands() []components.Command {
 			Flags:            flagkit.GetCommandFlags(flagkit.BuildAddDependencies),
 			Aliases:          []string{"bad"},
 			Description:      buildadddependencies.GetDescription(),
+			AIDescription:      buildadddependencies.GetAIDescription(),
 			Arguments:        buildadddependencies.GetArguments(),
 			Action:           buildAddDependenciesCmd,
 			Category:         buildCategory,
@@ -228,6 +241,7 @@ func GetCommands() []components.Command {
 			Flags:       flagkit.GetCommandFlags(flagkit.BuildAddGit),
 			Aliases:     []string{"bag"},
 			Description: buildaddgit.GetDescription(),
+			AIDescription: buildaddgit.GetAIDescription(),
 			Arguments:   buildaddgit.GetArguments(),
 			Action:      buildAddGitCmd,
 			Category:    buildCategory,
@@ -247,6 +261,7 @@ func GetCommands() []components.Command {
 			Name:        "build-clean",
 			Aliases:     []string{"bc"},
 			Description: buildclean.GetDescription(),
+			AIDescription: buildclean.GetAIDescription(),
 			Arguments:   buildclean.GetArguments(),
 			Action:      buildCleanCmd,
 			Category:    buildCategory,
@@ -256,6 +271,7 @@ func GetCommands() []components.Command {
 			Flags:            flagkit.GetCommandFlags(flagkit.BuildPromote),
 			Aliases:          []string{"bpr"},
 			Description:      buildpromote.GetDescription(),
+			AIDescription:      buildpromote.GetAIDescription(),
 			Arguments:        buildpromote.GetArguments(),
 			Action:           buildPromoteCmd,
 			Category:         buildCategory,
@@ -266,6 +282,7 @@ func GetCommands() []components.Command {
 			Flags:            flagkit.GetCommandFlags(flagkit.BuildDiscard),
 			Aliases:          []string{"bdi"},
 			Description:      builddiscard.GetDescription(),
+			AIDescription:      builddiscard.GetAIDescription(),
 			Arguments:        builddiscard.GetArguments(),
 			Action:           buildDiscardCmd,
 			Category:         buildCategory,
@@ -276,6 +293,7 @@ func GetCommands() []components.Command {
 			Flags:            flagkit.GetCommandFlags(flagkit.GitLfsClean),
 			Aliases:          []string{"glc"},
 			Description:      gitlfsclean.GetDescription(),
+			AIDescription:      gitlfsclean.GetAIDescription(),
 			Arguments:        gitlfsclean.GetArguments(),
 			Action:           gitLfsCleanCmd,
 			Category:         otherCategory,
@@ -286,6 +304,7 @@ func GetCommands() []components.Command {
 			Flags:            flagkit.GetCommandFlags(flagkit.DockerPromote),
 			Aliases:          []string{"dpr"},
 			Description:      dockerpromote.GetDescription(),
+			AIDescription:      dockerpromote.GetAIDescription(),
 			Arguments:        dockerpromote.GetArguments(),
 			Action:           dockerPromoteCmd,
 			Category:         buildCategory,
@@ -320,6 +339,7 @@ func GetCommands() []components.Command {
 			Flags:            flagkit.GetCommandFlags(flagkit.ContainerPush),
 			Aliases:          []string{"pp"},
 			Description:      podmanpush.GetDescription(),
+			AIDescription:      podmanpush.GetAIDescription(),
 			Arguments:        podmanpush.GetArguments(),
 			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 			Action: func(c *components.Context) error {
@@ -332,6 +352,7 @@ func GetCommands() []components.Command {
 			Flags:            flagkit.GetCommandFlags(flagkit.ContainerPull),
 			Aliases:          []string{"ppl"},
 			Description:      podmanpull.GetDescription(),
+			AIDescription:      podmanpull.GetAIDescription(),
 			Arguments:        podmanpull.GetArguments(),
 			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 			Action: func(c *components.Context) error {
@@ -344,6 +365,7 @@ func GetCommands() []components.Command {
 			Flags:       flagkit.GetCommandFlags(flagkit.BuildDockerCreate),
 			Aliases:     []string{"bdc"},
 			Description: builddockercreate.GetDescription(),
+			AIDescription: builddockercreate.GetAIDescription(),
 			Arguments:   builddockercreate.GetArguments(),
 			Action:      BuildDockerCreateCmd,
 			Category:    buildCategory,
@@ -353,6 +375,7 @@ func GetCommands() []components.Command {
 			Flags:           flagkit.GetCommandFlags(flagkit.OcStartBuild),
 			Aliases:         []string{"osb"},
 			Description:     ocstartbuild.GetDescription(),
+			AIDescription:     ocstartbuild.GetAIDescription(),
 			SkipFlagParsing: true,
 			Action:          ocStartBuildCmd,
 			Category:        otherCategory,
@@ -362,6 +385,7 @@ func GetCommands() []components.Command {
 			Aliases:          []string{"ndt"},
 			Flags:            flagkit.GetCommandFlags(flagkit.NugetDepsTree),
 			Description:      nugettree.GetDescription(),
+			AIDescription:      nugettree.GetAIDescription(),
 			Action:           nugetDepsTreeCmd,
 			Category:         otherCategory,
 			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
@@ -372,6 +396,7 @@ func GetCommands() []components.Command {
 			Flags:            flagkit.GetCommandFlags(flagkit.Ping),
 			Aliases:          []string{"p"},
 			Description:      ping.GetDescription(),
+			AIDescription:      ping.GetAIDescription(),
 			Action:           pingCmd,
 			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
@@ -380,6 +405,7 @@ func GetCommands() []components.Command {
 			Flags:           flagkit.GetCommandFlags(flagkit.RtCurl),
 			Aliases:         []string{"cl"},
 			Description:     curldocs.GetDescription(),
+			AIDescription:     curldocs.GetAIDescription(),
 			Arguments:       curldocs.GetArguments(),
 			SkipFlagParsing: true,
 			Action:          curlCmd,
@@ -388,6 +414,7 @@ func GetCommands() []components.Command {
 			Name:        "repo-template",
 			Aliases:     []string{"rpt"},
 			Description: repotemplate.GetDescription(),
+			AIDescription: repotemplate.GetAIDescription(),
 			Arguments:   repotemplate.GetArguments(),
 			Action:      repoTemplateCmd,
 			Category:    repoCategory,
@@ -397,6 +424,7 @@ func GetCommands() []components.Command {
 			Aliases:          []string{"rc"},
 			Flags:            flagkit.GetCommandFlags(flagkit.RepoCreate),
 			Description:      repocreate.GetDescription(),
+			AIDescription:      repocreate.GetAIDescription(),
 			Arguments:        repocreate.GetArguments(),
 			Action:           repoCreateCmd,
 			Category:         repoCategory,
@@ -407,6 +435,7 @@ func GetCommands() []components.Command {
 			Aliases:          []string{"ru"},
 			Flags:            flagkit.GetCommandFlags(flagkit.RepoUpdate),
 			Description:      repoupdate.GetDescription(),
+			AIDescription:      repoupdate.GetAIDescription(),
 			Arguments:        repoupdate.GetArguments(),
 			Action:           repoUpdateCmd,
 			Category:         repoCategory,
@@ -417,6 +446,7 @@ func GetCommands() []components.Command {
 			Aliases:     []string{"rdel"},
 			Flags:       flagkit.GetCommandFlags(flagkit.RepoDelete),
 			Description: repodelete.GetDescription(),
+			AIDescription: repodelete.GetAIDescription(),
 			Arguments:   repodelete.GetArguments(),
 			Action:      repoDeleteCmd,
 			Category:    repoCategory,
@@ -426,6 +456,7 @@ func GetCommands() []components.Command {
 			Aliases:     []string{"rplt"},
 			Flags:       flagkit.GetCommandFlags(flagkit.TemplateConsumer),
 			Description: replicationtemplate.GetDescription(),
+			AIDescription: replicationtemplate.GetAIDescription(),
 			Arguments:   replicationtemplate.GetArguments(),
 			Action:      replicationTemplateCmd,
 			Category:    replicCategory,
@@ -435,6 +466,7 @@ func GetCommands() []components.Command {
 			Aliases:          []string{"rplc"},
 			Flags:            flagkit.GetCommandFlags(flagkit.ReplicationCreate),
 			Description:      replicationcreate.GetDescription(),
+			AIDescription:      replicationcreate.GetAIDescription(),
 			Arguments:        replicationcreate.GetArguments(),
 			Action:           replicationCreateCmd,
 			Category:         replicCategory,
@@ -445,6 +477,7 @@ func GetCommands() []components.Command {
 			Aliases:     []string{"rpldel"},
 			Flags:       flagkit.GetCommandFlags(flagkit.ReplicationDelete),
 			Description: replicationdelete.GetDescription(),
+			AIDescription: replicationdelete.GetAIDescription(),
 			Arguments:   replicationdelete.GetArguments(),
 			Action:      replicationDeleteCmd,
 			Category:    replicCategory,
@@ -524,7 +557,7 @@ func dockerPromoteCmd(c *components.Context) error {
 	dockerPromoteCommand := container.NewDockerPromoteCommand()
 	dockerPromoteCommand.SetParams(params).SetServerDetails(artDetails)
 
-	if err = commands.Exec(dockerPromoteCommand); err != nil {
+	if err = commands.ExecWithPackageManager(dockerPromoteCommand, "docker"); err != nil {
 		return err
 	}
 
@@ -588,7 +621,6 @@ func printSummaryJSON(succeeded, failed int, failNoOp bool, originalErr error) e
 	return nil
 }
 
-
 func containerPushCmd(c *components.Context, containerManagerType containerutils.ContainerManagerType) (err error) {
 	if c.GetNumberOfArgs() != 2 {
 		return common.WrongNumberOfArgumentsHandler(c)
@@ -624,7 +656,7 @@ func containerPushCmd(c *components.Context, containerManagerType containerutils
 	if err != nil {
 		return
 	}
-	err = commands.Exec(dockerPushCommand)
+	err = commands.ExecWithPackageManager(dockerPushCommand, containerManagerType.String())
 	result := dockerPushCommand.Result()
 
 	// Cleanup.
@@ -704,7 +736,7 @@ func containerPullCmd(c *components.Context, containerManagerType containerutils
 	if err != nil {
 		return err
 	}
-	if err = commands.Exec(dockerPullCommand); err != nil {
+	if err = commands.ExecWithPackageManager(dockerPullCommand, containerManagerType.String()); err != nil {
 		return err
 	}
 	if outputFormat == coreformat.None {
@@ -772,7 +804,7 @@ func BuildDockerCreateCmd(c *components.Context) error {
 		return err
 	}
 	buildDockerCreateCommand.SetRepo(sourceRepo).SetServerDetails(artDetails).SetBuildConfiguration(buildConfiguration)
-	return commands.Exec(buildDockerCreateCommand)
+	return commands.ExecWithPackageManager(buildDockerCreateCommand, "docker")
 }
 
 func ocStartBuildCmd(c *components.Context) error {
@@ -819,7 +851,7 @@ func ocStartBuildCmd(c *components.Context) error {
 	coreutils.RemoveFlagFromCommand(&filteredOcArgs, flagIndex, valueIndex)
 
 	ocCmd := oc.NewOcStartBuildCommand().SetOcArgs(filteredOcArgs).SetRepo(repo).SetServerId(serverId).SetBuildConfiguration(buildConfiguration)
-	return commands.Exec(ocCmd)
+	return commands.ExecWithPackageManager(ocCmd, "docker")
 }
 
 func nugetDepsTreeCmd(c *components.Context) error {

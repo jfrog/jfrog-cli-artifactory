@@ -9,7 +9,28 @@ import (
 
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	clientutils "github.com/jfrog/jfrog-client-go/utils"
 )
+
+// DeleteVersion deletes the entire version directory for a package (plugin, skill, etc.)
+// at {artURL}{repoKey}/{slug}/{version}/ using an HTTP DELETE request.
+func DeleteVersion(serverDetails *config.ServerDetails, repoKey, slug, version string) error {
+	sm, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
+	if err != nil {
+		return fmt.Errorf("failed to create service manager for deletion: %w", err)
+	}
+	artURL := clientutils.AddTrailingSlashIfNeeded(sm.GetConfig().GetServiceDetails().GetUrl())
+	deletePath := fmt.Sprintf("%s%s/%s/%s/", artURL, repoKey, slug, version)
+	httpDetails := sm.GetConfig().GetServiceDetails().CreateHttpClientDetails()
+	resp, body, err := sm.Client().SendDelete(deletePath, nil, &httpDetails)
+	if err != nil {
+		return fmt.Errorf("failed to delete %s/%s/%s: %w", repoKey, slug, version, err)
+	}
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("failed to delete %s/%s/%s: HTTP %d — %s", repoKey, slug, version, resp.StatusCode, string(body))
+	}
+	return nil
+}
 
 // ErrVersionExistenceUnknown indicates the version path could not be checked (e.g. network
 // error or an Artifactory response whose HTTP status could not be read). Callers should not
@@ -44,6 +65,13 @@ func PackageVersionExists(serverDetails *config.ServerDetails, repoKey, slug, ve
 		return false, err
 	}
 	return false, fmt.Errorf("%w: %w", ErrVersionExistenceUnknown, err)
+}
+
+// IsHTTPNotFound reports whether err is an HTTP 404 from jfrog-client-go (typed StatusCode or
+// errorutils.GenerateResponseError). Returns false when the status cannot be determined.
+func IsHTTPNotFound(err error) bool {
+	code, ok := jfrogClientHTTPStatusCode(err)
+	return ok && code == http.StatusNotFound
 }
 
 // jfrogClientHTTPStatusCode extracts an HTTP status from jfrog-client-go errors by walking the chain.

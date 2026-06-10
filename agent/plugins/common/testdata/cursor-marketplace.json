@@ -1,0 +1,33 @@
+{
+  "name": "test-marketplace",
+  "owner": {
+    "name": "test-owner"
+  },
+  "plugins": [
+    {
+      "name": "dummy-plugin-gamma",
+      "source": {
+        "source": "zip",
+        "url": "dummy-plugin-gamma/1.0.1/dummy-plugin-gamma-1.0.1.zip"
+      },
+      "description": "Dummy plugin for cursor marketplace parser tests.",
+      "license": "MIT",
+      "author": {
+        "name": "Test Author",
+        "url": "https://example.com"
+      },
+      "repository": "https://example.com/dummy-plugin-gamma",
+      "homepage": "https://example.com/dummy-plugin-gamma",
+      "keywords": [
+        "dummy",
+        "test",
+        "cursor"
+      ],
+      "displayName": "Dummy Plugin Gamma",
+      "logo": "assets/logo.svg",
+      "mcp": "./.mcp.json",
+      "skills": "./skills/",
+      "version": "1.0.1"
+    }
+  ]
+}
