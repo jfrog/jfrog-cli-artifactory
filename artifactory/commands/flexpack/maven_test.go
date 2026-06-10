@@ -25,7 +25,9 @@ func TestValidateMavenCoordinate(t *testing.T) {
 		{name: "snapshot version", value: "1.2.3-SNAPSHOT", wantErr: false},
 		{name: "packaging jar", value: "jar", wantErr: false},
 		{name: "packaging bundle", value: "bundle", wantErr: false},
-		{name: "empty string", value: "", wantErr: false},
+
+		// Empty string is rejected by the allowlist guard.
+		{name: "empty string", value: "", wantErr: true},
 
 		// Path traversal sequences.
 		{name: "double dot", value: "..", wantErr: true},
@@ -37,8 +39,12 @@ func TestValidateMavenCoordinate(t *testing.T) {
 		{name: "backslash", value: "com\\example", wantErr: true},
 		{name: "absolute path", value: "/etc/passwd", wantErr: true},
 
-		// Null byte.
+		// Null byte and other characters outside the allowlist.
 		{name: "null byte", value: "jar\x00", wantErr: true},
+		{name: "newline", value: "jar\nwar", wantErr: true},
+		{name: "space", value: "my app", wantErr: true},
+		{name: "semicolon", value: "jar;rm", wantErr: true},
+		{name: "colon", value: "C:jar", wantErr: true},
 	}
 
 	for _, tt := range tests {
