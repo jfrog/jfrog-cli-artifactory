@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -87,9 +88,16 @@ func (pic *PnpmInstallCommand) runPnpmInstall() error {
 	cmd := exec.Command("pnpm", args...)
 	cmd.Dir = pic.workingDirectory
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return errorutils.CheckError(cmd.Run())
+	var outputBuf bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &outputBuf)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &outputBuf)
+	if err := cmd.Run(); err != nil {
+		if output := strings.TrimSpace(outputBuf.String()); output != "" {
+			return fmt.Errorf("%w\n%s", err, output)
+		}
+		return errorutils.CheckError(err)
+	}
+	return nil
 }
 
 func (pic *PnpmInstallCommand) collectAndSaveBuildInfo() error {
