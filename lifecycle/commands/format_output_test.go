@@ -2,7 +2,6 @@ package commands
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	coreformat "github.com/jfrog/jfrog-cli-core/v2/common/format"
@@ -83,7 +82,6 @@ func TestDistributePrintOutput_Json(t *testing.T) {
 		},
 		outputFormat: coreformat.Json,
 	}
-	// Should not error
 	assert.NoError(t, cmd.printDistributeOutput())
 }
 
@@ -95,29 +93,7 @@ func TestDistributePrintOutput_NoFormat_Silent(t *testing.T) {
 		},
 		outputFormat: coreformat.None,
 	}
-	// No format set → no output and no error (backward-compat silent)
 	assert.NoError(t, cmd.printDistributeOutput())
-}
-
-func TestDistributePrintOutput_JsonContent(t *testing.T) {
-	cmd := &ReleaseBundleDistributeCommand{
-		releaseBundleCmd: releaseBundleCmd{
-			releaseBundleName:    "my-bundle",
-			releaseBundleVersion: "2.3.4",
-		},
-		outputFormat: coreformat.Json,
-	}
-	type distributeOutput struct {
-		Name    string `json:"release_bundle_name"`
-		Version string `json:"release_bundle_version"`
-		Status  string `json:"status"`
-	}
-	out := distributeOutput{Name: cmd.releaseBundleName, Version: cmd.releaseBundleVersion, Status: "distributed"}
-	content, err := json.Marshal(out)
-	require.NoError(t, err)
-	assert.True(t, strings.Contains(string(content), "my-bundle"))
-	assert.True(t, strings.Contains(string(content), "2.3.4"))
-	assert.True(t, strings.Contains(string(content), "distributed"))
 }
 
 func TestDistributeSetOutputFormat(t *testing.T) {
@@ -148,29 +124,12 @@ func TestCreatePrintOutput_NoFormat_Silent(t *testing.T) {
 		},
 		outputFormat: coreformat.None,
 	}
-	// No format set → no output and no error (backward-compat silent)
 	assert.NoError(t, cmd.printCreateOutput())
 }
 
-func TestCreatePrintOutput_JsonContent(t *testing.T) {
-	cmd := &ReleaseBundleCreateCommand{
-		releaseBundleCmd: releaseBundleCmd{
-			releaseBundleName:    "my-bundle",
-			releaseBundleVersion: "3.0.1",
-		},
-		outputFormat: coreformat.Json,
-	}
-	type createOutput struct {
-		Name    string `json:"release_bundle_name"`
-		Version string `json:"release_bundle_version"`
-		Status  string `json:"status"`
-	}
-	out := createOutput{Name: cmd.releaseBundleName, Version: cmd.releaseBundleVersion, Status: "created"}
-	content, err := json.Marshal(out)
-	require.NoError(t, err)
-	assert.True(t, strings.Contains(string(content), "my-bundle"))
-	assert.True(t, strings.Contains(string(content), "3.0.1"))
-	assert.True(t, strings.Contains(string(content), "created"))
+func TestPrintEchoJson(t *testing.T) {
+	assert.NoError(t, printEchoJson("my-bundle", "1.0.0", "created"))
+	assert.NoError(t, printEchoJson("my-bundle", "2.3.4", "distributed"))
 }
 
 func TestCreateSetOutputFormat(t *testing.T) {

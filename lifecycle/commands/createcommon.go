@@ -614,17 +614,16 @@ func (rbc *ReleaseBundleCreateCommand) printCreateOutput() error {
 	if rbc.outputFormat != coreformat.Json {
 		return nil
 	}
-	type createOutput struct {
+	return printEchoJson(rbc.releaseBundleName, rbc.releaseBundleVersion, "created")
+}
+
+func printEchoJson(name, version, status string) error {
+	type output struct {
 		Name    string `json:"release_bundle_name"`
 		Version string `json:"release_bundle_version"`
 		Status  string `json:"status"`
 	}
-	out := createOutput{
-		Name:    rbc.releaseBundleName,
-		Version: rbc.releaseBundleVersion,
-		Status:  "created",
-	}
-	content, err := json.Marshal(out)
+	content, err := json.Marshal(output{Name: name, Version: version, Status: status})
 	if err != nil {
 		return err
 	}
