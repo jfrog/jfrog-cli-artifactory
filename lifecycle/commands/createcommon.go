@@ -170,7 +170,8 @@ func (rbc *ReleaseBundleCreateCommand) Run() error {
 	}
 
 	var runErr error
-	if sourceTypes != nil && isSingleSourceType(sourceTypes) {
+	switch {
+	case sourceTypes != nil && isSingleSourceType(sourceTypes):
 		switch sourceTypes[0] {
 		case services.Aql:
 			runErr = rbc.createFromAql(servicesManager, rbDetails, queryParams)
@@ -185,14 +186,14 @@ func (rbc *ReleaseBundleCreateCommand) Run() error {
 		default:
 			return errorutils.CheckError(errors.New("unknown source for release bundle creation was provided"))
 		}
-	} else if isReleaseBundleCreationWithMultiSourcesSupported {
+	case isReleaseBundleCreationWithMultiSourcesSupported:
 		sources, err := rbc.getMultipleSourcesIfDefined()
 		if err != nil {
 			return err
 		}
 		updateReleaseBundleRepoKeyWithProject(sources)
 		_, runErr = rbc.createFromMultipleSources(servicesManager, rbDetails, queryParams, sources)
-	} else {
+	default:
 		return errorutils.CheckErrorf("release bundle creation failed, unable to identify source for creation")
 	}
 	if runErr != nil {
