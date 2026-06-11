@@ -2,7 +2,10 @@ package commands
 
 import (
 	"encoding/json"
+
+	coreformat "github.com/jfrog/jfrog-cli-core/v2/common/format"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/lifecycle/services"
 	"github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -15,6 +18,7 @@ type ReleaseBundlePromoteCommand struct {
 	includeReposPatterns []string
 	excludeReposPatterns []string
 	promotionType        string
+	outputFormat         coreformat.OutputFormat
 }
 
 func NewReleaseBundlePromoteCommand() *ReleaseBundlePromoteCommand {
@@ -71,6 +75,11 @@ func (rbp *ReleaseBundlePromoteCommand) SetPromotionType(promotionType string) *
 	return rbp
 }
 
+func (rbp *ReleaseBundlePromoteCommand) SetOutputFormat(f coreformat.OutputFormat) *ReleaseBundlePromoteCommand {
+	rbp.outputFormat = f
+	return rbp
+}
+
 func (rbp *ReleaseBundlePromoteCommand) CommandName() string {
 	return "rb_promote"
 }
@@ -85,7 +94,6 @@ func (rbp *ReleaseBundlePromoteCommand) Run() error {
 	}
 
 	servicesManager, rbDetails, queryParams, err := rbp.getPromotionPrerequisites()
-
 	if err != nil {
 		return err
 	}
@@ -100,10 +108,37 @@ func (rbp *ReleaseBundlePromoteCommand) Run() error {
 	if err != nil {
 		return err
 	}
-	content, err := json.Marshal(promotionResp)
+	return rbp.printOutput(promotionResp)
+}
+
+func (rbp *ReleaseBundlePromoteCommand) printOutput(resp services.RbPromotionResp) error {
+	if rbp.outputFormat == coreformat.Table {
+		return printPromoteTable(resp)
+	}
+	// default (format.None) keeps the pre-existing JSON output for backward compatibility
+	content, err := json.Marshal(resp)
 	if err != nil {
 		return err
 	}
 	log.Output(utils.IndentJson(content))
 	return nil
+}
+
+type rbPromoteTableRow struct {
+	RepositoryKey        string `col-name:"REPOSITORY KEY"`
+	ReleaseBundleName    string `col-name:"BUNDLE NAME"`
+	ReleaseBundleVersion string `col-name:"VERSION"`
+	Environment          string `col-name:"ENVIRONMENT"`
+	Created              string `col-name:"CREATED"`
+}
+
+func printPromoteTable(resp services.RbPromotionResp) error {
+	row := rbPromoteTableRow{
+		RepositoryKey:        resp.RepositoryKey,
+		ReleaseBundleName:    resp.ReleaseBundleName,
+		ReleaseBundleVersion: resp.ReleaseBundleVersion,
+		Environment:          resp.Environment,
+		Created:              resp.Created,
+	}
+	return coreutils.PrintTable([]rbPromoteTableRow{row}, "Promotion Result", "No promotion result", false)
 }

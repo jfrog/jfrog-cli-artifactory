@@ -1,9 +1,14 @@
 package commands
 
 import (
+	"encoding/json"
+
+	coreformat "github.com/jfrog/jfrog-cli-core/v2/common/format"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/lifecycle/services"
+	clientutils "github.com/jfrog/jfrog-client-go/utils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 type ReleaseBundleDistributeCommand struct {
@@ -14,6 +19,7 @@ type ReleaseBundleDistributeCommand struct {
 	pathMappingPattern string
 	pathMappingTarget  string
 	maxWaitMinutes     int
+	outputFormat       coreformat.OutputFormat
 }
 
 func NewReleaseBundleDistributeCommand() *ReleaseBundleDistributeCommand {
@@ -75,6 +81,11 @@ func (rbd *ReleaseBundleDistributeCommand) SetMaxWaitMinutes(maxWaitMinutes int)
 	return rbd
 }
 
+func (rbd *ReleaseBundleDistributeCommand) SetOutputFormat(f coreformat.OutputFormat) *ReleaseBundleDistributeCommand {
+	rbd.outputFormat = f
+	return rbd
+}
+
 func (rbd *ReleaseBundleDistributeCommand) Run() error {
 	if err := validateArtifactoryVersionSupported(rbd.serverDetails); err != nil {
 		return err
@@ -99,7 +110,32 @@ func (rbd *ReleaseBundleDistributeCommand) Run() error {
 		ProjectKey:        rbd.rbProjectKey,
 	}
 
-	return servicesManager.DistributeReleaseBundle(rbDetails, distributeParams)
+	if err := servicesManager.DistributeReleaseBundle(rbDetails, distributeParams); err != nil {
+		return err
+	}
+	return rbd.printDistributeOutput()
+}
+
+func (rbd *ReleaseBundleDistributeCommand) printDistributeOutput() error {
+	if rbd.outputFormat != coreformat.Json {
+		return nil
+	}
+	type distributeOutput struct {
+		Name    string `json:"release_bundle_name"`
+		Version string `json:"release_bundle_version"`
+		Status  string `json:"status"`
+	}
+	out := distributeOutput{
+		Name:    rbd.releaseBundleName,
+		Version: rbd.releaseBundleVersion,
+		Status:  "distributed",
+	}
+	content, err := json.Marshal(out)
+	if err != nil {
+		return err
+	}
+	log.Output(clientutils.IndentJson(content))
+	return nil
 }
 
 func (rbd *ReleaseBundleDistributeCommand) ServerDetails() (*config.ServerDetails, error) {
