@@ -222,17 +222,3 @@ func getStatusForbiddenErrorMessage() string {
 		"\nPlease verify the above factors to resolve the issue."
 	return errorMessage
 }
-
-// ExtractArtifactoryRepoKey parses the repository key from the image's long name,
-// which is expected to be in the format "<repo-key>/<image-name>:<image-tag>".
-func (image *Image) ExtractArtifactoryRepoKey() (string, error) {
-	imageName, err := image.GetImageLongName()
-	if err != nil {
-		return "", err
-	}
-	repoName, _, ok := strings.Cut(imageName, "/")
-	if ok {
-		return repoName, nil
-	}
-	return "", errorutils.CheckErrorf("invalid image name format. Got '%s'", imageName)
-}

@@ -129,17 +129,32 @@ func (nc *NpmCommand) SetDisableCVSCheck(disable bool) *NpmCommand {
 }
 
 func (nc *NpmCommand) Init() error {
-	// Read config file.
-	log.Debug("Preparing to read the config file", nc.configFilePath)
-	vConfig, err := project.ReadConfigFile(nc.configFilePath, project.YAML)
-	if err != nil {
-		return err
+	if nc.configFilePath != "" {
+		log.Debug("Preparing to read the config file", nc.configFilePath)
+		vConfig, err := project.ReadConfigFile(nc.configFilePath, project.YAML)
+		if err != nil {
+			return err
+		}
+		
+		repoConfig, err := nc.getRepoConfig(vConfig)
+		if err != nil {
+			return err
+		}
+		nc.SetRepoConfig(repoConfig)
+	} else if nc.UseNative() {
+		// No config file + native mode — CLI layer set useNative and stripped --run-native already.
+		// Only strip --server-id (not a valid npm flag) and resolve server details.
+		filteredArgs, serverID, err := coreutils.ExtractServerIdFromCommand(nc.npmArgs)
+		if err != nil {
+			return err
+		}
+		nc.npmArgs = filteredArgs
+		nc.serverDetails, err = config.GetSpecificConfig(serverID, true, false)
+		if err != nil {
+			return err
+		}
 	}
 
-	repoConfig, err := nc.getRepoConfig(vConfig)
-	if err != nil {
-		return err
-	}
 	_, _, _, filteredNpmArgs, buildConfiguration, err := commandUtils.ExtractNpmOptionsFromArgs(nc.npmArgs)
 	if err != nil {
 		return err
@@ -149,7 +164,7 @@ func (nc *NpmCommand) Init() error {
 	if err != nil {
 		return err
 	}
-	nc.SetRepoConfig(repoConfig).SetArgs(filteredNpmArgs).SetBuildConfiguration(buildConfiguration)
+	nc.SetArgs(filteredNpmArgs).SetBuildConfiguration(buildConfiguration)
 	nc.SetDisableCVSCheck(disableCVSCheck)
 	return nil
 }
@@ -199,13 +214,6 @@ func (nc *NpmCommand) PreparePrerequisites(repo string) error {
 		return err
 	}
 	log.Debug("Working directory set to:", nc.workingDirectory)
-
-	// Check for native mode (env var or deprecated flag)
-	useNative, _, err := CheckIsNativeAndFetchFilteredArgs(nc.npmArgs)
-	if err != nil {
-		return err
-	}
-	nc.SetUseNative(useNative)
 	nc.installHandler = NewNpmInstallStrategy(nc.UseNative(), nc)
 
 	return nc.installHandler.PrepareInstallPrerequisites(repo)
