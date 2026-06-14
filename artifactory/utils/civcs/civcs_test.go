@@ -8,7 +8,7 @@ import (
 
 	biutils "github.com/jfrog/build-info-go/utils"
 	"github.com/jfrog/build-info-go/utils/cienv"
-	clientutils "github.com/jfrog/jfrog-client-go/utils"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -402,9 +402,9 @@ func setupGitRepoFixture(t *testing.T, fixtureName string) (repoDir, url, revisi
 	dst := filepath.Join(repoDir, ".git")
 	require.NoError(t, biutils.CopyDir(src, dst, true, nil))
 
-	gitManager := clientutils.NewGitManager(repoDir)
-	require.NoError(t, gitManager.ReadConfig())
-	return repoDir, gitManager.GetUrl(), gitManager.GetRevision(), gitManager.GetBranch()
+	info, err := utils.GetLocalGitVcsInfo(repoDir)
+	require.NoError(t, err)
+	return repoDir, info.Url, info.Revision, info.Branch
 }
 
 func clearCIEnvVars(t *testing.T) {

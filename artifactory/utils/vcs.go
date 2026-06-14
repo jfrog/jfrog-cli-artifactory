@@ -15,6 +15,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -194,10 +195,63 @@ func GetLocalGitVcsInfo(searchDir string) (cienv.CIVcsInfo, error) {
 		return cienv.CIVcsInfo{}, err
 	}
 	return cienv.CIVcsInfo{
-		Url:      gitManager.GetUrl(),
+		Url:      normalizeGitRemoteUrl(gitManager.GetUrl()),
 		Revision: gitManager.GetRevision(),
 		Branch:   gitManager.GetBranch(),
 	}, nil
+}
+
+// normalizeGitRemoteUrl returns a canonical HTTPS repository URL without a ".git" suffix.
+// It normalizes common clone URL formats (HTTPS, SCP-style SSH, ssh://) to a consistent value.
+func normalizeGitRemoteUrl(cloneUrl string) string {
+	cloneUrl = strings.TrimSpace(cloneUrl)
+	if cloneUrl == "" {
+		return ""
+	}
+
+	if normalized := normalizeScpStyleGitUrl(cloneUrl); normalized != "" {
+		return normalized
+	}
+
+	parsed, err := url.Parse(cloneUrl)
+	if err != nil || parsed.Host == "" {
+		return trimGitSuffix(cloneUrl)
+	}
+
+	parsed.User = nil
+	scheme := parsed.Scheme
+	if scheme == "ssh" || scheme == "git" {
+		scheme = "https"
+	}
+	if scheme == "" {
+		scheme = "https"
+	}
+
+	path := trimGitSuffix(parsed.Path)
+	normalized := scheme + "://" + parsed.Hostname()
+	if port := parsed.Port(); port != "" {
+		normalized += ":" + port
+	}
+	return normalized + path
+}
+
+var scpStyleGitUrlRegexp = regexp.MustCompile(`^[^@]+@([^:]+):(.+)$`)
+
+func normalizeScpStyleGitUrl(cloneUrl string) string {
+	if strings.Contains(cloneUrl, "://") {
+		return ""
+	}
+	matches := scpStyleGitUrlRegexp.FindStringSubmatch(cloneUrl)
+	if len(matches) != 3 {
+		return ""
+	}
+	host := matches[1]
+	path := strings.TrimPrefix(trimGitSuffix(matches[2]), "/")
+	return "https://" + host + "/" + path
+}
+
+func trimGitSuffix(urlPath string) string {
+	return strings.TrimSuffix(strings.TrimSuffix(urlPath, "/"), ".git")
 }
 
 // Gets the vcs revision from the latest build in Artifactory.
