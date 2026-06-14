@@ -135,7 +135,7 @@ func (nc *NpmCommand) Init() error {
 		if err != nil {
 			return err
 		}
-		
+
 		repoConfig, err := nc.getRepoConfig(vConfig)
 		if err != nil {
 			return err
