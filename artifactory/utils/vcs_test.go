@@ -37,7 +37,7 @@ func runGitLogAndCountCommits(t *testing.T, gitDetails GitLogDetails, vcsRevisio
 }
 
 func TestFindDotGit(t *testing.T) {
-	repoDir, _, _, _ := setupGitRepoFixture(t, "git_test_.git_suffix")
+	repoDir, _, _ := setupGitRepoFixture(t, "git_test_.git_suffix")
 	testFile := filepath.Join(repoDir, "file.txt")
 	require.NoError(t, os.WriteFile(testFile, []byte("test"), 0o644))
 
@@ -88,6 +88,7 @@ func TestNormalizeGitRemoteUrl(t *testing.T) {
 		{name: "scp-style ssh without .git", input: "git@github.com:jfrog/jfrog-cli", expected: "https://github.com/jfrog/jfrog-cli"},
 		{name: "ssh protocol", input: "ssh://git@github.com/jfrog/jfrog-cli.git", expected: "https://github.com/jfrog/jfrog-cli"},
 		{name: "ssh protocol with port", input: "ssh://git@git.example.com:7999/org/repo.git", expected: "https://git.example.com:7999/org/repo"},
+		// #nosec G101 -- test fixture: verifies userinfo is stripped from URL, not a real credential
 		{name: "https with credentials", input: "https://user:pass@github.com/jfrog/jfrog-cli.git", expected: "https://github.com/jfrog/jfrog-cli"},
 		{name: "azure devops", input: "https://dev.azure.com/myorg/myproject/_git/myrepo", expected: "https://dev.azure.com/myorg/myproject/_git/myrepo"},
 		{name: "empty", input: "", expected: ""},
@@ -101,7 +102,7 @@ func TestNormalizeGitRemoteUrl(t *testing.T) {
 }
 
 func TestGetLocalGitVcsInfo(t *testing.T) {
-	repoDir, _, expectedRev, expectedBranch := setupGitRepoFixture(t, "git_test_.git_suffix")
+	repoDir, expectedRev, expectedBranch := setupGitRepoFixture(t, "git_test_.git_suffix")
 
 	info, err := GetLocalGitVcsInfo(repoDir)
 	require.NoError(t, err)
@@ -109,7 +110,7 @@ func TestGetLocalGitVcsInfo(t *testing.T) {
 	assert.Equal(t, expectedRev, info.Revision)
 	assert.Equal(t, expectedBranch, info.Branch)
 
-	repoDirNoSuffix, _, expectedRevNoSuffix, expectedBranchNoSuffix := setupGitRepoFixture(t, "git_test_no_.git_suffix")
+	repoDirNoSuffix, expectedRevNoSuffix, expectedBranchNoSuffix := setupGitRepoFixture(t, "git_test_no_.git_suffix")
 	info, err = GetLocalGitVcsInfo(repoDirNoSuffix)
 	require.NoError(t, err)
 	assert.Equal(t, "https://github.com/jfrog/jfrog-cli-go", info.Url)
@@ -125,7 +126,7 @@ func TestGetLocalGitVcsInfo(t *testing.T) {
 }
 
 func TestGetLocalGitVcsInfo_FromSubdirectory(t *testing.T) {
-	repoDir, _, expectedRev, expectedBranch := setupGitRepoFixture(t, "git_test_.git_suffix")
+	repoDir, expectedRev, expectedBranch := setupGitRepoFixture(t, "git_test_.git_suffix")
 	subDir := filepath.Join(repoDir, "subdir")
 	require.NoError(t, os.Mkdir(subDir, 0o755))
 
@@ -144,7 +145,7 @@ func assertPathsEqual(t *testing.T, expected, actual string) {
 	assert.Equal(t, evalExpected, evalActual)
 }
 
-func setupGitRepoFixture(t *testing.T, fixtureName string) (repoDir, url, revision, branch string) {
+func setupGitRepoFixture(t *testing.T, fixtureName string) (repoDir, revision, branch string) {
 	t.Helper()
 	repoDir = t.TempDir()
 	src := filepath.Join("..", "commands", "testdata", fixtureName)
@@ -153,5 +154,5 @@ func setupGitRepoFixture(t *testing.T, fixtureName string) (repoDir, url, revisi
 
 	info, err := GetLocalGitVcsInfo(repoDir)
 	require.NoError(t, err)
-	return repoDir, info.Url, info.Revision, info.Branch
+	return repoDir, info.Revision, info.Branch
 }
