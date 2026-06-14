@@ -50,20 +50,17 @@ func (ca *CommonArgs) SetUseNative(useNpmRc bool) *CommonArgs {
 // then falls back to the deprecated --run-native flag for backward compatibility.
 // Returns: useNative flag, filtered args (with --run-native removed if present), error
 func CheckIsNativeAndFetchFilteredArgs(args []string) (useNative bool, filteredArgs []string, err error) {
-	filteredArgs = args
-	// Check JFROG_RUN_NATIVE environment variable first (preferred method)
-	useNative = flexpack.IsFlexPackEnabled()
-	if useNative {
-		log.Info("Running npm in native mode (JFROG_RUN_NATIVE=true)")
-		return
-	}
-
-	// Check deprecated --run-native flag for backward compatibility
+	// Always strip --run-native from args so it never reaches the npm binary,
+	// regardless of whether native mode is triggered by env var or flag.
 	filteredArgs, useNativeFlag, err := coreutils.ExtractUseNativeFromArgs(args)
 	if err != nil {
 		return false, args, err
 	}
-	if useNativeFlag {
+
+	if flexpack.IsFlexPackEnabled() {
+		log.Info("Running npm in native mode (JFROG_RUN_NATIVE=true)")
+		useNative = true
+	} else if useNativeFlag {
 		log.Warn("The --run-native flag is deprecated. Please use JFROG_RUN_NATIVE=true environment variable instead.")
 		log.Info("Running npm in native mode")
 		useNative = true

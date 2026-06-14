@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -493,7 +494,57 @@ func getMavenArtifactCoordinates(workingDir string) (groupId, artifactId, versio
 		return "", "", "", fmt.Errorf("failed to extract complete Maven coordinates from pom.xml (groupId=%s, artifactId=%s, version=%s)", groupId, artifactId, version)
 	}
 
+	// Validate Maven coordinates to prevent path traversal attacks via crafted pom.xml.
+	// Maven groupId/artifactId/version legitimately cannot contain path separators or ".." sequences.
+	if err := validateMavenCoordinate(groupId); err != nil {
+		return "", "", "", fmt.Errorf("invalid groupId in pom.xml: %w", err)
+	}
+	if err := validateMavenCoordinate(artifactId); err != nil {
+		return "", "", "", fmt.Errorf("invalid artifactId in pom.xml: %w", err)
+	}
+	if err := validateMavenCoordinate(version); err != nil {
+		return "", "", "", fmt.Errorf("invalid version in pom.xml: %w", err)
+	}
+
 	return groupId, artifactId, version, nil
+}
+
+// mavenCoordinateRegex is an allowlist of the only characters that may legitimately appear in a
+// Maven groupId/artifactId/version/packaging value (and in the composed "<artifactId>-<version>.<packaging>"
+// filename, which additionally contains the '-' and '.' separators already covered below).
+var mavenCoordinateRegex = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// validateMavenCoordinate validates a value read from a user-controlled pom.xml using a strict
+// allowlist, rejecting anything that is not a legitimate Maven coordinate.
+//
+// Background: Maven coordinates (groupId, artifactId, version) and the packaging type are read
+// straight from a user-controlled pom.xml and later composed into a filename that is joined with
+// the project's "target" directory (see addDeployedArtifactsToBuildInfo). Without validation, a
+// crafted pom.xml could inject values like "../../etc" and cause the resulting filepath.Join to
+// escape the target directory (path traversal).
+//
+// An allowlist is used in preference to a denylist: legitimate Maven coordinates only ever use the
+// characters [A-Za-z0-9._-], so anything outside that set (path separators, null bytes, newlines,
+// shell metacharacters, encoded sequences, ...) is rejected without having to enumerate every
+// bypass vector. The "." is allowed because it is the package/version separator, so we additionally
+// reject the ".." traversal sequence explicitly (it is otherwise composed entirely of allowed
+// characters). The relative-path form ("../pom.xml") only appears in the <parent><relativePath>
+// element, which this code does not parse and never feeds into a path, so this cannot reject a
+// valid project.
+//
+// The same helper is reused to validate the composed artifact filename (defense in depth) so the
+// "trailing dot in version" edge case (e.g. version "1.0." -> "app-1.0..jar") is caught in one place.
+func validateMavenCoordinate(value string) error {
+	if value == "" {
+		return fmt.Errorf("value is empty")
+	}
+	if strings.Contains(value, "..") {
+		return fmt.Errorf("value %q contains path traversal sequence", value)
+	}
+	if !mavenCoordinateRegex.MatchString(value) {
+		return fmt.Errorf("value %q contains characters not permitted in Maven coordinates", value)
+	}
+	return nil
 }
 
 // addDeployedArtifactsToBuildInfo adds deployed artifacts to the build info
@@ -520,6 +571,17 @@ func addDeployedArtifactsToBuildInfo(buildInfo *entities.BuildInfo, workingDir s
 	// Only include the main artifact that matches the packaging type
 	// This follows traditional Maven behavior where intermediate build artifacts (e.g., .jar in WAR projects) are excluded
 	mainArtifactName := fmt.Sprintf("%s-%s.%s", artifactId, version, packagingType)
+	// Defense in depth: re-validate the composed filename before joining it with targetDir.
+	// The individual inputs are already sanitized at extraction, but composing them (version "." packaging)
+	// could still produce ".." at a boundary (e.g. a trailing-dot version "1.0." -> "app-1.0..jar").
+	// Reusing validateMavenCoordinate keeps the traversal rules in a single place.
+	if err := validateMavenCoordinate(mainArtifactName); err != nil {
+		return fmt.Errorf("invalid artifact name: %w", err)
+	}
+	// filepath.Base strips any directory component, guaranteeing the artifact is read from directly
+	// within targetDir regardless of the (already validated) input. This collapses the value to a
+	// single path element and is the canonical sanitizer for stored path-traversal data flows.
+	mainArtifactName = filepath.Base(mainArtifactName)
 	mainArtifactPath := filepath.Join(targetDir, mainArtifactName)
 
 	if _, err := os.Stat(mainArtifactPath); err == nil {
@@ -563,6 +625,15 @@ func getPackagingType(workingDir string) string {
 
 	if pom.Packaging == "" {
 		return "jar" // Maven default
+	}
+
+	// Sanitize against path traversal: the packaging type from pom.xml is user-controlled and is
+	// later used to build a filename joined with the target directory. Valid packaging types are
+	// short tokens (jar, war, pom, ear, bundle, ...) that never contain path separators or "..".
+	// On an invalid value we fall back to "jar" (Maven's default) rather than failing the build.
+	if err := validateMavenCoordinate(pom.Packaging); err != nil {
+		log.Warn("Invalid packaging type in pom.xml, falling back to jar: " + err.Error())
+		return "jar"
 	}
 
 	return pom.Packaging
