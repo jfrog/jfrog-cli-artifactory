@@ -237,7 +237,7 @@ func TestExtractArtifactPathsWithWarnings(t *testing.T) {
 					},
 				},
 			},
-			expectedPaths:   []string{"com/example/file1.jar"},
+			expectedPaths:   []string{"*/com/example/file1.jar"},
 			expectedSkipped: 0,
 		},
 		{
@@ -252,7 +252,7 @@ func TestExtractArtifactPathsWithWarnings(t *testing.T) {
 					},
 				},
 			},
-			expectedPaths:   []string{"libs-release/com/example/file1.jar", "com/example/file2.jar"},
+			expectedPaths:   []string{"libs-release/com/example/file1.jar", "*/com/example/file2.jar"},
 			expectedSkipped: 0,
 		},
 		{
