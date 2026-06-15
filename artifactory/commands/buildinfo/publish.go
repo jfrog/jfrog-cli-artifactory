@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -368,8 +369,19 @@ func (bpc *BuildPublishCommand) setVcsPropsOnArtifacts(
 	servicesManager artifactory.ArtifactoryServicesManager,
 	buildInfo *buildinfo.BuildInfo,
 ) {
-	// Build props string
-	props := civcs.GetCIVcsPropsString(bpc.dotGitPath)
+	if civcs.IsCIVcsPropsDisabled() {
+		return
+	}
+	searchDir := bpc.dotGitPath
+	if searchDir == "" {
+		var err error
+		searchDir, err = os.Getwd()
+		if err != nil {
+			searchDir = "."
+		}
+	}
+	// Build props string (CI env + local git fallback).
+	props := civcs.GetCIVcsPropsString(searchDir)
 	if props == "" {
 		log.Debug("VCS: Empty props string, skipping")
 		return
