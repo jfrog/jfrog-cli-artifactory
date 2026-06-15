@@ -67,7 +67,9 @@ func TestSetCIVcsPropsOnArtifacts(t *testing.T) {
 
 	// 2. Mock services manager
 	mockSM := new(mockServicesManager)
-	expectedProps := "vcs.provider=github;vcs.org=jfrog;vcs.repo=jfrog-cli"
+	// Use a non-git directory so only CI env props are collected (not local git url/revision/branch).
+	nonGitDir := t.TempDir()
+	expectedProps := civcs.GetCIVcsPropsString(nonGitDir)
 
 	searchReader, cleanup := createTestSearchReader(t)
 	defer cleanup()
@@ -95,6 +97,7 @@ func TestSetCIVcsPropsOnArtifacts(t *testing.T) {
 
 	// 4. Run command
 	bpc := NewBuildPublishCommand()
+	bpc.SetDotGitPath(nonGitDir)
 	bpc.setVcsPropsOnArtifacts(mockSM, bi)
 
 	// 5. Verify
