@@ -91,8 +91,8 @@ func (rbc *ReleaseBundleCreateCommand) SetDraft(draft bool) *ReleaseBundleCreate
 	return rbc
 }
 
-func (rbc *ReleaseBundleCreateCommand) SetOutputFormat(f coreformat.OutputFormat) *ReleaseBundleCreateCommand {
-	rbc.outputFormat = f
+func (rbc *ReleaseBundleCreateCommand) SetOutputFormat(format coreformat.OutputFormat) *ReleaseBundleCreateCommand {
+	rbc.outputFormat = format
 	return rbc
 }
 
@@ -169,20 +169,20 @@ func (rbc *ReleaseBundleCreateCommand) Run() error {
 		return err
 	}
 
-	var runErr error
+	var creationErr error
 	switch {
 	case sourceTypes != nil && isSingleSourceType(sourceTypes):
 		switch sourceTypes[0] {
 		case services.Aql:
-			runErr = rbc.createFromAql(servicesManager, rbDetails, queryParams)
+			creationErr = rbc.createFromAql(servicesManager, rbDetails, queryParams)
 		case services.Artifacts:
-			runErr = rbc.createFromArtifacts(servicesManager, rbDetails, queryParams)
+			creationErr = rbc.createFromArtifacts(servicesManager, rbDetails, queryParams)
 		case services.Builds:
-			runErr = rbc.createFromBuilds(servicesManager, rbDetails, queryParams)
+			creationErr = rbc.createFromBuilds(servicesManager, rbDetails, queryParams)
 		case services.ReleaseBundles:
-			runErr = rbc.createFromReleaseBundles(servicesManager, rbDetails, queryParams)
+			creationErr = rbc.createFromReleaseBundles(servicesManager, rbDetails, queryParams)
 		case services.Packages:
-			runErr = rbc.createFromPackages(servicesManager, rbDetails, queryParams)
+			creationErr = rbc.createFromPackages(servicesManager, rbDetails, queryParams)
 		default:
 			return errorutils.CheckError(errors.New("unknown source for release bundle creation was provided"))
 		}
@@ -192,12 +192,12 @@ func (rbc *ReleaseBundleCreateCommand) Run() error {
 			return err
 		}
 		updateReleaseBundleRepoKeyWithProject(sources)
-		_, runErr = rbc.createFromMultipleSources(servicesManager, rbDetails, queryParams, sources)
+		_, creationErr = rbc.createFromMultipleSources(servicesManager, rbDetails, queryParams, sources)
 	default:
 		return errorutils.CheckErrorf("release bundle creation failed, unable to identify source for creation")
 	}
-	if runErr != nil {
-		return runErr
+	if creationErr != nil {
+		return creationErr
 	}
 	return rbc.printCreateOutput()
 }
@@ -615,7 +615,7 @@ func (rbc *ReleaseBundleCreateCommand) printCreateOutput() error {
 	if rbc.outputFormat != coreformat.Json {
 		return nil
 	}
-	return printEchoJson(rbc.releaseBundleName, rbc.releaseBundleVersion, "created")
+	return printEchoJson(rbc.releaseBundleName, rbc.releaseBundleVersion, statusCreated)
 }
 
 func printEchoJson(name, version, status string) error {

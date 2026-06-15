@@ -75,8 +75,8 @@ func (rbp *ReleaseBundlePromoteCommand) SetPromotionType(promotionType string) *
 	return rbp
 }
 
-func (rbp *ReleaseBundlePromoteCommand) SetOutputFormat(f coreformat.OutputFormat) *ReleaseBundlePromoteCommand {
-	rbp.outputFormat = f
+func (rbp *ReleaseBundlePromoteCommand) SetOutputFormat(format coreformat.OutputFormat) *ReleaseBundlePromoteCommand {
+	rbp.outputFormat = format
 	return rbp
 }
 

@@ -77,8 +77,8 @@ func (rbd *ReleaseBundleDistributeCommand) SetMaxWaitMinutes(maxWaitMinutes int)
 	return rbd
 }
 
-func (rbd *ReleaseBundleDistributeCommand) SetOutputFormat(f coreformat.OutputFormat) *ReleaseBundleDistributeCommand {
-	rbd.outputFormat = f
+func (rbd *ReleaseBundleDistributeCommand) SetOutputFormat(format coreformat.OutputFormat) *ReleaseBundleDistributeCommand {
+	rbd.outputFormat = format
 	return rbd
 }
 
@@ -116,7 +116,7 @@ func (rbd *ReleaseBundleDistributeCommand) printDistributeOutput() error {
 	if rbd.outputFormat != coreformat.Json {
 		return nil
 	}
-	return printEchoJson(rbd.releaseBundleName, rbd.releaseBundleVersion, "distributed")
+	return printEchoJson(rbd.releaseBundleName, rbd.releaseBundleVersion, statusDistributed)
 }
 
 func (rbd *ReleaseBundleDistributeCommand) ServerDetails() (*config.ServerDetails, error) {
