@@ -40,6 +40,19 @@ func NewPoetryCommand() *PoetryCommand {
 	}
 }
 
+// extractRepoFromArgs returns the value of the -r / --repository flag from args
+func extractRepoFromArgs(args []string) string {
+	for i, arg := range args {
+		if strings.HasPrefix(arg, "--repository=") {
+			return strings.TrimPrefix(arg, "--repository=")
+		}
+		if (arg == "--repository" || arg == "-r") && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
 func (pc *PoetryCommand) Run() (err error) {
 	log.Info(fmt.Sprintf("Running Poetry %s.", pc.commandName))
 	var buildConfiguration *buildUtils.BuildConfiguration
@@ -56,6 +69,14 @@ func (pc *PoetryCommand) Run() (err error) {
 			err = errors.Join(err, pythonBuildInfo.Clean())
 		}
 	}()
+	// For publish, the deploy repository comes from the user's -r/--repository flag rather than the
+	// resolver repo configured in .jfrog/projects/poetry.yaml. Update pc.repository before credential
+	// setup so Poetry credentials are registered under the deploy repo, not the resolver repo.
+	if pc.commandName == "publish" {
+		if repo := extractRepoFromArgs(pc.args); repo != "" {
+			pc.repository = repo
+		}
+	}
 	err = pc.SetPypiRepoUrlWithCredentials()
 	if err != nil {
 		return err
@@ -96,7 +117,13 @@ func (pc *PoetryCommand) install(buildConfiguration *buildUtils.BuildConfigurati
 }
 
 func (pc *PoetryCommand) publish(buildConfiguration *buildUtils.BuildConfiguration, pythonBuildInfo *build.Build) error {
-	publishCmdArgs := append(slices.Clone(pc.args), "-r "+pc.repository)
+	// Pass the repository as two separate argv elements ("-r", repo). Appending "-r "+pc.repository as
+	// a single element makes Poetry read the value with a leading space ("Repository  <name> is not
+	// defined"). Only append when the user did not already supply -r/--repository themselves.
+	publishCmdArgs := slices.Clone(pc.args)
+	if extractRepoFromArgs(publishCmdArgs) == "" {
+		publishCmdArgs = append(publishCmdArgs, "-r", pc.repository)
+	}
 
 	// Get build name and number (already extracted from CLI arguments)
 	// Since buildConfiguration is created from CLI args, these should be available directly

@@ -27,6 +27,29 @@ func TestAddRepoToPyprojectFile(t *testing.T) {
 	assert.Contains(t, string(content), dummyRepoURL)
 }
 
+func TestExtractRepoFromArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		expected string
+	}{
+		{"short flag with value", []string{"-r", "pypi-local"}, "pypi-local"},
+		{"long flag equals form", []string{"--repository=pypi-local"}, "pypi-local"},
+		{"long flag space form", []string{"--repository", "pypi-local"}, "pypi-local"},
+		{"flag among other args", []string{"--build-name=x", "-r", "pypi-local", "--no-interaction"}, "pypi-local"},
+		{"no repo flag", []string{"--no-interaction", "--build-name=x"}, ""},
+		{"short flag without value", []string{"-r"}, ""},
+		{"long flag without value", []string{"--repository"}, ""},
+		{"empty args", nil, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, extractRepoFromArgs(tt.args))
+		})
+	}
+}
+
 func initPoetryTest(t *testing.T) (string, func()) {
 	// Create and change directory to test workspace
 	testAbs, err := filepath.Abs(filepath.Join("..", "..", "..", "tests", "testdata", "poetry-project"))
