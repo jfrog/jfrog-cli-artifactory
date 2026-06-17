@@ -18,10 +18,10 @@ import (
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/spf13/viper"
-	"golang.org/x/exp/slices"
 )
 
 const (
@@ -38,19 +38,6 @@ func NewPoetryCommand() *PoetryCommand {
 	return &PoetryCommand{
 		PythonCommand: *NewPythonCommand(pythonutils.Poetry),
 	}
-}
-
-// extractRepoFromArgs returns the value of the -r / --repository flag from args
-func extractRepoFromArgs(args []string) string {
-	for i, arg := range args {
-		if strings.HasPrefix(arg, "--repository=") {
-			return strings.TrimPrefix(arg, "--repository=")
-		}
-		if (arg == "--repository" || arg == "-r") && i+1 < len(args) {
-			return args[i+1]
-		}
-	}
-	return ""
 }
 
 func (pc *PoetryCommand) Run() (err error) {
@@ -70,11 +57,19 @@ func (pc *PoetryCommand) Run() (err error) {
 		}
 	}()
 	// For publish, the deploy repository comes from the user's -r/--repository flag rather than the
-	// resolver repo configured in .jfrog/projects/poetry.yaml. Update pc.repository before credential
-	// setup so Poetry credentials are registered under the deploy repo, not the resolver repo.
+	// resolver repo configured in .jfrog/projects/poetry.yaml. Honor it before credential setup so
+	// Poetry credentials are registered under the deploy repo. If the user didn't pass one, append the
+	// resolver repo so Poetry still has a publish target. Either way pc.args then carries the repo, so
+	// publish() can pass it through as-is.
 	if pc.commandName == "publish" {
-		if repo := extractRepoFromArgs(pc.args); repo != "" {
+		var repo string
+		if _, _, repo, err = coreutils.FindFlagFirstMatch([]string{"--repository", "-r"}, pc.args); err != nil {
+			return err
+		}
+		if repo != "" {
 			pc.repository = repo
+		} else {
+			pc.args = append(pc.args, "-r", pc.repository)
 		}
 	}
 	err = pc.SetPypiRepoUrlWithCredentials()
@@ -117,13 +112,8 @@ func (pc *PoetryCommand) install(buildConfiguration *buildUtils.BuildConfigurati
 }
 
 func (pc *PoetryCommand) publish(buildConfiguration *buildUtils.BuildConfiguration, pythonBuildInfo *build.Build) error {
-	// Pass the repository as two separate argv elements ("-r", repo). Appending "-r "+pc.repository as
-	// a single element makes Poetry read the value with a leading space ("Repository  <name> is not
-	// defined"). Only append when the user did not already supply -r/--repository themselves.
-	publishCmdArgs := slices.Clone(pc.args)
-	if extractRepoFromArgs(publishCmdArgs) == "" {
-		publishCmdArgs = append(publishCmdArgs, "-r", pc.repository)
-	}
+	// pc.args already carries the deploy repository (the user's -r/--repository flag, or the resolver
+	// repo appended in Run); pass it through to Poetry as-is.
 
 	// Get build name and number (already extracted from CLI arguments)
 	// Since buildConfiguration is created from CLI args, these should be available directly
@@ -137,7 +127,6 @@ func (pc *PoetryCommand) publish(buildConfiguration *buildUtils.BuildConfigurati
 	}
 
 	// Run the publish command to upload artifacts
-	pc.args = publishCmdArgs
 	err = gofrogcmd.RunCmd(pc)
 	if err != nil {
 		return err
