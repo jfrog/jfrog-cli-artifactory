@@ -58,9 +58,8 @@ func (pc *PoetryCommand) Run() (err error) {
 	}()
 	// For publish, the deploy repository comes from the user's -r/--repository flag rather than the
 	// resolver repo configured in .jfrog/projects/poetry.yaml. Honor it before credential setup so
-	// Poetry credentials are registered under the deploy repo. If the user didn't pass one, append the
-	// resolver repo so Poetry still has a publish target. Either way pc.args then carries the repo, so
-	// publish() can pass it through as-is.
+	// Poetry credentials are registered under the deploy repo. The flag is already in pc.args, so
+	// publish() passes it through to Poetry as-is.
 	if pc.commandName == "publish" {
 		var repo string
 		if _, _, repo, err = coreutils.FindFlagFirstMatch([]string{"--repository", "-r"}, pc.args); err != nil {
@@ -68,8 +67,6 @@ func (pc *PoetryCommand) Run() (err error) {
 		}
 		if repo != "" {
 			pc.repository = repo
-		} else {
-			pc.args = append(pc.args, "-r", pc.repository)
 		}
 	}
 	err = pc.SetPypiRepoUrlWithCredentials()
