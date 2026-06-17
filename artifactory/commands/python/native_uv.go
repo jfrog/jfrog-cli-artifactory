@@ -163,11 +163,13 @@ func (c *NativeUVCommand) injectCredentials(workingDir, deployerRepo string, ser
 
 	injectedAny := false
 
-	// UV_INDEX_URL and UV_DEFAULT_INDEX are UV's global default index env vars.
-	// Log them for visibility; per-named-index injection still proceeds because
-	// these vars only affect the default/fallback index, not named [[tool.uv.index]] entries.
-	if os.Getenv("UV_INDEX_URL") != "" || os.Getenv("UV_DEFAULT_INDEX") != "" {
-		log.Info("UV auth: global index env var set (UV_INDEX_URL or UV_DEFAULT_INDEX); per-index credential injection still proceeds below")
+	// UV_INDEX_URL is the legacy single-URL form with no name= grammar, so credentials
+	// cannot be injected via UV's per-index env vars. Warn the user explicitly.
+	if os.Getenv("UV_INDEX_URL") != "" {
+		log.Warn("UV auth: UV_INDEX_URL is set but has no name form; " +
+			"credentials cannot be injected via UV per-index env vars. " +
+			"Use UV_INDEX or UV_DEFAULT_INDEX with name=url format, " +
+			"embed credentials in the URL, or use ~/.netrc.")
 	}
 
 	// Use script inline indexes when --script is active; fall back to pyproject.toml entries.
@@ -175,6 +177,9 @@ func (c *NativeUVCommand) injectCredentials(workingDir, deployerRepo string, ser
 	if len(indexes) == 0 {
 		indexes = uvReadIndexesFromToml(workingDir)
 	}
+	// Merge UV_DEFAULT_INDEX / UV_INDEX entries — env vars override config-file entries
+	// to match UV's own precedence rules.
+	indexes = uvMergeIndexes(indexes, uvReadIndexesFromEnv())
 	for _, idx := range indexes {
 		envName := uvIndexEnvName(idx.Name)
 		userKey := uvIndexUsernameKey(envName)
@@ -454,6 +459,110 @@ func uvReadIndexesFromToml(workingDir string) []uvIndexEntry {
 	return entries
 }
 
+// uvParseIndexEnvEntry parses a single "[name=]url" entry from UV_INDEX / UV_DEFAULT_INDEX.
+// Splits on the first '=' only (URL query strings can contain '=', names cannot).
+// Returns ok=false for empty, unnamed, or malformed entries.
+func uvParseIndexEnvEntry(raw string) (uvIndexEntry, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return uvIndexEntry{}, false
+	}
+	parts := strings.SplitN(raw, "=", 2)
+	if len(parts) != 2 {
+		return uvIndexEntry{}, false
+	}
+	name := strings.TrimSpace(parts[0])
+	indexURL := strings.TrimSpace(parts[1])
+	if name == "" || indexURL == "" {
+		return uvIndexEntry{}, false
+	}
+	return uvIndexEntry{Name: name, URL: indexURL}, true
+}
+
+// uvReadIndexesFromEnv parses UV_DEFAULT_INDEX and UV_INDEX into named index entries.
+// UV's per-index credential env vars (UV_INDEX_<NAME>_USERNAME/PASSWORD) only work for
+// named entries, so unnamed entries are skipped with a warning.
+func uvReadIndexesFromEnv() []uvIndexEntry {
+	var entries []uvIndexEntry
+	warnUnnamed := func(envVar, raw string) {
+		log.Warn(fmt.Sprintf(
+			"UV auth: %s entry %q has no name; credentials cannot be injected via UV per-index env vars. "+
+				"Use name=url format, embed credentials in the URL, or use ~/.netrc.",
+			envVar, raw))
+	}
+	if def := strings.TrimSpace(os.Getenv("UV_DEFAULT_INDEX")); def != "" {
+		if entry, ok := uvParseIndexEnvEntry(def); ok {
+			entry.Default = true
+			entries = append(entries, entry)
+		} else {
+			warnUnnamed("UV_DEFAULT_INDEX", def)
+		}
+	}
+	if list := os.Getenv("UV_INDEX"); list != "" {
+		for _, raw := range strings.Fields(list) {
+			if entry, ok := uvParseIndexEnvEntry(raw); ok {
+				entries = append(entries, entry)
+			} else {
+				warnUnnamed("UV_INDEX", raw)
+			}
+		}
+	}
+	return entries
+}
+
+// uvResolveBuildInfoIndexURL returns the (envVarName, url) pair to use as a fallback
+// index URL for build-info dependency enrichment when no pyproject.toml index is
+// configured. Walks UV_DEFAULT_INDEX → first UV_INDEX entry → UV_INDEX_URL (legacy).
+// For UV_DEFAULT_INDEX / UV_INDEX, the optional "name=" prefix is stripped.
+func uvResolveBuildInfoIndexURL() (envVar, indexURL string) {
+	if val := strings.TrimSpace(os.Getenv("UV_DEFAULT_INDEX")); val != "" {
+		if entry, ok := uvParseIndexEnvEntry(val); ok {
+			return "UV_DEFAULT_INDEX", entry.URL
+		}
+		return "UV_DEFAULT_INDEX", val
+	}
+	if list := os.Getenv("UV_INDEX"); list != "" {
+		for _, raw := range strings.Fields(list) {
+			if entry, ok := uvParseIndexEnvEntry(raw); ok {
+				return "UV_INDEX", entry.URL
+			}
+		}
+	}
+	if val := strings.TrimSpace(os.Getenv("UV_INDEX_URL")); val != "" {
+		return "UV_INDEX_URL", val
+	}
+	return "", ""
+}
+
+// uvMergeIndexes returns the union of base and override entries, deduped by
+// uvIndexEnvName(name) (UV's canonical env-var suffix). Override entries appear first
+// in their declared order, then non-conflicting base entries — matching UV's own
+// precedence rule that env vars override pyproject.toml.
+func uvMergeIndexes(base, override []uvIndexEntry) []uvIndexEntry {
+	if len(override) == 0 {
+		return base
+	}
+	seen := make(map[string]bool, len(override)+len(base))
+	result := make([]uvIndexEntry, 0, len(override)+len(base))
+	for _, idx := range override {
+		envName := uvIndexEnvName(idx.Name)
+		if seen[envName] {
+			continue
+		}
+		seen[envName] = true
+		result = append(result, idx)
+	}
+	for _, idx := range base {
+		envName := uvIndexEnvName(idx.Name)
+		if seen[envName] {
+			continue
+		}
+		seen[envName] = true
+		result = append(result, idx)
+	}
+	return result
+}
+
 // ── Credential helpers ────────────────────────────────────────────────────────
 
 // uvIndexHasNativeCredentials returns true when any native UV mechanism
@@ -676,20 +785,17 @@ func uvGetBuildInfo(workingDir string, buildConfiguration *buildUtils.BuildConfi
 	case "sync", "install", "lock", "add", "remove", "run":
 		if len(bi.Modules) > 0 && len(bi.Modules[0].Dependencies) > 0 {
 			// Resolve enrichment repo: prefer [[tool.uv.index]] in pyproject.toml,
-			// fall back to UV_DEFAULT_INDEX / UV_INDEX_URL env vars (used when no
-			// pyproject.toml index is configured, e.g. CI workflows that inject creds
-			// via environment).
+			// fall back to UV_DEFAULT_INDEX, then the first UV_INDEX entry, then the
+			// legacy UV_INDEX_URL (used when no pyproject.toml index is configured,
+			// e.g. CI workflows that inject creds via environment).
 			repoKey := uvResolverRepoFromToml(workingDir)
 			indexURL := uvIndexURLFromToml(workingDir)
 			if repoKey == "" {
-				for _, envVar := range []string{"UV_DEFAULT_INDEX", "UV_INDEX_URL"} {
-					if val := os.Getenv(envVar); val != "" {
-						repoKey = uvExtractRepoKeyFromURL(val)
+				if envVar, val := uvResolveBuildInfoIndexURL(); val != "" {
+					if rk := uvExtractRepoKeyFromURL(val); rk != "" {
+						repoKey = rk
 						indexURL = val
-						if repoKey != "" {
-							log.Debug(fmt.Sprintf("UV build-info: using %s for dependency enrichment repo: %s", envVar, repoKey))
-							break
-						}
+						log.Debug(fmt.Sprintf("UV build-info: using %s for dependency enrichment repo: %s", envVar, repoKey))
 					}
 				}
 			}
