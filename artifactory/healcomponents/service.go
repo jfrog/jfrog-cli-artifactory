@@ -38,7 +38,7 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 		log.Debug("Xray heal components disabled or not relevant command: ", command)
 		return noopRestore, false, nil
 	}
-	log.Debug("Running Xray heal components at '" + repo + "' RT repository for tool:", tool.ToolName())
+	log.Debug("Running Xray heal components at '"+repo+"' RT repository for tool:", tool.ToolName())
 	projectRoot, err := tool.ProjectRoot(workingDir)
 	if err != nil {
 		return noopRestore, false, err

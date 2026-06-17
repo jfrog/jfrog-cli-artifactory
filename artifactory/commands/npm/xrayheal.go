@@ -3,10 +3,10 @@ package npm
 import (
 	"context"
 	"encoding/json"
-	"strings"
-	"os"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	toolName = "npm"
+	toolName     = "npm"
 	lockfileName = "package-lock.json"
 )
 
@@ -133,7 +133,6 @@ func isSinglePackageInstall(npmArgs []string) bool {
 	return false
 }
 
-
 type NpmBuildTool struct{}
 
 func NewNpmBuildTool() NpmBuildTool {
@@ -193,7 +192,6 @@ func (NpmBuildTool) DiscoverLockfiles(workingDir string) ([]healcomponents.Lockf
 	}
 	return []healcomponents.Lockfile{{Path: lockfileName, Content: data}}, nil
 }
-
 
 // discoverProjectRoot walks up from workingDir to find the npm workspace or lockfile root.
 func discoverProjectRoot(workingDir string) (string, error) {

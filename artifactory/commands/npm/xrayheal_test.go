@@ -13,7 +13,6 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/healcomponents"
 )
 
-
 func TestRunComponentResolution_RespectsDisabledEnv(t *testing.T) {
 	t.Setenv(healcomponents.HealComponentsDisabledEnvVar, "true")
 	ca := &CommonArgs{}
@@ -41,7 +40,6 @@ func TestIsSinglePackageInstall(t *testing.T) {
 	assert.False(t, isSinglePackageInstall([]string{"--verbose"}))
 	assert.False(t, isSinglePackageInstall(nil))
 }
-
 
 func TestNpmBuildTool_DiscoverLockfiles_SingleRootLock(t *testing.T) {
 	dir := t.TempDir()
