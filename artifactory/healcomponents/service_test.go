@@ -2,7 +2,6 @@ package healcomponents
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -27,13 +26,25 @@ func (m *mockClient) HealComponents(req services.ComponentResolutionRequest) (*s
 }
 
 type mockTool struct {
+	name      string
+	commands  []string
 	root      string
 	lockfiles []Lockfile
 	ensureErr error
 }
 
-func (m mockTool) ToolName() string           { return "npm" }
-func (m mockTool) RelevantCommands() []string { return []string{"install", "ci"} }
+func (m mockTool) ToolName() string {
+	if m.name != "" {
+		return m.name
+	}
+	return "npm"
+}
+func (m mockTool) RelevantCommands() []string {
+	if len(m.commands) > 0 {
+		return m.commands
+	}
+	return []string{"install", "ci"}
+}
 func (m mockTool) ProjectRoot(_ string) (string, error) {
 	return m.root, nil
 }
@@ -68,8 +79,8 @@ func TestRunIfEnabled_WritesHealedLockfiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(lockPath, []byte("orig"), 0644))
 
 	client := &mockClient{resp: services.ComponentResolutionResponse{
-		Content: json.RawMessage(`"healed"`),
-		Changes: []services.Change{{Package: "lodash", BeforeIntegrity: "a", AfterIntegrity: "b"}},
+		Lockfile: "healed",
+		Changes:  []services.Change{{Package: "lodash", BeforeIntegrity: "a", AfterIntegrity: "b"}},
 	}}
 	tool := mockTool{root: dir, lockfiles: []Lockfile{{Path: "package-lock.json", Content: []byte("orig")}}}
 
@@ -79,10 +90,34 @@ func TestRunIfEnabled_WritesHealedLockfiles(t *testing.T) {
 	assert.Equal(t, 1, client.callCount)
 	assert.Equal(t, "npm", client.lastReq.BuildTool)
 	assert.Equal(t, "npm-virtual", client.lastReq.Repo)
+	assert.Equal(t, "orig", client.lastReq.Lockfile)
 
 	data, err := os.ReadFile(lockPath)
 	require.NoError(t, err)
-	assert.Equal(t, `"healed"`, string(data))
+	assert.Equal(t, "healed", string(data))
+}
+
+func TestRunIfEnabled_WritesHealedNpmLockAsString(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "package-lock.json")
+	orig := `{"lockfileVersion":3,"name":"app"}`
+	require.NoError(t, os.WriteFile(lockPath, []byte(orig), 0644))
+
+	healed := `{"lockfileVersion":3,"name":"app","healed":true}`
+	client := &mockClient{resp: services.ComponentResolutionResponse{
+		Lockfile: healed,
+		Changes:  []services.Change{{Package: "lodash", BeforeIntegrity: "a", AfterIntegrity: "b"}},
+	}}
+	tool := mockTool{root: dir, lockfiles: []Lockfile{{Path: "package-lock.json", Content: []byte(orig)}}}
+
+	_, healedFlag, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	require.NoError(t, err)
+	assert.True(t, healedFlag)
+
+	data, err := os.ReadFile(lockPath)
+	require.NoError(t, err)
+	assert.JSONEq(t, healed, string(data))
+	assert.Equal(t, orig, client.lastReq.Lockfile)
 }
 
 func TestRunIfEnabled_SkipsWhenDisabled(t *testing.T) {
@@ -101,8 +136,8 @@ func TestRunIfEnabled_SkipsWhenNoChanges(t *testing.T) {
 	require.NoError(t, os.WriteFile(lockPath, []byte("orig"), 0644))
 
 	client := &mockClient{resp: services.ComponentResolutionResponse{
-		Content: json.RawMessage(`"orig"`),
-		Changes: nil,
+		Lockfile: "orig",
+		Changes:  nil,
 	}}
 	tool := mockTool{root: dir, lockfiles: []Lockfile{{Path: "package-lock.json", Content: []byte("orig")}}}
 
@@ -120,7 +155,7 @@ func TestRunIfEnabled_LoopsPerDiscoveredFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.lock"), []byte("a"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "b.lock"), []byte("b"), 0644))
 
-	client := &mockClient{resp: services.ComponentResolutionResponse{Content: json.RawMessage(`"x"`), Changes: nil}}
+	client := &mockClient{resp: services.ComponentResolutionResponse{Lockfile: "x", Changes: nil}}
 	tool := mockTool{root: dir, lockfiles: []Lockfile{
 		{Path: "a.lock", Content: []byte("a")},
 		{Path: "b.lock", Content: []byte("b")},

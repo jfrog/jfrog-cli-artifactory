@@ -2,7 +2,6 @@ package healcomponents
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -59,7 +58,7 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 		resp, err := client.HealComponents(services.ComponentResolutionRequest{
 			BuildTool: tool.ToolName(),
 			Repo:      repo,
-			Lockfile:  json.RawMessage(lf.Content),
+			Lockfile:  string(lf.Content),
 		})
 		if err != nil {
 			return noopRestore, false, errorutils.CheckError(err)
@@ -68,7 +67,7 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 			log.Debug("No changes for ", lf.Path)
 			continue
 		}
-		toWrite = append(toWrite, Lockfile{Path: lf.Path, Content: resp.Content})
+		toWrite = append(toWrite, Lockfile{Path: lf.Path, Content: []byte(resp.Lockfile)})
 		totalChanges += len(resp.Changes)
 		log.Debug("Healed ", lf.Path, " with ", len(resp.Changes), " package change(s)")
 		for _, ch := range resp.Changes {
