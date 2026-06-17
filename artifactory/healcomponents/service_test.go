@@ -49,15 +49,15 @@ func (m mockTool) DiscoverLockfiles(_ string) ([]Lockfile, error) {
 
 func TestIsComponentResolutionDisabled(t *testing.T) {
 	t.Run("enabled by default", func(t *testing.T) {
-		t.Setenv(ComponentResolutionDisabledEnvVar, "")
+		t.Setenv(HealComponentsDisabledEnvVar, "")
 		assert.False(t, IsComponentResolutionDisabled())
 	})
 	t.Run("disabled when env true", func(t *testing.T) {
-		t.Setenv(ComponentResolutionDisabledEnvVar, "true")
+		t.Setenv(HealComponentsDisabledEnvVar, "true")
 		assert.True(t, IsComponentResolutionDisabled())
 	})
 	t.Run("not disabled for other values", func(t *testing.T) {
-		t.Setenv(ComponentResolutionDisabledEnvVar, "false")
+		t.Setenv(HealComponentsDisabledEnvVar, "false")
 		assert.False(t, IsComponentResolutionDisabled())
 	})
 }
@@ -73,8 +73,9 @@ func TestRunIfEnabled_WritesHealedLockfiles(t *testing.T) {
 	}}
 	tool := mockTool{root: dir, lockfiles: []Lockfile{{Path: "package-lock.json", Content: []byte("orig")}}}
 
-	_, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	_, healed, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
 	require.NoError(t, err)
+	assert.True(t, healed)
 	assert.Equal(t, 1, client.callCount)
 	assert.Equal(t, "npm", client.lastReq.BuildTool)
 	assert.Equal(t, "npm-virtual", client.lastReq.Repo)
@@ -85,11 +86,12 @@ func TestRunIfEnabled_WritesHealedLockfiles(t *testing.T) {
 }
 
 func TestRunIfEnabled_SkipsWhenDisabled(t *testing.T) {
-	t.Setenv(ComponentResolutionDisabledEnvVar, "true")
+	t.Setenv(HealComponentsDisabledEnvVar, "true")
 	client := &mockClient{}
 	tool := mockTool{}
-	_, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", t.TempDir(), nil)
+	_, healed, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", t.TempDir(), nil)
 	require.NoError(t, err)
+	assert.False(t, healed)
 	assert.Equal(t, 0, client.callCount)
 }
 
@@ -104,8 +106,9 @@ func TestRunIfEnabled_SkipsWhenNoChanges(t *testing.T) {
 	}}
 	tool := mockTool{root: dir, lockfiles: []Lockfile{{Path: "package-lock.json", Content: []byte("orig")}}}
 
-	_, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	_, healed, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
 	require.NoError(t, err)
+	assert.False(t, healed)
 
 	data, err := os.ReadFile(lockPath)
 	require.NoError(t, err)
@@ -122,7 +125,7 @@ func TestRunIfEnabled_LoopsPerDiscoveredFile(t *testing.T) {
 		{Path: "a.lock", Content: []byte("a")},
 		{Path: "b.lock", Content: []byte("b")},
 	}}
-	_, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	_, _, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 2, client.callCount)
 }
@@ -130,7 +133,7 @@ func TestRunIfEnabled_LoopsPerDiscoveredFile(t *testing.T) {
 func TestRunIfEnabled_SkipsIrrelevantCommand(t *testing.T) {
 	client := &mockClient{}
 	tool := mockTool{}
-	_, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "version", t.TempDir(), nil)
+	_, _, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "version", t.TempDir(), nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, client.callCount)
 }
@@ -138,7 +141,7 @@ func TestRunIfEnabled_SkipsIrrelevantCommand(t *testing.T) {
 func TestRunIfEnabled_PropagatesEnsureLockfilesError(t *testing.T) {
 	client := &mockClient{}
 	tool := mockTool{ensureErr: errors.New("package-lock.json is required for npm ci")}
-	_, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "ci", t.TempDir(), nil)
+	_, _, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "ci", t.TempDir(), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "package-lock.json")
 	assert.Equal(t, 0, client.callCount)

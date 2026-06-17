@@ -3,6 +3,7 @@ package npm
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,7 +38,6 @@ const (
 
 type NpmPublishCommandArgs struct {
 	CommonArgs
-	executablePath         string
 	workingDirectory       string
 	collectBuildInfo       bool
 	packedFilePaths        []string
@@ -79,6 +79,7 @@ func (npc *NpmPublishCommand) ServerDetails() (*config.ServerDetails, error) {
 
 func (npc *NpmPublishCommand) SetConfigFilePath(configFilePath string) *NpmPublishCommand {
 	npc.configFilePath = configFilePath
+	npc.SetConfigFilePath(configFilePath)
 	return npc
 }
 
@@ -172,6 +173,16 @@ func (npc *NpmPublishCommand) Run() (err error) {
 	if err != nil {
 		return err
 	}
+	var restoreResolution func() error
+	restoreResolution, _, err = npc.runXrayComponentHealing(context.Background(), "publish", npc.workingDirectory, npc.npmArgs)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil && restoreResolution != nil {
+			err = errors.Join(err, restoreResolution())
+		}
+	}()
 
 	var npmBuild *build.Build
 	var buildName, buildNumber, projectKey string

@@ -59,10 +59,10 @@ github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5 h1:0CwZNZbxp69SHPd
 github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5/go.mod h1:wHh0iHkYZB8zMSxRWpUBQtwG5a7fFgvEO+odwuTv2gs=
 github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 h1:DklsrG3dyBCFEj5IhUbnKptjxatkF07cF2ak3yi77so=
 github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2/go.mod h1:WaHUgvxTVq04UNunO+XhnAqY/wQc+bxr74GqbsZ/Jqw=
-github.com/attiasas/jfrog-cli-core/v2 v2.0.0-20260617114425-0d9f6f50df64 h1:b+3Io6f60cku95RoJOi0N0fmHWpcVq+nUgLtn9jNmmk=
-github.com/attiasas/jfrog-cli-core/v2 v2.0.0-20260617114425-0d9f6f50df64/go.mod h1:MZApLFA/8EyIA9BTGCDUw412bWZ4DXSfmqxwUWlparo=
-github.com/attiasas/jfrog-client-go v0.0.0-20260617113537-5536e6ba8c42 h1:59+NXeZ5raJXnU/hQZ5lv36ry8D2wFGpfc8eXiAwhLE=
-github.com/attiasas/jfrog-client-go v0.0.0-20260617113537-5536e6ba8c42/go.mod h1:FHpjN1nTDoj96xd6obe27EOgGErqzU0rQgC96L3Ch9E=
+github.com/attiasas/jfrog-cli-core/v2 v2.0.0-20260617154835-a95b1c993846 h1:2Yab01ypFZPQvkVIuOCv/rmU6zCSnNdFI2eJsdw2ZvI=
+github.com/attiasas/jfrog-cli-core/v2 v2.0.0-20260617154835-a95b1c993846/go.mod h1:aEid1049BYVbG0mwPlI4TWvX2q+K1El5N8MiDsSbAPg=
+github.com/attiasas/jfrog-client-go v0.0.0-20260617154718-b93ae683ce3a h1:kPPP6Mex+tusTw/c6XczrxFXHQOISm/BZ+oEtsl0LP0=
+github.com/attiasas/jfrog-client-go v0.0.0-20260617154718-b93ae683ce3a/go.mod h1:FHpjN1nTDoj96xd6obe27EOgGErqzU0rQgC96L3Ch9E=
 github.com/aws/aws-sdk-go v1.55.8 h1:JRmEUbU52aJQZ2AjX4q4Wu7t4uZjOu71uyNmaWlUkJQ=
 github.com/aws/aws-sdk-go v1.55.8/go.mod h1:ZkViS9AqA6otK+JBBNH2++sx1sgxrPKcSzPPvQkUtXk=
 github.com/aws/aws-sdk-go-v2 v1.41.1 h1:ABlyEARCDLN034NhxlRUSZr4l71mh+T5KAeGh6cerhU=

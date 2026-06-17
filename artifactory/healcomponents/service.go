@@ -32,25 +32,25 @@ type ComponentResolutionClient interface {
 }
 
 // RunIfEnabled ensures lockfiles exist, discovers them, calls Xray once per file, writes healed lockfiles when changes returned.
-// Returns a restore function to revert lockfile writes if the subsequent build-tool command fails.
-func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo string, tool BuildTool, command, workingDir string, runner CommandRunner, bootstrapArgs ...string) (restore func() error, err error) {
+// Returns a restore function to revert lockfile writes if the subsequent build-tool command fails, and healed=true when at least one lockfile was updated.
+func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo string, tool BuildTool, command, workingDir string, runner CommandRunner, bootstrapArgs ...string) (restore func() error, healed bool, err error) {
 	if IsComponentResolutionDisabled() || !IsRelevantCommand(tool, command) {
 		log.Debug("Xray heal components disabled or not relevant command: ", command)
-		return noopRestore, nil
+		return noopRestore, false, nil
 	}
 	log.Debug("Running Xray heal components at '" + repo + "' RT repository for tool:", tool.ToolName())
 	projectRoot, err := tool.ProjectRoot(workingDir)
 	if err != nil {
-		return noopRestore, err
+		return noopRestore, false, err
 	}
 	log.Debug("Ensuring lockfiles in project root: ", projectRoot)
 	bootstrapped, err := tool.EnsureLockfiles(ctx, projectRoot, command, runner, bootstrapArgs...)
 	if err != nil {
-		return noopRestore, err
+		return noopRestore, false, err
 	}
 	lockfiles, err := tool.DiscoverLockfiles(workingDir)
 	if err != nil {
-		return noopRestore, err
+		return noopRestore, false, err
 	}
 	log.Debug("Discovered lockfiles: ", getLockfilePaths(lockfiles))
 	var toWrite []Lockfile
@@ -62,7 +62,7 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 			Lockfile:  json.RawMessage(lf.Content),
 		})
 		if err != nil {
-			return noopRestore, errorutils.CheckError(err)
+			return noopRestore, false, errorutils.CheckError(err)
 		}
 		if len(resp.Changes) == 0 {
 			log.Debug("No changes for ", lf.Path)
@@ -76,15 +76,15 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 		}
 	}
 	if len(toWrite) == 0 {
-		return noopRestore, nil
+		return noopRestore, false, nil
 	}
 	log.Debug("Applying", len(toWrite), "healed lockfile(s)...")
 	restore, err = ApplyLockfiles(projectRoot, toWrite, bootstrapped)
 	if err != nil {
-		return noopRestore, err
+		return noopRestore, false, err
 	}
 	log.Info("Xray component resolution healed ", totalChanges, " package change(s) across ", len(toWrite), " lockfile(s)")
-	return restore, nil
+	return restore, true, nil
 }
 
 func getLockfilePaths(lockfiles []Lockfile) []string {
