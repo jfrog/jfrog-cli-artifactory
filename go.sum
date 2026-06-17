@@ -59,6 +59,10 @@ github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5 h1:0CwZNZbxp69SHPd
 github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5/go.mod h1:wHh0iHkYZB8zMSxRWpUBQtwG5a7fFgvEO+odwuTv2gs=
 github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 h1:DklsrG3dyBCFEj5IhUbnKptjxatkF07cF2ak3yi77so=
 github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2/go.mod h1:WaHUgvxTVq04UNunO+XhnAqY/wQc+bxr74GqbsZ/Jqw=
+github.com/attiasas/jfrog-cli-core/v2 v2.0.0-20260617114425-0d9f6f50df64 h1:b+3Io6f60cku95RoJOi0N0fmHWpcVq+nUgLtn9jNmmk=
+github.com/attiasas/jfrog-cli-core/v2 v2.0.0-20260617114425-0d9f6f50df64/go.mod h1:MZApLFA/8EyIA9BTGCDUw412bWZ4DXSfmqxwUWlparo=
+github.com/attiasas/jfrog-client-go v0.0.0-20260617113537-5536e6ba8c42 h1:59+NXeZ5raJXnU/hQZ5lv36ry8D2wFGpfc8eXiAwhLE=
+github.com/attiasas/jfrog-client-go v0.0.0-20260617113537-5536e6ba8c42/go.mod h1:FHpjN1nTDoj96xd6obe27EOgGErqzU0rQgC96L3Ch9E=
 github.com/aws/aws-sdk-go v1.55.8 h1:JRmEUbU52aJQZ2AjX4q4Wu7t4uZjOu71uyNmaWlUkJQ=
 github.com/aws/aws-sdk-go v1.55.8/go.mod h1:ZkViS9AqA6otK+JBBNH2++sx1sgxrPKcSzPPvQkUtXk=
 github.com/aws/aws-sdk-go-v2 v1.41.1 h1:ABlyEARCDLN034NhxlRUSZr4l71mh+T5KAeGh6cerhU=
@@ -384,12 +388,8 @@ github.com/jfrog/froggit-go v1.21.1 h1:I/XUOO6GQ1d/rmBlM361F8T654C3ohIWrpw23xNL9
 github.com/jfrog/froggit-go v1.21.1/go.mod h1:umBiakJB0CSPFfe0AHVaC3n9xsmUT7NGkDCny3bRchI=
 github.com/jfrog/gofrog v1.7.6 h1:QmfAiRzVyaI7JYGsB7cxfAJePAZTzFz0gRWZSE27c6s=
 github.com/jfrog/gofrog v1.7.6/go.mod h1:ntr1txqNOZtHplmaNd7rS4f8jpA5Apx8em70oYEe7+4=
-github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260609101026-df3091b39d06 h1:A8hWKHyvqzGXfWmh+8lXv3waAkim4xiucBfGhl7ZOeQ=
-github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260609101026-df3091b39d06/go.mod h1:9R90mhbczGXwW5EGlDs7F08ejQU/xdoDhYHMvzBiqgE=
 github.com/jfrog/jfrog-cli-evidence v0.9.0 h1:i9DhkQUxSZkhpp5oGR+N+SVAaqWDiUylbJcoDhM91uQ=
 github.com/jfrog/jfrog-cli-evidence v0.9.0/go.mod h1:R9faPfyQESBmKrdZCmHvlpmYSHmffswjNnFeT3RMq8I=
-github.com/jfrog/jfrog-client-go v1.55.1-0.20260508101905-a17af78a38d7 h1:o8fk4yWLqNMldarXyh/4NbmdbYbuM+lKYobdJK7shqM=
-github.com/jfrog/jfrog-client-go v1.55.1-0.20260508101905-a17af78a38d7/go.mod h1:sCE06+GngPoyrGO0c+vmhgMoVSP83UMNiZnIuNPzU8U=
 github.com/jmespath/go-jmespath v0.4.1-0.20220621161143-b0104c826a24 h1:liMMTbpW34dhU4az1GN0pTPADwNmvoRSeoZ6PItiqnY=
 github.com/jmespath/go-jmespath v0.4.1-0.20220621161143-b0104c826a24/go.mod h1:T8mJZnbsbmF+m6zOOFylbeCJqk5+pHWvzYPziyZiYoo=
 github.com/kevinburke/ssh_config v1.6.0 h1:J1FBfmuVosPHf5GRdltRLhPJtJpTlMdKTBjRgTaQBFY=
