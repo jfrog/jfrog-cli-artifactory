@@ -1,17 +1,20 @@
 package commands
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
+	coreformat "github.com/jfrog/jfrog-cli-core/v2/common/format"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/lifecycle"
 	"github.com/jfrog/jfrog-client-go/lifecycle/services"
+	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
@@ -35,6 +38,7 @@ type ReleaseBundleCreateCommand struct {
 	signingKeyName string
 	spec           *spec.SpecFiles
 	draft          bool
+	outputFormat   coreformat.OutputFormat
 	// Backward compatibility:
 	buildsSpecPath         string
 	releaseBundlesSpecPath string
@@ -84,6 +88,11 @@ func (rbc *ReleaseBundleCreateCommand) SetSpec(spec *spec.SpecFiles) *ReleaseBun
 
 func (rbc *ReleaseBundleCreateCommand) SetDraft(draft bool) *ReleaseBundleCreateCommand {
 	rbc.draft = draft
+	return rbc
+}
+
+func (rbc *ReleaseBundleCreateCommand) SetOutputFormat(format coreformat.OutputFormat) *ReleaseBundleCreateCommand {
+	rbc.outputFormat = format
 	return rbc
 }
 
@@ -160,34 +169,37 @@ func (rbc *ReleaseBundleCreateCommand) Run() error {
 		return err
 	}
 
-	if sourceTypes != nil && isSingleSourceType(sourceTypes) {
+	var creationErr error
+	switch {
+	case sourceTypes != nil && isSingleSourceType(sourceTypes):
 		switch sourceTypes[0] {
 		case services.Aql:
-			return rbc.createFromAql(servicesManager, rbDetails, queryParams)
+			creationErr = rbc.createFromAql(servicesManager, rbDetails, queryParams)
 		case services.Artifacts:
-			return rbc.createFromArtifacts(servicesManager, rbDetails, queryParams)
+			creationErr = rbc.createFromArtifacts(servicesManager, rbDetails, queryParams)
 		case services.Builds:
-			return rbc.createFromBuilds(servicesManager, rbDetails, queryParams)
+			creationErr = rbc.createFromBuilds(servicesManager, rbDetails, queryParams)
 		case services.ReleaseBundles:
-			return rbc.createFromReleaseBundles(servicesManager, rbDetails, queryParams)
+			creationErr = rbc.createFromReleaseBundles(servicesManager, rbDetails, queryParams)
 		case services.Packages:
-			return rbc.createFromPackages(servicesManager, rbDetails, queryParams)
+			creationErr = rbc.createFromPackages(servicesManager, rbDetails, queryParams)
 		default:
 			return errorutils.CheckError(errors.New("unknown source for release bundle creation was provided"))
 		}
-	}
-
-	if isReleaseBundleCreationWithMultiSourcesSupported {
+	case isReleaseBundleCreationWithMultiSourcesSupported:
 		sources, err := rbc.getMultipleSourcesIfDefined()
 		if err != nil {
 			return err
 		}
 		updateReleaseBundleRepoKeyWithProject(sources)
-		_, err = rbc.createFromMultipleSources(servicesManager, rbDetails, queryParams, sources)
-		return err
+		_, creationErr = rbc.createFromMultipleSources(servicesManager, rbDetails, queryParams, sources)
+	default:
+		return errorutils.CheckErrorf("release bundle creation failed, unable to identify source for creation")
 	}
-
-	return errorutils.CheckErrorf("release bundle creation failed, unable to identify source for creation")
+	if creationErr != nil {
+		return creationErr
+	}
+	return rbc.printCreateOutput()
 }
 
 func updateReleaseBundleRepoKeyWithProject(sources []services.RbSource) {
@@ -596,5 +608,26 @@ func validateCreationSource(unsupportedFields []bool, errMsg string) error {
 	if coreutils.SumTrueValues(unsupportedFields) > 0 {
 		return errorutils.CheckError(errors.New(errMsg))
 	}
+	return nil
+}
+
+func (rbc *ReleaseBundleCreateCommand) printCreateOutput() error {
+	if rbc.outputFormat != coreformat.Json {
+		return nil
+	}
+	return printEchoJson(rbc.releaseBundleName, rbc.releaseBundleVersion, statusCreated)
+}
+
+func printEchoJson(name, version, status string) error {
+	type output struct {
+		Name    string `json:"release_bundle_name"`
+		Version string `json:"release_bundle_version"`
+		Status  string `json:"status"`
+	}
+	content, err := json.Marshal(output{Name: name, Version: version, Status: status})
+	if err != nil {
+		return err
+	}
+	log.Output(clientutils.IndentJson(content))
 	return nil
 }
