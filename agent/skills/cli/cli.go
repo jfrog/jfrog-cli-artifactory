@@ -38,7 +38,6 @@ func GetSubCommands() []components.Command {
 			Name:        "update",
 			Flags:       flagkit.GetCommandFlags(flagkit.SkillsUpdate),
 			Description: "Update an installed skill.",
-			Arguments:   getUpdateArguments(),
 			Action:      update.RunUpdate,
 		},
 		{
@@ -81,15 +80,6 @@ func getInstallArguments() []components.Argument {
 		{
 			Name:        "slug",
 			Description: "Skill slug to install.",
-		},
-	}
-}
-
-func getUpdateArguments() []components.Argument {
-	return []components.Argument{
-		{
-			Name:        "slug",
-			Description: "Skill slug to update.",
 		},
 	}
 }

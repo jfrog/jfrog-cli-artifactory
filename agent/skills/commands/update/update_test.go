@@ -10,6 +10,7 @@ import (
 	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/skills/commands/install"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/skills/common"
+	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -155,6 +156,127 @@ func TestUpdateOneSkill_SuccessRemovesBackup(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "2.0.0")
+}
+
+func TestRunUpdate_AllRejectsSlugFlag(t *testing.T) {
+	ctx := newUpdateContext(t, nil, map[string]string{"harness": "cursor", "slug": "web"}, map[string]bool{"all": true})
+	err := RunUpdate(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--all cannot be combined with --slug")
+}
+
+func TestRunUpdate_AllRejectsPositionalArg(t *testing.T) {
+	ctx := newUpdateContext(t, []string{"web"}, map[string]string{"harness": "cursor"}, map[string]bool{"all": true})
+	err := RunUpdate(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unexpected positional argument")
+}
+
+func TestRunUpdate_AllRejectsVersion(t *testing.T) {
+	ctx := newUpdateContext(t, nil, map[string]string{"harness": "cursor", "version": "1.2.3"}, map[string]bool{"all": true})
+	err := RunUpdate(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--all cannot be combined with --version")
+}
+
+func TestRunUpdate_AllRejectsPath(t *testing.T) {
+	ctx := newUpdateContext(t, nil, map[string]string{"path": t.TempDir()}, map[string]bool{"all": true})
+	err := RunUpdate(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--all cannot be combined with --path")
+}
+
+func TestRunUpdate_RequiresSlugWithoutAll(t *testing.T) {
+	ctx := newUpdateContext(t, nil, map[string]string{"harness": "cursor"}, nil)
+	err := RunUpdate(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "usage:")
+}
+
+func TestRunUpdate_RejectsPositionalSlug(t *testing.T) {
+	ctx := newUpdateContext(t, []string{"web"}, map[string]string{"harness": "cursor"}, nil)
+	err := RunUpdate(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "use --slug")
+}
+
+func TestDiscoverInstalledSkillTargets_MergesHarnesses(t *testing.T) {
+	projectRoot := t.TempDir()
+	skillsDir := ".cursor/skills"
+	installRoot := filepath.Join(projectRoot, skillsDir)
+
+	dir := filepath.Join(installRoot, "shared")
+	require.NoError(t, os.MkdirAll(dir, agentcommon.InstallDirMode))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: shared\nversion: 1.0.0\n---\n"), agentcommon.DefaultFileMode))
+
+	flags := agentcommon.InstallFlagsResult{
+		Specs: []common.AgentSpec{
+			{Name: "cursor", Config: agentcommon.AgentConfig{ProjectDir: skillsDir}},
+			{Name: "claude", Config: agentcommon.AgentConfig{ProjectDir: skillsDir}},
+		},
+		ProjectDirAbs: projectRoot,
+	}
+
+	slugOrder, slugToTargets, err := discoverInstalledSkillTargets(flags)
+	require.NoError(t, err)
+	require.Equal(t, []string{"shared"}, slugOrder)
+	require.Len(t, slugToTargets["shared"], 2)
+}
+
+func TestDiscoverInstalledSkillTargets_SkillMdOnly(t *testing.T) {
+	projectRoot := t.TempDir()
+	skillsDir := ".cursor/skills"
+	installRoot := filepath.Join(projectRoot, skillsDir)
+	dir := filepath.Join(installRoot, "legacy")
+	require.NoError(t, os.MkdirAll(dir, agentcommon.InstallDirMode))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: legacy\nversion: 0.9.0\n---\n"), agentcommon.DefaultFileMode))
+
+	flags := agentcommon.InstallFlagsResult{
+		Specs:         []common.AgentSpec{{Name: "cursor", Config: agentcommon.AgentConfig{ProjectDir: skillsDir}}},
+		ProjectDirAbs: projectRoot,
+	}
+
+	slugOrder, _, err := discoverInstalledSkillTargets(flags)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"legacy"}, slugOrder)
+}
+
+func TestFinalizeUpdateAll_AllFailed(t *testing.T) {
+	combined := []agentcommon.UpdateAllSummaryRow{
+		{Agent: "cursor", Name: "a", Status: agentcommon.SummaryStatusFailed},
+	}
+	outcome := updateAllOutcome{anyFailed: true}
+	err := finalizeUpdateAll(combined, outcome, "table")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed for all targets")
+}
+
+func TestConfirmUpdateAll_AbortsWhenUserDeclines(t *testing.T) {
+	oldAsk := askYesNo
+	oldCheck := isNonInteractive
+	defer func() {
+		askYesNo = oldAsk
+		isNonInteractive = oldCheck
+	}()
+	isNonInteractive = func() bool { return false }
+	askYesNo = func(_ string, _ bool) bool { return false }
+
+	err := confirmUpdateAll(update{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "aborted by user")
+}
+
+func newUpdateContext(t *testing.T, args []string, stringFlags map[string]string, boolFlags map[string]bool) *components.Context {
+	t.Helper()
+	ctx := &components.Context{Arguments: args}
+	ctx.PrintCommandHelp = func(string) error { return nil }
+	for name, value := range stringFlags {
+		ctx.AddStringFlag(name, value)
+	}
+	for name, value := range boolFlags {
+		ctx.AddBoolFlag(name, value)
+	}
+	return ctx
 }
 
 func skillDir(t *testing.T, skillMD string) string {

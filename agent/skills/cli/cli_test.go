@@ -28,8 +28,9 @@ func TestGetSubCommands_DescriptionsAndArguments(t *testing.T) {
 	assert.Equal(t, "Skill slug to install.", installCmd.Arguments[0].Description)
 
 	updateCmd := byName["update"]
+	assert.NotNil(t, updateCmd.Action)
+	assert.Empty(t, updateCmd.Arguments)
 	assert.Equal(t, "Update an installed skill.", updateCmd.Description)
-	assert.Equal(t, "Skill slug to update.", updateCmd.Arguments[0].Description)
 
 	searchCmd := byName["search"]
 	assert.Equal(t, "Search for skills in Artifactory.", searchCmd.Description)

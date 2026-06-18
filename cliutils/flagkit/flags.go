@@ -909,7 +909,7 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, serverId, repo, version, harness, projectDir, agentGlobal, installPath, agentFormat, agentQuiet,
 	},
 	SkillsUpdate: {
-		url, user, password, accessToken, serverId, repo, version, harness, projectDir, agentGlobal, installPath, agentFormat, agentQuiet, dryRun, agentForce,
+		url, user, password, accessToken, serverId, repo, version, harness, projectDir, agentGlobal, installPath, agentFormat, agentQuiet, dryRun, agentForce, agentAll, agentSlug,
 	},
 	SkillsDelete: {
 		url, user, password, accessToken, serverId, repo, version, dryRun,
@@ -1229,8 +1229,8 @@ var flagsMap = map[string]components.Flag{
 	// Skills-specific flags
 	installPath:         components.NewStringFlag(installPath, "Base directory for a direct install or update: files go under <path>/<slug>. Mutually exclusive with --harness, --project-dir, and --global.", components.SetMandatoryFalse()),
 	agentForce:          components.NewBoolFlag(agentForce, "Re-download and reinstall even if the skill is already at the target version.", components.WithBoolDefaultValueFalse()),
-	agentAll:            components.NewBoolFlag(agentAll, "Update every installed plugin for the given --harness list to its latest version. Mutually exclusive with --slug, --version, and --path.", components.WithBoolDefaultValueFalse()),
-	agentSlug:           components.NewStringFlag(agentSlug, "Slug (name) of the plugin to update. Required unless --all is set.", components.SetMandatoryFalse()),
+	agentAll:            components.NewBoolFlag(agentAll, "Update every installed package for the given --harness list to its latest version. Mutually exclusive with --slug, --version, and --path.", components.WithBoolDefaultValueFalse()),
+	agentSlug:           components.NewStringFlag(agentSlug, "Slug (name) of the plugin or skill to update. Required unless --all is set.", components.SetMandatoryFalse()),
 	signingKey:          components.NewStringFlag(signingKey, "Path to PGP private key for signing evidence. Overrides EVD_SIGNING_KEY_PATH env var.", components.SetMandatoryFalse()),
 	keyAlias:            components.NewStringFlag(keyAlias, "Alias for the signing key. Overrides EVD_KEY_ALIAS env var.", components.SetMandatoryFalse()),
 	agentFormat:         components.NewStringFlag(Format, "Output format: \"table\" (default) or \"json\".", components.SetMandatoryFalse()),
