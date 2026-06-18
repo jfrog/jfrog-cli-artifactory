@@ -27,6 +27,7 @@ import (
 	artifactoryUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	commonCliUtils "github.com/jfrog/jfrog-cli-core/v2/common/cliutils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
+	coreformat "github.com/jfrog/jfrog-cli-core/v2/common/format"
 	speccore "github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
@@ -46,14 +47,15 @@ const (
 func GetCommands() []components.Command {
 	return []components.Command{
 		{
-			Name:          cmddefs.ReleaseBundleCreate,
-			Aliases:       []string{"rbc"},
-			Flags:         flagkit.GetCommandFlags(cmddefs.ReleaseBundleCreate),
-			Description:   rbCreate.GetDescription(),
-			AIDescription: rbCreate.GetAIDescription(),
-			Arguments:     rbCreate.GetArguments(),
-			Category:      lcCategory,
-			Action:        create,
+			Name:             cmddefs.ReleaseBundleCreate,
+			Aliases:          []string{"rbc"},
+			Flags:            flagkit.GetCommandFlags(cmddefs.ReleaseBundleCreate),
+			Description:      rbCreate.GetDescription(),
+			AIDescription:    rbCreate.GetAIDescription(),
+			Arguments:        rbCreate.GetArguments(),
+			Category:         lcCategory,
+			Action:           create,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json},
 		},
 		{
 			Name:          cmddefs.ReleaseBundleUpdate,
@@ -76,24 +78,26 @@ func GetCommands() []components.Command {
 			Action:        finalize,
 		},
 		{
-			Name:          "release-bundle-promote",
-			Aliases:       []string{"rbp"},
-			Flags:         flagkit.GetCommandFlags(cmddefs.ReleaseBundlePromote),
-			Description:   rbPromote.GetDescription(),
-			AIDescription: rbPromote.GetAIDescription(),
-			Arguments:     rbPromote.GetArguments(),
-			Category:      lcCategory,
-			Action:        promote,
+			Name:             "release-bundle-promote",
+			Aliases:          []string{"rbp"},
+			Flags:            flagkit.GetCommandFlags(cmddefs.ReleaseBundlePromote),
+			Description:      rbPromote.GetDescription(),
+			AIDescription:    rbPromote.GetAIDescription(),
+			Arguments:        rbPromote.GetArguments(),
+			Category:         lcCategory,
+			Action:           promote,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json, coreformat.Table},
 		},
 		{
-			Name:          "release-bundle-distribute",
-			Aliases:       []string{"rbd"},
-			Flags:         flagkit.GetCommandFlags(cmddefs.ReleaseBundleDistribute),
-			Description:   rbDistribute.GetDescription(),
-			AIDescription: rbDistribute.GetAIDescription(),
-			Arguments:     rbDistribute.GetArguments(),
-			Category:      lcCategory,
-			Action:        distribute,
+			Name:             "release-bundle-distribute",
+			Aliases:          []string{"rbd"},
+			Flags:            flagkit.GetCommandFlags(cmddefs.ReleaseBundleDistribute),
+			Description:      rbDistribute.GetDescription(),
+			AIDescription:    rbDistribute.GetAIDescription(),
+			Arguments:        rbDistribute.GetArguments(),
+			Category:         lcCategory,
+			Action:           distribute,
+			SupportedFormats: []coreformat.OutputFormat{coreformat.Json},
 		},
 		{
 			Name:          "release-bundle-export",
@@ -260,11 +264,17 @@ func create(c *components.Context) (err error) {
 	if err != nil {
 		return
 	}
+	outputFormat, err := c.GetOutputFormat()
+	if err != nil {
+		return err
+	}
+
 	createCmd := lifecycle.NewReleaseBundleCreateCommand().SetServerDetails(lcDetails).SetReleaseBundleName(c.GetArgumentAt(0)).
 		SetReleaseBundleVersion(c.GetArgumentAt(1)).SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey)).
 		SetSync(c.GetBoolFlagValue(flagkit.Sync)).SetDraft(c.GetBoolFlagValue(flagkit.Draft)).
 		SetReleaseBundleProject(pluginsCommon.GetProject(c)).SetSpec(creationSpec).
-		SetBuildsSpecPath(c.GetStringFlagValue(flagkit.Builds)).SetReleaseBundlesSpecPath(c.GetStringFlagValue(flagkit.ReleaseBundles))
+		SetBuildsSpecPath(c.GetStringFlagValue(flagkit.Builds)).SetReleaseBundlesSpecPath(c.GetStringFlagValue(flagkit.ReleaseBundles)).
+		SetOutputFormat(outputFormat)
 
 	err = lifecycle.ValidateFeatureSupportedVersion(lcDetails, minArtifactoryVersionForMultiSourceSupport)
 	// err == nil means new flags are supported and may be added to createCmd
@@ -425,11 +435,17 @@ func promote(c *components.Context) error {
 		return err
 	}
 
+	outputFormat, err := c.GetOutputFormat()
+	if err != nil {
+		return err
+	}
+
 	promoteCmd := lifecycle.NewReleaseBundlePromoteCommand().SetServerDetails(lcDetails).SetReleaseBundleName(c.GetArgumentAt(0)).
 		SetReleaseBundleVersion(c.GetArgumentAt(1)).SetEnvironment(c.GetArgumentAt(2)).SetSigningKeyName(c.GetStringFlagValue(flagkit.SigningKey)).
 		SetSync(c.GetBoolFlagValue(flagkit.Sync)).SetReleaseBundleProject(pluginsCommon.GetProject(c)).
 		SetIncludeReposPatterns(splitRepos(c, flagkit.IncludeRepos)).SetExcludeReposPatterns(splitRepos(c, flagkit.ExcludeRepos)).
-		SetPromotionType(c.GetStringFlagValue(flagkit.PromotionType))
+		SetPromotionType(c.GetStringFlagValue(flagkit.PromotionType)).
+		SetOutputFormat(outputFormat)
 	return commands.Exec(promoteCmd)
 }
 
@@ -447,6 +463,11 @@ func distribute(c *components.Context) error {
 		return err
 	}
 
+	outputFormat, err := c.GetOutputFormat()
+	if err != nil {
+		return err
+	}
+
 	distributeCmd := lifecycle.NewReleaseBundleDistributeCommand()
 	distributeCmd.SetServerDetails(lcDetails).
 		SetReleaseBundleName(c.GetArgumentAt(0)).
@@ -458,7 +479,8 @@ func distribute(c *components.Context) error {
 		SetPathMappingPattern(c.GetStringFlagValue(flagkit.PathMappingPattern)).
 		SetPathMappingTarget(c.GetStringFlagValue(flagkit.PathMappingTarget)).
 		SetSync(c.GetBoolFlagValue(flagkit.Sync)).
-		SetMaxWaitMinutes(maxWaitMinutes)
+		SetMaxWaitMinutes(maxWaitMinutes).
+		SetOutputFormat(outputFormat)
 	return commands.Exec(distributeCmd)
 }
 
