@@ -35,6 +35,74 @@ func (r InstallFlagsResult) PathMode() bool {
 	return r.AbsoluteInstallBaseDir != ""
 }
 
+// ValidateInstallFlags validates `--path | (--harness [--project-dir | --global])` flag combinations.
+// builtIns and agentsKey identify which registry section to load; registryHelp configures help text.
+func ValidateInstallFlags(c *components.Context, builtIns map[string]AgentConfig, agentsKey string, registryHelp AgentRegistryHelpExample) (InstallFlagsResult, error) {
+	input := readInstallFlagInput(c)
+
+	if absPath, err := ResolvePathInstallBase(input); err != nil {
+		return InstallFlagsResult{}, err
+	} else if absPath != "" {
+		return InstallFlagsResult{AbsoluteInstallBaseDir: absPath}, nil
+	}
+
+	return resolveHarnessMode(input, builtIns, agentsKey, registryHelp)
+}
+
+// readInstallFlagInput reads and trims the install-related CLI flags from the context.
+func readInstallFlagInput(c *components.Context) InstallFlagInput {
+	return InstallFlagInput{
+		PathInstallBase: strings.TrimSpace(c.GetStringFlagValue("path")),
+		RawHarness:      strings.TrimSpace(c.GetStringFlagValue("harness")),
+		ProjectDir:      strings.TrimSpace(c.GetStringFlagValue("project-dir")),
+		IsGlobal:        c.GetBoolFlagValue("global"),
+	}
+}
+
+// resolveHarnessMode validates and resolves --harness, --project-dir, and --global flags.
+func resolveHarnessMode(input InstallFlagInput, builtIns map[string]AgentConfig, agentsKey string, registryHelp AgentRegistryHelpExample) (InstallFlagsResult, error) {
+	registry, err := LoadAgentRegistry(builtIns, agentsKey)
+	if err != nil {
+		return InstallFlagsResult{}, err
+	}
+	if input.RawHarness == "" {
+		return InstallFlagsResult{}, fmt.Errorf("--harness is required unless --path is set. Supported harnesses: %s", AgentNames(registry))
+	}
+
+	specs, err := resolveHarnessSpecs(input.RawHarness, registry, registryHelp)
+	if err != nil {
+		return InstallFlagsResult{}, err
+	}
+
+	projectDirAbs, err := ResolveInstallProjectDir(input.ProjectDir, input.IsGlobal)
+	if err != nil {
+		return InstallFlagsResult{}, err
+	}
+
+	return InstallFlagsResult{
+		Specs:         specs,
+		ProjectDirAbs: projectDirAbs,
+		IsGlobal:      input.IsGlobal,
+	}, nil
+}
+
+// resolveHarnessSpecs parses the comma-separated harness list and resolves each name to an AgentSpec.
+func resolveHarnessSpecs(rawHarness string, registry map[string]AgentSpec, registryHelp AgentRegistryHelpExample) ([]AgentSpec, error) {
+	names, err := ParseHarnessList(rawHarness)
+	if err != nil {
+		return nil, err
+	}
+	specs := make([]AgentSpec, 0, len(names))
+	for _, name := range names {
+		spec, err := ResolveAgent(registry, name, registryHelp)
+		if err != nil {
+			return nil, err
+		}
+		specs = append(specs, spec)
+	}
+	return specs, nil
+}
+
 // ResolvePathInstallBase validates --path install mode and returns the absolute base directory.
 // An empty PathInstallBase means harness mode; callers should continue with harness resolution.
 func ResolvePathInstallBase(flags InstallFlagInput) (string, error) {
@@ -58,59 +126,6 @@ func ResolvePathInstallBase(flags InstallFlagInput) (string, error) {
 		return "", fmt.Errorf("invalid --path %q: %w", flags.PathInstallBase, err)
 	}
 	return absPath, nil
-}
-
-// ValidateInstallFlags validates `--path | (--harness [--project-dir | --global])` flag combinations.
-// builtIns and agentsKey identify which registry section to load; registryHelp configures help text.
-func ValidateInstallFlags(c *components.Context, builtIns map[string]AgentConfig, agentsKey string, registryHelp AgentRegistryHelpExample) (InstallFlagsResult, error) {
-	pathInstallBase := strings.TrimSpace(c.GetStringFlagValue("path"))
-	rawHarness := strings.TrimSpace(c.GetStringFlagValue("harness"))
-	isGlobal := c.GetBoolFlagValue("global")
-	projectDir := strings.TrimSpace(c.GetStringFlagValue("project-dir"))
-
-	absoluteInstallBaseDir, err := ResolvePathInstallBase(InstallFlagInput{
-		PathInstallBase: pathInstallBase,
-		RawHarness:      rawHarness,
-		ProjectDir:      projectDir,
-		IsGlobal:        isGlobal,
-	})
-	if err != nil {
-		return InstallFlagsResult{}, err
-	}
-	if absoluteInstallBaseDir != "" {
-		return InstallFlagsResult{AbsoluteInstallBaseDir: absoluteInstallBaseDir}, nil
-	}
-
-	registry, err := LoadAgentRegistry(builtIns, agentsKey)
-	if err != nil {
-		return InstallFlagsResult{}, err
-	}
-	if rawHarness == "" {
-		return InstallFlagsResult{}, fmt.Errorf("--harness is required unless --path is set. Supported harnesses: %s", AgentNames(registry))
-	}
-
-	harnessNames, err := ParseHarnessList(rawHarness)
-	if err != nil {
-		return InstallFlagsResult{}, err
-	}
-	specs := make([]AgentSpec, 0, len(harnessNames))
-	for _, name := range harnessNames {
-		agentSpec, resolveErr := ResolveAgent(registry, name, registryHelp)
-		if resolveErr != nil {
-			return InstallFlagsResult{}, resolveErr
-		}
-		specs = append(specs, agentSpec)
-	}
-
-	projectDirAbs, err := ResolveInstallProjectDir(projectDir, isGlobal)
-	if err != nil {
-		return InstallFlagsResult{}, err
-	}
-	return InstallFlagsResult{
-		Specs:         specs,
-		ProjectDirAbs: projectDirAbs,
-		IsGlobal:      isGlobal,
-	}, nil
 }
 
 // ResolveInstallProjectDir validates --project-dir for harness install mode (skipped when --global).
