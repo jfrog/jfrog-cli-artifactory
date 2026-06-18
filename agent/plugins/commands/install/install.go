@@ -266,13 +266,13 @@ func (ic *InstallCommand) handleEvidenceVerification() error {
 
 func (ic *InstallCommand) resolveAgentTargetDirectories() ([]plugincommon.AgentTarget, error) {
 	if ic.installPath != "" {
-		return plugincommon.ResolveAgentTargets(ic.slug, ic.installPath, nil, "", false)
+		return agentcommon.ResolveAgentTargets(ic.slug, ic.installPath, nil, "", false)
 	}
 	if ic.scope == agentcommon.InstallScopeProject && ic.projectDir == "" {
 		return nil, fmt.Errorf("project directory is required for project-scoped install")
 	}
 	isGlobal := ic.scope == agentcommon.InstallScopeGlobal
-	return plugincommon.ResolveAgentTargets(ic.slug, "", ic.agents, ic.projectDir, isGlobal)
+	return agentcommon.ResolveAgentTargets(ic.slug, "", ic.agents, ic.projectDir, isGlobal)
 }
 
 func (ic *InstallCommand) writePluginInfoManifest(target plugincommon.AgentTarget) error {
