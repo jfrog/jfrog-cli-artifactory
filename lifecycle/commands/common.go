@@ -23,6 +23,10 @@ const (
 	minimalLifecycleArtifactoryVersion                    = "7.63.2"
 	minArtifactoryVersionForMultiSourceAndPackagesSupport = "7.114.0"
 	minArtifactoryVersionForDraftBundleSupport            = "7.136.0"
+
+	// Status values emitted by the --format json echo output.
+	statusCreated     = "created"
+	statusDistributed = "distributed"
 )
 
 type releaseBundleCmd struct {

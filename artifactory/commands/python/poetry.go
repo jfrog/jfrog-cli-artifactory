@@ -18,10 +18,10 @@ import (
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/spf13/viper"
-	"golang.org/x/exp/slices"
 )
 
 const (
@@ -56,6 +56,19 @@ func (pc *PoetryCommand) Run() (err error) {
 			err = errors.Join(err, pythonBuildInfo.Clean())
 		}
 	}()
+	// For publish, the deploy repository comes from the user's -r/--repository flag rather than the
+	// resolver repo configured in .jfrog/projects/poetry.yaml. Honor it before credential setup so
+	// Poetry credentials are registered under the deploy repo. The flag is already in pc.args, so
+	// publish() passes it through to Poetry as-is.
+	if pc.commandName == "publish" {
+		var repo string
+		if _, _, repo, err = coreutils.FindFlagFirstMatch([]string{"--repository", "-r"}, pc.args); err != nil {
+			return err
+		}
+		if repo != "" {
+			pc.repository = repo
+		}
+	}
 	err = pc.SetPypiRepoUrlWithCredentials()
 	if err != nil {
 		return err
@@ -96,7 +109,8 @@ func (pc *PoetryCommand) install(buildConfiguration *buildUtils.BuildConfigurati
 }
 
 func (pc *PoetryCommand) publish(buildConfiguration *buildUtils.BuildConfiguration, pythonBuildInfo *build.Build) error {
-	publishCmdArgs := append(slices.Clone(pc.args), "-r "+pc.repository)
+	// pc.args already carries the deploy repository (the user's -r/--repository flag, or the resolver
+	// repo appended in Run); pass it through to Poetry as-is.
 
 	// Get build name and number (already extracted from CLI arguments)
 	// Since buildConfiguration is created from CLI args, these should be available directly
@@ -110,7 +124,6 @@ func (pc *PoetryCommand) publish(buildConfiguration *buildUtils.BuildConfigurati
 	}
 
 	// Run the publish command to upload artifacts
-	pc.args = publishCmdArgs
 	err = gofrogcmd.RunCmd(pc)
 	if err != nil {
 		return err
