@@ -15,9 +15,21 @@ import (
 )
 
 type mockClient struct {
-	callCount int
-	lastReq   services.ComponentResolutionRequest
-	resp      services.ComponentResolutionResponse
+	callCount  int
+	lastReq    services.ComponentResolutionRequest
+	resp       services.ComponentResolutionResponse
+	version    string
+	versionErr error
+}
+
+func (m *mockClient) GetVersion() (string, error) {
+	if m.versionErr != nil {
+		return "", m.versionErr
+	}
+	if m.version != "" {
+		return m.version, nil
+	}
+	return HealComponentsMinVersion, nil
 }
 
 func (m *mockClient) HealComponents(req services.ComponentResolutionRequest) (*services.ComponentResolutionResponse, error) {
@@ -209,6 +221,64 @@ func TestRunIfEnabled_PropagatesEnsureLockfilesError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "package-lock.json")
 	assert.Equal(t, 0, client.callCount)
+}
+
+func TestRunIfEnabled_PropagatesGetVersionError(t *testing.T) {
+	client := &mockClient{versionErr: errors.New("xray unavailable")}
+	tool := mockTool{root: t.TempDir(), lockfiles: []Lockfile{{Path: "package-lock.json", Content: []byte("orig")}}}
+	_, healed, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", t.TempDir(), nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "xray unavailable")
+	assert.False(t, healed)
+	assert.Equal(t, 0, client.callCount)
+}
+
+func TestRunIfEnabled_SkipsWhenXrayVersionTooLow(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "package-lock.json")
+	require.NoError(t, os.WriteFile(lockPath, []byte("orig"), 0644))
+
+	client := &mockClient{
+		version: "3.100.0",
+		resp: services.ComponentResolutionResponse{
+			Lockfile: "healed",
+			Changes:  []services.Change{{Package: "lodash", BeforeIntegrity: "a", AfterIntegrity: "b"}},
+		},
+	}
+	tool := mockTool{root: dir, lockfiles: []Lockfile{{Path: "package-lock.json", Content: []byte("orig")}}}
+
+	_, healed, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	require.NoError(t, err)
+	assert.False(t, healed)
+	assert.Equal(t, 0, client.callCount)
+
+	data, err := os.ReadFile(lockPath)
+	require.NoError(t, err)
+	assert.Equal(t, "orig", string(data))
+}
+
+func TestRunIfEnabled_AllowsXrayDevVersion(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "package-lock.json")
+	require.NoError(t, os.WriteFile(lockPath, []byte("orig"), 0644))
+
+	client := &mockClient{
+		version: "3.x-dev",
+		resp: services.ComponentResolutionResponse{
+			Lockfile: "healed",
+			Changes:  []services.Change{{Package: "lodash", BeforeIntegrity: "a", AfterIntegrity: "b"}},
+		},
+	}
+	tool := mockTool{root: dir, lockfiles: []Lockfile{{Path: "package-lock.json", Content: []byte("orig")}}}
+
+	_, healed, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	require.NoError(t, err)
+	assert.True(t, healed)
+	assert.Equal(t, 1, client.callCount)
+
+	data, err := os.ReadFile(lockPath)
+	require.NoError(t, err)
+	assert.Equal(t, "healed", string(data))
 }
 
 func TestApplyLockfiles_WritesMultipleFiles(t *testing.T) {

@@ -203,10 +203,10 @@ require (
 // replace github.com/jfrog/jfrog-cli-core/v2 => /Users/assafa/code/jfrog/jfrog-cli-core
 
 // attiasas:xray_component_resolution
-replace github.com/jfrog/jfrog-client-go => github.com/attiasas/jfrog-client-go v0.0.0-20260617184739-f8431de360c6
+replace github.com/jfrog/jfrog-client-go => github.com/attiasas/jfrog-client-go v0.0.0-20260618074648-a1bc0ef2898a
 
 // attiasas:expend_xray_manager
-replace github.com/jfrog/jfrog-cli-core/v2 => github.com/attiasas/jfrog-cli-core/v2 v2.0.0-20260617184845-0cfaec9c03c7
+replace github.com/jfrog/jfrog-cli-core/v2 => github.com/attiasas/jfrog-cli-core/v2 v2.0.0-20260618075235-99c87dda5bb2
 
 // replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260604085947-7c110b77b4b4
 

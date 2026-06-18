@@ -8,11 +8,14 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/jfrog/jfrog-client-go/xray/services"
+	clientutils "github.com/jfrog/jfrog-client-go/utils"
 )
 
 // HealComponentsDisabledEnvVar disables Xray heal components when set to "true".
 // Feature is enabled by default; users run normal jf <build-tool> commands with no extra setup.
 const HealComponentsDisabledEnvVar = "JFROG_CLI_HEAL_COMPONENTS_DISABLED"
+
+const HealComponentsMinVersion = "3.133.0"
 
 var noopRestore = func() error { return nil }
 
@@ -33,6 +36,7 @@ type lockfileBackup struct {
 
 // ComponentResolutionClient resolves a single lockfile via Xray.
 type ComponentResolutionClient interface {
+	GetVersion() (string, error)
 	HealComponents(req services.ComponentResolutionRequest) (*services.ComponentResolutionResponse, error)
 }
 
@@ -41,6 +45,15 @@ type ComponentResolutionClient interface {
 func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo string, tool BuildTool, command, workingDir string, runner CommandRunner, bootstrapArgs ...string) (restore func() error, healed bool, err error) {
 	if IsComponentResolutionDisabled() || !IsRelevantCommand(tool, command) {
 		log.Debug("Xray heal components disabled or not relevant command: ", command)
+		return noopRestore, false, nil
+	}
+	version, err := client.GetVersion()
+	if err != nil {
+		return noopRestore, false, err
+	}
+	log.Debug("Xray version: ", version)
+	if err = clientutils.ValidateMinimumVersion(clientutils.Xray, version, HealComponentsMinVersion); err != nil {
+		log.Warn("Xray heal components are not supported on the current Xray version. " + err.Error())
 		return noopRestore, false, nil
 	}
 	log.Debug("Running Xray heal components at '"+repo+"' RT repository for tool:", tool.ToolName())
