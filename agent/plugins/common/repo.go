@@ -6,6 +6,9 @@ import (
 
 // Constants for the agent plugins package type.
 const (
+	// ArtifactKind is the singular display name used in log and prompt messages.
+	ArtifactKind = "plugin"
+
 	// PackageType is the Artifactory package type string used when filtering or
 	// describing repositories that host agent plugins.
 	PackageType = "agentplugins"

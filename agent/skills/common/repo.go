@@ -3,6 +3,9 @@ package common
 import agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 
 const (
+	// ArtifactKind is the singular display name used in log and prompt messages.
+	ArtifactKind = "skill"
+
 	PackageType = "skills"
 	RepoEnvVar  = "JFROG_SKILLS_REPO"
 	RepoLabel   = "skills"

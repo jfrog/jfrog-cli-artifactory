@@ -110,7 +110,7 @@ type update struct {
 }
 
 func newUpdate(c *components.Context) (update, error) {
-	flags, err := plugincommon.ValidateInstallFlags(c)
+	flags, err := agentcommon.ValidateInstallFlags(c, plugincommon.Agents, agentcommon.PluginsAgentsKey, plugincommon.RegistryHelp)
 	if err != nil {
 		return update{}, err
 	}
@@ -459,7 +459,7 @@ func restorePluginFromBackup(agentTarget plugincommon.AgentTarget, backupPath st
 // If the copy fails or returns a non-ok summary row, restorePluginFromBackup removes any partial
 // new install and renames the backup back to DestinationDir so the previous version remains in place.
 func applyPluginUpdateCopy(unzipDir string, installCommand *install.InstallCommand, agentTarget plugincommon.AgentTarget, backupPath string) agentcommon.SummaryRow {
-	rows := installCommand.CopyExtractedToTargets(unzipDir, []plugincommon.AgentTarget{agentTarget})
+	rows := agentcommon.CopyExtractedToTargets(unzipDir, []plugincommon.AgentTarget{agentTarget}, installCommand.WritePluginInfoManifest)
 	if len(rows) != 1 {
 		if restoreErr := restorePluginFromBackup(agentTarget, backupPath); restoreErr != nil {
 			return summaryRowFor(agentTarget, agentcommon.SummaryStatusFailed, fmt.Sprintf("internal error: unexpected copy result count; restore failed: %s", restoreErr.Error()))

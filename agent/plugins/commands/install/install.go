@@ -11,7 +11,6 @@ import (
 	plugincommon "github.com/jfrog/jfrog-cli-artifactory/agent/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -144,7 +143,7 @@ func (ic *InstallCommand) Run() error {
 		return err
 	}
 
-	results := ic.CopyExtractedToTargets(unzipDir, installTargets)
+	results := agentcommon.CopyExtractedToTargets(unzipDir, installTargets, ic.WritePluginInfoManifest)
 
 	if err := agentcommon.PrintInstallSummary("Plugin", ic.slug, ic.version, results, ic.format); err != nil {
 		return err
@@ -211,57 +210,10 @@ func (ic *InstallCommand) FetchAndExtractTo(tmpDir string) (string, error) {
 	if err := agentcommon.UnzipFile(zipPath, unzipDir); err != nil {
 		return "", fmt.Errorf("unzip failed: %w", err)
 	}
-	if err := ic.handleEvidenceVerification(); err != nil {
+	if err := plugincommon.HandleEvidenceVerification(ic.quiet, ic.slug, ic.verifyEvidence); err != nil {
 		return "", err
 	}
 	return unzipDir, nil
-}
-
-// CopyExtractedToTargets copies an unpacked plugin tree to the given resolved targets and
-// writes a plugin-info manifest per target.
-func (ic *InstallCommand) CopyExtractedToTargets(unzipDir string, installTargets []plugincommon.AgentTarget) []agentcommon.SummaryRow {
-	results := make([]agentcommon.SummaryRow, 0, len(installTargets))
-	for _, target := range installTargets {
-		if err := agentcommon.EnsureDestinationDir(target.DestinationDir); err != nil {
-			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
-			continue
-		}
-		if err := agentcommon.CopyDir(unzipDir, target.DestinationDir); err != nil {
-			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
-			continue
-		}
-		if err := ic.writePluginInfoManifest(target); err != nil {
-			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
-			continue
-		}
-		results = append(results, agentcommon.SummaryRow{
-			Agent:  target.Agent.Name,
-			Scope:  string(target.Scope),
-			Path:   target.DestinationDir,
-			Status: agentcommon.SummaryStatusOK,
-			Detail: agentcommon.SummaryDetailOKInstall,
-		})
-	}
-	return results
-}
-
-func (ic *InstallCommand) handleEvidenceVerification() error {
-	err := ic.verifyEvidence()
-	if err == nil {
-		return nil
-	}
-	if ic.quiet || agentcommon.IsNonInteractive() {
-		if agentcommon.ShouldFailOnMissingEvidenceForPlugins() {
-			return fmt.Errorf("evidence verification failed for plugin '%s': %s. %s", ic.slug, err.Error(), agentcommon.DisableQuietFailureEvidenceHintForPlugins())
-		}
-		log.Warn(fmt.Sprintf("Evidence verification failed for plugin '%s': %s. Proceeding with installation.", ic.slug, err.Error()))
-		return nil
-	}
-	log.Warn("Evidence verification failed:", err.Error())
-	if !coreutils.AskYesNo("The plugin is unattested. Continue with installation?", false) {
-		return fmt.Errorf("installation aborted by user")
-	}
-	return nil
 }
 
 func (ic *InstallCommand) resolveAgentTargetDirectories() ([]plugincommon.AgentTarget, error) {
@@ -275,7 +227,7 @@ func (ic *InstallCommand) resolveAgentTargetDirectories() ([]plugincommon.AgentT
 	return plugincommon.ResolveAgentTargets(ic.slug, "", ic.agents, ic.projectDir, isGlobal)
 }
 
-func (ic *InstallCommand) writePluginInfoManifest(target plugincommon.AgentTarget) error {
+func (ic *InstallCommand) WritePluginInfoManifest(target plugincommon.AgentTarget) error {
 	manifest := agentcommon.InstallInfoManifest{
 		SchemaVersion:    agentcommon.InstallInfoManifestSchemaVersion,
 		Repo:             ic.repoKey,
@@ -291,7 +243,7 @@ func (ic *InstallCommand) writePluginInfoManifest(target plugincommon.AgentTarge
 }
 
 func (ic *InstallCommand) downloadZip(tmpDir string) (string, error) {
-	return agentcommon.DownloadPackageZip(ic.serverDetails, ic.repoKey, ic.slug, ic.version, tmpDir, "plugin")
+	return agentcommon.DownloadPackageZip(ic.serverDetails, ic.repoKey, ic.slug, ic.version, tmpDir, plugincommon.ArtifactKind)
 }
 
 func (ic *InstallCommand) verifyEvidence() error {
@@ -309,7 +261,7 @@ func RunInstall(c *components.Context) error {
 		return err
 	}
 
-	flags, err := plugincommon.ValidateInstallFlags(c)
+	flags, err := agentcommon.ValidateInstallFlags(c, plugincommon.Agents, agentcommon.PluginsAgentsKey, plugincommon.RegistryHelp)
 	if err != nil {
 		return err
 	}

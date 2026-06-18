@@ -73,7 +73,7 @@ func TestCopyExtractedToTargets_WritesInstallManifest(t *testing.T) {
 		DestinationDir: dest,
 		Scope:          common.ScopeProject,
 	}}
-	rows := ic.CopyExtractedToTargets(src, targets)
+	rows := agentcommon.CopyExtractedToTargets(src, targets, ic.WriteSkillInfoManifest)
 	require.Len(t, rows, 1)
 	assert.Equal(t, agentcommon.SummaryStatusOK, rows[0].Status)
 

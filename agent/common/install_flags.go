@@ -6,6 +6,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 )
 
 // InstallFlagInput holds install flag values shared by skills and plugins install validation.
@@ -55,6 +58,59 @@ func ResolvePathInstallBase(flags InstallFlagInput) (string, error) {
 		return "", fmt.Errorf("invalid --path %q: %w", flags.PathInstallBase, err)
 	}
 	return absPath, nil
+}
+
+// ValidateInstallFlags validates `--path | (--harness [--project-dir | --global])` flag combinations.
+// builtIns and agentsKey identify which registry section to load; registryHelp configures help text.
+func ValidateInstallFlags(c *components.Context, builtIns map[string]AgentConfig, agentsKey string, registryHelp AgentRegistryHelpExample) (InstallFlagsResult, error) {
+	pathInstallBase := strings.TrimSpace(c.GetStringFlagValue("path"))
+	rawHarness := strings.TrimSpace(c.GetStringFlagValue("harness"))
+	isGlobal := c.GetBoolFlagValue("global")
+	projectDir := strings.TrimSpace(c.GetStringFlagValue("project-dir"))
+
+	absoluteInstallBaseDir, err := ResolvePathInstallBase(InstallFlagInput{
+		PathInstallBase: pathInstallBase,
+		RawHarness:      rawHarness,
+		ProjectDir:      projectDir,
+		IsGlobal:        isGlobal,
+	})
+	if err != nil {
+		return InstallFlagsResult{}, err
+	}
+	if absoluteInstallBaseDir != "" {
+		return InstallFlagsResult{AbsoluteInstallBaseDir: absoluteInstallBaseDir}, nil
+	}
+
+	registry, err := LoadAgentRegistry(builtIns, agentsKey)
+	if err != nil {
+		return InstallFlagsResult{}, err
+	}
+	if rawHarness == "" {
+		return InstallFlagsResult{}, fmt.Errorf("--harness is required unless --path is set. Supported harnesses: %s", AgentNames(registry))
+	}
+
+	harnessNames, err := ParseHarnessList(rawHarness)
+	if err != nil {
+		return InstallFlagsResult{}, err
+	}
+	specs := make([]AgentSpec, 0, len(harnessNames))
+	for _, name := range harnessNames {
+		agentSpec, resolveErr := ResolveAgent(registry, name, registryHelp)
+		if resolveErr != nil {
+			return InstallFlagsResult{}, resolveErr
+		}
+		specs = append(specs, agentSpec)
+	}
+
+	projectDirAbs, err := ResolveInstallProjectDir(projectDir, isGlobal)
+	if err != nil {
+		return InstallFlagsResult{}, err
+	}
+	return InstallFlagsResult{
+		Specs:         specs,
+		ProjectDirAbs: projectDirAbs,
+		IsGlobal:      isGlobal,
+	}, nil
 }
 
 // ResolveInstallProjectDir validates --project-dir for harness install mode (skipped when --global).

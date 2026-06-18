@@ -36,7 +36,7 @@ func RunUpdate(c *components.Context) error {
 		return err
 	}
 
-	flags, err := common.ValidateInstallFlags(c)
+	flags, err := agentcommon.ValidateInstallFlags(c, common.Agents, agentcommon.SkillsAgentsKey, common.RegistryHelp)
 	if err != nil {
 		return err
 	}
@@ -202,7 +202,7 @@ func updateOneSkill(unzipDir string, installCommand *install.InstallCommand, che
 		return summaryRowFor(agentTarget, agentcommon.SummaryStatusFailed, fmt.Sprintf("could not move current skill aside for update: %s", err.Error()))
 	}
 
-	rows := installCommand.CopyExtractedToTargets(unzipDir, []common.AgentTarget{agentTarget})
+	rows := agentcommon.CopyExtractedToTargets(unzipDir, []common.AgentTarget{agentTarget}, installCommand.WriteSkillInfoManifest)
 	if len(rows) != 1 {
 		_ = os.RemoveAll(agentTarget.DestinationDir)
 		if restoreErr := os.Rename(backupPath, agentTarget.DestinationDir); restoreErr != nil {

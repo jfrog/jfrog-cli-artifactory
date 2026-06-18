@@ -11,7 +11,6 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
@@ -153,7 +152,7 @@ func (ic *InstallCommand) Run() error {
 		return err
 	}
 
-	results := ic.CopyExtractedToTargets(unzipDir, installTargets)
+	results := agentcommon.CopyExtractedToTargets(unzipDir, installTargets, ic.WriteSkillInfoManifest)
 
 	if !ic.suppressSummary {
 		if err := agentcommon.PrintInstallSummary("Skill", ic.slug, ic.version, results, ic.format); err != nil {
@@ -188,57 +187,10 @@ func (ic *InstallCommand) FetchAndExtractTo(tmpDir string) (unzipDir string, err
 		return "", fmt.Errorf("unzip failed: %w", err)
 	}
 
-	if err := ic.handleEvidenceVerification(); err != nil {
+	if err := common.HandleEvidenceVerification(ic.quiet, ic.slug, ic.verifyEvidence); err != nil {
 		return "", err
 	}
 	return unzipDir, nil
-}
-
-// CopyExtractedToTargets copies an unpacked skill tree to the given resolved targets and
-// writes a skill-info manifest per target.
-func (ic *InstallCommand) CopyExtractedToTargets(unzipDir string, installTargets []common.AgentTarget) []agentcommon.SummaryRow {
-	results := make([]agentcommon.SummaryRow, 0, len(installTargets))
-	for _, target := range installTargets {
-		if err := agentcommon.EnsureDestinationDir(target.DestinationDir); err != nil {
-			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
-			continue
-		}
-		if err := agentcommon.CopyDir(unzipDir, target.DestinationDir); err != nil {
-			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
-			continue
-		}
-		if err := ic.writeSkillInfoManifest(target); err != nil {
-			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
-			continue
-		}
-		results = append(results, agentcommon.SummaryRow{
-			Agent:  target.Agent.Name,
-			Scope:  string(target.Scope),
-			Path:   target.DestinationDir,
-			Status: agentcommon.SummaryStatusOK,
-			Detail: agentcommon.SummaryDetailOKInstall,
-		})
-	}
-	return results
-}
-
-func (ic *InstallCommand) handleEvidenceVerification() error {
-	err := ic.verifyEvidence()
-	if err == nil {
-		return nil
-	}
-	if ic.quiet || agentcommon.IsNonInteractive() {
-		if agentcommon.ShouldFailOnMissingEvidenceForSkills() {
-			return fmt.Errorf("evidence verification failed for skill '%s': %s. %s", ic.slug, err.Error(), agentcommon.DisableQuietFailureEvidenceHintForSkills())
-		}
-		log.Warn(fmt.Sprintf("Evidence verification failed for skill '%s': %s. Proceeding with installation.", ic.slug, err.Error()))
-		return nil
-	}
-	log.Warn("Evidence verification failed:", err.Error())
-	if !coreutils.AskYesNo("The skill is unattested. Continue with installation?", false) {
-		return fmt.Errorf("installation aborted by user")
-	}
-	return nil
 }
 
 // resolveAgentTargetDirectories builds per-agent dest dirs, or one direct target if installPath is set (install/update --path).
@@ -256,7 +208,7 @@ func (ic *InstallCommand) resolveAgentTargetDirectories() ([]common.AgentTarget,
 	return common.ResolveAgentTargets(ic.slug, "", ic.agents, ic.projectDir, isGlobal)
 }
 
-func (ic *InstallCommand) writeSkillInfoManifest(target common.AgentTarget) error {
+func (ic *InstallCommand) WriteSkillInfoManifest(target common.AgentTarget) error {
 	dirName := filepath.Base(target.DestinationDir)
 	slug := ic.slug
 	if dirName != "" && dirName != slug {
@@ -277,7 +229,7 @@ func (ic *InstallCommand) writeSkillInfoManifest(target common.AgentTarget) erro
 }
 
 func (ic *InstallCommand) downloadZip(tmpDir string) (string, error) {
-	return agentcommon.DownloadPackageZip(ic.serverDetails, ic.repoKey, ic.slug, ic.version, tmpDir, "skill")
+	return agentcommon.DownloadPackageZip(ic.serverDetails, ic.repoKey, ic.slug, ic.version, tmpDir, common.ArtifactKind)
 }
 
 // diagnoseDownloadForbidden checks the Xray status API when a download returns 403.
@@ -314,7 +266,7 @@ func RunInstall(c *components.Context) error {
 		return err
 	}
 
-	flags, err := common.ValidateInstallFlags(c)
+	flags, err := agentcommon.ValidateInstallFlags(c, common.Agents, agentcommon.SkillsAgentsKey, common.RegistryHelp)
 	if err != nil {
 		return err
 	}

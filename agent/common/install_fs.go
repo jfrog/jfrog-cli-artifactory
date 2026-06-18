@@ -9,7 +9,9 @@ import (
 
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 const (
@@ -76,6 +78,56 @@ func ReadInstallInfoManifest(installDir, manifestFileName string) (*InstallInfoM
 		return nil, fmt.Errorf("parse install manifest %s: %w", path, err)
 	}
 	return &manifest, nil
+}
+
+// HandleEvidenceVerification runs the evidence check and handles quiet/interactive mode uniformly.
+// kind is "plugin" or "skill" (used in log and prompt messages).
+// verifyFn performs the actual evidence check. shouldFail and hint are package-specific.
+func HandleEvidenceVerification(quiet bool, slug, kind string, verifyFn func() error, shouldFail func() bool, hint func() string) error {
+	err := verifyFn()
+	if err == nil {
+		return nil
+	}
+	if quiet || IsNonInteractive() {
+		if shouldFail() {
+			return fmt.Errorf("evidence verification failed for %s '%s': %s. %s", kind, slug, err.Error(), hint())
+		}
+		log.Warn(fmt.Sprintf("Evidence verification failed for %s '%s': %s. Proceeding with installation.", kind, slug, err.Error()))
+		return nil
+	}
+	log.Warn("Evidence verification failed:", err.Error())
+	if !coreutils.AskYesNo(fmt.Sprintf("The %s is unattested. Continue with installation?", kind), false) {
+		return fmt.Errorf("installation aborted by user")
+	}
+	return nil
+}
+
+// CopyExtractedToTargets copies an unpacked artifact tree to the given resolved targets
+// and calls writeManifest per target to write an info manifest.
+func CopyExtractedToTargets(unzipDir string, installTargets []InstallTarget, writeManifest func(InstallTarget) error) []SummaryRow {
+	results := make([]SummaryRow, 0, len(installTargets))
+	for _, target := range installTargets {
+		if err := EnsureDestinationDir(target.DestinationDir); err != nil {
+			results = append(results, InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
+			continue
+		}
+		if err := CopyDir(unzipDir, target.DestinationDir); err != nil {
+			results = append(results, InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
+			continue
+		}
+		if err := writeManifest(target); err != nil {
+			results = append(results, InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
+			continue
+		}
+		results = append(results, SummaryRow{
+			Agent:  target.Agent.Name,
+			Scope:  string(target.Scope),
+			Path:   target.DestinationDir,
+			Status: SummaryStatusOK,
+			Detail: SummaryDetailOKInstall,
+		})
+	}
+	return results
 }
 
 // packageZipDownloadManager downloads package zips from Artifactory; swappable in tests.

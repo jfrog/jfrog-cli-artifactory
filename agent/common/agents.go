@@ -8,6 +8,28 @@ import (
 	"strings"
 )
 
+// ParseHarnessList parses comma-separated harness names: trims whitespace, lowercases,
+// and rejects empty entries and duplicates.
+func ParseHarnessList(raw string) ([]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, fmt.Errorf("--harness is required (comma-separated list of harness names)")
+	}
+	seen := make(map[string]struct{})
+	var result []string
+	for _, part := range strings.Split(raw, ",") {
+		name := strings.ToLower(strings.TrimSpace(part))
+		if name == "" {
+			return nil, fmt.Errorf("--harness contains an empty name in %q", raw)
+		}
+		if _, dup := seen[name]; dup {
+			return nil, fmt.Errorf("--harness lists %q more than once", name)
+		}
+		seen[name] = struct{}{}
+		result = append(result, name)
+	}
+	return result, nil
+}
+
 // AgentConfig holds per-agent install directory paths for an AI harness.
 type AgentConfig struct {
 	GlobalDir  string `json:"globalDir"`
