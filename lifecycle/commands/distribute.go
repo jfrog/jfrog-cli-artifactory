@@ -1,6 +1,7 @@
 package commands
 
 import (
+	coreformat "github.com/jfrog/jfrog-cli-core/v2/common/format"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/lifecycle/services"
@@ -14,6 +15,7 @@ type ReleaseBundleDistributeCommand struct {
 	pathMappingPattern string
 	pathMappingTarget  string
 	maxWaitMinutes     int
+	outputFormat       coreformat.OutputFormat
 }
 
 func NewReleaseBundleDistributeCommand() *ReleaseBundleDistributeCommand {
@@ -75,6 +77,11 @@ func (rbd *ReleaseBundleDistributeCommand) SetMaxWaitMinutes(maxWaitMinutes int)
 	return rbd
 }
 
+func (rbd *ReleaseBundleDistributeCommand) SetOutputFormat(format coreformat.OutputFormat) *ReleaseBundleDistributeCommand {
+	rbd.outputFormat = format
+	return rbd
+}
+
 func (rbd *ReleaseBundleDistributeCommand) Run() error {
 	if err := validateArtifactoryVersionSupported(rbd.serverDetails); err != nil {
 		return err
@@ -99,7 +106,17 @@ func (rbd *ReleaseBundleDistributeCommand) Run() error {
 		ProjectKey:        rbd.rbProjectKey,
 	}
 
-	return servicesManager.DistributeReleaseBundle(rbDetails, distributeParams)
+	if err := servicesManager.DistributeReleaseBundle(rbDetails, distributeParams); err != nil {
+		return err
+	}
+	return rbd.printDistributeOutput()
+}
+
+func (rbd *ReleaseBundleDistributeCommand) printDistributeOutput() error {
+	if rbd.outputFormat != coreformat.Json {
+		return nil
+	}
+	return printEchoJson(rbd.releaseBundleName, rbd.releaseBundleVersion, statusDistributed)
 }
 
 func (rbd *ReleaseBundleDistributeCommand) ServerDetails() (*config.ServerDetails, error) {
