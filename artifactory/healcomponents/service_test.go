@@ -174,6 +174,34 @@ func TestRunIfEnabled_SkipsIrrelevantCommand(t *testing.T) {
 	assert.Equal(t, 0, client.callCount)
 }
 
+func TestRunIfEnabled_WritesHealedMavenPOM(t *testing.T) {
+	dir := t.TempDir()
+	pomPath := filepath.Join(dir, "pom.xml")
+	orig := []byte(`<?xml version="1.0"?><project><artifactId>before</artifactId></project>`)
+	require.NoError(t, os.WriteFile(pomPath, orig, 0644))
+
+	healedXML := `<?xml version="1.0"?><project><artifactId>after</artifactId></project>`
+	client := &mockClient{resp: services.ComponentResolutionResponse{
+		Lockfile: healedXML,
+		Changes:  []services.Change{{Package: "com.demo:lib:1.0", BeforeIntegrity: "a", AfterIntegrity: "b"}},
+	}}
+	tool := mockTool{
+		name:      "maven",
+		commands:  []string{"resolve"},
+		root:      dir,
+		lockfiles: []Lockfile{{Path: "pom.xml", Content: orig}},
+	}
+
+	_, healed, err := RunIfEnabled(context.Background(), client, "maven-virtual", tool, "resolve", dir, nil)
+	require.NoError(t, err)
+	assert.True(t, healed)
+	assert.Equal(t, string(orig), client.lastReq.Lockfile)
+
+	data, err := os.ReadFile(pomPath)
+	require.NoError(t, err)
+	assert.Equal(t, healedXML, string(data))
+}
+
 func TestRunIfEnabled_PropagatesEnsureLockfilesError(t *testing.T) {
 	client := &mockClient{}
 	tool := mockTool{ensureErr: errors.New("package-lock.json is required for npm ci")}
