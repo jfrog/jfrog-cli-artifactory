@@ -41,15 +41,15 @@ func TestGenerateInitScript(t *testing.T) {
 	assert.Contains(t, script, "clear()")
 	assert.Contains(t, script, "Clear any existing repositories")
 
-	// Verify metadataSources is not included (uses Gradle defaults)
-	assert.NotContains(t, script, "metadataSources")
-	assert.NotContains(t, script, "artifact()")
-	assert.NotContains(t, script, "mavenPom()")
+	// Verify metadataSources is included for Gradle 8.14+ repository resolution
+	assert.Contains(t, script, "metadataSources")
+	assert.Contains(t, script, "artifact()")
+	assert.Contains(t, script, "mavenPom()")
 
 	// Verify credentials and security configuration
 	assert.Contains(t, script, "credentials {")
 	assert.Contains(t, script, "allowInsecureProtocol")
-	assert.Contains(t, script, "gradleVersion >= GradleVersion.version")
+	assert.Contains(t, script, `artifactoryUrl.startsWith("http://")`)
 }
 
 func TestWriteInitScript(t *testing.T) {

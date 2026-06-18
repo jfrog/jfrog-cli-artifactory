@@ -1,11 +1,8 @@
-import org.gradle.util.GradleVersion
-
 def artifactoryUrl = '{{ .ArtifactoryURL }}'
 def gradleRepoName = '{{ .GradleRepoName }}'
 def artifactoryUsername = '{{ .ArtifactoryUsername }}'
 def artifactoryAccessToken = '{{ .ArtifactoryAccessToken }}'
-def gradleVersion = GradleVersion.current()
-def allowInsecure = gradleVersion >= GradleVersion.version("6.2") && artifactoryUrl.startsWith("http://")
+def allowInsecure = artifactoryUrl.startsWith("http://")
 
 void configureMavenRepo(repositories, String rtUrl, String rtUser, String rtPass, boolean allowInsecure) {
     repositories.maven {
@@ -18,6 +15,10 @@ void configureMavenRepo(repositories, String rtUrl, String rtUser, String rtPass
         // This is used when Artifactory is running in HTTP mode
         if (allowInsecure) {
             allowInsecureProtocol = true
+        }
+        metadataSources {
+            mavenPom()
+            artifact()
         }
     }
 }
