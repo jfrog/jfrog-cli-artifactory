@@ -244,7 +244,8 @@ func (apkCmd *ApkConfigCommand) applyConfig(pemKey, keyFilePath, repoURL string)
 	kept = append(kept, repoURL)
 
 	content := strings.Join(kept, "\n") + "\n"
-	if err := os.WriteFile(apkRepositoriesFile, []byte(content), 0644); err != nil {
+	// apkRepositoriesFile is a compile-time constant (/etc/apk/repositories), not user-controlled.
+	if err := os.WriteFile(filepath.Clean(apkRepositoriesFile), []byte(content), 0644); err != nil { //nolint:gosec
 		return errorutils.CheckErrorf("failed to write %s: %w", apkRepositoriesFile, err)
 	}
 	log.Info("Repository configured:", apkRepositoriesFile, "→", repoURL)
