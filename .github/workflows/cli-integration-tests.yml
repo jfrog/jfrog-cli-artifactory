@@ -6,6 +6,10 @@ on:
     branches:
       - main
 
+  pull_request:
+    branches:
+      - main
+
   pull_request_target:
     types: [labeled]
     branches:
@@ -868,7 +872,7 @@ jobs:
   Agent-Plugins-Tests:
     name: agent-plugins ${{ matrix.os.name }}
     needs: Detect-Deps
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'safe to test')
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request' || contains(github.event.pull_request.labels.*.name, 'safe to test')
     strategy:
       fail-fast: false
       matrix:
