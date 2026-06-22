@@ -25,7 +25,14 @@ type InstallTarget struct {
 }
 
 // ResolveAgentTargets resolves per-agent install destinations for a slug.
+// Parameters:
+//   - slug: package name to install (e.g., "web")
+//   - path: absolute path for --path mode (empty string for harness mode)
+//   - agents: list of target agents (nil for --path mode)
+//   - projectDirAbs: absolute project directory (empty for --global mode)
+//   - isGlobal: true for global scope, false for project scope
 func ResolveAgentTargets(slug, path string, agents []AgentSpec, projectDirAbs string, isGlobal bool) ([]InstallTarget, error) {
+	// --path mode: return single synthetic agent at specified path
 	if path != "" {
 		target, err := BuildPathInstallTarget(slug, path)
 		if err != nil {
@@ -34,6 +41,7 @@ func ResolveAgentTargets(slug, path string, agents []AgentSpec, projectDirAbs st
 		return []InstallTarget{target}, nil
 	}
 
+	// Harness mode: determine scope (project or global)
 	scope := InstallScopeProject
 	if isGlobal {
 		scope = InstallScopeGlobal
@@ -42,6 +50,7 @@ func ResolveAgentTargets(slug, path string, agents []AgentSpec, projectDirAbs st
 		return nil, fmt.Errorf("project directory is required for project-scoped install")
 	}
 
+	// Build target directory for each agent
 	targets := make([]InstallTarget, 0, len(agents))
 	for _, agent := range agents {
 		base, err := ResolveAgentInstallDir(agent, projectDirAbs, isGlobal)
