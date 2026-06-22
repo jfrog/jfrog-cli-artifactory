@@ -32,7 +32,7 @@ jobs:
 
   Detect-Deps:
     name: Detect Dependencies
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'safe to test')
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request' || contains(github.event.pull_request.labels.*.name, 'safe to test')
     runs-on: ubuntu-latest
     outputs:
       build_info_go_repo: ${{ steps.detect.outputs.build_info_go_repo }}
@@ -871,7 +871,6 @@ jobs:
 
   Agent-Plugins-Tests:
     name: agent-plugins ${{ matrix.os.name }}
-    needs: Detect-Deps
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'pull_request' || contains(github.event.pull_request.labels.*.name, 'safe to test')
     strategy:
       fail-fast: false
