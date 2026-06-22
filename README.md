@@ -16,4 +16,4 @@
 
 ## 🫱🏻‍🫲🏼 Contributions
 
-We welcome contributions from the community through pull requests. To assist in enhancing this project, please review our [Contribution](CONTRIBUTING.md) guide.
+We welcome contributions from the community through pull requests. To assist in enhancing this project, please review our [Contribution](CONTRIBUTING.md) guide
