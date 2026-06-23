@@ -266,13 +266,17 @@ func (ic *InstallCommand) handleEvidenceVerification() error {
 
 func (ic *InstallCommand) resolveAgentTargetDirectories() ([]plugincommon.AgentTarget, error) {
 	if ic.installPath != "" {
-		return plugincommon.ResolveAgentTargets(ic.slug, ic.installPath, nil, "", false)
+		// projectDirAbs is "" because --path mode uses an absolute path directly
+		// e.g., jf agent plugins install web --path /home/user/plugins
+		return agentcommon.ResolveAgentTargets(ic.slug, ic.installPath, nil, "", false)
 	}
 	if ic.scope == agentcommon.InstallScopeProject && ic.projectDir == "" {
 		return nil, fmt.Errorf("project directory is required for project-scoped install")
 	}
 	isGlobal := ic.scope == agentcommon.InstallScopeGlobal
-	return plugincommon.ResolveAgentTargets(ic.slug, "", ic.agents, ic.projectDir, isGlobal)
+	// Path is "" because harness mode uses project or global scope
+	// e.g., jf agent plugins install web --harness claude --global
+	return agentcommon.ResolveAgentTargets(ic.slug, "", ic.agents, ic.projectDir, isGlobal)
 }
 
 func (ic *InstallCommand) writePluginInfoManifest(target plugincommon.AgentTarget) error {

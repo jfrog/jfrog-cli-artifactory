@@ -423,7 +423,7 @@ func RunList(c *components.Context) error {
 
 	var agentNames []string
 	if rawHarness != "" {
-		agentNames, err = pluginscommon.ParseHarnessList(rawHarness)
+		agentNames, err = agentcommon.ParseHarnessList(rawHarness)
 		if err != nil {
 			return err
 		}

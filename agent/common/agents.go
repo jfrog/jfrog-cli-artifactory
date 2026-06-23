@@ -140,6 +140,28 @@ func ResolveAgentInstallDir(spec AgentSpec, projectDir string, global bool) (str
 	return filepath.Abs(filepath.Join(projectDir, spec.Config.ProjectDir))
 }
 
+// ParseHarnessList parses comma-separated harness names (trim, lowercase, reject empty/duplicates).
+func ParseHarnessList(raw string) ([]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, fmt.Errorf("--harness is required (comma-separated list of harness names)")
+	}
+
+	seen := make(map[string]struct{})
+	var result []string
+	for _, part := range strings.Split(raw, ",") {
+		name := strings.ToLower(strings.TrimSpace(part))
+		if name == "" {
+			return nil, fmt.Errorf("--harness contains an empty name in %q", raw)
+		}
+		if _, dup := seen[name]; dup {
+			return nil, fmt.Errorf("--harness lists %q more than once", name)
+		}
+		seen[name] = struct{}{}
+		result = append(result, name)
+	}
+	return result, nil
+}
+
 // SupportedAgentsList is comma-separated names from registry or built-ins.
 func SupportedAgentsList(builtIns map[string]AgentConfig, configSectionKey string) string {
 	registry, err := LoadAgentRegistry(builtIns, configSectionKey)

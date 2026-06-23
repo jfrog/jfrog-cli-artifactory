@@ -247,13 +247,17 @@ func (ic *InstallCommand) resolveAgentTargetDirectories() ([]common.AgentTarget,
 		return ic.explicitTargets, nil
 	}
 	if ic.installPath != "" {
-		return common.ResolveAgentTargets(ic.slug, ic.installPath, nil, "", false)
+		// projectDirAbs is "" because --path mode uses an absolute path directly
+		// e.g., jf agent skills install web --path /home/user/skills
+		return agentcommon.ResolveAgentTargets(ic.slug, ic.installPath, nil, "", false)
 	}
 	if ic.scope == agentcommon.InstallScopeProject && ic.projectDir == "" {
 		return nil, fmt.Errorf("project directory is required for project-scoped install")
 	}
 	isGlobal := ic.scope == agentcommon.InstallScopeGlobal
-	return common.ResolveAgentTargets(ic.slug, "", ic.agents, ic.projectDir, isGlobal)
+	// Path is "" because harness mode uses project or global scope
+	// e.g., jf agent skills install web --harness cursor --global
+	return agentcommon.ResolveAgentTargets(ic.slug, "", ic.agents, ic.projectDir, isGlobal)
 }
 
 func (ic *InstallCommand) writeSkillInfoManifest(target common.AgentTarget) error {
