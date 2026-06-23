@@ -80,19 +80,27 @@ func TestConstructArtifactPathWithFallback(t *testing.T) {
 			expected: "my-repo/file.jar",
 		},
 		{
-			name: "without OriginalDeploymentRepo - fallback to Path",
+			name: "without OriginalDeploymentRepo - wildcard repo search prefix",
 			artifact: buildinfo.Artifact{
 				Path: "my-repo/path/to/file.jar",
 				Name: "file.jar",
 			},
-			expected: "my-repo/path/to/file.jar",
+			expected: "*/my-repo/path/to/file.jar",
+		},
+		{
+			name: "gradle extractor path without OriginalDeploymentRepo",
+			artifact: buildinfo.Artifact{
+				Path: "minimal-example/1.0/minimal-example-1.0.jar",
+				Name: "minimal-example-1.0.jar",
+			},
+			expected: "*/minimal-example/1.0/minimal-example-1.0.jar",
 		},
 		{
 			name: "without OriginalDeploymentRepo or Path - fallback to Name",
 			artifact: buildinfo.Artifact{
 				Name: "file.jar",
 			},
-			expected: "file.jar",
+			expected: "*/file.jar",
 		},
 		{
 			name:     "empty artifact",

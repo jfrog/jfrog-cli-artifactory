@@ -42,28 +42,28 @@ func extractArtifactPathsWithWarnings(buildInfo *buildinfo.BuildInfo) ([]string,
 // constructArtifactPathWithFallback builds the full Artifactory path for an artifact.
 // Strategy:
 //  1. If OriginalDeploymentRepo is present: use OriginalDeploymentRepo + "/" + Path
-//  2. If OriginalDeploymentRepo is missing: use Path directly (it may or may not work)
+//  2. If OriginalDeploymentRepo is missing: prefix Path with "*/" so search resolves
+//     across all repos (Gradle extractor often omits originalDeploymentRepo in build-info).
 //  3. If neither available: return empty string (caller should warn and skip)
 func constructArtifactPathWithFallback(artifact buildinfo.Artifact) string {
 	// Primary: Use OriginalDeploymentRepo if available
 	if artifact.OriginalDeploymentRepo != "" {
 		if artifact.Path != "" {
-			return artifact.OriginalDeploymentRepo + "/" + artifact.Path
+			return artifact.OriginalDeploymentRepo + "/" + strings.TrimPrefix(artifact.Path, "/")
 		}
 		if artifact.Name != "" {
 			return artifact.OriginalDeploymentRepo + "/" + artifact.Name
 		}
 	}
 
-	// Fallback: Use Path directly - it might be a complete path or might fail
-	// If it fails, setPropsOnArtifacts will warn and move on
+	// Fallback: path-only from build-info — use wildcard repo for search-based SetProps
 	if artifact.Path != "" {
-		return artifact.Path
+		return "*/" + strings.TrimPrefix(artifact.Path, "/")
 	}
 
 	// Last resort: just the name (unlikely to work, but let it try)
 	if artifact.Name != "" {
-		return artifact.Name
+		return "*/" + artifact.Name
 	}
 
 	// Nothing available

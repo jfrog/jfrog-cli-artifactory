@@ -23,6 +23,7 @@ import (
 	"github.com/jfrog/build-info-go/build"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 
+	"github.com/jfrog/gofrog/version"
 	commandUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/yarn"
@@ -30,7 +31,6 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
-	"github.com/jfrog/gofrog/version"
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -321,8 +321,6 @@ func skipVersionCheck(args []string) bool {
 	return false
 }
 
-
-
 func (yc *YarnCommand) readConfigFile() error {
 	log.Debug("Preparing to read the config file", yc.configFilePath)
 	vConfig, err := project.ReadConfigFile(yc.configFilePath, project.YAML)
@@ -436,7 +434,6 @@ func GetYarnAuthDetails(server *config.ServerDetails, repo string) (registry, np
 	npmAuthIdent, npmAuthToken, err = extractAuthValFromNpmAuth(npmAuthOutput)
 	return
 }
-
 
 func setArtifactoryAuth(server *config.ServerDetails) (auth.ServiceDetails, error) {
 	authArtDetails, err := server.CreateArtAuthConfig()

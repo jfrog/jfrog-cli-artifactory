@@ -7,6 +7,7 @@ import (
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	gofrogcmd "github.com/jfrog/gofrog/io"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
@@ -90,7 +91,7 @@ func (npu *npmPublish) publishPackage(executablePath, filePath string, serverDet
 
 		propsParams := services.PropsParams{
 			Reader: searchReader,
-			Props:  buildProps,
+			Props:  civcs.MergeWithUserProps(buildProps, npu.workingDirectory),
 		}
 		_, err = servicesManager.SetProps(propsParams)
 		if err != nil {

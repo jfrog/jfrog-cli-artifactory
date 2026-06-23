@@ -3,6 +3,7 @@ package utils
 import (
 	"errors"
 	buildinfo "github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/build-info-go/utils/cienv"
 	gofrogcmd "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -16,6 +17,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -24,6 +26,20 @@ import (
 const (
 	revisionRangeErrPrefix = "fatal: Invalid revision range"
 )
+
+var (
+	findDotGitFromDirFn = FindDotGit
+	newGitManagerFn     = func(dotGitPath string) gitConfigReader {
+		return clientutils.NewGitManager(dotGitPath)
+	}
+)
+
+type gitConfigReader interface {
+	ReadConfig() error
+	GetUrl() string
+	GetRevision() string
+	GetBranch() string
+}
 
 type BuildAndVcsDetails interface {
 	ParseGitLogFromLastVcsRevision(gitDetails GitLogDetails, logRegExp *gofrogcmd.CmdOutputPattern, lastVcsRevision string) (err error)
@@ -130,6 +146,58 @@ func GetDotGit(providedDotGitPath string) (string, error) {
 		return "", errorutils.CheckErrorf("Could not find .git")
 	}
 	return dotGitPath, nil
+}
+
+// FindDotGit looks for a git repository root starting at start (file or directory) and walking up.
+// Uses fileutils.FindUpstream with the same semantics as GetDotGit.
+// Returns ("", nil) when not found. Empty startDir delegates to GetDotGit("").
+func FindDotGit(start string) (repoRoot string, err error) {
+	if start == "" || start == "." {
+		return GetDotGit("")
+	}
+	// Get the absolute path of the start directory.
+	absPath, err := filepath.Abs(start)
+	if err != nil {
+		return "", errorutils.CheckError(err)
+	}
+	if fileutils.IsPathExists(absPath, false) {
+		if info, statErr := os.Stat(absPath); statErr == nil && !info.IsDir() {
+			absPath = filepath.Dir(absPath)
+		}
+	}
+	// Save the current working directory.
+	origWd, err := os.Getwd()
+	if err != nil {
+		return "", errorutils.CheckError(err)
+	}
+	defer func() {
+		err = errors.Join(err, errorutils.CheckError(os.Chdir(origWd)))
+	}()
+	if err = os.Chdir(absPath); err != nil {
+		return "", errorutils.CheckError(err)
+	}
+	// Find the .git directory.
+	repoRoot, exists, err := fileutils.FindUpstream(".git", fileutils.Any)
+	if err != nil || !exists {
+		return "", errorutils.CheckError(err)
+	}
+	return repoRoot, nil
+}
+
+func GetLocalGitVcsInfo(searchDir string) (cienv.CIVcsInfo, error) {
+	dotGitPath, err := findDotGitFromDirFn(searchDir)
+	if err != nil || dotGitPath == "" {
+		return cienv.CIVcsInfo{}, err
+	}
+	gitManager := newGitManagerFn(dotGitPath)
+	if err = gitManager.ReadConfig(); err != nil {
+		return cienv.CIVcsInfo{}, err
+	}
+	return cienv.CIVcsInfo{
+		Url:      gitManager.GetUrl(),
+		Revision: gitManager.GetRevision(),
+		Branch:   gitManager.GetBranch(),
+	}, nil
 }
 
 // Gets the vcs revision from the latest build in Artifactory.
