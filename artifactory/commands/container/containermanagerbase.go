@@ -1,6 +1,8 @@
 package container
 
 import (
+	"os"
+
 	container "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -21,6 +23,7 @@ type ContainerCommandBase struct {
 	buildConfiguration *build.BuildConfiguration
 	serverDetails      *config.ServerDetails
 	validateSha        bool
+	workingDirectory   string
 }
 
 func (ccb *ContainerCommandBase) ImageTag() string {
@@ -106,6 +109,13 @@ func (ccb *ContainerCommandBase) init() error {
 	}
 	if ccb.repo != "" {
 		return nil
+	}
+	if ccb.workingDirectory == "" {
+		workingDirectory, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		ccb.workingDirectory = workingDirectory
 	}
 	// Check we have all we need to collect build-info.
 	ok, err := ccb.IsGetRepoSupported()

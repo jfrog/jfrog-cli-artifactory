@@ -483,7 +483,11 @@ func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string,
 	}
 
 	// Set CI VCS properties if in CI environment
-	civcs.SetCIVcsPropsToConfig(vConfig)
+	searchDir, wdErr := os.Getwd()
+	if wdErr != nil {
+		searchDir = "."
+	}
+	civcs.SetCIVcsPropsToConfig(vConfig, searchDir)
 
 	props, err = build.CreateBuildInfoProps(deployableArtifactsFile, vConfig, project.Gradle)
 	if err != nil {

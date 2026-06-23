@@ -1,10 +1,15 @@
 package civcs
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
+
 	"github.com/jfrog/build-info-go/utils/cienv"
+	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/spf13/viper"
 )
@@ -33,88 +38,97 @@ func IsCIVcsPropsDisabled() bool {
 // GetCIVcsPropsString returns CI VCS props if running in a CI environment, empty string otherwise.
 // Returns format: "vcs.provider=github;vcs.org=myorg;vcs.repo=myrepo"
 // Returns empty string if CI VCS props collection is disabled via JFROG_CLI_CI_VCS_PROPS_DISABLED.
-func GetCIVcsPropsString() string {
+func GetCIVcsPropsString(searchDir string) string {
 	if IsCIVcsPropsDisabled() {
 		return ""
 	}
-	info := cienv.GetCIVcsInfo()
-	if info.IsEmpty() {
-		return ""
+	props := BuildCIVcsPropsString(cienv.GetCIVcsInfo())
+	if propsIncludeAllLocalGitProps(props) {
+		return props
 	}
-	result := BuildCIVcsPropsString(info)
-	if result != "" {
-		log.Debug("CI VCS properties detected:", result)
+	gitVcsInfo, err := utils.GetLocalGitVcsInfo(searchDir)
+	if err != nil {
+		log.Error("Error getting local Git VCS info:", err)
+		return props
 	}
-	return result
+	return MergeVcsProps(props, gitVcsInfo)
 }
 
 // BuildCIVcsPropsString constructs the properties string from CI VCS info.
 func BuildCIVcsPropsString(info cienv.CIVcsInfo) string {
 	var parts []string
 	if info.Provider != "" {
-		parts = append(parts, "vcs.provider="+info.Provider)
+		parts = append(parts, fmt.Sprintf("%s=%s", VcsProviderKey, info.Provider))
 	}
 	if info.Org != "" {
-		parts = append(parts, "vcs.org="+info.Org)
+		parts = append(parts, fmt.Sprintf("%s=%s", VcsOrgKey, info.Org))
 	}
 	if info.Repo != "" {
-		parts = append(parts, "vcs.repo="+info.Repo)
+		parts = append(parts, fmt.Sprintf("%s=%s", VcsRepoKey, info.Repo))
 	}
 	if info.Url != "" {
-		parts = append(parts, "vcs.url="+info.Url)
+		parts = append(parts, fmt.Sprintf("%s=%s", VcsUrlKey, info.Url))
 	}
 	if info.Revision != "" {
-		parts = append(parts, "vcs.revision="+info.Revision)
+		parts = append(parts, fmt.Sprintf("%s=%s", VcsRevisionKey, info.Revision))
 	}
 	if info.Branch != "" {
-		parts = append(parts, "vcs.branch="+info.Branch)
+		parts = append(parts, fmt.Sprintf("%s=%s", VcsBranchKey, info.Branch))
 	}
 	return strings.Join(parts, ";")
 }
 
-// MergeWithUserProps adds CI VCS props to user-provided props, respecting user precedence.
-// Only adds CI properties that the user hasn't already specified.
+// MergeWithUserProps adds CI/local VCS props to user-provided props, respecting user precedence.
+// Only adds CI/local VCS properties that the user hasn't already specified.
 // For example, if user set vcs.org, we still add vcs.provider and vcs.repo from CI.
 // Returns userProps unchanged if CI VCS props collection is disabled via JFROG_CLI_CI_VCS_PROPS_DISABLED.
-func MergeWithUserProps(userProps string) string {
+func MergeWithUserProps(userProps string, searchDir string) string {
 	if IsCIVcsPropsDisabled() {
 		return userProps
 	}
-	info := cienv.GetCIVcsInfo()
-	if info.IsEmpty() {
+	props := MergeVcsProps(userProps, cienv.GetCIVcsInfo())
+	if propsIncludeAllLocalGitProps(props) {
+		return props
+	}
+	gitVcsInfo, err := utils.GetLocalGitVcsInfo(searchDir)
+	if err != nil {
+		log.Error("Error getting local Git VCS info:", err)
+		return props
+	}
+	return MergeVcsProps(props, gitVcsInfo)
+}
+
+func MergeVcsProps(userProps string, info cienv.CIVcsInfo) string {
+	var newProps []string
+	if info.Provider != "" && !hasProp(userProps, VcsProviderKey) {
+		newProps = append(newProps, fmt.Sprintf("%s=%s", VcsProviderKey, info.Provider))
+	}
+	if info.Org != "" && !hasProp(userProps, VcsOrgKey) {
+		newProps = append(newProps, fmt.Sprintf("%s=%s", VcsOrgKey, info.Org))
+	}
+	if info.Repo != "" && !hasProp(userProps, VcsRepoKey) {
+		newProps = append(newProps, fmt.Sprintf("%s=%s", VcsRepoKey, info.Repo))
+	}
+	if info.Url != "" && !hasProp(userProps, VcsUrlKey) {
+		newProps = append(newProps, fmt.Sprintf("%s=%s", VcsUrlKey, info.Url))
+	}
+	if info.Revision != "" && !hasProp(userProps, VcsRevisionKey) {
+		newProps = append(newProps, fmt.Sprintf("%s=%s", VcsRevisionKey, info.Revision))
+	}
+	if info.Branch != "" && !hasProp(userProps, VcsBranchKey) {
+		newProps = append(newProps, fmt.Sprintf("%s=%s", VcsBranchKey, info.Branch))
+	}
+	if len(newProps) == 0 {
 		return userProps
 	}
-	var ciParts []string
-	// Only add CI properties that user hasn't specified (case-sensitive)
-	if info.Provider != "" && !hasProp(userProps, "vcs.provider") {
-		ciParts = append(ciParts, "vcs.provider="+info.Provider)
-	}
-	if info.Org != "" && !hasProp(userProps, "vcs.org") {
-		ciParts = append(ciParts, "vcs.org="+info.Org)
-	}
-	if info.Repo != "" && !hasProp(userProps, "vcs.repo") {
-		ciParts = append(ciParts, "vcs.repo="+info.Repo)
-	}
-	if info.Url != "" && !hasProp(userProps, "vcs.url") {
-		ciParts = append(ciParts, "vcs.url="+info.Url)
-	}
-	if info.Revision != "" && !hasProp(userProps, "vcs.revision") {
-		ciParts = append(ciParts, "vcs.revision="+info.Revision)
-	}
-	if info.Branch != "" && !hasProp(userProps, "vcs.branch") {
-		ciParts = append(ciParts, "vcs.branch="+info.Branch)
-	}
-	if len(ciParts) == 0 {
-		return userProps
-	}
-	ciProps := strings.Join(ciParts, ";")
-	if ciProps != "" {
-		log.Debug("CI VCS properties to add:", ciProps)
+	props := strings.Join(newProps, ";")
+	if props != "" {
+		log.Debug("VCS properties to add:", props)
 	}
 	if userProps == "" {
-		return ciProps
+		return props
 	}
-	return userProps + ";" + ciProps
+	return userProps + ";" + props
 }
 
 // hasProp checks if the property key is already present in the semicolon-separated props string.
@@ -132,31 +146,81 @@ func hasProp(props, key string) bool {
 // These are picked up by the Maven/Gradle extractor and set as properties on deployed artifacts.
 // Respects user precedence: if a property is already set, it is NOT overridden.
 // Does nothing if CI VCS props collection is disabled via JFROG_CLI_CI_VCS_PROPS_DISABLED.
-func SetCIVcsPropsToConfig(vConfig *viper.Viper) {
+func SetCIVcsPropsToConfig(vConfig *viper.Viper, searchDir string) {
 	if IsCIVcsPropsDisabled() {
 		return
 	}
 	ciVcsInfo := cienv.GetCIVcsInfo()
-	if ciVcsInfo.IsEmpty() {
+	if !ciVcsInfo.IsEmpty() {
+		log.Debug("Setting CI VCS properties for extractor: provider=", ciVcsInfo.Provider, ", org=", ciVcsInfo.Org, ", repo=", ciVcsInfo.Repo)
+		mergeViperConfig(vConfig, ciVcsInfo)
+	}
+	if configIncludeAllLocalGitProps(vConfig) {
 		return
 	}
-	log.Debug("Setting CI VCS properties for extractor: provider=", ciVcsInfo.Provider, ", org=", ciVcsInfo.Org, ", repo=", ciVcsInfo.Repo)
-	if ciVcsInfo.Provider != "" && !vConfig.IsSet(VcsProviderKey) {
-		vConfig.Set(VcsProviderKey, ciVcsInfo.Provider)
+	// If the config doesn't have all Git properties, try to get them from the local Git repository.
+	gitVcsInfo, err := utils.GetLocalGitVcsInfo(searchDir)
+	if err != nil {
+		log.Error("Error getting local Git VCS info:", err)
+		return
 	}
-	if ciVcsInfo.Org != "" && !vConfig.IsSet(VcsOrgKey) {
-		vConfig.Set(VcsOrgKey, ciVcsInfo.Org)
+	log.Debug("Setting local Git VCS properties for extractor: url=", gitVcsInfo.Url, ", revision=", gitVcsInfo.Revision, ", branch=", gitVcsInfo.Branch)
+	mergeViperConfig(vConfig, gitVcsInfo)
+}
+
+func mergeViperConfig(vConfig *viper.Viper, info cienv.CIVcsInfo) {
+	if info.Url != "" && !vConfig.IsSet(VcsUrlKey) {
+		vConfig.Set(VcsUrlKey, info.Url)
 	}
-	if ciVcsInfo.Repo != "" && !vConfig.IsSet(VcsRepoKey) {
-		vConfig.Set(VcsRepoKey, ciVcsInfo.Repo)
+	if info.Revision != "" && !vConfig.IsSet(VcsRevisionKey) {
+		vConfig.Set(VcsRevisionKey, info.Revision)
 	}
-	if ciVcsInfo.Url != "" && !vConfig.IsSet(VcsUrlKey) {
-		vConfig.Set(VcsUrlKey, ciVcsInfo.Url)
+	if info.Branch != "" && !vConfig.IsSet(VcsBranchKey) {
+		vConfig.Set(VcsBranchKey, info.Branch)
 	}
-	if ciVcsInfo.Revision != "" && !vConfig.IsSet(VcsRevisionKey) {
-		vConfig.Set(VcsRevisionKey, ciVcsInfo.Revision)
+	if info.Provider != "" && !vConfig.IsSet(VcsProviderKey) {
+		vConfig.Set(VcsProviderKey, info.Provider)
 	}
-	if ciVcsInfo.Branch != "" && !vConfig.IsSet(VcsBranchKey) {
-		vConfig.Set(VcsBranchKey, ciVcsInfo.Branch)
+	if info.Org != "" && !vConfig.IsSet(VcsOrgKey) {
+		vConfig.Set(VcsOrgKey, info.Org)
 	}
+	if info.Repo != "" && !vConfig.IsSet(VcsRepoKey) {
+		vConfig.Set(VcsRepoKey, info.Repo)
+	}
+}
+
+func DeriveSearchDirFromFileSpec(pattern string, isRegexp bool) string {
+	if isRegexp {
+		return "."
+	}
+	wildcardIdx := strings.IndexAny(pattern, "*?[")
+	if wildcardIdx == -1 {
+		if fileutils.IsPathExists(pattern, false) {
+			if info, err := os.Stat(pattern); err == nil && info.IsDir() {
+				return filepath.ToSlash(pattern)
+			}
+		}
+		dir := filepath.Dir(pattern)
+		if dir == "." {
+			return "."
+		}
+		return filepath.ToSlash(dir)
+	}
+	prefix := strings.TrimRight(pattern[:wildcardIdx], "/\\")
+	if prefix == "" {
+		return "."
+	}
+	return filepath.ToSlash(prefix)
+}
+
+func propsIncludeAllLocalGitProps(props string) bool {
+	return detectedLocalGitProps(hasProp(props, VcsUrlKey), hasProp(props, VcsRevisionKey), hasProp(props, VcsBranchKey))
+}
+
+func configIncludeAllLocalGitProps(vConfig *viper.Viper) bool {
+	return detectedLocalGitProps(vConfig.IsSet(VcsUrlKey), vConfig.IsSet(VcsRevisionKey), vConfig.IsSet(VcsBranchKey))
+}
+
+func detectedLocalGitProps(hasUrl bool, hasRevision bool, hasBranch bool) bool {
+	return hasUrl && hasRevision && hasBranch
 }

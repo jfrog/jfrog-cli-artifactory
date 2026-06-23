@@ -13,6 +13,7 @@ import (
 	buildinfo "github.com/jfrog/build-info-go/entities"
 
 	artCliUtils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	artutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-client-go/artifactory"
@@ -47,6 +48,7 @@ type Builder interface {
 type buildInfoBuilder struct {
 	image             *Image
 	repositoryDetails RepositoryDetails
+	workingDirectory  string
 	buildName         string
 	buildNumber       string
 	project           string
@@ -64,7 +66,7 @@ type RepositoryDetails struct {
 }
 
 // Create instance of docker build info builder.
-func newBuildInfoBuilder(image *Image, repository, buildName, buildNumber, project string, serviceManager artifactory.ArtifactoryServicesManager) (*buildInfoBuilder, error) {
+func newBuildInfoBuilder(image *Image, repository, buildName, buildNumber, project string, serviceManager artifactory.ArtifactoryServicesManager, workingDirectory string) (*buildInfoBuilder, error) {
 	var err error
 	builder := &buildInfoBuilder{}
 	builder.repositoryDetails.key = repository
@@ -84,6 +86,7 @@ func newBuildInfoBuilder(image *Image, repository, buildName, buildNumber, proje
 	builder.buildNumber = buildNumber
 	builder.project = project
 	builder.serviceManager = serviceManager
+	builder.workingDirectory = workingDirectory
 	return builder, nil
 }
 
@@ -103,7 +106,7 @@ func (builder *buildInfoBuilder) getSearchableRepo() string {
 }
 
 // Set build properties on image layers in Artifactory.
-func setBuildProperties(buildName, buildNumber, project string, imageLayers []utils.ResultItem, serviceManager artifactory.ArtifactoryServicesManager, originalRepo string, repoDetails *RepositoryDetails) (err error) {
+func setBuildProperties(workingDirectory string, buildName, buildNumber, project string, imageLayers []utils.ResultItem, serviceManager artifactory.ArtifactoryServicesManager, originalRepo string, repoDetails *RepositoryDetails) (err error) {
 	if buildName == "" || buildNumber == "" {
 		log.Debug("Skipping setting properties - build name and build number are required")
 		return nil
@@ -113,6 +116,7 @@ func setBuildProperties(buildName, buildNumber, project string, imageLayers []ut
 	if err != nil {
 		return
 	}
+	props = civcs.MergeWithUserProps(props, workingDirectory)
 
 	if len(props) == 0 {
 		log.Debug("Skipping setting properties - no properties created")
@@ -466,7 +470,7 @@ func (builder *buildInfoBuilder) createBuildInfo(commandType CommandType, manife
 			return nil, err
 		}
 		if !builder.skipTaggingLayers {
-			if err := setBuildProperties(builder.buildName, builder.buildNumber, builder.project, builder.imageLayers, builder.serviceManager, builder.repositoryDetails.key, &builder.repositoryDetails); err != nil {
+			if err := setBuildProperties(builder.workingDirectory, builder.buildName, builder.buildNumber, builder.project, builder.imageLayers, builder.serviceManager, builder.repositoryDetails.key, &builder.repositoryDetails); err != nil {
 				return nil, err
 			}
 		}
@@ -525,7 +529,7 @@ func (builder *buildInfoBuilder) createMultiPlatformBuildInfo(fatManifest *FatMa
 			Parent:    imageLongNameWithoutRepo,
 		})
 	}
-	return buildInfo, setBuildProperties(builder.buildName, builder.buildNumber, builder.project, builder.imageLayers, builder.serviceManager, builder.repositoryDetails.key, &builder.repositoryDetails)
+	return buildInfo, setBuildProperties(builder.workingDirectory, builder.buildName, builder.buildNumber, builder.project, builder.imageLayers, builder.serviceManager, builder.repositoryDetails.key, &builder.repositoryDetails)
 }
 
 // Construct the manifest's module ID by its type (attestation) or its platform.

@@ -66,7 +66,7 @@ func (pc *PullCommand) Run() error {
 	if err != nil {
 		return err
 	}
-	builder, err := container.NewLocalAgentBuildInfoBuilder(pc.image, repo, buildName, buildNumber, project, serviceManager, container.Pull, cm)
+	builder, err := container.NewLocalAgentBuildInfoBuilder(pc.image, repo, buildName, buildNumber, project, serviceManager, container.Pull, cm, pc.workingDirectory)
 	if err != nil {
 		return err
 	}
