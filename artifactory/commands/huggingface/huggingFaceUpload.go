@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -15,11 +16,12 @@ import (
 	"github.com/jfrog/jfrog-client-go/artifactory"
 
 	"github.com/jfrog/build-info-go/entities"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
+	artutils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	coreUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
@@ -170,7 +172,7 @@ func (hfu *HuggingFaceUpload) GetArtifacts(serviceManager artifactory.Artifactor
 		hfu.repoId,
 		latestRevision,
 	)
-	results, err := utils.ExecuteAqlQuery(serviceManager, aqlQuery)
+	results, err := artutils.ExecuteAqlQuery(serviceManager, aqlQuery)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search for HuggingFace artifacts: %w", err)
 	}
@@ -180,15 +182,7 @@ func (hfu *HuggingFaceUpload) GetArtifacts(serviceManager artifactory.Artifactor
 	latestCreatedDir := fmt.Sprintf("%s/%s/%s", repoTypePath, hfu.repoId, latestRevision)
 	var artifacts []entities.Artifact
 	for _, resultItem := range results {
-		artifacts = append(artifacts, entities.Artifact{
-			Name: resultItem.Name,
-			Type: strings.TrimPrefix(filepath.Ext(resultItem.Name), "."),
-			Checksum: entities.Checksum{
-				Sha1:   resultItem.Actual_Sha1,
-				Md5:    resultItem.Actual_Md5,
-				Sha256: resultItem.Sha256,
-			},
-		})
+		artifacts = append(artifacts, huggingFaceArtifactFromResultItem(resultItem))
 	}
 	// Create content reader for the folder to set build properties
 	reader, err := createContentReader(hfu.repo, latestCreatedDir, "", "folder")
@@ -203,6 +197,20 @@ func (hfu *HuggingFaceUpload) GetArtifacts(serviceManager artifactory.Artifactor
 	}()
 	addBuildPropertiesOnArtifacts(serviceManager, reader, buildProperties)
 	return artifacts, nil
+}
+
+func huggingFaceArtifactFromResultItem(item servicesUtils.ResultItem) entities.Artifact {
+	return entities.Artifact{
+		Name:                   item.Name,
+		Type:                   strings.TrimPrefix(filepath.Ext(item.Name), "."),
+		Path:                   path.Join(item.Path, item.Name),
+		OriginalDeploymentRepo: item.Repo,
+		Checksum: entities.Checksum{
+			Sha1:   item.Actual_Sha1,
+			Md5:    item.Actual_Md5,
+			Sha256: item.Sha256,
+		},
+	}
 }
 
 // ServerDetails returns the server details configuration for the command

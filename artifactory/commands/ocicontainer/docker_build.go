@@ -6,6 +6,8 @@ import (
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	ioutils "github.com/jfrog/gofrog/io"
+	artutils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
@@ -115,6 +117,12 @@ func (dbib *DockerBuildInfoBuilder) applyBuildProps(items []utils.ResultItem, pu
 	props, err := build.CreateBuildProperties(dbib.buildName, dbib.buildNumber, dbib.project)
 	if err != nil {
 		return
+	}
+	searchDir, wdErr := artutils.ResolveWorkingDirectoryFromDockerArgs(dbib.cmdArgs)
+	if wdErr != nil {
+		log.Warn("Failed to resolve docker build context for VCS props:", wdErr.Error())
+	} else {
+		props = civcs.MergeWithUserProps(props, searchDir)
 	}
 	if pushedRepo == "" {
 		log.Warn("Pushed repository is empty, skipping applying build properties.")
