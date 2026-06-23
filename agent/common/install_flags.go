@@ -11,6 +11,13 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 )
 
+const (
+	InstallPathFlag       = "path"
+	InstallHarnessFlag    = "harness"
+	InstallProjectDirFlag = "project-dir"
+	InstallGlobalFlag     = "global"
+)
+
 // InstallFlagInput holds install flag values shared by skills and plugins install validation.
 type InstallFlagInput struct {
 	PathInstallBase string
@@ -38,10 +45,10 @@ func (r InstallFlagsResult) PathMode() bool {
 // ValidateInstallFlags validates `--path | (--harness [, --project-dir | --global])` for install/update.
 func ValidateInstallFlags(c *components.Context, builtIns map[string]AgentConfig, configSectionKey string, helpExample AgentRegistryHelpExample) (InstallFlagsResult, error) {
 	input := InstallFlagInput{
-		PathInstallBase: strings.TrimSpace(c.GetStringFlagValue("path")),
-		RawHarness:      strings.TrimSpace(c.GetStringFlagValue("harness")),
-		ProjectDir:      strings.TrimSpace(c.GetStringFlagValue("project-dir")),
-		IsGlobal:        c.GetBoolFlagValue("global"),
+		PathInstallBase: strings.TrimSpace(c.GetStringFlagValue(InstallPathFlag)),
+		RawHarness:      strings.TrimSpace(c.GetStringFlagValue(InstallHarnessFlag)),
+		ProjectDir:      strings.TrimSpace(c.GetStringFlagValue(InstallProjectDirFlag)),
+		IsGlobal:        c.GetBoolFlagValue(InstallGlobalFlag),
 	}
 	if result, done, err := validatePathInstallFlags(input); done {
 		return result, err

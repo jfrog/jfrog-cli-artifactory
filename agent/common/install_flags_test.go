@@ -66,24 +66,24 @@ func TestValidateInstallFlags_Errors(t *testing.T) {
 		{
 			name: "path with harness",
 			setup: func(c *components.Context) {
-				c.AddStringFlag("path", validPath)
-				c.AddStringFlag("harness", "cursor")
+				c.AddStringFlag(InstallPathFlag, validPath)
+				c.AddStringFlag(InstallHarnessFlag, "cursor")
 			},
 			wantSub: "--path cannot be combined with --harness",
 		},
 		{
 			name: "path with global",
 			setup: func(c *components.Context) {
-				c.AddStringFlag("path", validPath)
-				c.AddBoolFlag("global", true)
+				c.AddStringFlag(InstallPathFlag, validPath)
+				c.AddBoolFlag(InstallGlobalFlag, true)
 			},
 			wantSub: "--path cannot be combined with --global",
 		},
 		{
 			name: "path with project-dir",
 			setup: func(c *components.Context) {
-				c.AddStringFlag("path", validPath)
-				c.AddStringFlag("project-dir", projectDir)
+				c.AddStringFlag(InstallPathFlag, validPath)
+				c.AddStringFlag(InstallProjectDirFlag, projectDir)
 			},
 			wantSub: "--path cannot be combined with --project-dir",
 		},
@@ -95,9 +95,9 @@ func TestValidateInstallFlags_Errors(t *testing.T) {
 		{
 			name: "global and project-dir together",
 			setup: func(c *components.Context) {
-				c.AddStringFlag("harness", "cursor")
-				c.AddBoolFlag("global", true)
-				c.AddStringFlag("project-dir", projectDir)
+				c.AddStringFlag(InstallHarnessFlag, "cursor")
+				c.AddBoolFlag(InstallGlobalFlag, true)
+				c.AddStringFlag(InstallProjectDirFlag, projectDir)
 			},
 			wantSub: "mutually exclusive",
 		},
@@ -105,7 +105,7 @@ func TestValidateInstallFlags_Errors(t *testing.T) {
 			name: "path not a directory",
 			setup: func(c *components.Context) {
 				missing := filepath.Join(t.TempDir(), "nope")
-				c.AddStringFlag("path", missing)
+				c.AddStringFlag(InstallPathFlag, missing)
 			},
 			wantSub: "--path:",
 		},
@@ -124,7 +124,7 @@ func TestValidateInstallFlags_Errors(t *testing.T) {
 func TestValidateInstallFlags_PathModeOK(t *testing.T) {
 	validPath := t.TempDir()
 	c := testutil.NewCLIContext()
-	c.AddStringFlag("path", validPath)
+	c.AddStringFlag(InstallPathFlag, validPath)
 
 	flags, err := ValidateInstallFlags(c, testSkillsAgents, SkillsAgentsKey, testSkillsHelp)
 	require.NoError(t, err)
@@ -140,8 +140,8 @@ func TestValidateInstallFlags_PathModeOK(t *testing.T) {
 func TestValidateInstallFlags_SkillsHarnessProjectOK(t *testing.T) {
 	projectDir := t.TempDir()
 	c := testutil.NewCLIContext()
-	c.AddStringFlag("harness", "cursor")
-	c.AddStringFlag("project-dir", projectDir)
+	c.AddStringFlag(InstallHarnessFlag, "cursor")
+	c.AddStringFlag(InstallProjectDirFlag, projectDir)
 
 	flags, err := ValidateInstallFlags(c, testSkillsAgents, SkillsAgentsKey, testSkillsHelp)
 	require.NoError(t, err)
@@ -157,8 +157,8 @@ func TestValidateInstallFlags_SkillsHarnessProjectOK(t *testing.T) {
 func TestValidateInstallFlags_SkillsCommaSeparatedHarnesses(t *testing.T) {
 	projectDir := t.TempDir()
 	c := testutil.NewCLIContext()
-	c.AddStringFlag("harness", "cursor,claude-code")
-	c.AddStringFlag("project-dir", projectDir)
+	c.AddStringFlag(InstallHarnessFlag, "cursor,claude-code")
+	c.AddStringFlag(InstallProjectDirFlag, projectDir)
 
 	flags, err := ValidateInstallFlags(c, testSkillsAgents, SkillsAgentsKey, testSkillsHelp)
 	require.NoError(t, err)
@@ -171,8 +171,8 @@ func TestValidateInstallFlags_PluginsHarnessProjectOK(t *testing.T) {
 	testutil.WithJfrogHome(t)
 	projectDir := t.TempDir()
 	c := testutil.NewCLIContext()
-	c.AddStringFlag("harness", "claude")
-	c.AddStringFlag("project-dir", projectDir)
+	c.AddStringFlag(InstallHarnessFlag, "claude")
+	c.AddStringFlag(InstallProjectDirFlag, projectDir)
 
 	flags, err := ValidateInstallFlags(c, testPluginsAgents, PluginsAgentsKey, testPluginsHelp)
 	require.NoError(t, err)
@@ -188,8 +188,8 @@ func TestValidateInstallFlags_PluginsHarnessProjectOK(t *testing.T) {
 func TestValidateInstallFlags_PluginsHarnessGlobalOK(t *testing.T) {
 	testutil.WithJfrogHome(t)
 	c := testutil.NewCLIContext()
-	c.AddStringFlag("harness", "cursor")
-	c.AddBoolFlag("global", true)
+	c.AddStringFlag(InstallHarnessFlag, "cursor")
+	c.AddBoolFlag(InstallGlobalFlag, true)
 
 	flags, err := ValidateInstallFlags(c, testPluginsAgents, PluginsAgentsKey, testPluginsHelp)
 	require.NoError(t, err)
@@ -203,8 +203,8 @@ func TestValidateInstallFlags_PluginsCommaSeparatedHarnesses(t *testing.T) {
 	testutil.WithJfrogHome(t)
 	projectDir := t.TempDir()
 	c := testutil.NewCLIContext()
-	c.AddStringFlag("harness", "claude,cursor")
-	c.AddStringFlag("project-dir", projectDir)
+	c.AddStringFlag(InstallHarnessFlag, "claude,cursor")
+	c.AddStringFlag(InstallProjectDirFlag, projectDir)
 
 	flags, err := ValidateInstallFlags(c, testPluginsAgents, PluginsAgentsKey, testPluginsHelp)
 	require.NoError(t, err)
@@ -217,8 +217,8 @@ func TestValidateInstallFlags_UnknownAgent(t *testing.T) {
 	testutil.WithJfrogHome(t)
 	projectDir := t.TempDir()
 	c := testutil.NewCLIContext()
-	c.AddStringFlag("harness", "my-agent")
-	c.AddStringFlag("project-dir", projectDir)
+	c.AddStringFlag(InstallHarnessFlag, "my-agent")
+	c.AddStringFlag(InstallProjectDirFlag, projectDir)
 
 	_, err := ValidateInstallFlags(c, testPluginsAgents, PluginsAgentsKey, testPluginsHelp)
 	require.Error(t, err)
