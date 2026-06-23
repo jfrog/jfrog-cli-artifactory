@@ -18,6 +18,7 @@ type mockClient struct {
 	callCount  int
 	lastReq    services.ComponentResolutionRequest
 	resp       services.ComponentResolutionResponse
+	disabled   bool
 	version    string
 	versionErr error
 }
@@ -32,10 +33,10 @@ func (m *mockClient) GetVersion() (string, error) {
 	return HealComponentsMinVersion, nil
 }
 
-func (m *mockClient) HealComponents(req services.ComponentResolutionRequest) (*services.ComponentResolutionResponse, error) {
+func (m *mockClient) HealComponents(req services.ComponentResolutionRequest) (*services.ComponentResolutionResponse, bool, error) {
 	m.callCount++
 	m.lastReq = req
-	return &m.resp, nil
+	return &m.resp, m.disabled, nil
 }
 
 type mockTool struct {
@@ -131,6 +132,24 @@ func TestRunIfEnabled_WritesHealedNpmLockAsString(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, healed, string(data))
 	assert.Equal(t, orig, client.lastReq.Lockfile)
+}
+
+func TestRunIfEnabled_SkipsWhenServiceDisabled(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "package-lock.json")
+	require.NoError(t, os.WriteFile(lockPath, []byte("orig"), 0644))
+
+	client := &mockClient{disabled: true}
+	tool := mockTool{root: dir, lockfiles: []Lockfile{{Path: "package-lock.json", Content: []byte("orig")}}}
+
+	_, healed, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	require.NoError(t, err)
+	assert.False(t, healed)
+	assert.Equal(t, 1, client.callCount)
+
+	data, err := os.ReadFile(lockPath)
+	require.NoError(t, err)
+	assert.Equal(t, "orig", string(data))
 }
 
 func TestRunIfEnabled_SkipsWhenDisabled(t *testing.T) {
