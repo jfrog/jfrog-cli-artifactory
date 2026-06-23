@@ -36,7 +36,7 @@ func RunUpdate(c *components.Context) error {
 		return err
 	}
 
-	flags, err := common.ValidateInstallFlags(c)
+	flags, err := agentcommon.ValidateInstallFlags(c, common.Agents, agentcommon.SkillsAgentsKey, common.RegistryHelp)
 	if err != nil {
 		return err
 	}
@@ -59,7 +59,7 @@ func RunUpdate(c *components.Context) error {
 		format = c.GetStringFlagValue("format")
 	}
 
-	targets, err := common.ResolveAgentTargets(slug, flags.AbsoluteInstallBaseDir, flags.Specs, flags.ProjectDirAbs, flags.IsGlobal)
+	targets, err := agentcommon.ResolveAgentTargets(slug, flags.AbsoluteInstallBaseDir, flags.Specs, flags.ProjectDirAbs, flags.IsGlobal)
 	if err != nil {
 		return err
 	}
