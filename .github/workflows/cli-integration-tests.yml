@@ -864,3 +864,53 @@ jobs:
       - name: Run Distribution tests
         working-directory: jfrog-cli
         run: go test -v github.com/jfrog/jfrog-cli --timeout 0 --test.distribution --jfrog.url=${{ secrets.EPLUS_PLATFORM_URL }} --jfrog.adminToken=${{ secrets.EPLUS_ADMIN_TOKEN }} --jfrog.user=${{ secrets.PLATFORM_USER }} --ci.runId=${{ runner.os }}-distribution
+
+  Agent-Plugins-Tests:
+    name: agent-plugins ${{ matrix.os.name }}
+    needs: Detect-Deps
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'safe to test')
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - name: ubuntu
+            version: 24.04
+          - name: windows
+            version: 2022
+    runs-on: ${{ matrix.os.name }}-${{ matrix.os.version }}
+    env:
+      JFROG_CLI_LOG_LEVEL: DEBUG
+    steps:
+      - name: Checkout jfrog-cli-artifactory
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Checkout all JFrog repositories
+        uses: ./.github/actions/checkout-jfrog-repos
+        with:
+          build_info_go_repo: ${{ needs.Detect-Deps.outputs.build_info_go_repo }}
+          build_info_go_ref: ${{ needs.Detect-Deps.outputs.build_info_go_ref }}
+          jfrog_client_go_repo: ${{ needs.Detect-Deps.outputs.jfrog_client_go_repo }}
+          jfrog_client_go_ref: ${{ needs.Detect-Deps.outputs.jfrog_client_go_ref }}
+          jfrog_cli_core_repo: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_repo }}
+          jfrog_cli_core_ref: ${{ needs.Detect-Deps.outputs.jfrog_cli_core_ref }}
+
+      - name: Setup Go with cache
+        uses: jfrog/.github/actions/install-go-with-cache@main
+
+      - name: Setup Go workspace
+        uses: ./.github/actions/setup-go-workspace
+        with:
+          os_name: ${{ matrix.os.name }}
+
+      - name: Install local Artifactory
+        uses: jfrog/.github/actions/install-local-artifactory@main
+        with:
+          RTLIC: ${{ secrets.RTLIC }}
+          RT_CONNECTION_TIMEOUT_SECONDS: '1200'
+
+      - name: Run agent plugins tests
+        working-directory: jfrog-cli
+        run: go test -v github.com/jfrog/jfrog-cli --timeout 0 --test.agentPlugins
