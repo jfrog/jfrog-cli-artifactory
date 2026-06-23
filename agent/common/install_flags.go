@@ -6,6 +6,16 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
+)
+
+const (
+	InstallPathFlag       = "path"
+	InstallHarnessFlag    = "harness"
+	InstallProjectDirFlag = "project-dir"
+	InstallGlobalFlag     = "global"
 )
 
 // InstallFlagInput holds install flag values shared by skills and plugins install validation.
@@ -30,6 +40,84 @@ type InstallFlagsResult struct {
 // PathMode reports whether install used --path instead of --harness.
 func (r InstallFlagsResult) PathMode() bool {
 	return r.AbsoluteInstallBaseDir != ""
+}
+
+// ValidateInstallFlags validates `--path | (--harness [, --project-dir | --global])` for install/update.
+func ValidateInstallFlags(c *components.Context, builtIns map[string]AgentConfig, configSectionKey string, helpExample AgentRegistryHelpExample) (InstallFlagsResult, error) {
+	input := InstallFlagInput{
+		PathInstallBase: strings.TrimSpace(c.GetStringFlagValue(InstallPathFlag)),
+		RawHarness:      strings.TrimSpace(c.GetStringFlagValue(InstallHarnessFlag)),
+		ProjectDir:      strings.TrimSpace(c.GetStringFlagValue(InstallProjectDirFlag)),
+		IsGlobal:        c.GetBoolFlagValue(InstallGlobalFlag),
+	}
+	if result, done, err := validatePathInstallFlags(input); done {
+		return result, err
+	}
+	return validateHarnessInstallFlags(input, builtIns, configSectionKey, helpExample)
+}
+
+// validatePathInstallFlags resolves --path mode when set; done is true when validation finished or failed.
+func validatePathInstallFlags(input InstallFlagInput) (result InstallFlagsResult, done bool, err error) {
+	absoluteInstallBaseDir, err := ResolvePathInstallBase(input)
+	if err != nil {
+		return InstallFlagsResult{}, true, err
+	}
+	if absoluteInstallBaseDir == "" {
+		return InstallFlagsResult{}, false, nil
+	}
+	return InstallFlagsResult{AbsoluteInstallBaseDir: absoluteInstallBaseDir}, true, nil
+}
+
+// validateHarnessInstallFlags resolves --harness targets and project/global scope.
+func validateHarnessInstallFlags(input InstallFlagInput, builtIns map[string]AgentConfig, configSectionKey string, helpExample AgentRegistryHelpExample) (InstallFlagsResult, error) {
+	registry, err := LoadAgentRegistry(builtIns, configSectionKey)
+	if err != nil {
+		return InstallFlagsResult{}, err
+	}
+	if err := requireHarnessWhenNotPath(input.RawHarness, registry); err != nil {
+		return InstallFlagsResult{}, err
+	}
+
+	specs, err := resolveHarnessSpecs(registry, input.RawHarness, helpExample)
+	if err != nil {
+		return InstallFlagsResult{}, err
+	}
+
+	projectDirAbs, err := ResolveInstallProjectDir(input.ProjectDir, input.IsGlobal)
+	if err != nil {
+		return InstallFlagsResult{}, err
+	}
+	return InstallFlagsResult{
+		Specs:         specs,
+		ProjectDirAbs: projectDirAbs,
+		IsGlobal:      input.IsGlobal,
+	}, nil
+}
+
+// requireHarnessWhenNotPath ensures --harness is present when not using --path.
+func requireHarnessWhenNotPath(rawHarness string, registry map[string]AgentSpec) error {
+	if rawHarness != "" {
+		return nil
+	}
+	return fmt.Errorf("--harness is required unless --path is set. Supported harnesses: %s", AgentNames(registry))
+}
+
+// resolveHarnessSpecs parses --harness and resolves each name against the agent registry.
+func resolveHarnessSpecs(registry map[string]AgentSpec, rawHarness string, helpExample AgentRegistryHelpExample) ([]AgentSpec, error) {
+	harnessNames, err := ParseHarnessList(rawHarness)
+	if err != nil {
+		return nil, err
+	}
+
+	specs := make([]AgentSpec, 0, len(harnessNames))
+	for _, name := range harnessNames {
+		agentSpec, resolveErr := ResolveAgent(registry, name, helpExample)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		specs = append(specs, agentSpec)
+	}
+	return specs, nil
 }
 
 // ResolvePathInstallBase validates --path install mode and returns the absolute base directory.
