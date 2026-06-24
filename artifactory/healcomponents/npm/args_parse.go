@@ -59,18 +59,26 @@ func effectiveStartDir(workingDir string, opts discoveryOptions) (string, error)
 		return "", errorutils.CheckError(err)
 	}
 	if opts.publishPath != "" {
-		p := opts.publishPath
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(abs, p)
-		}
-		return filepath.Clean(p), nil
+		return resolveDiscoveryPath(abs, opts.publishPath)
 	}
 	if opts.prefixDir != "" {
-		p := opts.prefixDir
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(abs, p)
-		}
-		return filepath.Clean(p), nil
+		return resolveDiscoveryPath(abs, opts.prefixDir)
 	}
 	return abs, nil
+}
+
+// resolveDiscoveryPath joins base and p unless p is already absolute.
+// On Windows, Unix-style paths (e.g. /repo/pkg) are not filepath.IsAbs but must not be joined with base.
+func resolveDiscoveryPath(base, p string) (string, error) {
+	if filepath.IsAbs(p) {
+		return filepath.Clean(p), nil
+	}
+	if strings.HasPrefix(filepath.ToSlash(p), "/") {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return "", errorutils.CheckError(err)
+		}
+		return filepath.Clean(abs), nil
+	}
+	return filepath.Clean(filepath.Join(base, p)), nil
 }
