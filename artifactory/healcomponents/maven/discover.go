@@ -91,7 +91,7 @@ func discoverPomPathsWithOptions(projectRoot string, opts discoveryOptions) ([]s
 	if len(opts.projectList) == 0 {
 		return all, nil
 	}
-	return filterByProjectList(projectRoot, all, opts.projectList)
+	return filterByProjectList(all, opts.projectList)
 }
 
 func collectReactorPoms(projectRoot, relPom string) ([]string, error) {
@@ -125,7 +125,7 @@ func collectReactorPoms(projectRoot, relPom string) ([]string, error) {
 	return paths, nil
 }
 
-func filterByProjectList(projectRoot string, relPoms []string, projectList []string) ([]string, error) {
+func filterByProjectList(relPoms []string, projectList []string) ([]string, error) {
 	want := make(map[string]bool, len(projectList))
 	for _, p := range projectList {
 		want[filepath.Clean(filepath.FromSlash(p))] = true
