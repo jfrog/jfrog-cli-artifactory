@@ -21,8 +21,8 @@ func (m *integrationMockClient) GetVersion() (string, error) {
 	return healcomponents.HealComponentsMinVersion, nil
 }
 
-func (m *integrationMockClient) HealComponents(_ services.ComponentResolutionRequest) (*services.ComponentResolutionResponse, error) {
-	return &m.resp, nil
+func (m *integrationMockClient) HealComponents(_ services.ComponentResolutionRequest) (*services.ComponentResolutionResponse, bool, error) {
+	return &m.resp, false, nil
 }
 
 func TestIntegration_MavenHealingWritesPOM(t *testing.T) {
