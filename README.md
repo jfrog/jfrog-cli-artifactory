@@ -10,7 +10,7 @@
 | main | [![Test](https://github.com/jfrog/jfrog-cli-artifactory/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/jfrog/jfrog-cli-artifactory/actions/workflows/test.yml?query=branch%main) [![Static Analysis](https://github.com/jfrog/jfrog-cli-artifactory/actions/workflows/analysis.yml/badge.svg?branch=main)](https://github.com/jfrog/jfrog-cli-artifactory/actions/workflows/analysis.yml)  |
 |  dev   | [![Test](https://github.com/jfrog/jfrog-cli-artifactory/actions/workflows/test.yml/badge.svg?branch=dev)](https://github.com/jfrog/jfrog-cli-artifactory/actions/workflows/test.yml?query=branch%3Adev) [![Static Analysis](https://github.com/jfrog/jfrog-cli-artifactory/actions/workflows/analysis.yml/badge.svg?branch=dev)](https://github.com/jfrog/jfrog-cli-artifactory/actions/workflows/analysis.yml) |
 
-##  General
+##  General Testing
 
 **jfrog-cli-artifactory** is a Go module that encompasses some of the Artifactory commands of [JFrog CLI](https://docs.jfrog-applications.jfrog.io/jfrog-applications/jfrog-cli). This module is an Embedded JFrog CLI Plugin and is referenced as a Go module within the [JFrog CLI codebase](https://github.com/jfrog/jfrog-cli).
 
