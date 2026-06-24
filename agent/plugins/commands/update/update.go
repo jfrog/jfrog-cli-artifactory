@@ -110,7 +110,7 @@ type update struct {
 }
 
 func newUpdate(c *components.Context) (update, error) {
-	flags, err := plugincommon.ValidateInstallFlags(c)
+	flags, err := agentcommon.ValidateInstallFlags(c, plugincommon.Agents, agentcommon.PluginsAgentsKey, plugincommon.RegistryHelp)
 	if err != nil {
 		return update{}, err
 	}
@@ -140,7 +140,7 @@ func newUpdate(c *components.Context) (update, error) {
 
 // runUpdateOnSlug updates a single slug across all resolved targets.
 func runUpdateOnSlug(opts update, slug, requestedVersion string) error {
-	targets, err := plugincommon.ResolveAgentTargets(slug, opts.flags.AbsoluteInstallBaseDir, opts.flags.Specs, opts.flags.ProjectDirAbs, opts.flags.IsGlobal)
+	targets, err := agentcommon.ResolveAgentTargets(slug, opts.flags.AbsoluteInstallBaseDir, opts.flags.Specs, opts.flags.ProjectDirAbs, opts.flags.IsGlobal)
 	if err != nil {
 		return err
 	}

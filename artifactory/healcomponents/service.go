@@ -5,10 +5,10 @@ import (
 	"os"
 	"path/filepath"
 
+	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/jfrog/jfrog-client-go/xray/services"
-	clientutils "github.com/jfrog/jfrog-client-go/utils"
 )
 
 // HealComponentsDisabledEnvVar disables Xray heal components when set to "true".
@@ -18,6 +18,25 @@ const HealComponentsDisabledEnvVar = "JFROG_CLI_HEAL_COMPONENTS_DISABLED"
 const HealComponentsMinVersion = "3.133.0"
 
 var noopRestore = func() error { return nil }
+
+// SkipHealing logs and returns without error. Component healing is best-effort and must not fail the caller's build.
+func SkipHealing(message string, cause error) (func() error, bool, error) {
+	if cause != nil {
+		log.Debug(message + cause.Error())
+	} else {
+		log.Debug(message)
+	}
+	return noopRestore, false, nil
+}
+
+func skipHealingWarn(message string, cause error) (func() error, bool, error) {
+	if cause != nil {
+		log.Warn(message + cause.Error())
+	} else {
+		log.Warn(message)
+	}
+	return noopRestore, false, nil
+}
 
 func IsComponentResolutionDisabled() bool {
 	return os.Getenv(HealComponentsDisabledEnvVar) == "true"
@@ -37,7 +56,7 @@ type lockfileBackup struct {
 // ComponentResolutionClient resolves a single lockfile via Xray.
 type ComponentResolutionClient interface {
 	GetVersion() (string, error)
-	HealComponents(req services.ComponentResolutionRequest) (*services.ComponentResolutionResponse, error)
+	HealComponents(req services.ComponentResolutionRequest) (*services.ComponentResolutionResponse, bool, error)
 }
 
 // RunIfEnabled ensures lockfiles exist, discovers them, calls Xray once per file, writes healed lockfiles when changes returned.
@@ -52,9 +71,8 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 		return noopRestore, false, err
 	}
 	log.Debug("Xray version: ", version)
-	if err = clientutils.ValidateMinimumVersion(clientutils.Xray, version, HealComponentsMinVersion); err != nil {
-		log.Warn("Xray heal components are not supported on the current Xray version. " + err.Error())
-		return noopRestore, false, nil
+	if versionErr := clientutils.ValidateMinimumVersion(clientutils.Xray, version, HealComponentsMinVersion); versionErr != nil {
+		return skipHealingWarn("Xray heal components are not supported on the current Xray version. ", versionErr)
 	}
 	log.Debug("Running Xray heal components at '"+repo+"' RT repository for tool:", tool.ToolName())
 	projectRoot, err := tool.ProjectRoot(workingDir)
@@ -74,13 +92,17 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 	var toWrite []Lockfile
 	var totalChanges int
 	for _, lf := range lockfiles {
-		resp, err := client.HealComponents(services.ComponentResolutionRequest{
+		resp, disabled, err := client.HealComponents(services.ComponentResolutionRequest{
 			BuildTool: tool.ToolName(),
 			Repo:      repo,
 			Lockfile:  string(lf.Content),
 		})
 		if err != nil {
 			return noopRestore, false, errorutils.CheckError(err)
+		}
+		if disabled {
+			log.Debug("Xray component healing skipped: self-heal is disabled on the server")
+			return noopRestore, false, nil
 		}
 		if len(resp.Changes) == 0 {
 			log.Debug("No changes for ", lf.Path)

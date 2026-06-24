@@ -79,7 +79,7 @@ func (npc *NpmPublishCommand) ServerDetails() (*config.ServerDetails, error) {
 
 func (npc *NpmPublishCommand) SetConfigFilePath(configFilePath string) *NpmPublishCommand {
 	npc.configFilePath = configFilePath
-	npc.SetConfigFilePath(configFilePath)
+	npc.CommonArgs.SetConfigFilePath(configFilePath)
 	return npc
 }
 

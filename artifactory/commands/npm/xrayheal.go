@@ -3,7 +3,6 @@ package npm
 import (
 	"context"
 	"fmt"
-	"github.com/jfrog/jfrog-client-go/utils/log"
 	"strings"
 
 	gofrogcmd "github.com/jfrog/gofrog/io"
@@ -27,23 +26,23 @@ func (ca *CommonArgs) runXrayComponentHealingForPublish(ctx context.Context, com
 }
 
 func (ca *CommonArgs) runXrayComponentHealingWithTool(ctx context.Context, command, workingDir string, tool cnpm.BuildTool, bootstrapArgs ...string) (restore func() error, healed bool, err error) {
-	noop := func() error { return nil }
 	if healcomponents.IsComponentResolutionDisabled() {
-		return noop, false, nil
+		return healcomponents.SkipHealing("Xray component healing disabled", nil)
 	}
-	resolverRepo, err := ca.resolverRepoForResolution(command)
-	if err != nil || resolverRepo == "" {
-		log.Debug("Xray component healing skipped: could not determine resolver repo: " + err.Error())
-		return noop, false, nil
+	resolverRepo, resolverErr := ca.resolverRepoForResolution(command)
+	if resolverErr != nil {
+		return healcomponents.SkipHealing("Xray component healing skipped: could not determine resolver repo: ", resolverErr)
+	}
+	if resolverRepo == "" {
+		return healcomponents.SkipHealing("Xray component healing skipped: resolver repo is empty", nil)
 	}
 	var projectKey string
 	if ca.buildConfiguration != nil {
 		projectKey = ca.buildConfiguration.GetProject()
 	}
-	xrayManager, err := xray.CreateXrayServiceManager(ca.serverDetails, xray.WithScopedProjectKey(projectKey))
-	if err != nil {
-		log.Debug("Xray component healing skipped: could not create Xray service manager: " + err.Error())
-		return noop, false, nil
+	xrayManager, xrayErr := xray.CreateXrayServiceManager(ca.serverDetails, xray.WithScopedProjectKey(projectKey))
+	if xrayErr != nil {
+		return healcomponents.SkipHealing("Xray component healing skipped: could not create Xray service manager: ", xrayErr)
 	}
 	return healcomponents.RunIfEnabled(ctx, xrayManager, resolverRepo, tool, command, workingDir, ca.npmBootstrapRunner(), bootstrapArgs...)
 }

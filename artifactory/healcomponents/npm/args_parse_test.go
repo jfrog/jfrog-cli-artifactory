@@ -1,6 +1,7 @@
 package npm
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,15 +28,34 @@ func TestParseNpmCLIArgs_WorkspaceBootstrap(t *testing.T) {
 }
 
 func TestEffectiveStartDir_PublishPathOverridesCwd(t *testing.T) {
+	root := t.TempDir()
+	publishPath := filepath.Join(root, "packages", "foo")
+	got, err := effectiveStartDir(root, discoveryOptions{publishPath: publishPath})
+	assert.NoError(t, err)
+	assert.Equal(t, publishPath, got)
+}
+
+func TestEffectiveStartDir_PublishPathUnixAbsolute(t *testing.T) {
 	got, err := effectiveStartDir("/repo", discoveryOptions{publishPath: "/repo/packages/foo"})
 	assert.NoError(t, err)
-	assert.Equal(t, "/repo/packages/foo", got)
+	want, err := filepath.Abs("/repo/packages/foo")
+	assert.NoError(t, err)
+	assert.Equal(t, want, got)
 }
 
 func TestEffectiveStartDir_PrefixFromArgs(t *testing.T) {
+	root := t.TempDir()
+	got, err := effectiveStartDir(root, discoveryOptions{prefixDir: "sub"})
+	assert.NoError(t, err)
+	assert.Equal(t, filepath.Join(root, "sub"), got)
+}
+
+func TestEffectiveStartDir_PrefixFromArgsUnixRoot(t *testing.T) {
 	got, err := effectiveStartDir("/repo", discoveryOptions{prefixDir: "sub"})
 	assert.NoError(t, err)
-	assert.Equal(t, "/repo/sub", got)
+	root, err := filepath.Abs("/repo")
+	assert.NoError(t, err)
+	assert.Equal(t, filepath.Join(root, "sub"), got)
 }
 
 func TestBootstrapArgsFrom(t *testing.T) {
