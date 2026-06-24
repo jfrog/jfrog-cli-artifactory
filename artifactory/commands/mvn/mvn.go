@@ -146,17 +146,17 @@ func (mc *MvnCommand) isDeploymentRequested() bool {
 		if strings.HasSuffix(goal, ":help") || goal == "help" {
 			continue
 		}
-		
+
 		// Exact match for standard Maven phases (most common case)
 		if goal == "install" || goal == "deploy" {
 			return true
 		}
-		
+
 		// Prefix match for plugin:goal format (e.g., deploy:deploy-file, install:install-file)
 		if strings.HasPrefix(goal, "deploy:") || strings.HasPrefix(goal, "install:") {
 			return true
 		}
-		
+
 		// Suffix match for full plugin name format (e.g., maven-deploy-plugin:deploy, maven-install-plugin:install)
 		// Note: Using suffix instead of Contains() to avoid false positives like "uninstall", "reinstall"
 		if strings.HasSuffix(goal, ":deploy") || strings.HasSuffix(goal, ":install") {
@@ -199,7 +199,8 @@ func (mc *MvnCommand) Run() error {
 		SetGoals(mc.goals).
 		SetInsecureTls(mc.insecureTls).
 		SetDisableDeploy(mc.deploymentDisabled).
-		SetThreads(mc.threads)
+		SetThreads(mc.threads).
+		SetServerDetails(mc.serverDetails)
 	if err = RunMvn(mvnParams); err != nil {
 		return err
 	}

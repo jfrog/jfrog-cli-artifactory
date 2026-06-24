@@ -1,6 +1,8 @@
 package mvn
 
 import (
+	"context"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -34,6 +36,7 @@ type MvnUtils struct {
 	insecureTls               bool
 	disableDeploy             bool
 	outputWriter              io.Writer
+	serverDetails             *config.ServerDetails
 }
 
 func NewMvnUtils() *MvnUtils {
@@ -82,6 +85,11 @@ func (mu *MvnUtils) SetConfig(vConfig *viper.Viper) *MvnUtils {
 
 func (mu *MvnUtils) SetOutputWriter(writer io.Writer) *MvnUtils {
 	mu.outputWriter = writer
+	return mu
+}
+
+func (mu *MvnUtils) SetServerDetails(serverDetails *config.ServerDetails) *MvnUtils {
+	mu.serverDetails = serverDetails
 	return mu
 }
 
@@ -156,6 +164,20 @@ func RunMvn(mu *MvnUtils) error {
 	if err != nil {
 		return err
 	}
+	workingDir, wdErr := os.Getwd()
+	if wdErr != nil {
+		return errorutils.CheckError(wdErr)
+	}
+	var restoreHealing func() error
+	restoreHealing, _, err = mu.runXrayComponentHealing(context.Background(), workingDir, mu.serverDetails)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil && restoreHealing != nil {
+			err = errors.Join(err, restoreHealing())
+		}
+	}()
 	var mvnOpts []string
 	if v := os.Getenv("MAVEN_OPTS"); v != "" {
 		mvnOpts = strings.Fields(v)

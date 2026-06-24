@@ -2,6 +2,7 @@ package npm
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -56,9 +57,8 @@ var (
 
 type NpmCommand struct {
 	CommonArgs
-	cmdName        string
-	jsonOutput     bool
-	executablePath string
+	cmdName    string
+	jsonOutput bool
 	// Function to be called to restore the user's old npmrc and delete the one we created.
 	restoreNpmrcFunc func() error
 	workingDirectory string
@@ -73,6 +73,8 @@ type NpmCommand struct {
 	collectBuildInfo    bool
 	buildInfoModule     *build.NpmModule
 	installHandler      *NpmInstallStrategy
+	// When true, the subsequent install uses npm ci to honor healed lockfile integrity.
+	healedLockfile bool
 	// When true, skips the 404 error handling that checks if packages are blocked by curation
 	disableCVSCheck bool
 }
@@ -135,7 +137,7 @@ func (nc *NpmCommand) Init() error {
 		if err != nil {
 			return err
 		}
-		
+
 		repoConfig, err := nc.getRepoConfig(vConfig)
 		if err != nil {
 			return err
@@ -348,6 +350,16 @@ func (nc *NpmCommand) Run() (err error) {
 	if err = nc.PreparePrerequisites(nc.repo); err != nil {
 		return
 	}
+	var restoreResolution func() error
+	restoreResolution, nc.healedLockfile, err = nc.runXrayComponentHealing(context.Background(), nc.cmdName, nc.workingDirectory, nc.npmArgs)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil && restoreResolution != nil {
+			err = errors.Join(err, restoreResolution())
+		}
+	}()
 	defer func() {
 		err = errors.Join(err, nc.installHandler.RestoreNpmrc())
 	}()
@@ -508,8 +520,19 @@ func (nc *NpmCommand) prepareBuildInfoModule() error {
 	return nil
 }
 
+func (nc *NpmCommand) effectiveNpmCommand() string {
+	if nc.healedLockfile && nc.cmdName == "install" {
+		return "ci"
+	}
+	return nc.cmdName
+}
+
 func (nc *NpmCommand) collectDependencies() error {
-	nc.buildInfoModule.SetNpmArgs(append([]string{nc.cmdName}, nc.npmArgs...))
+	npmCommand := nc.effectiveNpmCommand()
+	if npmCommand != nc.cmdName {
+		log.Info("Using npm ci after component resolution to install from the healed lockfile")
+	}
+	nc.buildInfoModule.SetNpmArgs(append([]string{npmCommand}, nc.npmArgs...))
 	return errorutils.CheckError(nc.buildInfoModule.Build())
 }
 
