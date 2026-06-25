@@ -214,13 +214,9 @@ func DeriveSearchDirFromFileSpec(pattern string, isRegexp bool) string {
 }
 
 func propsIncludeAllLocalGitProps(props string) bool {
-	return detectedLocalGitProps(hasProp(props, VcsUrlKey), hasProp(props, VcsRevisionKey), hasProp(props, VcsBranchKey))
+	return hasProp(props, VcsUrlKey) && hasProp(props, VcsRevisionKey) && hasProp(props, VcsBranchKey)
 }
 
 func configIncludeAllLocalGitProps(vConfig *viper.Viper) bool {
-	return detectedLocalGitProps(vConfig.IsSet(VcsUrlKey), vConfig.IsSet(VcsRevisionKey), vConfig.IsSet(VcsBranchKey))
-}
-
-func detectedLocalGitProps(hasUrl bool, hasRevision bool, hasBranch bool) bool {
-	return hasUrl && hasRevision && hasBranch
+	return vConfig.IsSet(VcsUrlKey) && vConfig.IsSet(VcsRevisionKey) && vConfig.IsSet(VcsBranchKey)
 }
