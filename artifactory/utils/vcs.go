@@ -2,8 +2,17 @@ package utils
 
 import (
 	"errors"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/build-info-go/utils/cienv"
+	"github.com/jfrog/gofrog/datastructures"
 	gofrogcmd "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -14,13 +23,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"io"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"regexp"
-	"strconv"
-	"strings"
 )
 
 const (
@@ -138,24 +140,30 @@ func GetDotGit(providedDotGitPath string) (string, error) {
 	if providedDotGitPath != "" {
 		return providedDotGitPath, nil
 	}
-	dotGitPath, exists, err := fileutils.FindUpstream(".git", fileutils.Any)
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", errorutils.CheckError(err)
+	}
+	repoRoot, err := findDotGitUpstream(wd)
 	if err != nil {
 		return "", err
 	}
-	if !exists {
+	if repoRoot == "" {
 		return "", errorutils.CheckErrorf("Could not find .git")
 	}
-	return dotGitPath, nil
+	return repoRoot, nil
 }
 
 // FindDotGit looks for a git repository root starting at start (file or directory) and walking up.
-// Uses fileutils.FindUpstream with the same semantics as GetDotGit.
-// Returns ("", nil) when not found. Empty startDir delegates to GetDotGit("").
+// Returns ("", nil) when not found. Empty startDir walks up from the current working directory.
 func FindDotGit(start string) (repoRoot string, err error) {
 	if start == "" || start == "." {
-		return GetDotGit("")
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", errorutils.CheckError(err)
+		}
+		return findDotGitUpstream(wd)
 	}
-	// Get the absolute path of the start directory.
 	absPath, err := filepath.Abs(start)
 	if err != nil {
 		return "", errorutils.CheckError(err)
@@ -165,23 +173,31 @@ func FindDotGit(start string) (repoRoot string, err error) {
 			absPath = filepath.Dir(absPath)
 		}
 	}
-	// Save the current working directory.
-	origWd, err := os.Getwd()
-	if err != nil {
-		return "", errorutils.CheckError(err)
+	return findDotGitUpstream(absPath)
+}
+
+func findDotGitUpstream(dir string) (string, error) {
+	visitedPaths := datastructures.MakeSet[string]()
+	osRoot := os.Getenv("SYSTEMDRIVE")
+	if osRoot != "" {
+		osRoot += "\\"
+	} else {
+		osRoot = "/"
 	}
-	defer func() {
-		err = errors.Join(err, errorutils.CheckError(os.Chdir(origWd)))
-	}()
-	if err = os.Chdir(absPath); err != nil {
-		return "", errorutils.CheckError(err)
+	for {
+		if fileutils.IsPathExists(filepath.Join(dir, ".git"), false) {
+			return dir, nil
+		}
+		if dir == osRoot {
+			return "", nil
+		}
+		visitedPaths.Add(dir)
+		parent := filepath.Dir(dir)
+		if parent == dir || visitedPaths.Exists(parent) {
+			return "", nil
+		}
+		dir = parent
 	}
-	// Find the .git directory.
-	repoRoot, exists, err := fileutils.FindUpstream(".git", fileutils.Any)
-	if err != nil || !exists {
-		return "", errorutils.CheckError(err)
-	}
-	return repoRoot, nil
 }
 
 func GetLocalGitVcsInfo(searchDir string) (cienv.CIVcsInfo, error) {
