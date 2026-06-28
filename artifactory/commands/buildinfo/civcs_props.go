@@ -150,11 +150,12 @@ func setPropsOnArtifacts(servicesManager artifactory.ArtifactoryServicesManager,
 	wildcardCount := countWildcardRepoPaths(artifactPaths)
 	if wildcardCount > 0 {
 		expanded, err := expandWildcardPathsToLocalRepos(servicesManager, artifactPaths)
-		if err != nil {
+		switch {
+		case err != nil:
 			log.Warn("CI VCS:", wildcardCount, "artifact path(s) missing OriginalDeploymentRepo; searching across all repositories (failed to list local repos:", err, "). Artifacts at the same path in other repositories may be tagged unintentionally.")
-		} else if hasWildcardRepoPaths(expanded) {
+		case hasWildcardRepoPaths(expanded):
 			log.Warn("CI VCS:", wildcardCount, "artifact path(s) missing OriginalDeploymentRepo; searching across all repositories. Artifacts at the same path in other repositories may be tagged unintentionally.")
-		} else {
+		default:
 			artifactPaths = expanded
 			log.Warn("CI VCS:", wildcardCount, "artifact path(s) missing OriginalDeploymentRepo; property search restricted to local repositories. The same path in multiple local repos may still be tagged unintentionally.")
 		}
