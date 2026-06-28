@@ -43,7 +43,8 @@ func extractArtifactPathsWithWarnings(buildInfo *buildinfo.BuildInfo) ([]string,
 // Strategy:
 //  1. If OriginalDeploymentRepo is present: use OriginalDeploymentRepo + "/" + Path
 //  2. If OriginalDeploymentRepo is missing: prefix Path with "*/" so search resolves
-//     across all repos (Gradle extractor often omits originalDeploymentRepo in build-info).
+//     across repositories. At set-props time this is restricted to local repos when possible,
+//     with a warning logged (Gradle extractor often omits originalDeploymentRepo in build-info).
 //  3. If neither available: return empty string (caller should warn and skip)
 func constructArtifactPathWithFallback(artifact buildinfo.Artifact) string {
 	// Primary: Use OriginalDeploymentRepo if available
@@ -84,6 +85,60 @@ func constructArtifactPath(artifact buildinfo.Artifact) string {
 	return ""
 }
 
+const wildcardRepoPrefix = "*/"
+
+// isWildcardRepoPath reports whether the path uses the repo-less fallback prefix.
+func isWildcardRepoPath(path string) bool {
+	return strings.HasPrefix(path, wildcardRepoPrefix)
+}
+
+// expandWildcardPathsToLocalRepos replaces "*/<path>" patterns with "<local-repo>/<path>" for each
+// local repository. This avoids matching virtual repos and remote caches when OriginalDeploymentRepo
+// is missing from build-info (common with the Gradle extractor).
+func expandWildcardPathsToLocalRepos(servicesManager artifactory.ArtifactoryServicesManager, artifactPaths []string) ([]string, error) {
+	if !hasWildcardRepoPaths(artifactPaths) {
+		return artifactPaths, nil
+	}
+	repos, err := servicesManager.GetAllRepositoriesFiltered(services.RepositoriesFilterParams{RepoType: "local"})
+	if err != nil {
+		return artifactPaths, err
+	}
+	if repos == nil || len(*repos) == 0 {
+		return artifactPaths, nil
+	}
+	expanded := make([]string, 0, len(artifactPaths))
+	for _, artifactPath := range artifactPaths {
+		if !isWildcardRepoPath(artifactPath) {
+			expanded = append(expanded, artifactPath)
+			continue
+		}
+		artifactOnlyPath := strings.TrimPrefix(artifactPath, wildcardRepoPrefix)
+		for _, repo := range *repos {
+			expanded = append(expanded, repo.Key+"/"+artifactOnlyPath)
+		}
+	}
+	return expanded, nil
+}
+
+func hasWildcardRepoPaths(artifactPaths []string) bool {
+	for _, path := range artifactPaths {
+		if isWildcardRepoPath(path) {
+			return true
+		}
+	}
+	return false
+}
+
+func countWildcardRepoPaths(artifactPaths []string) int {
+	count := 0
+	for _, path := range artifactPaths {
+		if isWildcardRepoPath(path) {
+			count++
+		}
+	}
+	return count
+}
+
 // setPropsOnArtifacts sets properties on multiple artifacts using search-based resolution.
 // This uses the same search mechanism as 'jf rt set-props', which resolves virtual repository
 // paths to their underlying local repositories before setting properties.
@@ -91,6 +146,18 @@ func constructArtifactPath(artifact buildinfo.Artifact) string {
 func setPropsOnArtifacts(servicesManager artifactory.ArtifactoryServicesManager, artifactPaths []string, props string) {
 	if len(artifactPaths) == 0 {
 		return
+	}
+	wildcardCount := countWildcardRepoPaths(artifactPaths)
+	if wildcardCount > 0 {
+		expanded, err := expandWildcardPathsToLocalRepos(servicesManager, artifactPaths)
+		if err != nil {
+			log.Warn("CI VCS:", wildcardCount, "artifact path(s) missing OriginalDeploymentRepo; searching across all repositories (failed to list local repos:", err, "). Artifacts at the same path in other repositories may be tagged unintentionally.")
+		} else if hasWildcardRepoPaths(expanded) {
+			log.Warn("CI VCS:", wildcardCount, "artifact path(s) missing OriginalDeploymentRepo; searching across all repositories. Artifacts at the same path in other repositories may be tagged unintentionally.")
+		} else {
+			artifactPaths = expanded
+			log.Warn("CI VCS:", wildcardCount, "artifact path(s) missing OriginalDeploymentRepo; property search restricted to local repositories. The same path in multiple local repos may still be tagged unintentionally.")
+		}
 	}
 	var lastErr error
 	for attempt := 0; attempt < maxRetries; attempt++ {

@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/jfrog-client-go/artifactory"
+	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -217,6 +219,61 @@ func TestCivcsExtractArtifactPathsWithWarnings(t *testing.T) {
 			assert.Equal(t, tt.expectedSkipped, skipped)
 		})
 	}
+}
+
+func TestExpandWildcardPathsToLocalRepos(t *testing.T) {
+	t.Run("no wildcard paths", func(t *testing.T) {
+		paths := []string{"libs-release/com/example/foo.jar"}
+		expanded, err := expandWildcardPathsToLocalRepos(nil, paths)
+		assert.NoError(t, err)
+		assert.Equal(t, paths, expanded)
+	})
+
+	t.Run("expands wildcard paths to local repos", func(t *testing.T) {
+		mockSM := &mockReposServicesManager{
+			repos: []services.RepositoryDetails{
+				{Key: "libs-release"},
+				{Key: "libs-snapshot-local"},
+			},
+		}
+		paths := []string{
+			"libs-release/com/example/foo.jar",
+			"*/com/example/bar.jar",
+		}
+		expanded, err := expandWildcardPathsToLocalRepos(mockSM, paths)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{
+			"libs-release/com/example/foo.jar",
+			"libs-release/com/example/bar.jar",
+			"libs-snapshot-local/com/example/bar.jar",
+		}, expanded)
+	})
+
+	t.Run("returns error when listing repos fails", func(t *testing.T) {
+		mockSM := &mockReposServicesManager{err: assert.AnError}
+		paths := []string{"*/com/example/foo.jar"}
+		expanded, err := expandWildcardPathsToLocalRepos(mockSM, paths)
+		assert.Error(t, err)
+		assert.Equal(t, paths, expanded)
+	})
+}
+
+type mockReposServicesManager struct {
+	artifactory.EmptyArtifactoryServicesManager
+	repos []services.RepositoryDetails
+	err   error
+}
+
+func (m *mockReposServicesManager) GetAllRepositoriesFiltered(services.RepositoriesFilterParams) (*[]services.RepositoryDetails, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &m.repos, nil
+}
+
+func TestIsWildcardRepoPath(t *testing.T) {
+	assert.True(t, isWildcardRepoPath("*/com/example/foo.jar"))
+	assert.False(t, isWildcardRepoPath("libs-release/com/example/foo.jar"))
 }
 
 func TestCivcsIs404Error(t *testing.T) {
