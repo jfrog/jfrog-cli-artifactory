@@ -3,8 +3,8 @@ package cli
 import (
 	"testing"
 
-	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/stretchr/testify/assert"
 )
 

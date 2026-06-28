@@ -107,15 +107,15 @@ func (ccb *ContainerCommandBase) init() error {
 	if err != nil || !toCollect {
 		return err
 	}
-	if ccb.repo != "" {
-		return nil
-	}
 	if ccb.workingDirectory == "" {
 		workingDirectory, err := os.Getwd()
 		if err != nil {
 			return err
 		}
 		ccb.workingDirectory = workingDirectory
+	}
+	if ccb.repo != "" {
+		return nil
 	}
 	// Check we have all we need to collect build-info.
 	ok, err := ccb.IsGetRepoSupported()
