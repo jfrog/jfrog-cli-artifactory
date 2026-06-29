@@ -2,6 +2,7 @@ package ruby
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,12 +40,15 @@ func (rc *RubyCommand) Run() error {
 		return fmt.Errorf("unsupported ruby tool %q: expected 'gem' or 'bundle'", rc.nativeTool)
 	}
 
-	subCommand := ""
-	if len(rc.args) > 0 {
-		subCommand = rc.args[0]
+	// Bug 3 fix: explicit no-args check before help bypass so we don't
+	// silently fall into gem help when no subcommand is given.
+	if len(rc.args) == 0 {
+		return fmt.Errorf("no subcommand provided for '%s'. Usage: jf ruby %s <subcommand> [args...]", rc.nativeTool, rc.nativeTool)
 	}
 
-	// Help requests must bypass auth injection entirely so credentials are never
+	subCommand := rc.args[0]
+
+	// Help requests bypass auth injection entirely so credentials are never
 	// printed in help output (same rationale as the UV native command).
 	if isRubyHelpRequest(subCommand, rc.args) {
 		return runRubyBinary(rc.nativeTool, rc.args, nil)
@@ -62,10 +66,24 @@ func (rc *RubyCommand) Run() error {
 	}
 
 	// Discover the Artifactory gem source the project points at, then inject auth.
-	sourceURL, repoKey := rc.resolveRepo(workingDir)
+	sourceURL, repoKey := rc.resolveRepo(workingDir, serverDetails)
+
+	// When --repo constructed the URL and no --source/--host was provided in args,
+	// inject the source/host arg into the native command so the tool knows where to point.
+	if rc.repository != "" && sourceURL != "" && rubySourceFromArgs(rc.args) == "" {
+		rc.args = rubyInjectSourceArg(rc.nativeTool, subCommand, rc.args, sourceURL)
+	}
+
 	var extraEnv []string
-	if serverDetails != nil {
+	if serverDetails != nil && sourceURL != "" {
 		extraEnv = rc.injectAuth(serverDetails, sourceURL)
+		// For gem install/fetch, embed credentials in the source URL so RubyGems
+		// uses them for index downloads (specs.4.8.gz).
+		if rc.nativeTool == toolGem && (subCommand == "install" || subCommand == "fetch") {
+			rc.args = rubyEmbedCredsInSourceArg(rc.args, serverDetails)
+		}
+	} else if serverDetails != nil && sourceURL == "" {
+		log.Debug("Ruby auth: no Artifactory gem source discovered in args/Gemfile/gem-sources — skipping credential injection")
 	}
 
 	log.Info(fmt.Sprintf("Running %s %s.", rc.nativeTool, subCommand))
@@ -84,6 +102,67 @@ func (rc *RubyCommand) Run() error {
 	return nil
 }
 
+// rubyEmbedCredsInSourceArg rewrites --source/--host URL args to embed credentials
+// for gem install/fetch. RubyGems 3.x uses embedded URL credentials for index downloads
+// (specs.4.8.gz) but does NOT use GEM_HOST_API_KEY for those requests.
+func rubyEmbedCredsInSourceArg(args []string, serverDetails *coreConfig.ServerDetails) []string {
+	user, pass := rubyCredentials(serverDetails)
+	if user == "" || pass == "" {
+		return args
+	}
+	result := make([]string, len(args))
+	copy(result, args)
+	for i, a := range result {
+		var rawURL string
+		var prefix string
+		switch {
+		case strings.HasPrefix(a, "--source="):
+			prefix = "--source="
+			rawURL = strings.TrimPrefix(a, prefix)
+		case strings.HasPrefix(a, "--host="):
+			prefix = "--host="
+			rawURL = strings.TrimPrefix(a, prefix)
+		case (a == "--source" || a == "-s" || a == "--host") && i+1 < len(result):
+			parsed, err := url.Parse(result[i+1])
+			if err != nil || parsed.User != nil {
+				continue
+			}
+			parsed.User = url.UserPassword(user, pass)
+			result[i+1] = parsed.String()
+			continue
+		default:
+			continue
+		}
+		if rawURL == "" {
+			continue
+		}
+		parsed, err := url.Parse(rawURL)
+		if err != nil || parsed.User != nil {
+			continue
+		}
+		parsed.User = url.UserPassword(user, pass)
+		result[i] = prefix + parsed.String()
+	}
+	return result
+}
+
+// rubyInjectSourceArg appends the appropriate source/host flag to native args when
+// --repo was used to construct the URL and the user didn't provide one in their command.
+// For gem push → --host; for gem install/fetch → --source; for bundle → no arg needed
+// (Bundler uses env-var-based auth and reads from Gemfile, so the Gemfile must point
+// at Artifactory — --repo only helps with credential injection for bundle).
+func rubyInjectSourceArg(tool, subCommand string, args []string, sourceURL string) []string {
+	if tool == toolGem {
+		switch subCommand {
+		case "push":
+			return append(args, "--host", sourceURL)
+		case "install", "fetch":
+			return append(args, "--source", sourceURL)
+		}
+	}
+	return args
+}
+
 // runRubyBinary executes gem/bundle with stdio pass-through and optional extra env vars.
 func runRubyBinary(tool string, args, extraEnv []string) error {
 	cmd := exec.Command(tool, args...) // #nosec G204 -- tool is restricted to gem/bundle; args come from the user's own command line
@@ -98,7 +177,7 @@ func runRubyBinary(tool string, args, extraEnv []string) error {
 
 // isRubyHelpRequest reports whether the invocation is purely a help request.
 func isRubyHelpRequest(subCommand string, args []string) bool {
-	if subCommand == "help" || subCommand == "" {
+	if subCommand == "help" {
 		return true
 	}
 	for _, a := range args {
@@ -165,7 +244,8 @@ func (rc *RubyCommand) injectAuth(serverDetails *coreConfig.ServerDetails, sourc
 		if os.Getenv("GEM_HOST_API_KEY") != "" {
 			log.Info("Ruby auth [gem]: GEM_HOST_API_KEY already set — respecting existing credentials")
 		} else {
-			extraEnv = append(extraEnv, fmt.Sprintf("GEM_HOST_API_KEY=%s:%s", user, pass))
+			basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
+			extraEnv = append(extraEnv, fmt.Sprintf("GEM_HOST_API_KEY=%s", basicAuth))
 			log.Info("Ruby auth [gem]: injecting credentials via GEM_HOST_API_KEY")
 		}
 	}
@@ -209,11 +289,23 @@ func bundleEnvKeyForHost(host string) string {
 // ── Repository discovery ───────────────────────────────────────────────────────
 
 // resolveRepo discovers the Artifactory gem source URL and repo key the project uses.
-// Precedence: explicit --repo override > --source/--host/--clear-sources arg >
-// Gemfile `source` line > `gem sources` list. Returns empty strings when none is found.
-func (rc *RubyCommand) resolveRepo(workingDir string) (sourceURL, repoKey string) {
+// Precedence: explicit --repo override (URL constructed from server config) >
+// --source/--host/--clear-sources arg > Gemfile `source` line > `gem sources` list.
+// Returns empty strings when none is found.
+func (rc *RubyCommand) resolveRepo(workingDir string, serverDetails *coreConfig.ServerDetails) (sourceURL, repoKey string) {
+	// When --repo is provided, construct the full Artifactory gems URL from server config.
 	if rc.repository != "" {
-		return "", rc.repository
+		if serverDetails == nil {
+			log.Warn("Ruby: --repo specified but no server details available; using repo key only")
+			return "", rc.repository
+		}
+		repoURL, err := rubyConstructRepoURL(serverDetails, rc.repository)
+		if err != nil {
+			log.Warn(fmt.Sprintf("Ruby: failed to construct repo URL from server config: %v; using repo key only", err))
+			return "", rc.repository
+		}
+		log.Info(fmt.Sprintf("Ruby: using --repo %q → %s", rc.repository, repoURL))
+		return repoURL, rc.repository
 	}
 	// 1. Inspect the command args for an explicit source/host URL.
 	if u := rubySourceFromArgs(rc.args); u != "" {
@@ -228,6 +320,23 @@ func (rc *RubyCommand) resolveRepo(workingDir string) (sourceURL, repoKey string
 		return u, rubyExtractRepoKeyFromURL(u)
 	}
 	return "", ""
+}
+
+// rubyConstructRepoURL builds the Artifactory gems API URL from server details and repo name.
+// Example: serverURL "https://my.jfrog.io/artifactory/" + repo "gems-virtual"
+// → "https://my.jfrog.io/artifactory/api/gems/gems-virtual/"
+func rubyConstructRepoURL(serverDetails *coreConfig.ServerDetails, repoName string) (string, error) {
+	baseURL := serverDetails.GetArtifactoryUrl()
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return "", err
+	}
+	parsed = parsed.JoinPath("api/gems", repoName)
+	result := parsed.String()
+	if !strings.HasSuffix(result, "/") {
+		result += "/"
+	}
+	return result, nil
 }
 
 // rubySourceFromArgs returns the URL following --source/-s/--host/--clear-sources flags,
@@ -653,7 +762,7 @@ func rubyEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, 
 		orClauses = append(orClauses, fmt.Sprintf(`{"name":{"$match":%q}}`, e.prefix+"*.gem"))
 	}
 	aqlQuery := fmt.Sprintf(
-		`items.find({"repo":%q,"$or":[%s]}).include("name","actual_sha1","actual_md5","sha256")`,
+		`items.find({"repo":%q,"$or":[%s]}).include("name","path","actual_sha1","actual_md5","sha256")`,
 		searchRepo, strings.Join(orClauses, ","),
 	)
 
@@ -668,6 +777,7 @@ func rubyEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, 
 	var aqlResult struct {
 		Results []struct {
 			Name       string `json:"name"`
+			Path       string `json:"path"`
 			ActualSha1 string `json:"actual_sha1"`
 			ActualMd5  string `json:"actual_md5"`
 			Sha256     string `json:"sha256"`
@@ -693,6 +803,12 @@ func rubyEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, 
 				deps[e.idx].Md5 = r.ActualMd5
 				if r.Sha256 != "" && deps[e.idx].Sha256 == "" {
 					deps[e.idx].Sha256 = r.Sha256
+				}
+				// Set the repository path for the dependency (repo/path/filename).
+				if r.Path != "" && r.Path != "." {
+					deps[e.idx].Repository = searchRepo + "/" + r.Path + "/" + r.Name
+				} else {
+					deps[e.idx].Repository = searchRepo + "/" + r.Name
 				}
 				enriched++
 				break
