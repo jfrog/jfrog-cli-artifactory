@@ -36,7 +36,7 @@ func RunUpdate(c *components.Context) error {
 		return err
 	}
 
-	flags, err := common.ValidateInstallFlags(c)
+	flags, err := agentcommon.ValidateInstallFlags(c, common.Agents, agentcommon.SkillsAgentsKey, common.RegistryHelp)
 	if err != nil {
 		return err
 	}
