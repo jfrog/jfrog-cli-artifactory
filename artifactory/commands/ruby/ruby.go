@@ -3,20 +3,41 @@ package ruby
 import (
 	"net/url"
 
+	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
 
+// RubyCommand runs a native RubyGems (`gem`) or Bundler (`bundle`) command directly,
+// injecting Artifactory authentication and optionally collecting build info.
+//
+// It is a config-less native flow (like `jf uv`): the server is resolved from
+// --server-id or the default server, and the Artifactory repository is discovered
+// from the project's own Ruby configuration (Gemfile source, .bundle/config,
+// gem sources). The `.jfrog/projects/ruby.yaml` produced by `jf ruby-config` is NOT
+// read by this command.
 type RubyCommand struct {
 	serverDetails *config.ServerDetails
-	commandName   string
-	args          []string
-	repository    string
+	// nativeTool is the underlying binary to run: "gem" or "bundle".
+	nativeTool string
+	// args are the arguments passed to the native tool, including its sub-command
+	// (e.g. ["install", "--without", "test"]).
+	args []string
+	// serverID is the explicit --server-id, empty for the default server.
+	serverID string
+	// repository optionally overrides the Artifactory repo (otherwise auto-discovered).
+	repository         string
+	buildConfiguration *buildUtils.BuildConfiguration
 }
 
 func NewRubyCommand() *RubyCommand {
 	return &RubyCommand{}
+}
+
+func (rc *RubyCommand) SetNativeTool(tool string) *RubyCommand {
+	rc.nativeTool = tool
+	return rc
 }
 
 func (rc *RubyCommand) SetRepo(repo string) *RubyCommand {
@@ -29,8 +50,13 @@ func (rc *RubyCommand) SetArgs(arguments []string) *RubyCommand {
 	return rc
 }
 
-func (rc *RubyCommand) SetCommandName(commandName string) *RubyCommand {
-	rc.commandName = commandName
+func (rc *RubyCommand) SetServerID(serverID string) *RubyCommand {
+	rc.serverID = serverID
+	return rc
+}
+
+func (rc *RubyCommand) SetBuildConfiguration(bc *buildUtils.BuildConfiguration) *RubyCommand {
+	rc.buildConfiguration = bc
 	return rc
 }
 
@@ -40,7 +66,15 @@ func (rc *RubyCommand) SetServerDetails(serverDetails *config.ServerDetails) *Ru
 }
 
 func (rc *RubyCommand) ServerDetails() (*config.ServerDetails, error) {
-	return rc.serverDetails, nil
+	if rc.serverDetails != nil {
+		return rc.serverDetails, nil
+	}
+	return rubyResolveServerDetails(rc.serverID)
+}
+
+// CommandName is the usage-report metric id for native Ruby commands.
+func (rc *RubyCommand) CommandName() string {
+	return "rt_ruby_native"
 }
 
 // GetRubyGemsRepoUrlWithCredentials gets the RubyGems repository url and the credentials.
