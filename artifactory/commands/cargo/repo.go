@@ -24,7 +24,7 @@ func extractRepoNameFromURL(indexURL string) string {
 		return ""
 	}
 	segments := strings.Split(strings.Trim(u.Path, "/"), "/")
-	for i := 0; i+1 < len(segments); i++ {
+	for i := 1; i+1 < len(segments); i++ {
 		if segments[i] == "cargo" && segments[i-1] == "api" {
 			return segments[i+1]
 		}

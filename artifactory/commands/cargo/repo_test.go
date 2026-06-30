@@ -8,6 +8,7 @@ func TestExtractRepoNameFromURL(t *testing.T) {
 		"https://acme.jfrog.io/artifactory/api/cargo/cargo-local/index/":  "cargo-local",
 		"https://acme.jfrog.io/artifactory/cargo-virtual":                 "cargo-virtual",
 		"sparse+https://acme.jfrog.io/artifactory/api/cargo/cargo-v/":     "cargo-v",
+		"cargo/foo":  "foo",
 	}
 	for url, want := range cases {
 		if got := extractRepoNameFromURL(url); got != want {
