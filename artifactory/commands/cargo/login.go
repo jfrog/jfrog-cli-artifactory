@@ -1,6 +1,10 @@
 package cargo
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/jfrog/jfrog-client-go/utils/log"
+)
 
 func commandBucket(cmd string) string {
 	switch cmd {
@@ -38,4 +42,40 @@ func buildAuthEnv(registryName, token string) []string {
 		return nil
 	}
 	return []string{cargoRegistryEnvKey(registryName) + "=Bearer " + token}
+}
+
+// registryNameFromArgs extracts the value of --registry (space or = form).
+func registryNameFromArgs(args []string) string {
+	for i, a := range args {
+		if a == "--registry" && i+1 < len(args) {
+			return args[i+1]
+		}
+		if strings.HasPrefix(a, "--registry=") {
+			return strings.TrimPrefix(a, "--registry=")
+		}
+	}
+	return ""
+}
+
+// resolveAuthEnv builds the cargo registry token env from the jf server config.
+// Returns nil (run unauthenticated) on any missing piece — never hard-fails.
+func (c *CargoCommand) resolveAuthEnv() []string {
+	regName := registryNameFromArgs(c.args)
+	if regName == "" {
+		log.Debug("cargo: no --registry in args; running unauthenticated")
+		return nil
+	}
+	if c.serverDetails == nil {
+		log.Debug("cargo: no server details; running unauthenticated")
+		return nil
+	}
+	token := c.serverDetails.AccessToken
+	if token == "" {
+		token = c.serverDetails.Password
+	}
+	if token == "" {
+		log.Debug("cargo: no token/password in server config; running unauthenticated")
+		return nil
+	}
+	return buildAuthEnv(regName, token)
 }

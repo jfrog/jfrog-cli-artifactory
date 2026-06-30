@@ -59,7 +59,6 @@ func (c *CargoCommand) Run() error {
 
 	var extraEnv []string
 	if needsRemoteAccess(c.commandName) {
-		// resolveAuthEnv is a temporary stub replaced in Task B5.
 		extraEnv = c.resolveAuthEnv()
 	}
 
@@ -69,10 +68,8 @@ func (c *CargoCommand) Run() error {
 
 	switch commandBucket(c.commandName) {
 	case "deps":
-		// collectDeps is a temporary stub replaced in Task B5.
 		return c.collectDeps()
 	case "artifacts":
-		// collectArtifacts is a temporary stub replaced in Task B5.
 		return c.collectArtifacts(false)
 	case "publish":
 		return c.collectArtifacts(true)
@@ -88,9 +85,3 @@ func (c *CargoCommand) runNativeCargo(extraEnv []string) error {
 	log.Debug(fmt.Sprintf("cargo: running '%s %v'", cargoExe, c.args))
 	return runCmd(cfg)
 }
-
-// --- Temporary stubs: replaced by real implementations in Task B5 ---
-
-func (c *CargoCommand) resolveAuthEnv() []string                   { return nil }
-func (c *CargoCommand) collectDeps() error                         { return nil }
-func (c *CargoCommand) collectArtifacts(setProps bool) error       { return nil }
