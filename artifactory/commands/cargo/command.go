@@ -7,7 +7,23 @@ import (
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/log"
+	flexpack "github.com/jfrog/build-info-go/flexpack"
 )
+
+// authGate reports whether auth env should be injected for this run:
+// only in native mode, and only for commands that talk to the registry.
+func authGate(native bool, commandName string) bool {
+	return native && needsRemoteAccess(commandName)
+}
+
+// collectionBucket returns the build-info collection bucket for this run,
+// or "none" when native mode is off (no collection in legacy pass-through).
+func collectionBucket(native bool, commandName string) string {
+	if !native {
+		return "none"
+	}
+	return commandBucket(commandName)
+}
 
 // CargoCommand satisfies commands.Command and drives a native cargo invocation
 // with optional JFrog Artifactory authentication and build-info collection.
@@ -57,8 +73,10 @@ func (c *CargoCommand) Run() error {
 	}
 	c.workingDir = wd
 
+	native := flexpack.IsFlexPackEnabled()
+
 	var extraEnv []string
-	if needsRemoteAccess(c.commandName) {
+	if authGate(native, c.commandName) {
 		extraEnv = c.resolveAuthEnv()
 	}
 
@@ -66,7 +84,7 @@ func (c *CargoCommand) Run() error {
 		return err
 	}
 
-	switch commandBucket(c.commandName) {
+	switch collectionBucket(native, c.commandName) {
 	case "deps":
 		return c.collectDeps()
 	case "artifacts":
