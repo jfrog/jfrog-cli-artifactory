@@ -20,6 +20,57 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+// metadataBoolFlags are `cargo metadata`-valid boolean flags that affect resolution.
+var metadataBoolFlags = map[string]bool{
+	"--all-features":        true,
+	"--no-default-features": true,
+	"--locked":              true,
+	"--frozen":              true,
+	"--offline":             true,
+}
+
+// metadataValueFlags are `cargo metadata`-valid flags that take a value.
+var metadataValueFlags = map[string]bool{
+	"--features":      true,
+	"--manifest-path": true,
+}
+
+// metadataFlagsFromArgs returns the subset of args that are valid for `cargo metadata`
+// and affect dependency resolution, preserving order. Handles both "--flag value" and
+// "--flag=value" forms for value flags.
+func metadataFlagsFromArgs(args []string) []string {
+	var out []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case metadataBoolFlags[a]:
+			out = append(out, a)
+		case metadataValueFlags[a]:
+			out = append(out, a)
+			if i+1 < len(args) {
+				out = append(out, args[i+1])
+				i++
+			}
+		case strings.HasPrefix(a, "--features=") || strings.HasPrefix(a, "--manifest-path="):
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// setModuleCommandProperties records the cargo sub-command and its args on the first
+// module of the build-info, so the executed command is captured in the build-info.
+func setModuleCommandProperties(bi *entities.BuildInfo, commandName string, args []string) {
+	if bi == nil || len(bi.Modules) == 0 {
+		return
+	}
+	props := map[string]string{"cargo.command": commandName}
+	if len(args) > 0 {
+		props["cargo.args"] = strings.Join(args, " ")
+	}
+	bi.Modules[0].Properties = props
+}
+
 // buildNameNumber returns the configured build name and number (empty strings if unset).
 func (c *CargoCommand) buildNameNumber() (string, string) {
 	if c.buildConfiguration == nil {
@@ -35,6 +86,7 @@ func (c *CargoCommand) newCollector() (*cargoflex.CargoFlexPack, error) {
 	return cargoflex.NewCargoFlexPack(cargoflex.CargoConfig{
 		WorkingDirectory:       c.workingDir,
 		IncludeDevDependencies: false,
+		MetadataArgs:           metadataFlagsFromArgs(c.args),
 	})
 }
 
@@ -53,6 +105,7 @@ func (c *CargoCommand) collectDeps() error {
 	if err != nil {
 		return err
 	}
+	setModuleCommandProperties(bi, c.commandName, c.args)
 	return c.saveBuildInfo(bi)
 }
 
@@ -72,6 +125,7 @@ func (c *CargoCommand) collectArtifacts(setProps bool) error {
 	if err != nil {
 		return err
 	}
+	setModuleCommandProperties(bi, c.commandName, c.args)
 
 	repo, err := c.targetRepo()
 	if err != nil {
