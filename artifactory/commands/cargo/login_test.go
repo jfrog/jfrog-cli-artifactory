@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"testing"
 )
 
@@ -85,7 +84,6 @@ index = "sparse+https://acme.jfrog.io/artifactory/api/cargo/internal/"
 			t.Errorf("registry %q: got %q, want %q", name, got[name], wantURL)
 		}
 	}
-	_ = sort.StringSlice{} // ensure sort is used (for resolveAuthEnv set-comparison future use)
 }
 
 func TestCommandBucket(t *testing.T) {
