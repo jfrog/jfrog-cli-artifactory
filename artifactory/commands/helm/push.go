@@ -3,22 +3,24 @@ package helm
 import (
 	"encoding/json"
 	"fmt"
-	ioutils "github.com/jfrog/gofrog/io"
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
-	"github.com/jfrog/jfrog-client-go/artifactory"
-	"github.com/jfrog/jfrog-client-go/artifactory/services"
-	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
-	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	ioutils "github.com/jfrog/gofrog/io"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
+	"github.com/jfrog/jfrog-client-go/artifactory"
+	"github.com/jfrog/jfrog-client-go/artifactory/services"
+	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+	"github.com/jfrog/jfrog-client-go/utils/io/content"
+
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-func handlePushCommand(buildInfo *entities.BuildInfo, helmArgs []string, serviceManager artifactory.ArtifactoryServicesManager, buildName, buildNumber, project string) error {
+func handlePushCommand(buildInfo *entities.BuildInfo, helmArgs []string, serviceManager artifactory.ArtifactoryServicesManager, buildName, buildNumber, project, workingDirectory string) error {
 	filePath, registryURL := getPushChartPathAndRegistryURL(helmArgs)
 	if filePath == "" || registryURL == "" {
 		return fmt.Errorf("invalid helm chart path or registry url")
@@ -40,7 +42,7 @@ func handlePushCommand(buildInfo *entities.BuildInfo, helmArgs []string, service
 	if project != "" {
 		buildProps += fmt.Sprintf(";build.project=%s", project)
 	}
-	applyBuildPropertiesOnManifestFolder(serviceManager, repoName, ociChartPath, buildProps)
+	applyBuildPropertiesOnManifestFolder(serviceManager, repoName, ociChartPath, civcs.MergeWithUserProps(buildProps, workingDirectory))
 
 	artifactManifest, err := getManifest(resultMap, serviceManager, repoName)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	servicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -91,4 +92,17 @@ func TestHFUploadCmd_Run_EmptyRepoId(t *testing.T) {
 	err := cmd.Run()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "repo_id cannot be empty")
+}
+
+func TestHuggingFaceArtifactFromResultItem_IncludesPathAndRepo(t *testing.T) {
+	item := servicesUtils.ResultItem{
+		Repo: "hf-local",
+		Path: "models/org/model/rev",
+		Name: "config.json",
+	}
+	artifact := huggingFaceArtifactFromResultItem(item)
+	assert.Equal(t, "hf-local", artifact.OriginalDeploymentRepo)
+	assert.Equal(t, "models/org/model/rev/config.json", artifact.Path)
+	assert.Equal(t, "config.json", artifact.Name)
+	assert.Equal(t, "json", artifact.Type)
 }

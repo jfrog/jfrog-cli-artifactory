@@ -86,8 +86,12 @@ func (osb *OcStartBuildCommand) Run() error {
 	if err != nil {
 		return err
 	}
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		return err
+	}
 	image := container.NewImage(imageTag)
-	builder, err := container.NewRemoteAgentBuildInfoBuilder(image, osb.repo, buildName, buildNumber, project, serviceManager, manifestSha256)
+	builder, err := container.NewRemoteAgentBuildInfoBuilder(image, osb.repo, buildName, buildNumber, project, serviceManager, manifestSha256, workingDirectory)
 	if err != nil {
 		return err
 	}
