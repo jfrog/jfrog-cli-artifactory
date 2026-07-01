@@ -100,6 +100,12 @@ func queryChecksums(exec aqlExecutor, repo string, names []string) (map[string]e
 		aql := buildChecksumAql(repo, page)
 		body, err := exec.Aql(aql)
 		if err != nil {
+			if body != nil {
+				// Some transports return a non-nil body alongside an error; close it.
+				if cerr := body.Close(); cerr != nil {
+					log.Debug("cargo: aql body close (after error): " + cerr.Error())
+				}
+			}
 			return merged, err
 		}
 		parsed, perr := parseChecksumResults(body)
@@ -150,15 +156,19 @@ func enrichMissingChecksums(bi *entities.BuildInfo, repo string, exec aqlExecuto
 		return nil
 	}
 	log.Debug(fmt.Sprintf("cargo: %d dependencies missing checksums; querying Artifactory repo %q via AQL", len(missing), repo))
+	// queryChecksums returns whatever it accumulated even on a mid-batch error, so apply
+	// those partial results before surfacing the error (enrichment is best-effort).
 	byName, err := queryChecksums(exec, repo, missing)
-	if err != nil {
-		return err
-	}
 	filled := applyChecksums(bi, byName)
-	stillMissing := len(missing) - filled
-	log.Debug(fmt.Sprintf("cargo: checksum enrichment — %d filled from Artifactory, %d still missing", filled, stillMissing))
-	if stillMissing > 0 {
-		log.Warn(fmt.Sprintf("cargo: %d dependencies still missing checksums after AQL enrichment", stillMissing))
+	// Recompute remaining from the build-info so the count reflects unique crates still
+	// missing (never negative, even when a crate appears in multiple modules).
+	remaining := len(missingChecksumNames(bi))
+	log.Debug(fmt.Sprintf("cargo: checksum enrichment — filled %d dependency entries from Artifactory, %d crates still missing", filled, remaining))
+	if err != nil {
+		return fmt.Errorf("checksum enrichment incomplete (filled %d before error): %w", filled, err)
+	}
+	if remaining > 0 {
+		log.Warn(fmt.Sprintf("cargo: %d dependencies still missing checksums after AQL enrichment", remaining))
 	}
 	return nil
 }

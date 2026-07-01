@@ -16,15 +16,17 @@ import (
 type fakeAql struct {
 	queries   []string
 	responses []string // one JSON body per call, in order
-	err       error
+	err       error    // when set, every call returns this error
+	errOnCall int      // when > 0, only the Nth call (1-based) returns f.err; earlier calls succeed
 }
 
 func (f *fakeAql) Aql(aql string) (io.ReadCloser, error) {
 	f.queries = append(f.queries, aql)
-	if f.err != nil {
+	callNum := len(f.queries)
+	if f.err != nil && (f.errOnCall == 0 || f.errOnCall == callNum) {
 		return io.NopCloser(strings.NewReader("")), f.err
 	}
-	idx := len(f.queries) - 1
+	idx := callNum - 1
 	body := `{"results":[]}`
 	if idx < len(f.responses) {
 		body = f.responses[idx]
@@ -207,6 +209,40 @@ func TestEnrichMissingChecksums_FillsFromFake(t *testing.T) {
 	// The dependency should now have its checksum populated
 	dep := bi.Modules[0].Dependencies[0]
 	assert.NotEmpty(t, dep.Sha256, "sha256 should be filled from AQL response")
+}
+
+func TestEnrichMissingChecksums_AqlError(t *testing.T) {
+	bi := &entities.BuildInfo{
+		Modules: []entities.Module{
+			{Dependencies: []entities.Dependency{{Id: "serde-1.0.197.crate"}}},
+		},
+	}
+	fake := &fakeAql{err: fmt.Errorf("network down")}
+	err := enrichMissingChecksums(bi, "cargo-remote-cache", fake)
+	require.Error(t, err, "transport error should surface")
+	assert.Contains(t, err.Error(), "network down")
+	assert.Len(t, fake.queries, 1, "the single page should have been attempted")
+	// No checksum could be filled.
+	assert.Empty(t, bi.Modules[0].Dependencies[0].Sha256)
+}
+
+func TestEnrichMissingChecksums_AppliesPartialOnMidBatchError(t *testing.T) {
+	// 150 missing crates -> 2 AQL pages (100 + 50). Page 1 succeeds and fills crate-0;
+	// page 2 errors. The partial page-1 result must still be applied, and the error surfaced.
+	deps := make([]entities.Dependency, 150)
+	for i := range deps {
+		deps[i] = entities.Dependency{Id: fmt.Sprintf("crate-%d.crate", i)}
+	}
+	bi := &entities.BuildInfo{Modules: []entities.Module{{Dependencies: deps}}}
+	page1 := `{"results":[{"name":"crate-0.crate","actual_sha1":"s1","sha256":"s256","actual_md5":"m5"}]}`
+	fake := &fakeAql{responses: []string{page1}, err: fmt.Errorf("timeout on page 2"), errOnCall: 2}
+
+	err := enrichMissingChecksums(bi, "cargo-remote-cache", fake)
+	require.Error(t, err, "mid-batch error should surface")
+	assert.Contains(t, err.Error(), "timeout on page 2")
+	assert.Len(t, fake.queries, 2, "both pages should have been attempted")
+	// Partial result from page 1 must be applied despite the page-2 error.
+	assert.Equal(t, "s256", bi.Modules[0].Dependencies[0].Sha256, "crate-0 should be filled from page 1")
 }
 
 func TestEnrichMissingChecksums_NoOps(t *testing.T) {
