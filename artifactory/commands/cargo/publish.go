@@ -106,6 +106,7 @@ func (c *CargoCommand) collectDeps() error {
 		return err
 	}
 	setModuleCommandProperties(bi, c.commandName, c.args)
+	c.enrichChecksums(bi)
 	return c.saveBuildInfo(bi)
 }
 
@@ -126,6 +127,7 @@ func (c *CargoCommand) collectArtifacts(setProps bool) error {
 		return err
 	}
 	setModuleCommandProperties(bi, c.commandName, c.args)
+	c.enrichChecksums(bi)
 
 	repo, err := c.targetRepo()
 	if err != nil {
@@ -216,6 +218,27 @@ func (c *CargoCommand) setBuildProperties(arts []entities.Artifact, repo, name, 
 	}
 	log.Info(fmt.Sprintf("cargo: set build properties on %d artifacts (batch)", len(arts)))
 	return nil
+}
+
+// enrichChecksums fills any dependency checksums missing after local-cache resolution
+// by querying Artifactory. Best-effort: logs and continues on any error.
+func (c *CargoCommand) enrichChecksums(bi *entities.BuildInfo) {
+	if c.serverDetails == nil {
+		return
+	}
+	repo, err := c.targetRepo()
+	if err != nil || repo == "" {
+		log.Debug("cargo: no target repo for checksum enrichment; skipping")
+		return
+	}
+	sm, err := artutils.CreateServiceManager(c.serverDetails, -1, 0, false)
+	if err != nil {
+		log.Debug("cargo: could not create service manager for checksum enrichment: " + err.Error())
+		return
+	}
+	if err := enrichMissingChecksums(bi, repo, sm); err != nil {
+		log.Warn("cargo: checksum enrichment failed: " + err.Error())
+	}
 }
 
 // saveBuildInfo persists the collected build-info locally for later publishing.
