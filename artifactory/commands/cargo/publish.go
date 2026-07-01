@@ -245,27 +245,34 @@ type cargoConfigToml struct {
 	} `toml:"registries"`
 }
 
+// parseCargoRegistries reads <workingDir>/.cargo/config.toml and returns a map of
+// registry name -> index URL. Returns an empty map on any read/parse error.
+func parseCargoRegistries(workingDir string) map[string]string {
+	out := map[string]string{}
+	configPath := filepath.Join(workingDir, ".cargo", "config.toml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		log.Debug("cargo: could not read " + configPath + ": " + err.Error())
+		return out
+	}
+	var cfg cargoConfigToml
+	if err := toml.Unmarshal(data, &cfg); err != nil {
+		log.Debug("cargo: could not parse " + configPath + ": " + err.Error())
+		return out
+	}
+	for name, reg := range cfg.Registries {
+		out[name] = reg.Index
+	}
+	return out
+}
+
 // cargoRegistryIndexURL reads <workingDir>/.cargo/config.toml and returns the
 // index URL of [registries.<registryName>]. Returns "" on any error or if absent.
 func cargoRegistryIndexURL(workingDir, registryName string) string {
 	if registryName == "" {
 		return ""
 	}
-	configPath := filepath.Join(workingDir, ".cargo", "config.toml")
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		log.Debug("cargo: could not read " + configPath + ": " + err.Error())
-		return ""
-	}
-	var cfg cargoConfigToml
-	if err := toml.Unmarshal(data, &cfg); err != nil {
-		log.Debug("cargo: could not parse " + configPath + ": " + err.Error())
-		return ""
-	}
-	if reg, ok := cfg.Registries[registryName]; ok {
-		return reg.Index
-	}
-	return ""
+	return parseCargoRegistries(workingDir)[registryName]
 }
 
 // dirOf returns the directory portion of a forward-slash repo path.
