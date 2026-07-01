@@ -2,7 +2,17 @@ package utils
 
 import (
 	"errors"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+
 	buildinfo "github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/build-info-go/utils/cienv"
+	"github.com/jfrog/gofrog/datastructures"
 	gofrogcmd "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -13,17 +23,25 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
-	"io"
-	"os"
-	"os/exec"
-	"regexp"
-	"strconv"
-	"strings"
 )
 
 const (
 	revisionRangeErrPrefix = "fatal: Invalid revision range"
 )
+
+var (
+	findDotGitFromDirFn = FindDotGit
+	newGitManagerFn     = func(dotGitPath string) gitConfigReader {
+		return clientutils.NewGitManager(dotGitPath)
+	}
+)
+
+type gitConfigReader interface {
+	ReadConfig() error
+	GetUrl() string
+	GetRevision() string
+	GetBranch() string
+}
 
 type BuildAndVcsDetails interface {
 	ParseGitLogFromLastVcsRevision(gitDetails GitLogDetails, logRegExp *gofrogcmd.CmdOutputPattern, lastVcsRevision string) (err error)
@@ -122,14 +140,80 @@ func GetDotGit(providedDotGitPath string) (string, error) {
 	if providedDotGitPath != "" {
 		return providedDotGitPath, nil
 	}
-	dotGitPath, exists, err := fileutils.FindUpstream(".git", fileutils.Any)
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", errorutils.CheckError(err)
+	}
+	repoRoot, err := findDotGitUpstream(wd)
 	if err != nil {
 		return "", err
 	}
-	if !exists {
+	if repoRoot == "" {
 		return "", errorutils.CheckErrorf("Could not find .git")
 	}
-	return dotGitPath, nil
+	return repoRoot, nil
+}
+
+// FindDotGit looks for a git repository root starting at start (file or directory) and walking up.
+// Returns ("", nil) when not found. Empty startDir walks up from the current working directory.
+func FindDotGit(start string) (repoRoot string, err error) {
+	if start == "" || start == "." {
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", errorutils.CheckError(err)
+		}
+		return findDotGitUpstream(wd)
+	}
+	absPath, err := filepath.Abs(start)
+	if err != nil {
+		return "", errorutils.CheckError(err)
+	}
+	if fileutils.IsPathExists(absPath, false) {
+		if info, statErr := os.Stat(absPath); statErr == nil && !info.IsDir() {
+			absPath = filepath.Dir(absPath)
+		}
+	}
+	return findDotGitUpstream(absPath)
+}
+
+func findDotGitUpstream(dir string) (string, error) {
+	visitedPaths := datastructures.MakeSet[string]()
+	osRoot := os.Getenv("SYSTEMDRIVE")
+	if osRoot != "" {
+		osRoot += "\\"
+	} else {
+		osRoot = "/"
+	}
+	for {
+		if fileutils.IsPathExists(filepath.Join(dir, ".git"), false) {
+			return dir, nil
+		}
+		if dir == osRoot {
+			return "", nil
+		}
+		visitedPaths.Add(dir)
+		parent := filepath.Dir(dir)
+		if parent == dir || visitedPaths.Exists(parent) {
+			return "", nil
+		}
+		dir = parent
+	}
+}
+
+func GetLocalGitVcsInfo(searchDir string) (cienv.CIVcsInfo, error) {
+	dotGitPath, err := findDotGitFromDirFn(searchDir)
+	if err != nil || dotGitPath == "" {
+		return cienv.CIVcsInfo{}, err
+	}
+	gitManager := newGitManagerFn(dotGitPath)
+	if err = gitManager.ReadConfig(); err != nil {
+		return cienv.CIVcsInfo{}, err
+	}
+	return cienv.CIVcsInfo{
+		Url:      gitManager.GetUrl(),
+		Revision: gitManager.GetRevision(),
+		Branch:   gitManager.GetBranch(),
+	}, nil
 }
 
 // Gets the vcs revision from the latest build in Artifactory.
