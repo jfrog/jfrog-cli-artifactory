@@ -103,7 +103,7 @@ func (c *CargoCommand) targetRepo() (string, error) {
 	}
 	sm, err := artutils.CreateServiceManager(c.serverDetails, -1, 0, false)
 	if err != nil {
-		return repo, nil
+		return "", err
 	}
 	return resolveDeploymentRepo(repo, sm), nil
 }
