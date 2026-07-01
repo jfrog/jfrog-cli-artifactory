@@ -67,7 +67,9 @@ func TestSetCIVcsPropsOnArtifacts(t *testing.T) {
 
 	// 2. Mock services manager
 	mockSM := new(mockServicesManager)
-	expectedProps := "vcs.provider=github;vcs.org=jfrog;vcs.repo=jfrog-cli"
+	// Use a non-git directory so only CI env props are collected (not local git url/revision/branch).
+	nonGitDir := t.TempDir()
+	expectedProps := civcs.GetCIVcsPropsString(nonGitDir)
 
 	searchReader, cleanup := createTestSearchReader(t)
 	defer cleanup()
@@ -95,7 +97,8 @@ func TestSetCIVcsPropsOnArtifacts(t *testing.T) {
 
 	// 4. Run command
 	bpc := NewBuildPublishCommand()
-	bpc.setCIVcsPropsOnArtifacts(mockSM, bi)
+	bpc.SetDotGitPath(nonGitDir)
+	bpc.setVcsPropsOnArtifacts(mockSM, bi)
 
 	// 5. Verify
 	mockSM.AssertExpectations(t)
@@ -234,7 +237,7 @@ func TestExtractArtifactPathsWithWarnings(t *testing.T) {
 					},
 				},
 			},
-			expectedPaths:   []string{"com/example/file1.jar"},
+			expectedPaths:   []string{"*/com/example/file1.jar"},
 			expectedSkipped: 0,
 		},
 		{
@@ -249,7 +252,7 @@ func TestExtractArtifactPathsWithWarnings(t *testing.T) {
 					},
 				},
 			},
-			expectedPaths:   []string{"libs-release/com/example/file1.jar", "com/example/file2.jar"},
+			expectedPaths:   []string{"libs-release/com/example/file1.jar", "*/com/example/file2.jar"},
 			expectedSkipped: 0,
 		},
 		{
