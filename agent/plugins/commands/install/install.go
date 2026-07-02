@@ -280,10 +280,25 @@ func (ic *InstallCommand) resolveAgentTargetDirectories() ([]plugincommon.AgentT
 	}
 	if ic.scope == agentcommon.InstallScopeProject {
 		for _, agent := range ic.agents {
-			if strings.ToLower(agent.Name) == "cursor" {
+			agentLower := strings.ToLower(agent.Name)
+			if agentLower == "claude" {
+				return nil, fmt.Errorf(
+					"claude does not support project-scoped plugin installs: " +
+						"Claude plugin configuration is user-scoped only (~/.claude/settings.json). " +
+						"Use --global to install there instead.",
+				)
+			}
+			if agentLower == "cursor" {
 				return nil, fmt.Errorf(
 					"cursor does not support project-scoped plugin installs: " +
 						"Cursor only auto-discovers full plugins from ~/.cursor/plugins/local/. " +
+						"Use --global to install there instead.",
+				)
+			}
+			if agentLower == "codex" {
+				return nil, fmt.Errorf(
+					"codex does not support project-scoped plugin installs: " +
+						"Codex plugin configuration is user-scoped only (~/.codex/config.toml). " +
 						"Use --global to install there instead.",
 				)
 			}

@@ -11,17 +11,20 @@ type AgentSpec = agentcommon.AgentSpec
 // Agents is the hardcoded set of agents currently supported by `jf agent plugins`.
 // User overrides come from agent-config.json -> "plugins-agents".
 var Agents = map[string]AgentConfig{
-	// For Claude and Codex, GlobalDir and ProjectDir are BASE directories.
+	// For Claude, Cursor, and Codex, GlobalDir is the BASE directory.
 	// The Artifactory repo key is injected as a subdirectory at install time so
 	// each repo gets its own isolated marketplace directory:
 	//   Claude: <GlobalDir>/<repoKey>/<slug>
+	//   Cursor: <GlobalDir>/<repoKey>/<slug>
 	//   Codex:  <GlobalDir>/<repoKey>/plugins/<slug>
 	//
-	// Cursor project-scope installs are unsupported because .cursor/skills/ only
-	// loads SKILL.md-based skills, not full plugins.
-	"claude": {GlobalDir: "~/.claude/plugins/local", ProjectDir: ".claude/plugins"},
+	// All agents support global scope only. Project scope is not supported because:
+	//   - Claude: Plugin config is user-scoped only (~/.claude/settings.json)
+	//   - Cursor: Only auto-discovers full plugins from ~/.cursor/plugins/local/
+	//   - Codex:  Plugin config is user-scoped only (~/.codex/config.toml)
+	"claude": {GlobalDir: "~/.claude/plugins/local", ProjectDir: ""},
 	"cursor": {GlobalDir: "~/.cursor/plugins/local", ProjectDir: ""},
-	"codex":  {GlobalDir: "~/.agents/marketplaces", ProjectDir: ".agents/marketplaces"},
+	"codex":  {GlobalDir: "~/.agents/marketplaces", ProjectDir: ""},
 }
 
 // RegistryHelp configures agent-config.json help text for plugins harness resolution.

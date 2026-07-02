@@ -25,10 +25,11 @@ func TestResolveAgentTargetDirectories_ProjectScope(t *testing.T) {
 		SetAgents([]plugincommon.AgentSpec{{Name: "claude", Config: plugincommon.AgentConfig{ProjectDir: ".claude/plugins"}}}).
 		SetProjectDir(projectRoot)
 
+	// Claude does not support project scope - should error
 	targets, err := cmd.resolveAgentTargetDirectories()
-	require.NoError(t, err)
-	require.Len(t, targets, 1)
-	assert.Equal(t, filepath.Join(projectRoot, ".claude", "plugins", "my-plugin"), targets[0].DestinationDir)
+	require.Error(t, err)
+	assert.Nil(t, targets)
+	assert.Contains(t, err.Error(), "claude does not support project-scoped plugin installs")
 }
 
 func TestResolveAgentTargetDirectories_GlobalScope(t *testing.T) {

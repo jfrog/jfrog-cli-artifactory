@@ -48,7 +48,7 @@ func TestLoadAgentRegistry_OverridesAndAdds(t *testing.T) {
 
 	claude := registry["claude"]
 	assert.False(t, claude.FromConfig)
-	assert.Equal(t, ".claude/plugins", claude.Config.ProjectDir)
+	assert.Equal(t, "", claude.Config.ProjectDir)
 }
 
 func TestLoadAgentRegistry_IgnoresSkillsAgents(t *testing.T) {
