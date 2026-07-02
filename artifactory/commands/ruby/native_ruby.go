@@ -503,6 +503,8 @@ func (rc *RubyCommand) collectDependencyBuildInfo(workingDir, subCommand, repoKe
 	}
 
 	gemConfig := flexpack.GemConfig{WorkingDirectory: workingDir}
+	// Parse Gemfile groups for scope classification (production/development/test).
+	gemConfig.GemGroups = parseGemfileGroups(workingDir)
 	// For bundler, use `bundle list` as the ground-truth installed set so group
 	// filtering (--without/--with) is reflected accurately.
 	if rc.nativeTool == toolBundle {
@@ -708,6 +710,145 @@ func parseBundleListLine(line string) (name, version string) {
 		version = strings.TrimSpace(rest[:closeIdx])
 	}
 	return name, version
+}
+
+// parseGemfileGroups parses the Gemfile to extract gem → group mappings.
+// Returns a map where keys are gem names and values are their Bundler groups.
+// Gems outside any group block get ["production"]. Gems inside `group :dev do...end`
+// get ["development"], etc. Gems in multiple groups get all of them.
+func parseGemfileGroups(workingDir string) map[string][]string {
+	gemfilePath := filepath.Join(workingDir, "Gemfile")
+	data, err := os.ReadFile(gemfilePath)
+	if err != nil {
+		return nil
+	}
+
+	groups := make(map[string][]string)
+	var currentGroups []string // nil = top level (production)
+
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		// Skip comments and empty lines.
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Detect `group :development do` or `group :development, :test do`
+		if strings.HasPrefix(line, "group") && strings.HasSuffix(line, "do") {
+			currentGroups = parseGroupNames(line)
+			continue
+		}
+
+		// Detect `end` closing a group block.
+		if line == "end" && currentGroups != nil {
+			currentGroups = nil
+			continue
+		}
+
+		// Detect `gem "name"` declarations.
+		gemName := parseGemDeclaration(line)
+		if gemName == "" {
+			continue
+		}
+
+		// Inline group: `gem "rspec", group: :test` or `gem "rspec", groups: [:test, :development]`
+		if inlineGroups := parseInlineGroups(line); len(inlineGroups) > 0 {
+			groups[gemName] = inlineGroups
+		} else if currentGroups != nil {
+			groups[gemName] = currentGroups
+		} else {
+			groups[gemName] = []string{"production"}
+		}
+	}
+
+	if len(groups) == 0 {
+		return nil
+	}
+	return groups
+}
+
+// parseGroupNames extracts group names from `group :dev, :test do`.
+func parseGroupNames(line string) []string {
+	// Strip "group " prefix and " do" suffix.
+	line = strings.TrimPrefix(line, "group")
+	line = strings.TrimSuffix(line, "do")
+	line = strings.TrimSpace(line)
+
+	var result []string
+	for _, part := range strings.Split(line, ",") {
+		part = strings.TrimSpace(part)
+		part = strings.TrimPrefix(part, ":")
+		part = strings.Trim(part, `"'`)
+		if part != "" {
+			result = append(result, part)
+		}
+	}
+	return result
+}
+
+// parseGemDeclaration extracts the gem name from `gem "name"` or `gem 'name'`.
+func parseGemDeclaration(line string) string {
+	if !strings.HasPrefix(line, "gem ") && !strings.HasPrefix(line, "gem\t") {
+		return ""
+	}
+	rest := strings.TrimPrefix(line, "gem")
+	rest = strings.TrimSpace(rest)
+	// Extract quoted name.
+	if len(rest) < 3 {
+		return ""
+	}
+	quote := rest[0]
+	if quote != '"' && quote != '\'' {
+		return ""
+	}
+	endIdx := strings.IndexByte(rest[1:], quote)
+	if endIdx == -1 {
+		return ""
+	}
+	return rest[1 : endIdx+1]
+}
+
+// parseInlineGroups handles `gem "x", group: :test` or `gem "x", groups: [:dev, :test]`.
+func parseInlineGroups(line string) []string {
+	// Look for group: or groups: in the line.
+	idx := strings.Index(line, "group:")
+	if idx == -1 {
+		idx = strings.Index(line, "groups:")
+		if idx == -1 {
+			return nil
+		}
+	}
+	rest := line[idx:]
+	colonIdx := strings.IndexByte(rest, ':')
+	if colonIdx == -1 {
+		return nil
+	}
+	rest = strings.TrimSpace(rest[colonIdx+1:])
+
+	// Handle array form: [:dev, :test]
+	if strings.HasPrefix(rest, "[") {
+		rest = strings.TrimPrefix(rest, "[")
+		rest = strings.TrimSuffix(strings.TrimSpace(rest), "]")
+		// Remove trailing stuff after the bracket
+		if closeIdx := strings.IndexByte(rest, ']'); closeIdx != -1 {
+			rest = rest[:closeIdx]
+		}
+	}
+
+	var result []string
+	for _, part := range strings.Split(rest, ",") {
+		part = strings.TrimSpace(part)
+		part = strings.TrimPrefix(part, ":")
+		part = strings.Trim(part, `"'`)
+		// Remove trailing non-alphanumeric (e.g., closing bracket remnants)
+		part = strings.TrimRight(part, " \t])")
+		if part != "" && !strings.Contains(part, " ") {
+			result = append(result, part)
+		}
+	}
+	return result
 }
 
 // rubyEnrichDepsFromArtifactory fetches sha1/sha256/md5 for registry-based dependencies

@@ -211,3 +211,56 @@ func TestRubyInjectSourceArg(t *testing.T) {
 	assert.NotContains(t, args5, "--source")
 	assert.NotContains(t, args5, "--host")
 }
+
+func TestParseGemfileGroups(t *testing.T) {
+	dir := t.TempDir()
+	gemfile := `source "https://rubygems.org"
+
+gem "rails"
+gem "puma"
+
+group :development do
+  gem "pry"
+  gem "rubocop"
+end
+
+group :test do
+  gem "rspec"
+end
+
+group :development, :test do
+  gem "faker"
+end
+`
+	if err := os.WriteFile(filepath.Join(dir, "Gemfile"), []byte(gemfile), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	groups := parseGemfileGroups(dir)
+	assert.NotNil(t, groups)
+
+	// Top-level gems → production
+	assert.Equal(t, []string{"production"}, groups["rails"])
+	assert.Equal(t, []string{"production"}, groups["puma"])
+
+	// Development group
+	assert.Equal(t, []string{"development"}, groups["pry"])
+	assert.Equal(t, []string{"development"}, groups["rubocop"])
+
+	// Test group
+	assert.Equal(t, []string{"test"}, groups["rspec"])
+
+	// Multi-group
+	assert.ElementsMatch(t, []string{"development", "test"}, groups["faker"])
+
+	// No Gemfile → nil
+	assert.Nil(t, parseGemfileGroups(t.TempDir()))
+}
+
+func TestParseGemDeclaration(t *testing.T) {
+	assert.Equal(t, "rails", parseGemDeclaration(`gem "rails"`))
+	assert.Equal(t, "rails", parseGemDeclaration(`gem 'rails'`))
+	assert.Equal(t, "rails", parseGemDeclaration(`gem "rails", "~> 7.0"`))
+	assert.Equal(t, "", parseGemDeclaration(`source "https://rubygems.org"`))
+	assert.Equal(t, "", parseGemDeclaration(`# gem "commented"`))
+}

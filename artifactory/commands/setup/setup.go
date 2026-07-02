@@ -18,6 +18,7 @@ import (
 	container "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/python"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/repository"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ruby"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/maven"
@@ -61,6 +62,8 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 
 	project.Gradle: repository.Gradle,
 	project.Maven:  repository.Maven,
+
+	project.Ruby: repository.Gems,
 }
 
 // SetupCommand configures registries and authentication for various package manager (npm, Yarn, Pip, Pipenv, Poetry, UV, Go)
@@ -184,6 +187,8 @@ func (sc *SetupCommand) Run() (err error) {
 		err = sc.configureMaven()
 	case project.UV:
 		err = sc.configureUV()
+	case project.Ruby:
+		err = sc.configureRuby()
 	default:
 		err = errorutils.CheckErrorf("unsupported package manager: %s", sc.packageManager)
 	}
@@ -568,6 +573,76 @@ func (sc *SetupCommand) configureUV() error {
 		return fmt.Errorf("failed to configure UV index: %w", err)
 	}
 	return nil
+}
+
+// configureRuby configures RubyGems and Bundler to use Artifactory as a gem source.
+// It performs:
+//  1. `bundle config set <host> <user>:<token>` (Bundler per-host credentials)
+//  2. Adds the Artifactory source to `~/.gemrc` or prints guidance for Gemfile
+//
+// Both gem and bundle tools will then authenticate to the Artifactory gems repository.
+func (sc *SetupCommand) configureRuby() error {
+	repoUrl, username, password, err := ruby.GetRubyGemsRepoUrlWithCredentials(sc.serverDetails, sc.repoName)
+	if err != nil {
+		return fmt.Errorf("failed to get RubyGems repository URL with credentials: %w", err)
+	}
+
+	// If no credentials are provided, just print guidance.
+	if username == "" && password == "" {
+		log.Output(fmt.Sprintf("Add this source to your Gemfile:\n  source \"%s\"\n", repoUrl.String()))
+		return nil
+	}
+
+	host := repoUrl.Hostname()
+	if repoUrl.Port() != "" {
+		host += ":" + repoUrl.Port()
+	}
+
+	// Configure Bundler: `bundle config set <host> <user>:<password>`
+	bundleCmd := exec.Command("bundle", "config", "set", host, username+":"+password)
+	bundleCmd.Stdout = io.Discard
+	bundleCmd.Stderr = os.Stderr
+	if bundleErr := bundleCmd.Run(); bundleErr != nil {
+		log.Warn("Failed to configure Bundler credentials (bundle may not be installed): " + bundleErr.Error())
+	} else {
+		log.Info(fmt.Sprintf("Bundler configured: credentials set for host '%s'", host))
+	}
+
+	// Configure gem: add source to ~/.gemrc if not already present.
+	sourceURL := repoUrl.String()
+	if gemrcErr := rubyAddSourceToGemrc(sourceURL); gemrcErr != nil {
+		log.Debug("Could not update ~/.gemrc: " + gemrcErr.Error())
+	}
+
+	log.Output(fmt.Sprintf("\nAdd this source to your Gemfile:\n  source \"%s\"\n", sourceURL))
+	return nil
+}
+
+// rubyAddSourceToGemrc adds the Artifactory gems URL to ~/.gemrc :sources if not present.
+func rubyAddSourceToGemrc(sourceURL string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	gemrcPath := home + "/.gemrc"
+
+	// Read existing content.
+	existing, _ := os.ReadFile(gemrcPath)
+	content := string(existing)
+
+	// If the source is already there, skip.
+	if strings.Contains(content, sourceURL) {
+		return nil
+	}
+
+	// Append a :sources entry. gemrc is YAML-like but simple enough to append.
+	if !strings.Contains(content, ":sources:") {
+		content += "\n:sources:\n- https://rubygems.org\n- " + sourceURL + "\n"
+	} else {
+		content += "- " + sourceURL + "\n"
+	}
+
+	return os.WriteFile(gemrcPath, []byte(content), 0644)
 }
 
 // configureHelm configures Helm to use Artifactory as an OCI registry.
