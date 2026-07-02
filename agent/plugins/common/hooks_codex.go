@@ -60,13 +60,13 @@ var CodexExec = func(args ...string) {
 // codexPostInstall writes the plugin into the Codex marketplace manifest and
 // registers it with the native codex CLI (if available).
 //
-// Directory layout produced by agents.go (GlobalDir = ~/.agents/jfrog-plugins/plugins):
+// Directory layout produced by agents.go (GlobalDir = ~/.agents/marketplaces/<repoKey>):
 //
-//	~/.agents/jfrog-plugins/          ← marketplace root
+//	~/.agents/marketplaces/<repoKey>/          ← marketplace root
 //	  .agents/plugins/
-//	    marketplace.json              ← written here
+//	    marketplace.json                       ← written here
 //	  plugins/
-//	    <slug>/                       ← installDir (plugin files copied by jf)
+//	    <slug>/                                ← installDir (plugin files copied by jf)
 func codexPostInstall(slug, version, installDir, repoKey string) error {
 	manifestPath := codexMarketplaceManifestPath(installDir)
 	log.Info(fmt.Sprintf("[codex] writing marketplace entry for '%s' → %s", slug, manifestPath))
@@ -105,16 +105,16 @@ func codexPostDelete(slug, installDir, repoKey string) error {
 
 // codexMarketplaceRoot returns the marketplace root directory.
 //
-//	installDir = ~/.agents/jfrog-plugins/plugins/<slug>
-//	root       = ~/.agents/jfrog-plugins
+//	installDir = ~/.agents/marketplaces/<repoKey>/plugins/<slug>
+//	root       = ~/.agents/marketplaces/<repoKey>
 func codexMarketplaceRoot(installDir string) string {
 	return filepath.Dir(filepath.Dir(installDir))
 }
 
 // codexMarketplaceManifestPath returns the path to the Codex marketplace manifest.
 //
-//	installDir = ~/.agents/jfrog-plugins/plugins/<slug>
-//	manifest   = ~/.agents/jfrog-plugins/.agents/plugins/marketplace.json
+//	installDir = ~/.agents/marketplaces/<repoKey>/plugins/<slug>
+//	manifest   = ~/.agents/marketplaces/<repoKey>/.agents/plugins/marketplace.json
 func codexMarketplaceManifestPath(installDir string) string {
 	return filepath.Join(codexMarketplaceRoot(installDir), ".agents", "plugins", "marketplace.json")
 }

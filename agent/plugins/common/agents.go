@@ -21,7 +21,7 @@ var Agents = map[string]AgentConfig{
 	// loads SKILL.md-based skills, not full plugins.
 	"claude": {GlobalDir: "~/.claude/plugins/local", ProjectDir: ".claude/plugins"},
 	"cursor": {GlobalDir: "~/.cursor/plugins/local", ProjectDir: ""},
-	"codex":  {GlobalDir: "~/.agents", ProjectDir: ".agents"},
+	"codex":  {GlobalDir: "~/.agents/marketplaces", ProjectDir: ".agents/marketplaces"},
 }
 
 // RegistryHelp configures agent-config.json help text for plugins harness resolution.
