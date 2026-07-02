@@ -96,10 +96,22 @@ func (c *CargoCommand) Run() error {
 	}
 }
 
+// cargoInvocationArgs assembles the full argument list for the cargo binary,
+// prepending the sub-command name (when present) to the forwarded args. The CLI
+// layer splits the sub-command out of the args (getCommandName), so it must be
+// restored here or cargo would run with no sub-command.
+func cargoInvocationArgs(commandName string, args []string) []string {
+	if commandName == "" {
+		return args
+	}
+	return append([]string{commandName}, args...)
+}
+
 // runNativeCargo builds a CargoRunConfig and delegates to the exec.go wrapper.
 func (c *CargoCommand) runNativeCargo(extraEnv []string) error {
 	cargoExe := "cargo"
-	cfg := &CargoRunConfig{Exe: cargoExe, Args: c.args, Dir: c.workingDir, ExtraEnv: extraEnv}
-	log.Debug(fmt.Sprintf("cargo: running '%s %v'", cargoExe, c.args))
+	args := cargoInvocationArgs(c.commandName, c.args)
+	cfg := &CargoRunConfig{Exe: cargoExe, Args: args, Dir: c.workingDir, ExtraEnv: extraEnv}
+	log.Debug(fmt.Sprintf("cargo: running '%s %v'", cargoExe, args))
 	return runCmd(cfg)
 }
