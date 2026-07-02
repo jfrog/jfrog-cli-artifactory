@@ -16,6 +16,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func init() {
+	// Prevent real agent CLI binaries from being invoked during unit tests.
+	plugincommon.ClaudeExec = func(_ ...string) {}
+	plugincommon.CodexExec = func(_ ...string) {}
+}
+
 func TestReserveUpdateBackupPath(t *testing.T) {
 	base := t.TempDir()
 	reservedBackupPath, err := reserveUpdateBackupPath(base, "plugin-a")
@@ -148,7 +154,8 @@ func TestUpdateOnePlugin_SuccessRemovesBackup(t *testing.T) {
 	for _, e := range entries {
 		names = append(names, e.Name())
 	}
-	assert.ElementsMatch(t, []string{"web"}, names)
+	// .claude-plugin/ is created by the Claude post-install hook (marketplace.json).
+	assert.ElementsMatch(t, []string{".claude-plugin", "web"}, names)
 
 	backupRoot := filepath.Join(filepath.Dir(dir), pluginBackupDirName)
 	_, statErr := os.Stat(backupRoot)

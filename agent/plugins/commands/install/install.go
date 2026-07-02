@@ -234,6 +234,11 @@ func (ic *InstallCommand) CopyExtractedToTargets(unzipDir string, installTargets
 			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
 			continue
 		}
+		if hookErr := plugincommon.RunPostInstallHook(target.Agent.Name, ic.slug, ic.version, target.DestinationDir, ic.repoKey); hookErr != nil {
+			log.Warn(fmt.Sprintf("post-install hook for agent %q: %s", target.Agent.Name, hookErr))
+		} else {
+			log.Info(fmt.Sprintf("post-install hook completed for agent %q", target.Agent.Name))
+		}
 		results = append(results, agentcommon.SummaryRow{
 			Agent:  target.Agent.Name,
 			Scope:  string(target.Scope),
@@ -273,10 +278,25 @@ func (ic *InstallCommand) resolveAgentTargetDirectories() ([]plugincommon.AgentT
 	if ic.scope == agentcommon.InstallScopeProject && ic.projectDir == "" {
 		return nil, fmt.Errorf("project directory is required for project-scoped install")
 	}
+	if ic.scope == agentcommon.InstallScopeProject {
+		for _, agent := range ic.agents {
+			if strings.ToLower(agent.Name) == "cursor" {
+				return nil, fmt.Errorf(
+					"cursor does not support project-scoped plugin installs: " +
+						"Cursor only auto-discovers full plugins from ~/.cursor/plugins/local/. " +
+						"Use --global to install there instead.",
+				)
+			}
+		}
+	}
 	isGlobal := ic.scope == agentcommon.InstallScopeGlobal
 	// Path is "" because harness mode uses project or global scope
 	// e.g., jf agent plugins install web --harness claude --global
-	return agentcommon.ResolveAgentTargets(ic.slug, "", ic.agents, ic.projectDir, isGlobal)
+	targets, err := agentcommon.ResolveAgentTargets(ic.slug, "", ic.agents, ic.projectDir, isGlobal)
+	if err != nil {
+		return nil, err
+	}
+	return plugincommon.InjectRepoKey(targets, ic.repoKey), nil
 }
 
 func (ic *InstallCommand) writePluginInfoManifest(target plugincommon.AgentTarget) error {

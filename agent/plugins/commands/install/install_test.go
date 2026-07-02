@@ -12,6 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func init() {
+	// Prevent real agent CLI binaries from being invoked during unit tests.
+	plugincommon.ClaudeExec = func(_ ...string) {}
+	plugincommon.CodexExec = func(_ ...string) {}
+}
+
 func TestResolveAgentTargetDirectories_ProjectScope(t *testing.T) {
 	projectRoot := t.TempDir()
 	cmd := NewInstallCommand().
