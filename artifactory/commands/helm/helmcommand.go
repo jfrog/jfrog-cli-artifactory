@@ -204,7 +204,7 @@ func (hc *HelmCommand) collectBuildInfoIfNeeded() error {
 		return errorutils.CheckError(err)
 	}
 	project := hc.buildConfiguration.GetProject()
-	err = CollectHelmBuildInfoWithFlexPack(hc.workingDirectory, buildName, buildNumber, project, hc.cmdName, hc.helmArgs, hc.serverDetails, hc.workingDirectory)
+	err = CollectHelmBuildInfoWithFlexPack(hc.workingDirectory, buildName, buildNumber, project, hc.cmdName, hc.helmArgs, hc.serverDetails)
 	return errorutils.CheckError(err)
 }
 

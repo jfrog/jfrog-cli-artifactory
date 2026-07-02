@@ -118,12 +118,6 @@ func (dbib *DockerBuildInfoBuilder) applyBuildProps(items []utils.ResultItem, pu
 	if err != nil {
 		return
 	}
-	searchDir, wdErr := artutils.ResolveWorkingDirectoryFromDockerArgs(dbib.cmdArgs)
-	if wdErr != nil {
-		log.Warn("Failed to resolve docker build context for VCS props:", wdErr.Error())
-	} else {
-		props = civcs.MergeWithUserProps(props, searchDir)
-	}
 	if pushedRepo == "" {
 		log.Warn("Pushed repository is empty, skipping applying build properties.")
 		return nil
@@ -134,6 +128,12 @@ func (dbib *DockerBuildInfoBuilder) applyBuildProps(items []utils.ResultItem, pu
 		log.Warn(fmt.Sprintf("No eligible layers found to apply build properties for pushedRepo: %s. "+
 			"Skipping...", pushedRepo))
 		return nil
+	}
+	searchDir, wdErr := artutils.ResolveWorkingDirectoryFromDockerArgs(dbib.cmdArgs)
+	if wdErr != nil {
+		log.Warn("Failed to resolve docker build context for VCS props:", wdErr.Error())
+	} else {
+		props = civcs.MergeWithUserProps(props, searchDir)
 	}
 	pathToFile, err := writeLayersToFile(filteredLayers)
 	if err != nil {

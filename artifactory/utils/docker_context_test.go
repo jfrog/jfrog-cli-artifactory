@@ -27,4 +27,35 @@ func TestExtractDockerBuildContextFromArgs(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, wd, ctx)
 	})
+
+	t.Run("context before trailing flags", func(t *testing.T) {
+		contextDir := t.TempDir()
+		args := []string{"build", contextDir, "-t", "img:tag"}
+		want, err := filepath.Abs(contextDir)
+		require.NoError(t, err)
+		ctx, err := ExtractDockerBuildContextFromArgs(args)
+		require.NoError(t, err)
+		assert.Equal(t, want, ctx)
+	})
+
+	t.Run("context before interspersed flags", func(t *testing.T) {
+		contextDir := t.TempDir()
+		args := []string{"build", contextDir, "--build-arg", "FOO=bar", "-t", "org/service-a:1.0"}
+		want, err := filepath.Abs(contextDir)
+		require.NoError(t, err)
+		ctx, err := ExtractDockerBuildContextFromArgs(args)
+		require.NoError(t, err)
+		assert.Equal(t, want, ctx)
+	})
+}
+
+func TestResolveWorkingDirectoryFromDockerArgs(t *testing.T) {
+	contextDir := t.TempDir()
+	args := []string{"build", contextDir, "--build-arg", "FOO=bar", "-t", "org/service-a:1.0"}
+
+	got, err := ResolveWorkingDirectoryFromDockerArgs(args)
+	require.NoError(t, err)
+	want, err := filepath.Abs(contextDir)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
 }
