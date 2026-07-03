@@ -35,7 +35,7 @@ type InstallCommand struct {
 }
 
 func NewInstallCommand() *InstallCommand {
-	return &InstallCommand{scope: agentcommon.InstallScopeProject}
+	return &InstallCommand{scope: agentcommon.InstallScopeGlobal}
 }
 
 func (ic *InstallCommand) SetServerDetails(details *config.ServerDetails) *InstallCommand {

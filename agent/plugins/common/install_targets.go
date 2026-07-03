@@ -25,7 +25,7 @@ type AgentTarget = agentcommon.InstallTarget
 // overwrite each other's marketplace registration.
 //
 //   Claude: <GlobalDir>/<slug>  →  <GlobalDir>/<repoKey>/<slug>
-//   Codex:  <GlobalDir>/<slug>  →  <GlobalDir>/<repoKey>/plugins/<slug>
+//   Codex:  <GlobalDir>/<slug>  →  <GlobalDir>/<repoKey>/<slug>
 //
 // Cursor and --path targets are returned unchanged.
 func InjectRepoKey(targets []AgentTarget, repoKey string) []AgentTarget {
@@ -39,7 +39,7 @@ func InjectRepoKey(targets []AgentTarget, repoKey string) []AgentTarget {
 		case "codex":
 			base := filepath.Dir(t.DestinationDir)
 			slug := filepath.Base(t.DestinationDir)
-			t.DestinationDir = filepath.Join(base, repoKey, "plugins", slug)
+			t.DestinationDir = filepath.Join(base, repoKey, slug)
 		}
 		result[i] = t
 	}

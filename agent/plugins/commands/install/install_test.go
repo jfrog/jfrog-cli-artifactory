@@ -23,7 +23,8 @@ func TestResolveAgentTargetDirectories_ProjectScope(t *testing.T) {
 	cmd := NewInstallCommand().
 		SetSlug("my-plugin").
 		SetAgents([]plugincommon.AgentSpec{{Name: "claude", Config: plugincommon.AgentConfig{ProjectDir: ".claude/plugins"}}}).
-		SetProjectDir(projectRoot)
+		SetProjectDir(projectRoot).
+		SetGlobal(false) // Explicitly set to project scope
 
 	// Claude does not support project scope - should error
 	targets, err := cmd.resolveAgentTargetDirectories()

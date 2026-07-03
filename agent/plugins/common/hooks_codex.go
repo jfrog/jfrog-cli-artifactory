@@ -65,8 +65,7 @@ var CodexExec = func(args ...string) {
 //	~/.agents/plugins/local/<repoKey>/          ← marketplace root
 //	  .agents/plugins/
 //	    marketplace.json                       ← written here
-//	  plugins/
-//	    <slug>/                                ← installDir (plugin files copied by jf)
+//	  <slug>/                                  ← installDir (plugin files copied by jf)
 func codexPostInstall(slug, version, installDir, repoKey string) error {
 	manifestPath := codexMarketplaceManifestPath(installDir)
 	log.Info(fmt.Sprintf("[codex] writing marketplace entry for '%s' → %s", slug, manifestPath))
@@ -105,15 +104,15 @@ func codexPostDelete(slug, installDir, repoKey string) error {
 
 // codexMarketplaceRoot returns the marketplace root directory.
 //
-//	installDir = ~/.agents/plugins/local/<repoKey>/plugins/<slug>
+//	installDir = ~/.agents/plugins/local/<repoKey>/<slug>
 //	root       = ~/.agents/plugins/local/<repoKey>
 func codexMarketplaceRoot(installDir string) string {
-	return filepath.Dir(filepath.Dir(installDir))
+	return filepath.Dir(installDir)
 }
 
 // codexMarketplaceManifestPath returns the path to the Codex marketplace manifest.
 //
-//	installDir = ~/.agents/plugins/local/<repoKey>/plugins/<slug>
+//	installDir = ~/.agents/plugins/local/<repoKey>/<slug>
 //	manifest   = ~/.agents/plugins/local/<repoKey>/.agents/plugins/marketplace.json
 func codexMarketplaceManifestPath(installDir string) string {
 	return filepath.Join(codexMarketplaceRoot(installDir), ".agents", "plugins", "marketplace.json")
@@ -129,7 +128,7 @@ func upsertCodexMarketplaceEntry(path, slug, marketplaceName string) error {
 	}
 	entry := codexPluginEntry{
 		Name:   slug,
-		Source: codexPluginSrc{Source: "local", Path: "./plugins/" + slug},
+		Source: codexPluginSrc{Source: "local", Path: "./" + slug},
 		Policy: codexPolicy{Installation: "AVAILABLE"},
 	}
 	found := false

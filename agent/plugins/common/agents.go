@@ -16,7 +16,7 @@ var Agents = map[string]AgentConfig{
 	// each repo gets its own isolated marketplace directory:
 	//   Claude: <GlobalDir>/<repoKey>/<slug>
 	//   Cursor: <GlobalDir>/<repoKey>/<slug>
-	//   Codex:  <GlobalDir>/<repoKey>/plugins/<slug>
+	//   Codex:  <GlobalDir>/<repoKey>/<slug>
 	//
 	// All agents support global scope only. Project scope is not supported because:
 	//   - Claude: Plugin config is user-scoped only (~/.claude/settings.json)
