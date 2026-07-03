@@ -31,7 +31,7 @@ func claudePostInstall(slug, version, installDir, repoKey string) error {
 	if _, err := lookPathClaude(); err != nil {
 		log.Warn("[claude] claude CLI not found on PATH; skipping native marketplace registration. " +
 			"Install the Claude CLI to complete native plugin registration.")
-		return nil
+		return err
 	}
 	// Pass the marketplace root directory, not the .json file itself.
 	// `claude plugin marketplace add <dir>` reads <dir>/.claude-plugin/marketplace.json.
@@ -53,7 +53,7 @@ func claudePostDelete(slug, installDir, repoKey string) error {
 		return err
 	}
 	if _, err := lookPathClaude(); err != nil {
-		return nil
+		return err
 	}
 	log.Info(fmt.Sprintf("[claude] uninstalling plugin: claude plugin uninstall %s@%s", slug, repoKey))
 	ClaudeExec("plugin", "uninstall", slug+"@"+repoKey)

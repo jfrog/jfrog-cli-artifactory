@@ -129,15 +129,15 @@ func TestReadOrCreateLocalMarketplace_ParsesExistingFile(t *testing.T) {
 func TestClaudeMarketplacePath(t *testing.T) {
 	// After InjectRepoKey: installDir = ~/.claude/plugins/local/<repoKey>/<slug>
 	// marketplace = ~/.claude/plugins/local/<repoKey>/.claude-plugin/marketplace.json
-	installDir := filepath.Join("/home", "user", ".claude", "plugins", "my-repo", "my-plugin")
+	installDir := filepath.Join("/home", "user", ".claude", "plugins", "local", "my-repo", "my-plugin")
 	got := claudeMarketplacePath(installDir)
-	assert.Equal(t, filepath.Join("/home", "user", ".claude", "plugins", "my-repo", ".claude-plugin", "marketplace.json"), got)
+	assert.Equal(t, filepath.Join("/home", "user", ".claude", "plugins", "local", "my-repo", ".claude-plugin", "marketplace.json"), got)
 }
 
 func TestClaudeMarketplaceDir(t *testing.T) {
-	installDir := filepath.Join("/home", "user", ".claude", "plugins", "my-repo", "my-plugin")
+	installDir := filepath.Join("/home", "user", ".claude", "plugins", "local", "my-repo", "my-plugin")
 	got := claudeMarketplaceDir(installDir)
-	assert.Equal(t, filepath.Join("/home", "user", ".claude", "plugins", "my-repo"), got)
+	assert.Equal(t, filepath.Join("/home", "user", ".claude", "plugins", "local", "my-repo"), got)
 }
 
 func TestCodexMarketplaceManifestPath(t *testing.T) {

@@ -77,7 +77,7 @@ func codexPostInstall(slug, version, installDir, repoKey string) error {
 	if _, err := lookPathCodex(); err != nil {
 		log.Warn("[codex] codex CLI not found on PATH; skipping native marketplace registration. " +
 			"Run: codex plugin marketplace add " + codexMarketplaceRoot(installDir))
-		return nil
+		return err
 	}
 	root := codexMarketplaceRoot(installDir)
 	log.Info(fmt.Sprintf("[codex] registering marketplace: codex plugin marketplace add %s", root))
@@ -96,7 +96,7 @@ func codexPostDelete(slug, installDir, repoKey string) error {
 		log.Warn("codex post-delete: failed to update marketplace manifest:", err)
 	}
 	if _, err := lookPathCodex(); err != nil {
-		return nil
+		return err
 	}
 	log.Info(fmt.Sprintf("[codex] removing plugin: codex plugin remove %s@%s", slug, repoKey))
 	CodexExec("plugin", "remove", slug+"@"+repoKey)
