@@ -10,6 +10,7 @@ import (
 
 	"github.com/jfrog/build-info-go/entities"
 	artCliUtils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	artCoreUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -513,7 +514,7 @@ func (ppc *PnpmPublishCommand) saveBuildArtifacts(packages []pnpmPackResult, che
 
 // finalizePublishBuildInfo is the shared tail of both collectSinglePublishBuildInfo and
 // collectWorkspacePublishBuildInfo. It computes checksums, resolves repos (including
-// virtual → default deployment), saves build artifacts, and tags build properties.
+// virtual → default deployment), saves build artifacts, and tags published properties.
 func (ppc *PnpmPublishCommand) finalizePublishBuildInfo(packages []pnpmPackResult, published []publishedPackage) error {
 	checksumResults := computeChecksums(packages)
 	log.Debug(fmt.Sprintf("Checksums computed for %d/%d package(s).", len(checksumResults), len(packages)))
@@ -525,14 +526,14 @@ func (ppc *PnpmPublishCommand) finalizePublishBuildInfo(packages []pnpmPackResul
 		return err
 	}
 
-	ppc.tagBuildProperties(published, publishRepos, fallbackRepos)
+	ppc.tagPublishedProperties(published, publishRepos, fallbackRepos)
 	log.Info(fmt.Sprintf("pnpm publish finished successfully. %d package(s) published with build info.", len(packages)))
 	return nil
 }
 
 // resolveVirtualRepos resolves any virtual repositories in publishRepos and fallbackRepos
 // to their default deployment repositories. This must be called before saveBuildArtifacts
-// and tagBuildProperties so that both use the actual local repo where artifacts land.
+// and tagPublishedProperties so that both use the actual local repo where artifacts land.
 func (ppc *PnpmPublishCommand) resolveVirtualRepos(publishRepos map[string]string, fallbackRepos *registryMap) {
 	if ppc.serverDetails == nil {
 		return
@@ -569,30 +570,33 @@ func (ppc *PnpmPublishCommand) resolveVirtualRepos(publishRepos map[string]strin
 	}
 }
 
-// tagBuildProperties sets build.name, build.number, build.timestamp on published
-// artifacts in Artifactory. Constructs the artifact path directly from the package
-// name/version and registry config, avoiding a SearchFiles API call.
-func (ppc *PnpmPublishCommand) tagBuildProperties(published []publishedPackage, publishRepos map[string]string, fallbackRepos registryMap) {
+// tagPublishedProperties sets build and detected VCS properties on published artifacts
+// in a single SetProps call. Constructs artifact paths from package name/version and
+// registry config, avoiding a SearchFiles API call.
+func (ppc *PnpmPublishCommand) tagPublishedProperties(published []publishedPackage, publishRepos map[string]string, fallbackRepos registryMap) {
 	if ppc.serverDetails == nil {
-		log.Debug("No server details configured. Skipping build property tagging.")
+		log.Debug("No server details configured. Skipping property tagging.")
 		return
 	}
-	servicesManager, err := artCoreUtils.CreateServiceManager(ppc.serverDetails, -1, 0, false)
-	if err != nil {
-		log.Warn("Unable to create service manager for build property tagging:", err.Error())
-		return
-	}
-
 	props, err := buildUtils.CreateBuildPropsFromConfiguration(ppc.buildConfiguration)
 	if err != nil {
 		log.Warn("Unable to create build properties:", err.Error())
 		return
 	}
+	props = civcs.MergeWithUserProps(props, ppc.workingDirectory)
 	if props == "" {
-		log.Debug("No build properties to set. Skipping.")
+		log.Debug("No properties to set on published artifacts. Skipping.")
 		return
 	}
+	items := ppc.buildPublishedResultItems(published, publishRepos, fallbackRepos)
+	if len(items) == 0 {
+		log.Debug("No artifacts to tag with build properties.")
+		return
+	}
+	ppc.setPropsOnPublishedItems(items, props)
+}
 
+func (ppc *PnpmPublishCommand) buildPublishedResultItems(published []publishedPackage, publishRepos map[string]string, fallbackRepos registryMap) []specutils.ResultItem {
 	var items []specutils.ResultItem
 	for _, pkg := range published {
 		repo := resolvePublishRepo(pkg.Name, publishRepos, fallbackRepos)
@@ -607,15 +611,27 @@ func (ppc *PnpmPublishCommand) tagBuildProperties(published []publishedPackage, 
 			Name: tarballName,
 		})
 	}
+	return items
+}
 
-	if len(items) == 0 {
-		log.Debug("No artifacts to tag with build properties.")
+func (ppc *PnpmPublishCommand) setPropsOnPublishedItems(items []specutils.ResultItem, props string) {
+	if props == "" || len(items) == 0 {
+		log.Debug("No properties to set on published artifacts. Skipping.")
+		return
+	}
+	if ppc.serverDetails == nil {
+		log.Debug("No server details configured. Skipping property tagging.")
+		return
+	}
+	servicesManager, err := artCoreUtils.CreateServiceManager(ppc.serverDetails, -1, 0, false)
+	if err != nil {
+		log.Warn("Unable to create service manager for property tagging:", err.Error())
 		return
 	}
 
 	pathToFile, err := artCliUtils.WriteResultItemsToFile(items)
 	if err != nil {
-		log.Warn("Unable to write result items for build property tagging:", err.Error())
+		log.Warn("Unable to write result items for properties tagging:", err.Error())
 		return
 	}
 	defer func() {
@@ -633,11 +649,11 @@ func (ppc *PnpmPublishCommand) tagBuildProperties(published []publishedPackage, 
 
 	_, err = servicesManager.SetProps(services.PropsParams{Reader: reader, Props: props, UseDebugLogs: true})
 	if err != nil {
-		log.Warn("Unable to set build properties on published artifacts:", err.Error(),
-			"\nThis may cause the build to not properly link with artifacts. You can add build properties manually.")
+		log.Warn("Unable to set properties on published artifacts:", err.Error(),
+			"\nThis may cause the build to not properly link with artifacts. You can add properties manually.")
 		return
 	}
-	log.Info(fmt.Sprintf("Build properties set on %d published artifact(s).", len(items)))
+	log.Info(fmt.Sprintf("Properties set on %d published artifact(s).", len(items)))
 }
 
 // buildNpmDeployPath constructs the Artifactory path and tarball name for an npm package.

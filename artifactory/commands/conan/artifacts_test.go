@@ -157,6 +157,7 @@ func TestBuildPropertySetter_FormatBuildProperties(t *testing.T) {
 		buildNumber string
 		projectKey  string
 		timestamp   string
+		searchDir   string
 		expected    string
 	}{
 		{
@@ -175,14 +176,35 @@ func TestBuildPropertySetter_FormatBuildProperties(t *testing.T) {
 			timestamp:   "9876543210",
 			expected:    "build.name=my-build;build.number=456;build.timestamp=9876543210;build.project=myproject",
 		},
+		{
+			name:        "With search dir",
+			buildName:   "my-build",
+			buildNumber: "789",
+			projectKey:  "",
+			timestamp:   "0123456789",
+			searchDir:   "/conan/project",
+			expected:    "build.name=my-build;build.number=789;build.timestamp=0123456789;vcs.revision=conan-sha",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.searchDir == "" {
+				t.Setenv("JFROG_CLI_CI_VCS_PROPS_DISABLED", "true")
+			} else {
+				t.Setenv("JFROG_CLI_CI_VCS_PROPS_DISABLED", "")
+				originalMerge := mergeVcsPropsForConan
+				mergeVcsPropsForConan = func(userProps, searchDir string) string {
+					assert.Equal(t, tt.searchDir, searchDir)
+					return userProps + ";vcs.revision=conan-sha"
+				}
+				t.Cleanup(func() { mergeVcsPropsForConan = originalMerge })
+			}
 			setter := &BuildPropertySetter{
 				buildName:   tt.buildName,
 				buildNumber: tt.buildNumber,
 				projectKey:  tt.projectKey,
+				searchDir:   tt.searchDir,
 			}
 			result := setter.formatBuildProperties(tt.timestamp)
 			assert.Equal(t, tt.expected, result)
@@ -205,8 +227,9 @@ func TestNewBuildPropertySetter(t *testing.T) {
 	buildNumber := "1"
 	projectKey := "test-project"
 	targetRepo := "conan-local"
+	searchDir := "/conan/project"
 
-	setter := NewBuildPropertySetter(nil, targetRepo, buildName, buildNumber, projectKey)
+	setter := NewBuildPropertySetter(nil, targetRepo, buildName, buildNumber, projectKey, searchDir)
 
 	assert.NotNil(t, setter)
 	assert.Equal(t, buildName, setter.buildName)
