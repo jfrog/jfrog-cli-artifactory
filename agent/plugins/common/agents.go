@@ -24,7 +24,7 @@ var Agents = map[string]AgentConfig{
 	//   - Codex:  Plugin config is user-scoped only (~/.codex/config.toml)
 	"claude": {GlobalDir: "~/.claude/plugins/local", ProjectDir: ""},
 	"cursor": {GlobalDir: "~/.cursor/plugins/local", ProjectDir: ""},
-	"codex":  {GlobalDir: "~/.agents/marketplaces", ProjectDir: ""},
+	"codex":  {GlobalDir: "~/.agents/plugins/local", ProjectDir: ""},
 }
 
 // RegistryHelp configures agent-config.json help text for plugins harness resolution.

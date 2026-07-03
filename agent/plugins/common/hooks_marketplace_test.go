@@ -141,18 +141,18 @@ func TestClaudeMarketplaceDir(t *testing.T) {
 }
 
 func TestCodexMarketplaceManifestPath(t *testing.T) {
-	// After InjectRepoKey: installDir = ~/.agents/marketplaces/<repoKey>/plugins/<slug>
-	// root     = ~/.agents/marketplaces/<repoKey>
-	// manifest = ~/.agents/marketplaces/<repoKey>/.agents/plugins/marketplace.json
-	installDir := filepath.Join("/home", "user", ".agents", "marketplaces", "my-repo", "plugins", "my-plugin")
+	// After InjectRepoKey: installDir = ~/.agents/plugins/local/<repoKey>/plugins/<slug>
+	// root     = ~/.agents/plugins/local/<repoKey>
+	// manifest = ~/.agents/plugins/local/<repoKey>/.agents/plugins/marketplace.json
+	installDir := filepath.Join("/home", "user", ".agents", "plugins", "local", "my-repo", "plugins", "my-plugin")
 	got := codexMarketplaceManifestPath(installDir)
-	assert.Equal(t, filepath.Join("/home", "user", ".agents", "marketplaces", "my-repo", ".agents", "plugins", "marketplace.json"), got)
+	assert.Equal(t, filepath.Join("/home", "user", ".agents", "plugins", "local", "my-repo", ".agents", "plugins", "marketplace.json"), got)
 }
 
 func TestCodexMarketplaceRoot(t *testing.T) {
-	installDir := filepath.Join("/home", "user", ".agents", "marketplaces", "my-repo", "plugins", "my-plugin")
+	installDir := filepath.Join("/home", "user", ".agents", "plugins", "local", "my-repo", "plugins", "my-plugin")
 	got := codexMarketplaceRoot(installDir)
-	assert.Equal(t, filepath.Join("/home", "user", ".agents", "marketplaces", "my-repo"), got)
+	assert.Equal(t, filepath.Join("/home", "user", ".agents", "plugins", "local", "my-repo"), got)
 }
 
 func TestUpsertCodexMarketplaceEntry_CreatesFile(t *testing.T) {

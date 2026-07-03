@@ -60,9 +60,9 @@ var CodexExec = func(args ...string) {
 // codexPostInstall writes the plugin into the Codex marketplace manifest and
 // registers it with the native codex CLI (if available).
 //
-// Directory layout produced by agents.go (GlobalDir = ~/.agents/marketplaces/<repoKey>):
+// Directory layout produced by agents.go (GlobalDir = ~/.agents/plugins/local/<repoKey>):
 //
-//	~/.agents/marketplaces/<repoKey>/          ← marketplace root
+//	~/.agents/plugins/local/<repoKey>/          ← marketplace root
 //	  .agents/plugins/
 //	    marketplace.json                       ← written here
 //	  plugins/
@@ -105,16 +105,16 @@ func codexPostDelete(slug, installDir, repoKey string) error {
 
 // codexMarketplaceRoot returns the marketplace root directory.
 //
-//	installDir = ~/.agents/marketplaces/<repoKey>/plugins/<slug>
-//	root       = ~/.agents/marketplaces/<repoKey>
+//	installDir = ~/.agents/plugins/local/<repoKey>/plugins/<slug>
+//	root       = ~/.agents/plugins/local/<repoKey>
 func codexMarketplaceRoot(installDir string) string {
 	return filepath.Dir(filepath.Dir(installDir))
 }
 
 // codexMarketplaceManifestPath returns the path to the Codex marketplace manifest.
 //
-//	installDir = ~/.agents/marketplaces/<repoKey>/plugins/<slug>
-//	manifest   = ~/.agents/marketplaces/<repoKey>/.agents/plugins/marketplace.json
+//	installDir = ~/.agents/plugins/local/<repoKey>/plugins/<slug>
+//	manifest   = ~/.agents/plugins/local/<repoKey>/.agents/plugins/marketplace.json
 func codexMarketplaceManifestPath(installDir string) string {
 	return filepath.Join(codexMarketplaceRoot(installDir), ".agents", "plugins", "marketplace.json")
 }
