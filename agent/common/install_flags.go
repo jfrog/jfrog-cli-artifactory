@@ -42,8 +42,19 @@ func (r InstallFlagsResult) PathMode() bool {
 	return r.AbsoluteInstallBaseDir != ""
 }
 
+// InstallFlagsOptions configures harness install flag validation.
+type InstallFlagsOptions struct {
+	// DefaultGlobalScope uses global scope when neither --global nor --project-dir is set.
+	// Agent plugins (claude, cursor, codex) only support global installs.
+	DefaultGlobalScope bool
+}
+
 // ValidateInstallFlags validates `--path | (--harness [, --project-dir | --global])` for install/update.
-func ValidateInstallFlags(c *components.Context, builtIns map[string]AgentConfig, configSectionKey string, helpExample AgentRegistryHelpExample) (InstallFlagsResult, error) {
+func ValidateInstallFlags(c *components.Context, builtIns map[string]AgentConfig, configSectionKey string, helpExample AgentRegistryHelpExample, opts ...InstallFlagsOptions) (InstallFlagsResult, error) {
+	var options InstallFlagsOptions
+	if len(opts) > 0 {
+		options = opts[0]
+	}
 	input := InstallFlagInput{
 		PathInstallBase: strings.TrimSpace(c.GetStringFlagValue(InstallPathFlag)),
 		RawHarness:      strings.TrimSpace(c.GetStringFlagValue(InstallHarnessFlag)),
@@ -53,7 +64,7 @@ func ValidateInstallFlags(c *components.Context, builtIns map[string]AgentConfig
 	if result, done, err := validatePathInstallFlags(input); done {
 		return result, err
 	}
-	return validateHarnessInstallFlags(input, builtIns, configSectionKey, helpExample)
+	return validateHarnessInstallFlags(input, builtIns, configSectionKey, helpExample, options.DefaultGlobalScope)
 }
 
 // validatePathInstallFlags resolves --path mode when set; done is true when validation finished or failed.
@@ -69,7 +80,7 @@ func validatePathInstallFlags(input InstallFlagInput) (result InstallFlagsResult
 }
 
 // validateHarnessInstallFlags resolves --harness targets and project/global scope.
-func validateHarnessInstallFlags(input InstallFlagInput, builtIns map[string]AgentConfig, configSectionKey string, helpExample AgentRegistryHelpExample) (InstallFlagsResult, error) {
+func validateHarnessInstallFlags(input InstallFlagInput, builtIns map[string]AgentConfig, configSectionKey string, helpExample AgentRegistryHelpExample, defaultGlobalScope bool) (InstallFlagsResult, error) {
 	registry, err := LoadAgentRegistry(builtIns, configSectionKey)
 	if err != nil {
 		return InstallFlagsResult{}, err
@@ -83,15 +94,32 @@ func validateHarnessInstallFlags(input InstallFlagInput, builtIns map[string]Age
 		return InstallFlagsResult{}, err
 	}
 
-	projectDirAbs, err := ResolveInstallProjectDir(input.ProjectDir, input.IsGlobal)
+	isGlobal, projectDirAbs, err := resolveInstallScope(input, defaultGlobalScope)
 	if err != nil {
 		return InstallFlagsResult{}, err
 	}
 	return InstallFlagsResult{
 		Specs:         specs,
 		ProjectDirAbs: projectDirAbs,
-		IsGlobal:      input.IsGlobal,
+		IsGlobal:      isGlobal,
 	}, nil
+}
+
+// resolveInstallScope picks global vs project scope from install flags.
+func resolveInstallScope(input InstallFlagInput, defaultGlobalScope bool) (isGlobal bool, projectDirAbs string, err error) {
+	if input.IsGlobal {
+		projectDirAbs, err = ResolveInstallProjectDir(input.ProjectDir, true)
+		return true, projectDirAbs, err
+	}
+	if input.ProjectDir != "" {
+		projectDirAbs, err = ResolveInstallProjectDir(input.ProjectDir, false)
+		return false, projectDirAbs, err
+	}
+	if defaultGlobalScope {
+		return true, "", nil
+	}
+	projectDirAbs, err = ResolveInstallProjectDir("", false)
+	return false, projectDirAbs, err
 }
 
 // requireHarnessWhenNotPath ensures --harness is present when not using --path.

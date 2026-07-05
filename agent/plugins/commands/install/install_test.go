@@ -33,6 +33,22 @@ func TestResolveAgentTargetDirectories_ProjectScope(t *testing.T) {
 	assert.Contains(t, err.Error(), "claude does not support project-scoped plugin installs")
 }
 
+func TestResolveAgentTargetDirectories_DefaultScopeUsesGlobalForCursor(t *testing.T) {
+	globalBase := filepath.Join(t.TempDir(), "global", ".cursor", "plugins", "local")
+	wantBase, err := filepath.Abs(globalBase)
+	require.NoError(t, err)
+
+	cmd := NewInstallCommand().
+		SetSlug("jfrog-plugin-timepass").
+		SetAgents([]plugincommon.AgentSpec{{Name: "cursor", Config: plugincommon.AgentConfig{GlobalDir: globalBase}}})
+
+	targets, err := cmd.resolveAgentTargetDirectories()
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	assert.Equal(t, filepath.Join(wantBase, "jfrog-plugin-timepass"), targets[0].DestinationDir)
+	assert.Equal(t, plugincommon.ScopeGlobal, targets[0].Scope)
+}
+
 func TestResolveAgentTargetDirectories_GlobalScope(t *testing.T) {
 	globalBase := filepath.Join(t.TempDir(), "global", ".cursor", "plugins")
 	wantBase, err := filepath.Abs(globalBase)
