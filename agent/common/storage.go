@@ -10,6 +10,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 // DeleteVersion deletes the entire version directory for a package (plugin, skill, etc.)
@@ -123,4 +124,95 @@ func statusFromJFrogGenerateResponseError(err error) (int, bool) {
 
 func isValidHTTPStatusCode(code int) bool {
 	return code >= 100 && code <= 599
+}
+
+// PluginVersion holds metadata about a published plugin version.
+type PluginVersion struct {
+	Version string
+}
+
+// ListPluginVersions lists all versions of a plugin in Artifactory by reading the directory structure.
+// It returns an empty slice if the plugin has no versions. Errors reading the directory are logged but not fatal.
+func ListPluginVersions(serverDetails *config.ServerDetails, repoKey, slug string) ([]PluginVersion, error) {
+	serviceManager, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create service manager: %w", err)
+	}
+
+	folderInfo, err := serviceManager.FolderInfo(fmt.Sprintf("%s/%s", repoKey, slug))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list versions for %s/%s: %w", repoKey, slug, err)
+	}
+
+	var versions []PluginVersion
+	for _, child := range folderInfo.Children {
+		if child.Folder {
+			versions = append(versions, PluginVersion{Version: child.Uri[1:]}) // Remove leading slash
+		}
+	}
+
+	return versions, nil
+}
+
+// PublishableVersion holds metadata about any published version (plugin, skill, etc).
+type PublishableVersion struct {
+	Version string
+}
+
+// ListVersionsFunc is a function type that lists available versions for a package.
+type ListVersionsFunc func(serverDetails *config.ServerDetails, repoKey, slug string) ([]PublishableVersion, error)
+
+// ResolveMissingVersionOpts configures version resolution for publish commands.
+type ResolveMissingVersionOpts struct {
+	ServerDetails *config.ServerDetails
+	RepoKey       string
+	Slug          string
+	Quiet         bool
+	ListVersions  ListVersionsFunc // Fetches available versions from Artifactory
+}
+
+// ResolveMissingVersion resolves a version when neither --version flag nor manifest provides one.
+// - Interactive mode: fetches and shows existing versions, then prompts user for a new version
+// - Quiet/CI mode: auto-increments the next minor version OR defaults to 0.1.0
+// This function is the single source of truth for publish version resolution across all package types.
+func ResolveMissingVersion(opts ResolveMissingVersionOpts) (string, error) {
+	versions, err := opts.ListVersions(opts.ServerDetails, opts.RepoKey, opts.Slug)
+	if err != nil {
+		log.Debug("Could not fetch existing versions:", err.Error())
+	}
+
+	versionStrs := make([]string, len(versions))
+	for idx, v := range versions {
+		versionStrs[idx] = v.Version
+	}
+
+	if len(versionStrs) > 0 {
+		latest, _ := LatestVersion(versionStrs)
+		if opts.Quiet {
+			next, err := NextMinorVersion(latest)
+			if err != nil {
+				return "", fmt.Errorf("failed to compute next version from '%s': %w", latest, err)
+			}
+			log.Info(fmt.Sprintf("No version specified. Auto-incrementing to %s", next))
+			return next, nil
+		}
+		fmt.Printf("No version specified in manifest or --version flag.\n")
+		fmt.Printf("Existing versions: %v  (latest: %s)\n", versionStrs, latest)
+	} else {
+		if opts.Quiet {
+			log.Info("No version specified and no existing versions found. Defaulting to 0.1.0")
+			return "0.1.0", nil
+		}
+		fmt.Printf("No version specified in manifest or --version flag.\n")
+		fmt.Printf("No existing versions found for '%s'.\n", opts.Slug)
+	}
+
+	newVersion, err := PromptLine("Enter version to publish: ")
+	if err != nil {
+		return "", err
+	}
+	if newVersion == "" {
+		return "", fmt.Errorf("no version provided, aborting")
+	}
+	return newVersion, nil
 }

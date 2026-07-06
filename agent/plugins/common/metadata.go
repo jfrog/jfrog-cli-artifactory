@@ -1,6 +1,7 @@
 package common
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -100,11 +101,11 @@ type PluginMeta struct {
 // findPrimaryPluginManifest returns the first plugin.json found under pluginRoot,
 // searching loadPluginManifestPaths() in order.
 func findPrimaryPluginManifest(pluginRoot string) (relativePath string, meta PluginMeta, err error) {
-	relPaths, err := loadPluginManifestPaths()
+	manifestRelativePaths, err := loadPluginManifestPaths()
 	if err != nil {
 		return "", PluginMeta{}, err
 	}
-	for _, relativePath := range relPaths {
+	for _, relativePath := range manifestRelativePaths {
 		fullPath := filepath.Join(pluginRoot, relativePath)
 		info, statErr := os.Stat(fullPath)
 		if statErr != nil {
@@ -122,10 +123,10 @@ func findPrimaryPluginManifest(pluginRoot string) (relativePath string, meta Plu
 		}
 		return relativePath, meta, nil
 	}
-	return "", PluginMeta{}, pluginManifestNotFoundError(pluginRoot, relPaths)
+	return "", PluginMeta{}, pluginManifestNotFoundError(pluginRoot, manifestRelativePaths)
 }
 
-func pluginManifestNotFoundError(pluginRoot string, relPaths []string) error {
+func pluginManifestNotFoundError(pluginRoot string, manifestRelativePaths []string) error {
 	configPath := agentcommon.AgentConfigPathForDisplay()
 	return fmt.Errorf(
 		"%w found under %s (checked: %s).\n\n"+
@@ -140,7 +141,7 @@ func pluginManifestNotFoundError(pluginRoot string, relPaths []string) error {
 			"  }",
 		ErrPluginManifestNotFound,
 		pluginRoot,
-		strings.Join(relPaths, ", "),
+		strings.Join(manifestRelativePaths, ", "),
 		configPath,
 		agentcommon.PluginManifestPathsKey,
 		agentcommon.PluginManifestPathsKey,
@@ -194,23 +195,109 @@ func ValidateAndResolvePluginMeta(pluginRoot, versionFlag string) (PluginMeta, e
 	}, nil
 }
 
-// UpdatePluginManifestVersions rewrites the top-level "version" string field in the canonical
-// plugin.json (first match in knownManifestRelPaths). Manifests without a version field are unchanged.
+// UpdatePluginManifestVersions rewrites the top-level "version" string field in every plugin.json
+// manifest found under pluginRoot (see loadPluginManifestPaths). Manifests without a version field,
+// or already matching newVersion, are left unchanged. Returns an error if no manifest is found at all.
 func UpdatePluginManifestVersions(pluginRoot, newVersion string) error {
-	relativePath, meta, err := findPrimaryPluginManifest(pluginRoot)
+	manifestRelativePaths, err := loadPluginManifestPaths()
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(meta.Version) == "" || strings.TrimSpace(meta.Version) == newVersion {
-		return nil
+	found := false
+	for _, relativePath := range manifestRelativePaths {
+		fullPath := filepath.Join(pluginRoot, relativePath)
+		info, statErr := os.Stat(fullPath)
+		if statErr != nil {
+			if errors.Is(statErr, os.ErrNotExist) {
+				continue
+			}
+			return fmt.Errorf("failed to stat %s: %w", relativePath, statErr)
+		}
+		if info.IsDir() {
+			continue
+		}
+		found = true
+		meta, err := readPluginManifest(fullPath)
+		if err != nil {
+			return fmt.Errorf("failed to parse %s: %w", relativePath, err)
+		}
+		if strings.TrimSpace(meta.Version) == "" || strings.TrimSpace(meta.Version) == newVersion {
+			continue
+		}
+		if err := writePluginManifestVersion(fullPath, newVersion); err != nil {
+			return fmt.Errorf("%s: %w", relativePath, err)
+		}
 	}
-	fullPath := filepath.Join(pluginRoot, relativePath)
-	if err := writePluginManifestVersion(fullPath, newVersion); err != nil {
-		return fmt.Errorf("%s: %w", relativePath, err)
+	if !found {
+		return pluginManifestNotFoundError(pluginRoot, manifestRelativePaths)
 	}
 	return nil
 }
 
+// orderedField holds one top-level JSON member, preserving its original position.
+type orderedField struct {
+	Key   string
+	Value json.RawMessage
+}
+
+// orderedObject marshals as a JSON object using field order as-is, instead of the
+// alphabetical order encoding/json imposes on Go maps.
+type orderedObject []orderedField
+
+func (o orderedObject) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	buf.WriteByte('{')
+	for i, f := range o {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		keyJSON, err := json.Marshal(f.Key)
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(keyJSON)
+		buf.WriteByte(':')
+		buf.Write(f.Value)
+	}
+	buf.WriteByte('}')
+	return buf.Bytes(), nil
+}
+
+// decodeOrderedTopLevel parses a top-level JSON object into orderedObject, preserving
+// the on-disk member order (json.Decoder reads object keys in document order).
+func decodeOrderedTopLevel(data []byte) (orderedObject, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	tok, err := dec.Token()
+	if err != nil {
+		return nil, err
+	}
+	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
+		return nil, fmt.Errorf("expected a top-level JSON object")
+	}
+	var fields orderedObject
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		key, ok := keyTok.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected string key in JSON object")
+		}
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			return nil, err
+		}
+		fields = append(fields, orderedField{Key: key, Value: raw})
+	}
+	if _, err := dec.Token(); err != nil { // closing '}'
+		return nil, err
+	}
+	return fields, nil
+}
+
+// writePluginManifestVersion rewrites only the top-level "version" value in path, leaving
+// every other field and its original order untouched.
 func writePluginManifestVersion(path, newVersion string) error {
 	// #nosec G304 -- path is constructed from pluginRoot and knownManifestRelPaths allowlist.
 	data, err := os.ReadFile(path)
@@ -224,20 +311,27 @@ func writePluginManifestVersion(path, newVersion string) error {
 	if strings.TrimSpace(meta.Version) == "" {
 		return nil
 	}
-	var doc map[string]json.RawMessage
-	if err := json.Unmarshal(data, &doc); err != nil {
+	fields, err := decodeOrderedTopLevel(data)
+	if err != nil {
 		return err
-	}
-	if _, hasVersionField := doc[manifestVersionField]; !hasVersionField {
-		return fmt.Errorf("%s declares version %q but has no %q field", manifestFileName, meta.Version, manifestVersionField)
 	}
 	versionJSON, err := json.Marshal(newVersion)
 	if err != nil {
 		return err
 	}
-	doc[manifestVersionField] = versionJSON
+	found := false
+	for i := range fields {
+		if fields[i].Key == manifestVersionField {
+			fields[i].Value = versionJSON
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("%s declares version %q but has no %q field", manifestFileName, meta.Version, manifestVersionField)
+	}
 
-	updated, err := json.MarshalIndent(doc, "", manifestJSONIndent)
+	updated, err := json.MarshalIndent(fields, "", manifestJSONIndent)
 	if err != nil {
 		return err
 	}

@@ -294,7 +294,7 @@ func TestWritePluginManifestVersion_ReplacesOnlyFirstVersionField(t *testing.T) 
 	}
 }
 
-func TestUpdatePluginManifestVersions_OnlyPrimaryManifest(t *testing.T) {
+func TestUpdatePluginManifestVersions_UpdatesAllManifests(t *testing.T) {
 	dir := t.TempDir()
 	writePluginJSON(t, dir, ".claude-plugin/plugin.json", map[string]string{"name": "demo", "version": "1.0.0"})
 	writePluginJSON(t, dir, "plugin.json", map[string]string{"name": "demo", "version": "1.0.0"})
@@ -313,8 +313,32 @@ func TestUpdatePluginManifestVersions_OnlyPrimaryManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read root: %v", err)
 	}
-	if strings.Contains(string(root), "2.0.0") {
-		t.Fatalf("expected secondary manifest unchanged, got %s", string(root))
+	if !strings.Contains(string(root), "2.0.0") {
+		t.Fatalf("expected root plugin.json updated too, got %s", string(root))
+	}
+}
+
+func TestUpdatePluginManifestVersions_SkipsManifestsWithoutVersionField(t *testing.T) {
+	dir := t.TempDir()
+	writePluginJSON(t, dir, ".claude-plugin/plugin.json", map[string]string{"name": "demo", "version": "1.0.0"})
+	writePluginJSON(t, dir, "plugin.json", map[string]string{"name": "demo"})
+
+	if err := UpdatePluginManifestVersions(dir, "2.0.0"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	primary, err := os.ReadFile(filepath.Join(dir, ".claude-plugin/plugin.json"))
+	if err != nil {
+		t.Fatalf("read primary: %v", err)
+	}
+	if !strings.Contains(string(primary), "2.0.0") {
+		t.Fatalf("expected .claude-plugin/plugin.json updated, got %s", string(primary))
+	}
+	root, err := os.ReadFile(filepath.Join(dir, "plugin.json"))
+	if err != nil {
+		t.Fatalf("read root: %v", err)
+	}
+	if strings.Contains(string(root), `"version"`) {
+		t.Fatalf("expected no version field inserted into manifest without one, got %s", string(root))
 	}
 }
 
@@ -343,6 +367,48 @@ func TestWritePluginManifestVersion_PreservesOtherFields(t *testing.T) {
 	}
 	if doc["name"] != "autoagent2" || doc["author"] != "Author Frog" {
 		t.Fatalf("other fields changed: %+v", doc)
+	}
+}
+
+func TestWritePluginManifestVersion_PreservesKeyOrder(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "plugin.json")
+	// Field order deliberately not alphabetical: a naive map-based rewrite would
+	// resort these keys (author, commands, description, ..., version) and move
+	// "version" to a different position than the source file.
+	original := "{\n" +
+		"    \"author\": {\n" +
+		"        \"name\": \"Uday Kumar\"\n" +
+		"    },\n" +
+		"    \"description\": \"demo\",\n" +
+		"    \"name\": \"autoagent4\",\n" +
+		"    \"version\": \"1.0.18\"\n" +
+		"}\n"
+	if err := os.WriteFile(path, []byte(original), agentcommon.PrivateFileMode); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if err := writePluginManifestVersion(path, "1.0.19"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	body := string(data)
+
+	authorIdx := strings.Index(body, `"author"`)
+	descriptionIdx := strings.Index(body, `"description"`)
+	nameIdx := strings.Index(body, `"name": "autoagent4"`)
+	versionIdx := strings.Index(body, `"version"`)
+	if authorIdx < 0 || descriptionIdx < 0 || nameIdx < 0 || versionIdx < 0 {
+		t.Fatalf("expected all fields present, got %s", body)
+	}
+	if authorIdx >= descriptionIdx || descriptionIdx >= nameIdx || nameIdx >= versionIdx {
+		t.Fatalf("expected original field order (author, description, name, version) preserved, got %s", body)
+	}
+	if !strings.Contains(body, `"version": "1.0.19"`) {
+		t.Fatalf("expected updated version, got %s", body)
 	}
 }
 
