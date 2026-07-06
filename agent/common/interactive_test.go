@@ -50,3 +50,93 @@ func TestIsNonInteractive_CIOverridesTTY(t *testing.T) {
 	t.Setenv("CI", "true")
 	assert.True(t, IsNonInteractive())
 }
+
+func TestPromptLine_Success(t *testing.T) {
+	origStdin := os.Stdin
+	defer func() { os.Stdin = origStdin }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	os.Stdin = r
+
+	go func() {
+		defer func() { _ = w.Close() }()
+		if _, err := w.WriteString("1.0.0\n"); err != nil {
+			panic("test write failed: " + err.Error())
+		}
+	}()
+
+	result, err := PromptLine("Enter version: ")
+	assert.NoError(t, err)
+	assert.Equal(t, "1.0.0", result)
+}
+
+func TestPromptLine_TrimmsWhitespace(t *testing.T) {
+	origStdin := os.Stdin
+	defer func() { os.Stdin = origStdin }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	os.Stdin = r
+
+	go func() {
+		defer func() { _ = w.Close() }()
+		if _, err := w.WriteString("  2.5.0  \n"); err != nil {
+			panic("test write failed: " + err.Error())
+		}
+	}()
+
+	result, err := PromptLine("Version: ")
+	assert.NoError(t, err)
+	assert.Equal(t, "2.5.0", result)
+}
+
+func TestPromptLine_EmptyInput(t *testing.T) {
+	origStdin := os.Stdin
+	defer func() { os.Stdin = origStdin }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	os.Stdin = r
+
+	go func() {
+		defer func() { _ = w.Close() }()
+		if _, err := w.WriteString("\n"); err != nil {
+			panic("test write failed: " + err.Error())
+		}
+	}()
+
+	result, err := PromptLine("Enter version: ")
+	assert.NoError(t, err)
+	assert.Equal(t, "", result)
+}
+
+func TestPromptLine_StdinError(t *testing.T) {
+	origStdin := os.Stdin
+	defer func() { os.Stdin = origStdin }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+
+	os.Stdin = r
+	_ = w.Close() // Close writer to simulate EOF/error
+
+	result, err := PromptLine("Enter version: ")
+	assert.Error(t, err)
+	assert.Equal(t, "", result)
+	assert.Contains(t, err.Error(), "read user input")
+}

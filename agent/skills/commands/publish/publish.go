@@ -2,7 +2,6 @@ package publish
 
 import (
 	"archive/zip"
-	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -217,51 +216,35 @@ func (pc *PublishCommand) Run() error {
 }
 
 // resolveMissingVersion handles the case where neither --version nor SKILL.md frontmatter
-// provides a version. It fetches existing versions from Artifactory, then:
-//   - Interactive: shows them and asks the user to enter a version
-//   - CI/quiet: auto-increments to the next minor version (or defaults to 0.1.0)
+// provides a version. It delegates to the common version resolver and adds skills-specific validation.
 func (pc *PublishCommand) resolveMissingVersion(slug string) (string, error) {
-	versions, err := common.ListVersions(pc.serverDetails, pc.repoKey, slug)
-	if err != nil {
-		log.Debug("Could not fetch existing versions:", err.Error())
-	}
-
-	versionStrs := make([]string, len(versions))
-	for versionIndex, skillVersion := range versions {
-		versionStrs[versionIndex] = skillVersion.Version
-	}
-
-	if len(versionStrs) > 0 {
-		latest, _ := agentcommon.LatestVersion(versionStrs)
-		if pc.quiet {
-			next, err := agentcommon.NextMinorVersion(latest)
+	newVersion, err := agentcommon.ResolveMissingVersion(agentcommon.ResolveMissingVersionOpts{
+		ServerDetails: pc.serverDetails,
+		RepoKey:       pc.repoKey,
+		Slug:          slug,
+		Quiet:         pc.quiet,
+		ListVersions: func(sd *config.ServerDetails, repo, s string) ([]agentcommon.PublishableVersion, error) {
+			versions, err := common.ListVersions(sd, repo, s)
 			if err != nil {
-				return "", fmt.Errorf("failed to compute next version from '%s': %w", latest, err)
+				return nil, err
 			}
-			log.Info(fmt.Sprintf("No version specified. Auto-incrementing to %s", next))
-			return next, nil
-		}
-		fmt.Printf("No version specified in SKILL.md or --version flag.\n")
-		fmt.Printf("Existing versions: %v  (latest: %s)\n", versionStrs, latest)
-	} else {
-		if pc.quiet {
-			log.Info("No version specified and no existing versions found. Defaulting to 0.1.0")
-			return "0.1.0", nil
-		}
-		fmt.Printf("No version specified in SKILL.md or --version flag.\n")
-		fmt.Printf("No existing versions found for skill '%s'.\n", slug)
+			// Convert SkillVersion to PublishableVersion
+			result := make([]agentcommon.PublishableVersion, len(versions))
+			for i, v := range versions {
+				result[i] = agentcommon.PublishableVersion{Version: v.Version}
+			}
+			return result, nil
+		},
+	})
+	if err != nil {
+		return "", err
 	}
 
-	fmt.Print("Enter version to publish: ")
-	reader := bufio.NewReader(os.Stdin)
-	input, _ := reader.ReadString('\n')
-	newVersion := strings.TrimSpace(input)
-	if newVersion == "" {
-		return "", fmt.Errorf("no version provided, aborting")
-	}
+	// Skills-specific validation for path traversal
 	if strings.Contains(newVersion, "..") || strings.ContainsAny(newVersion, "/\\") {
 		return "", fmt.Errorf("invalid version '%s': contains path traversal characters", newVersion)
 	}
+
 	return newVersion, nil
 }
 
@@ -287,20 +270,22 @@ func (pc *PublishCommand) resolveVersionCollision(slug, version string) (string,
 	fmt.Println("  [o] Overwrite the existing version")
 	fmt.Println("  [n] Enter a new version")
 	fmt.Println("  [a] Abort")
-	fmt.Print("Your choice (o/n/a): ")
 
-	reader := bufio.NewReader(os.Stdin)
-	input, _ := reader.ReadString('\n')
-	choice := strings.TrimSpace(strings.ToLower(input))
+	input, err := agentcommon.PromptLine("Your choice (o/n/a): ")
+	if err != nil {
+		return "", err
+	}
+	choice := strings.ToLower(input)
 
 	switch choice {
 	case "o":
 		log.Info(fmt.Sprintf("Overwriting version %s...", version))
 		return version, nil
 	case "n":
-		fmt.Print("Enter new version: ")
-		newInput, _ := reader.ReadString('\n')
-		newVersion := strings.TrimSpace(newInput)
+		newVersion, err := agentcommon.PromptLine("Enter new version: ")
+		if err != nil {
+			return "", err
+		}
 		if newVersion == "" {
 			return "", fmt.Errorf("no version provided, aborting")
 		}
