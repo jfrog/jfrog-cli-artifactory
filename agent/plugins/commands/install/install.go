@@ -234,25 +234,25 @@ func (ic *InstallCommand) CopyExtractedToTargets(unzipDir string, installTargets
 			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
 			continue
 		}
-	if hookErr := plugincommon.RunPostInstallHook(target.Agent.Name, ic.slug, ic.version, target.DestinationDir, ic.repoKey); hookErr != nil {
-		if agentcommon.IsWarning(hookErr) {
-			log.Warn(fmt.Sprintf("post-install hook for agent %q: %s", target.Agent.Name, hookErr))
-			results = append(results, agentcommon.InstallWarningRow(target.Agent.Name, string(target.Scope), target.DestinationDir,
-				fmt.Sprintf("Plugin files installed successfully but native registration incomplete: %s", hookErr.Error())))
+		if hookErr := plugincommon.RunPostInstallHook(target.Agent.Name, ic.slug, ic.version, target.DestinationDir, ic.repoKey); hookErr != nil {
+			if agentcommon.IsWarning(hookErr) {
+				log.Warn(fmt.Sprintf("post-install hook for agent %q: %s", target.Agent.Name, hookErr))
+				results = append(results, agentcommon.InstallWarningRow(target.Agent.Name, string(target.Scope), target.DestinationDir,
+					fmt.Sprintf("Plugin files installed successfully but native registration incomplete: %s", hookErr.Error())))
+			} else {
+				log.Warn(fmt.Sprintf("post-install hook for agent %q: %s", target.Agent.Name, hookErr))
+				results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, hookErr))
+			}
 		} else {
-			log.Warn(fmt.Sprintf("post-install hook for agent %q: %s", target.Agent.Name, hookErr))
-			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, hookErr))
+			log.Info(fmt.Sprintf("post-install hook completed for agent %q", target.Agent.Name))
+			results = append(results, agentcommon.SummaryRow{
+				Agent:  target.Agent.Name,
+				Scope:  string(target.Scope),
+				Path:   target.DestinationDir,
+				Status: agentcommon.SummaryStatusOK,
+				Detail: agentcommon.SummaryDetailOKInstall,
+			})
 		}
-	} else {
-		log.Info(fmt.Sprintf("post-install hook completed for agent %q", target.Agent.Name))
-		results = append(results, agentcommon.SummaryRow{
-			Agent:  target.Agent.Name,
-			Scope:  string(target.Scope),
-			Path:   target.DestinationDir,
-			Status: agentcommon.SummaryStatusOK,
-			Detail: agentcommon.SummaryDetailOKInstall,
-		})
-	}
 	}
 	return results
 }

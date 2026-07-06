@@ -251,3 +251,66 @@ func TestResolveVersionCollision_InteractiveUnknownExistenceProceeds(t *testing.
 	require.NoError(t, err)
 	assert.Equal(t, "2.0.0", version)
 }
+
+func TestResolveMissingVersion_InteractiveWithExistingVersions(t *testing.T) {
+	origStdin := os.Stdin
+	defer func() { os.Stdin = origStdin }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	os.Stdin = r
+
+	go func() {
+		defer func() { _ = w.Close() }()
+		_, _ = w.WriteString("2.0.0\n")
+	}()
+
+	origListVersions := listPluginVersionsFunc
+	defer func() { listPluginVersionsFunc = origListVersions }()
+
+	listPluginVersionsFunc = func(*config.ServerDetails, string, string) ([]common.PluginVersion, error) {
+		return []common.PluginVersion{
+			{Version: "1.0.0"},
+			{Version: "1.5.0"},
+		}, nil
+	}
+
+	pc := NewPublishCommand()
+	version, err := pc.resolveMissingVersion("demo")
+	require.NoError(t, err)
+	assert.Equal(t, "2.0.0", version)
+}
+
+func TestResolveMissingVersion_QuietModeAutoIncrement(t *testing.T) {
+	origListVersions := listPluginVersionsFunc
+	defer func() { listPluginVersionsFunc = origListVersions }()
+
+	listPluginVersionsFunc = func(*config.ServerDetails, string, string) ([]common.PluginVersion, error) {
+		return []common.PluginVersion{
+			{Version: "1.2.3"},
+		}, nil
+	}
+
+	pc := NewPublishCommand().SetQuiet(true)
+	version, err := pc.resolveMissingVersion("demo")
+	require.NoError(t, err)
+	assert.Equal(t, "1.3.0", version) // Auto-incremented to next minor
+}
+
+func TestResolveMissingVersion_QuietModeDefault(t *testing.T) {
+	origListVersions := listPluginVersionsFunc
+	defer func() { listPluginVersionsFunc = origListVersions }()
+
+	listPluginVersionsFunc = func(*config.ServerDetails, string, string) ([]common.PluginVersion, error) {
+		return []common.PluginVersion{}, nil // No existing versions
+	}
+
+	pc := NewPublishCommand().SetQuiet(true)
+	version, err := pc.resolveMissingVersion("demo")
+	require.NoError(t, err)
+	assert.Equal(t, "0.1.0", version)
+}
