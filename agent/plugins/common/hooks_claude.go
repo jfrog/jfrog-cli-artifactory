@@ -28,43 +28,28 @@ func claudePostInstall(slug, version, installDir, repoKey string) error {
 	if err := upsertLocalMarketplaceEntry(marketplacePath, slug, version, repoKey); err != nil {
 		return err
 	}
-	if _, err := lookPathClaude(); err != nil {
+	_, err := lookPathClaude()
+	if err == nil {
+		// CLI found, proceed with registration
+		marketplaceDir := claudeMarketplaceDir(installDir)
+		log.Info(fmt.Sprintf("[claude] registering marketplace: claude plugin marketplace add %s", marketplaceDir))
+		ClaudeExec("plugin", "marketplace", "add", marketplaceDir)
+		log.Info(fmt.Sprintf("[claude] installing plugin: claude plugin install %s@%s", slug, repoKey))
+		// Include the @<repoKey> qualifier so Claude resolves the correct marketplace source.
+		ClaudeExec("plugin", "install", slug+"@"+repoKey)
+	} else {
+		// CLI not found, log warning but continue (not a fatal error)
 		log.Warn("[claude] claude CLI not found on PATH; skipping native marketplace registration. " +
 			"Install the Claude CLI to complete native plugin registration.")
-		return err
 	}
-	// Pass the marketplace root directory, not the .json file itself.
-	// `claude plugin marketplace add <dir>` reads <dir>/.claude-plugin/marketplace.json.
-	marketplaceDir := claudeMarketplaceDir(installDir)
-	log.Info(fmt.Sprintf("[claude] registering marketplace: claude plugin marketplace add %s", marketplaceDir))
-	ClaudeExec("plugin", "marketplace", "add", marketplaceDir)
-	log.Info(fmt.Sprintf("[claude] installing plugin: claude plugin install %s@%s", slug, repoKey))
-	// Include the @<repoKey> qualifier so Claude resolves the correct marketplace source.
-	ClaudeExec("plugin", "install", slug+"@"+repoKey)
-	return nil
-}
-
-// claudePostDelete removes the plugin from the JFrog marketplace file and
-// unregisters it from the native claude CLI (if available).
-func claudePostDelete(slug, installDir, repoKey string) error {
-	marketplacePath := claudeMarketplacePath(installDir)
-	log.Info(fmt.Sprintf("[claude] removing marketplace entry for '%s' from %s", slug, marketplacePath))
-	if err := removeLocalMarketplaceEntry(marketplacePath, slug); err != nil {
-		return err
-	}
-	if _, err := lookPathClaude(); err != nil {
-		return err
-	}
-	log.Info(fmt.Sprintf("[claude] uninstalling plugin: claude plugin uninstall %s@%s", slug, repoKey))
-	ClaudeExec("plugin", "uninstall", slug+"@"+repoKey)
 	return nil
 }
 
 // claudeMarketplacePath returns the path to the JFrog marketplace file inside
 // the marketplace root directory.
 //
-	//	installDir  = ~/.claude/plugins/local/jfrog-plugins/<slug>
-	//	marketplace = ~/.claude/plugins/local/jfrog-plugins/.claude-plugin/marketplace.json
+//	installDir  = ~/.claude/plugins/local/jfrog-plugins/<slug>
+//	marketplace = ~/.claude/plugins/local/jfrog-plugins/.claude-plugin/marketplace.json
 func claudeMarketplacePath(installDir string) string {
 	return filepath.Join(claudeMarketplaceDir(installDir), ".claude-plugin", "marketplace.json")
 }

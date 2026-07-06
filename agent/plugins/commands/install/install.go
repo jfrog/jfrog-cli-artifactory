@@ -234,11 +234,11 @@ func (ic *InstallCommand) CopyExtractedToTargets(unzipDir string, installTargets
 			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
 			continue
 		}
-		if hookErr := plugincommon.RunPostInstallHook(target.Agent.Name, ic.slug, ic.version, target.DestinationDir, ic.repoKey); hookErr != nil {
-			log.Warn(fmt.Sprintf("post-install hook for agent %q: %s", target.Agent.Name, hookErr))
-		} else {
-			log.Info(fmt.Sprintf("post-install hook completed for agent %q", target.Agent.Name))
-		}
+	if hookErr := plugincommon.RunPostInstallHook(target.Agent.Name, ic.slug, ic.version, target.DestinationDir, ic.repoKey); hookErr != nil {
+		log.Warn(fmt.Sprintf("post-install hook for agent %q: %s", target.Agent.Name, hookErr))
+		results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, hookErr))
+	} else {
+		log.Info(fmt.Sprintf("post-install hook completed for agent %q", target.Agent.Name))
 		results = append(results, agentcommon.SummaryRow{
 			Agent:  target.Agent.Name,
 			Scope:  string(target.Scope),
@@ -246,6 +246,7 @@ func (ic *InstallCommand) CopyExtractedToTargets(unzipDir string, installTargets
 			Status: agentcommon.SummaryStatusOK,
 			Detail: agentcommon.SummaryDetailOKInstall,
 		})
+	}
 	}
 	return results
 }
@@ -283,22 +284,22 @@ func (ic *InstallCommand) resolveAgentTargetDirectories() ([]plugincommon.AgentT
 			agentLower := strings.ToLower(agent.Name)
 			if agentLower == "claude" {
 				return nil, fmt.Errorf(
-					"claude does not support project-scoped plugin installs: "+
-						"Claude plugin configuration is user-scoped only (~/.claude/settings.json). "+
+					"claude does not support project-scoped plugin installs: " +
+						"Claude plugin configuration is user-scoped only (~/.claude/settings.json). " +
 						"Use --global to install there instead",
 				)
 			}
 			if agentLower == "cursor" {
 				return nil, fmt.Errorf(
-					"cursor does not support project-scoped plugin installs: "+
-						"Cursor only auto-discovers full plugins from ~/.cursor/plugins/local/. "+
+					"cursor does not support project-scoped plugin installs: " +
+						"Cursor only auto-discovers full plugins from ~/.cursor/plugins/local/. " +
 						"Use --global to install there instead",
 				)
 			}
 			if agentLower == "codex" {
 				return nil, fmt.Errorf(
-					"codex does not support project-scoped plugin installs: "+
-						"Codex plugin configuration is user-scoped only (~/.codex/config.toml). "+
+					"codex does not support project-scoped plugin installs: " +
+						"Codex plugin configuration is user-scoped only (~/.codex/config.toml). " +
 						"Use --global to install there instead",
 				)
 			}

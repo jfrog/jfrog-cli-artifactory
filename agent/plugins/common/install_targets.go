@@ -24,8 +24,8 @@ type AgentTarget = agentcommon.InstallTarget
 // own isolated marketplace directory so installs from different repos never
 // overwrite each other's marketplace registration.
 //
-//   Claude: <GlobalDir>/<slug>  →  <GlobalDir>/<repoKey>/<slug>
-//   Codex:  <GlobalDir>/<slug>  →  <GlobalDir>/<repoKey>/<slug>
+//	Claude: <GlobalDir>/<slug>  →  <GlobalDir>/<repoKey>/<slug>
+//	Codex:  <GlobalDir>/<slug>  →  <GlobalDir>/<repoKey>/<slug>
 //
 // Cursor and --path targets are returned unchanged.
 func InjectRepoKey(targets []AgentTarget, repoKey string) []AgentTarget {

@@ -9,20 +9,11 @@ import "strings"
 // return nil — the file installation already succeeded.
 type PostInstallFn func(slug, version, installDir, repoKey string) error
 
-// PostDeleteFn is called after plugin files are removed from installDir.
-type PostDeleteFn func(slug, installDir, repoKey string) error
-
 // agentPostInstallHooks maps lowercase agent names to their post-install hook.
 // Agents without an entry have no native CLI integration and no hook runs.
 var agentPostInstallHooks = map[string]PostInstallFn{
 	"claude": claudePostInstall,
 	"codex":  codexPostInstall,
-}
-
-// agentPostDeleteHooks maps lowercase agent names to their post-delete hook.
-var agentPostDeleteHooks = map[string]PostDeleteFn{
-	"claude": claudePostDelete,
-	"codex":  codexPostDelete,
 }
 
 // RunPostInstallHook executes the registered post-install hook for agentName.
@@ -33,14 +24,4 @@ func RunPostInstallHook(agentName, slug, version, installDir, repoKey string) er
 		return nil
 	}
 	return fn(slug, version, installDir, repoKey)
-}
-
-// RunPostDeleteHook executes the registered post-delete hook for agentName.
-// Returns nil if no hook is registered.
-func RunPostDeleteHook(agentName, slug, installDir, repoKey string) error {
-	fn, ok := agentPostDeleteHooks[strings.ToLower(agentName)]
-	if !ok {
-		return nil
-	}
-	return fn(slug, installDir, repoKey)
 }

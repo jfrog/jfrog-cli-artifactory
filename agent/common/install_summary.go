@@ -14,6 +14,7 @@ const (
 	SummaryStatusOK        = "ok"
 	SummaryStatusFailed    = "failed"
 	SummaryStatusSkipped   = "skipped"
+	SummaryStatusWarning   = "warning"
 	SummaryDetailOKInstall = "Executed successfully with no issues."
 )
 

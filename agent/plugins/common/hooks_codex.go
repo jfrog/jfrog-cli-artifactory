@@ -19,9 +19,9 @@ const codexNativeCmdTimeout = 30 * time.Second
 // codexMarketplace is the on-disk shape of <marketplace-root>/.agents/plugins/marketplace.json.
 // This is the "supported manifest" that `codex plugin marketplace add <root>` reads.
 type codexMarketplace struct {
-	Name      string               `json:"name"`
-	Interface codexDisplayName     `json:"interface,omitempty"`
-	Plugins   []codexPluginEntry   `json:"plugins"`
+	Name      string             `json:"name"`
+	Interface codexDisplayName   `json:"interface,omitempty"`
+	Plugins   []codexPluginEntry `json:"plugins"`
 }
 
 type codexDisplayName struct {
@@ -30,9 +30,9 @@ type codexDisplayName struct {
 
 // codexPluginEntry is a single plugin record inside the Codex marketplace manifest.
 type codexPluginEntry struct {
-	Name   string          `json:"name"`
-	Source codexPluginSrc  `json:"source"`
-	Policy codexPolicy     `json:"policy,omitempty"`
+	Name   string         `json:"name"`
+	Source codexPluginSrc `json:"source"`
+	Policy codexPolicy    `json:"policy,omitempty"`
 }
 
 // codexPluginSrc uses the object form that Codex requires.
@@ -70,35 +70,22 @@ func codexPostInstall(slug, version, installDir, repoKey string) error {
 	manifestPath := codexMarketplaceManifestPath(installDir)
 	log.Info(fmt.Sprintf("[codex] writing marketplace entry for '%s' → %s", slug, manifestPath))
 	if err := upsertCodexMarketplaceEntry(manifestPath, slug, repoKey); err != nil {
-		log.Warn("codex post-install: failed to update marketplace manifest:", err)
-		return nil
+		return err
 	}
-	if _, err := lookPathCodex(); err != nil {
+	_, err := lookPathCodex()
+	if err == nil {
+		// CLI found, proceed with registration
+		root := codexMarketplaceRoot(installDir)
+		log.Info(fmt.Sprintf("[codex] registering marketplace: codex plugin marketplace add %s", root))
+		CodexExec("plugin", "marketplace", "add", root)
+		log.Info(fmt.Sprintf("[codex] installing plugin: codex plugin add %s@%s", slug, repoKey))
+		// Include the @<repoKey> qualifier so Codex resolves the correct marketplace source.
+		CodexExec("plugin", "add", slug+"@"+repoKey)
+	} else {
+		// CLI not found, log warning but continue (not a fatal error)
 		log.Warn("[codex] codex CLI not found on PATH; skipping native marketplace registration. " +
 			"Run: codex plugin marketplace add " + codexMarketplaceRoot(installDir))
-		return err
 	}
-	root := codexMarketplaceRoot(installDir)
-	log.Info(fmt.Sprintf("[codex] registering marketplace: codex plugin marketplace add %s", root))
-	CodexExec("plugin", "marketplace", "add", root)
-	log.Info(fmt.Sprintf("[codex] installing plugin: codex plugin add %s@%s", slug, repoKey))
-	// Include the @<repoKey> qualifier so Codex resolves the correct marketplace source.
-	CodexExec("plugin", "add", slug+"@"+repoKey)
-	return nil
-}
-
-// codexPostDelete removes the plugin from the Codex marketplace manifest.
-func codexPostDelete(slug, installDir, repoKey string) error {
-	manifestPath := codexMarketplaceManifestPath(installDir)
-	log.Info(fmt.Sprintf("[codex] removing marketplace entry for '%s' from %s", slug, manifestPath))
-	if err := removeCodexMarketplaceEntry(manifestPath, slug); err != nil {
-		log.Warn("codex post-delete: failed to update marketplace manifest:", err)
-	}
-	if _, err := lookPathCodex(); err != nil {
-		return err
-	}
-	log.Info(fmt.Sprintf("[codex] removing plugin: codex plugin remove %s@%s", slug, repoKey))
-	CodexExec("plugin", "remove", slug+"@"+repoKey)
 	return nil
 }
 
