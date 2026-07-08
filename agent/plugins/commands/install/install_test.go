@@ -13,9 +13,13 @@ import (
 )
 
 func init() {
-	// Prevent real agent CLI binaries from being invoked during unit tests.
-	plugincommon.ClaudeExec = func(_ ...string) {}
-	plugincommon.CodexExec = func(_ ...string) {}
+	// Prevent real agent CLI binaries from being invoked during unit tests, and make
+	// results independent of whether claude/codex happen to be installed on the
+	// machine running the tests (e.g. CI runners don't have them on PATH).
+	plugincommon.ClaudeExec = func(_ ...string) error { return nil }
+	plugincommon.CodexExec = func(_ ...string) error { return nil }
+	plugincommon.LookPathClaude = func() (string, error) { return "/usr/bin/claude", nil }
+	plugincommon.LookPathCodex = func() (string, error) { return "/usr/bin/codex", nil }
 }
 
 func TestResolveAgentTargetDirectories_ProjectScope(t *testing.T) {

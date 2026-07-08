@@ -46,19 +46,22 @@ type codexPolicy struct {
 	Installation string `json:"installation,omitempty"`
 }
 
-// CodexExec dispatches native codex CLI commands.
+// CodexExec dispatches native codex CLI commands and returns an error if the command fails.
 // Exported so that tests in other packages can swap it with a no-op.
-var CodexExec = func(args ...string) {
+var CodexExec = func(args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), codexNativeCmdTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "codex", args...).CombinedOutput() // #nosec G204 -- args are tool-managed subcommand strings; slug is pre-validated by ValidateSlug
 	if err != nil {
-		log.Warn("codex " + strings.Join(args, " ") + ": " + string(out))
+		return fmt.Errorf("codex %s: %s", strings.Join(args, " "), string(out))
 	}
+	return nil
 }
 
 // codexPostInstall writes the plugin into the Codex marketplace manifest and
 // registers it with the native codex CLI (if available).
+// Returns an error if the marketplace write fails or if native registration fails when the CLI is found.
+// Returns a WarningError if the CLI is not found on PATH.
 //
 // Directory layout produced by agents.go (GlobalDir = ~/.agents/plugins/local/jfrog):
 //
@@ -72,19 +75,25 @@ func codexPostInstall(slug, version, installDir, repoKey string) error {
 	if err := upsertCodexMarketplaceEntry(manifestPath, slug, repoKey); err != nil {
 		return err
 	}
-	_, err := lookPathCodex()
+	_, err := LookPathCodex()
 	if err == nil {
 		// CLI found, proceed with registration
 		root := codexMarketplaceRoot(installDir)
 		log.Info(fmt.Sprintf("[codex] registering marketplace: codex plugin marketplace add %s", root))
-		CodexExec("plugin", "marketplace", "add", root)
+		if execErr := CodexExec("plugin", "marketplace", "add", root); execErr != nil {
+			return fmt.Errorf("native marketplace registration failed: %w", execErr)
+		}
 		log.Info(fmt.Sprintf("[codex] installing plugin: codex plugin add %s@%s", slug, repoKey))
 		// Include the @<repoKey> qualifier so Codex resolves the correct marketplace source.
-		CodexExec("plugin", "add", slug+"@"+repoKey)
+		if execErr := CodexExec("plugin", "add", slug+"@"+repoKey); execErr != nil {
+			return fmt.Errorf("native plugin installation failed: %w", execErr)
+		}
 	} else {
-		// CLI not found, log warning but continue (not a fatal error)
-		log.Warn("[codex] codex CLI not found on PATH; skipping native marketplace registration. " +
-			"Run: codex plugin marketplace add " + codexMarketplaceRoot(installDir))
+		// CLI not found, return a warning so it's reported as a warning not a hard failure
+		return agentcommon.NewWarningError(
+			fmt.Sprintf("codex CLI not found on PATH; skipping native marketplace registration. "+
+				"Run: codex plugin marketplace add %s", codexMarketplaceRoot(installDir)),
+		)
 	}
 	return nil
 }
@@ -192,7 +201,9 @@ func writeCodexMarketplace(path string, m *codexMarketplace) error {
 	return nil
 }
 
-// lookPathCodex is a variable so tests can override it without hitting the real PATH.
-var lookPathCodex = func() (string, error) {
+// LookPathCodex is a variable so tests can override it without hitting the real PATH.
+// Exported so that tests in other packages can swap it to avoid depending on
+// whether the codex CLI happens to be installed on the machine running the tests.
+var LookPathCodex = func() (string, error) {
 	return exec.LookPath("codex")
 }

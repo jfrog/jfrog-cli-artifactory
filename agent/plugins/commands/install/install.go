@@ -151,7 +151,7 @@ func (ic *InstallCommand) Run() error {
 	}
 
 	for _, result := range results {
-		if result.Status != agentcommon.SummaryStatusOK {
+		if result.Status == agentcommon.SummaryStatusFailed {
 			return fmt.Errorf("installation failed for one or more agents (see summary above)")
 		}
 	}
@@ -235,8 +235,14 @@ func (ic *InstallCommand) CopyExtractedToTargets(unzipDir string, installTargets
 			continue
 		}
 	if hookErr := plugincommon.RunPostInstallHook(target.Agent.Name, ic.slug, ic.version, target.DestinationDir, ic.repoKey); hookErr != nil {
-		log.Warn(fmt.Sprintf("post-install hook for agent %q: %s", target.Agent.Name, hookErr))
-		results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, hookErr))
+		if agentcommon.IsWarning(hookErr) {
+			log.Warn(fmt.Sprintf("post-install hook for agent %q: %s", target.Agent.Name, hookErr))
+			results = append(results, agentcommon.InstallWarningRow(target.Agent.Name, string(target.Scope), target.DestinationDir,
+				fmt.Sprintf("Plugin files installed successfully but native registration incomplete: %s", hookErr.Error())))
+		} else {
+			log.Warn(fmt.Sprintf("post-install hook for agent %q: %s", target.Agent.Name, hookErr))
+			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, hookErr))
+		}
 	} else {
 		log.Info(fmt.Sprintf("post-install hook completed for agent %q", target.Agent.Name))
 		results = append(results, agentcommon.SummaryRow{

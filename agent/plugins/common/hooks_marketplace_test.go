@@ -12,10 +12,10 @@ import (
 
 func init() {
 	// Prevent real agent CLI binaries from being invoked during unit tests.
-	ClaudeExec = func(_ ...string) {}
-	CodexExec = func(_ ...string) {}
-	lookPathClaude = func() (string, error) { return "", nil }
-	lookPathCodex = func() (string, error) { return "", nil }
+	ClaudeExec = func(_ ...string) error { return nil }
+	CodexExec = func(_ ...string) error { return nil }
+	LookPathClaude = func() (string, error) { return "", nil }
+	LookPathCodex = func() (string, error) { return "", nil }
 }
 
 func TestUpsertLocalMarketplaceEntry_CreatesFile(t *testing.T) {
