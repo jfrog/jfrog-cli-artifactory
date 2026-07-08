@@ -2,6 +2,7 @@ package container
 
 import (
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/container/strategies"
+	artutils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
@@ -38,6 +39,12 @@ func (bc *BuildCommand) Run() error {
 	// Validate configuration if needed
 	if err := bc.validateConfig(); err != nil {
 		return err
+	}
+
+	if wd, err := artutils.ResolveWorkingDirectoryFromDockerArgs(bc.cmdParams); err != nil {
+		return err
+	} else {
+		bc.workingDirectory = wd
 	}
 
 	bc.strategy = strategies.CreateStrategy(bc.dockerBuildOptions)
