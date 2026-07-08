@@ -16,9 +16,9 @@ const claudeNativeCmdTimeout = 30 * time.Second
 // claudePostInstall writes the plugin into the JFrog marketplace file and
 // registers it with the native claude CLI (if available).
 //
-// Directory layout produced by agents.go (GlobalDir = ~/.claude/plugins/local/jfrog-plugins):
+// Directory layout produced by agents.go (GlobalDir = ~/.claude/plugins/local/jfrog):
 //
-//	~/.claude/plugins/local/jfrog-plugins/
+//	~/.claude/plugins/local/jfrog/
 //	  .claude-plugin/
 //	    marketplace.json          ← written here
 //	  <slug>/                     ← installDir (plugin files copied by jf)
@@ -48,8 +48,8 @@ func claudePostInstall(slug, version, installDir, repoKey string) error {
 // claudeMarketplacePath returns the path to the JFrog marketplace file inside
 // the marketplace root directory.
 //
-//	installDir  = ~/.claude/plugins/local/jfrog-plugins/<slug>
-//	marketplace = ~/.claude/plugins/local/jfrog-plugins/.claude-plugin/marketplace.json
+//	installDir  = ~/.claude/plugins/local/jfrog/<slug>
+//	marketplace = ~/.claude/plugins/local/jfrog/.claude-plugin/marketplace.json
 func claudeMarketplacePath(installDir string) string {
 	return filepath.Join(claudeMarketplaceDir(installDir), ".claude-plugin", "marketplace.json")
 }

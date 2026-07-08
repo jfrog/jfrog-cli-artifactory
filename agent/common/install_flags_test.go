@@ -17,8 +17,8 @@ var testSkillsAgents = map[string]AgentConfig{
 }
 
 var testPluginsAgents = map[string]AgentConfig{
-	"claude": {GlobalDir: "~/.claude/plugins/local", ProjectDir: ".claude/plugins"},
-	"cursor": {GlobalDir: "~/.cursor/plugins", ProjectDir: ".cursor/plugins"},
+	"claude": {GlobalDir: "~/.claude/plugins/local/jfrog", ProjectDir: ".claude/plugins"},
+	"cursor": {GlobalDir: "~/.cursor/plugins/local", ProjectDir: ".cursor/plugins"},
 }
 
 var testSkillsHelp = AgentRegistryHelpExample{

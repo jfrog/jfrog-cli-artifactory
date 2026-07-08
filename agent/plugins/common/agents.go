@@ -19,13 +19,15 @@ var Agents = map[string]AgentConfig{
 	// - Cursor: No repo key injection; paths are used as-is:
 	//     Cursor: <GlobalDir>/<slug>
 	//
+	// Paths ending in /jfrog are rooted under ~/.jfrog for JFrog-specific plugin configurations.
+	//
 	// All agents support global scope only. Project scope is not supported because:
 	//   - Claude: Plugin config is user-scoped only (~/.claude/settings.json)
 	//   - Cursor: Only auto-discovers full plugins from ~/.cursor/plugins/local/
 	//   - Codex:  Plugin config is user-scoped only (~/.codex/config.toml)
-	"claude": {GlobalDir: "~/.claude/plugins/local", ProjectDir: ""},
+	"claude": {GlobalDir: "~/.claude/plugins/local/jfrog", ProjectDir: ""},
 	"cursor": {GlobalDir: "~/.cursor/plugins/local", ProjectDir: ""},
-	"codex":  {GlobalDir: "~/.agents/plugins/local", ProjectDir: ""},
+	"codex":  {GlobalDir: "~/.agents/plugins/local/jfrog", ProjectDir: ""},
 }
 
 // RegistryHelp configures agent-config.json help text for plugins harness resolution.
