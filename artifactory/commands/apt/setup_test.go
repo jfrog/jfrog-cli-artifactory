@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -54,6 +55,9 @@ func TestWriteSourcesListIdempotent_OverwritesOnDiff(t *testing.T) {
 }
 
 func TestWriteSourcesListIdempotent_FilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix file permission bits not supported on Windows")
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.list")
 	cmd := &AptSetupCommand{}
@@ -79,7 +83,9 @@ func TestWrapPermErr_NonPermError(t *testing.T) {
 }
 
 func TestWrapPermErr_PermissionDenied(t *testing.T) {
-	// Trigger a real permission denied by writing to a read-only dir (unix only).
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod-based permission denial does not work on Windows")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("running as root — permission checks don't apply")
 	}
@@ -95,6 +101,9 @@ func TestWrapPermErr_PermissionDenied(t *testing.T) {
 }
 
 func TestWrapPermErr_WrappedPermissionDenied(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod-based permission denial does not work on Windows")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("running as root — permission checks don't apply")
 	}
