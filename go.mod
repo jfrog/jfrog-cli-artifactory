@@ -20,7 +20,7 @@ require (
 	golang.org/x/mod v0.36.0
 	gopkg.in/ini.v1 v1.67.1
 	helm.sh/helm/v3 v3.19.2
-	oras.land/oras-go/v2 v2.6.0
+	oras.land/oras-go/v2 v2.6.1
 )
 
 require golang.org/x/net v0.55.0 // indirect
