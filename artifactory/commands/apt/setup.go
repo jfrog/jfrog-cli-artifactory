@@ -1,8 +1,10 @@
 package apt
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -140,9 +142,17 @@ func (c *AptSetupCommand) Run() error {
 	log.Output(fmt.Sprintf("Wrote %s", targetFile))
 
 	updateCmd := exec.Command("apt-get", "update")
+	var stderrBuf bytes.Buffer
 	updateCmd.Stdout = os.Stdout
-	updateCmd.Stderr = os.Stderr
+	updateCmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 	if err := updateCmd.Run(); err != nil {
+		// apt-get exits 100 for many reasons (permissions, connectivity, bad
+		// config), so decide the hint from what apt actually reported rather
+		// than assuming from the current uid — a non-root user may hold all the
+		// needed permissions, in which case the failure is not a sudo problem.
+		if isAptPermissionError(stderrBuf.String()) {
+			return fmt.Errorf("apt-get update failed — you may need to run with sudo: %w", err)
+		}
 		return fmt.Errorf("apt-get update failed — check connectivity and credentials: %w", err)
 	}
 
@@ -220,6 +230,17 @@ func extractHost(rawURL string) string {
 	return u.Hostname()
 }
 
+// isAptPermissionError reports whether apt-get output indicates a permission
+// problem (typically the /var/lib/apt or /var/lib/dpkg locks) rather than a
+// connectivity or credentials failure. apt-get itself exits 100 for all of
+// these, so its stderr is the only reliable discriminator.
+func isAptPermissionError(output string) bool {
+	lower := strings.ToLower(output)
+	return strings.Contains(lower, "permission denied") ||
+		strings.Contains(lower, "are you root") ||
+		strings.Contains(lower, "could not open lock file")
+}
+
 // wrapPermErr appends a sudo hint to permission-denied errors.
 func wrapPermErr(err error) error {
 	if err == nil {
@@ -230,4 +251,3 @@ func wrapPermErr(err error) error {
 	}
 	return err
 }
-
