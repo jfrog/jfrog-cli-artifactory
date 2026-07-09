@@ -13,6 +13,7 @@ import (
 
 	bidotnet "github.com/jfrog/build-info-go/build/utils/dotnet"
 	biutils "github.com/jfrog/build-info-go/utils"
+	aptcommand "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/apt"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/golang"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
@@ -28,6 +29,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -147,6 +149,8 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	project.Helm: repository.Helm,
 
 	project.Go: repository.Go,
+
+	project.Apt: repository.Debian,
 
 	project.Gradle: repository.Gradle,
 	project.Maven:  repository.Maven,
@@ -273,6 +277,8 @@ func (sc *SetupCommand) Run() (err error) {
 		err = sc.configureMaven()
 	case project.UV:
 		err = sc.configureUV()
+	case project.Apt:
+		err = sc.configureApt()
 	default:
 		err = errorutils.CheckErrorf("unsupported package manager: %s", sc.packageManager)
 	}
@@ -861,4 +867,30 @@ func (sc *SetupCommand) configureHelm() error {
 	cmdLogin.Stderr = os.Stderr
 
 	return cmdLogin.Run()
+}
+
+// configureApt interactively prompts for dist and GPG mode, then delegates to
+// AptSetupCommand which writes the persistent sources.list entry and pinning file.
+// The repository was already selected by promptUserToSelectRepository before Run() dispatched here.
+func (sc *SetupCommand) configureApt() error {
+	dist := ioutils.AskString("", "Distribution name (e.g. noble, jammy, bookworm):", false, false)
+
+	var component string
+	ioutils.ScanFromConsole("Component (e.g. main, contrib, non-free — leave empty for 'main')", &component, "main")
+
+	var gpgChoice string
+	ioutils.ScanFromConsole("GPG mode — 'import' (auto-fetch key), 'trusted' (skip GPG, for testing), or leave empty to skip", &gpgChoice, "")
+
+	cmd := aptcommand.NewAptSetupCommand().
+		SetServerDetails(sc.serverDetails).
+		SetRepoName(sc.repoName).
+		SetDist(dist).
+		SetComponent(component)
+	switch gpgChoice {
+	case "import":
+		cmd.SetImportKey(true)
+	case "trusted":
+		cmd.SetTrusted(true)
+	}
+	return cmd.Run()
 }
