@@ -80,7 +80,7 @@ func TestWriteTempSourcesList_ContainsSourcesLine(t *testing.T) {
 	sd := fakeServerDetails("https://host/artifactory/", "u", "p")
 	path, err := WriteTempSourcesList(sd, "repo", "noble", "main", false)
 	require.NoError(t, err)
-	defer os.Remove(path)
+	defer func() { _ = os.Remove(path) }()
 
 	content, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -91,7 +91,7 @@ func TestWriteTempSourcesList_Permissions(t *testing.T) {
 	sd := fakeServerDetails("https://host/artifactory/", "u", "p")
 	path, err := WriteTempSourcesList(sd, "repo", "noble", "main", false)
 	require.NoError(t, err)
-	defer os.Remove(path)
+	defer func() { _ = os.Remove(path) }()
 
 	info, err := os.Stat(path)
 	require.NoError(t, err)
@@ -102,7 +102,7 @@ func TestWriteTempSourcesList_Trusted(t *testing.T) {
 	sd := fakeServerDetails("https://host/artifactory/", "u", "p")
 	path, err := WriteTempSourcesList(sd, "repo", "noble", "main", true)
 	require.NoError(t, err)
-	defer os.Remove(path)
+	defer func() { _ = os.Remove(path) }()
 
 	content, err := os.ReadFile(path)
 	require.NoError(t, err)

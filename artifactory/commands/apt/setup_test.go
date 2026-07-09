@@ -85,7 +85,7 @@ func TestWrapPermErr_PermissionDenied(t *testing.T) {
 	}
 	dir := t.TempDir()
 	require.NoError(t, os.Chmod(dir, 0555))
-	defer os.Chmod(dir, 0755)
+	defer func() { _ = os.Chmod(dir, 0755) }()
 
 	err := os.WriteFile(filepath.Join(dir, "x"), []byte("x"), 0600)
 	require.Error(t, err)
@@ -100,7 +100,7 @@ func TestWrapPermErr_WrappedPermissionDenied(t *testing.T) {
 	}
 	dir := t.TempDir()
 	require.NoError(t, os.Chmod(dir, 0555))
-	defer os.Chmod(dir, 0755)
+	defer func() { _ = os.Chmod(dir, 0755) }()
 
 	innerErr := os.WriteFile(filepath.Join(dir, "x"), []byte("x"), 0600)
 	require.Error(t, innerErr)
