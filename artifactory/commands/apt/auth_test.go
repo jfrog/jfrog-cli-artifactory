@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -88,6 +89,9 @@ func TestWriteTempSourcesList_ContainsSourcesLine(t *testing.T) {
 }
 
 func TestWriteTempSourcesList_Permissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix file permission bits not supported on Windows")
+	}
 	sd := fakeServerDetails("https://host/artifactory/", "u", "p")
 	path, err := WriteTempSourcesList(sd, "repo", "noble", "main", false)
 	require.NoError(t, err)
@@ -195,9 +199,11 @@ func TestFetchAndInstallPublicKey_KeyFilePermissions(t *testing.T) {
 	keyPath, err := FetchAndInstallPublicKey(sd, "repo", "noble")
 	require.NoError(t, err)
 
-	info, err := os.Stat(keyPath)
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0644), info.Mode().Perm(), "public key must be world-readable (apt needs it)")
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(keyPath)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0644), info.Mode().Perm(), "public key must be world-readable (apt needs it)")
+	}
 }
 
 func TestFetchAndInstallPublicKey_ServerError(t *testing.T) {

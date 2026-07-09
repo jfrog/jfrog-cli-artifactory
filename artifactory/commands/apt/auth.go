@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	artutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -102,7 +103,7 @@ func FetchAndInstallPublicKey(serverDetails *config.ServerDetails, repoName, dis
 		return "", fmt.Errorf("create keyrings dir: %w", err)
 	}
 
-	keyPath := fmt.Sprintf("%s/jfrog-%s-%s.asc", keyringsDir, repoName, dist)
+	keyPath := filepath.Join(keyringsDir, fmt.Sprintf("jfrog-%s-%s.asc", repoName, dist))
 	if err := os.WriteFile(keyPath, body, 0644); err != nil {
 		return "", fmt.Errorf("write public key: %w", err)
 	}
