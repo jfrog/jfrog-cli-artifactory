@@ -75,26 +75,65 @@ func (rc *RubyCommand) Run() error {
 	}
 
 	var extraEnv []string
-	if serverDetails != nil && sourceURL != "" {
+	var credCleanup func()
+	// gem build is a pure local operation — skip auth injection entirely.
+	if rc.nativeTool == toolGem && subCommand == "build" {
+		log.Debug("Ruby auth: skipping credential injection for gem build (local-only operation)")
+	} else if serverDetails != nil && sourceURL != "" {
 		extraEnv = rc.injectAuth(serverDetails, sourceURL)
-		// For gem install/fetch, embed credentials in the source URL so RubyGems
-		// uses them for index downloads (specs.4.8.gz).
-		if rc.nativeTool == toolGem && (subCommand == "install" || subCommand == "fetch") {
-			rc.args = rubyEmbedCredsInSourceArg(rc.args, serverDetails)
+		if rc.nativeTool == toolGem {
+			switch subCommand {
+			case "install", "fetch":
+				// Embed credentials in --source URL for index downloads (specs.4.8.gz).
+				rc.args = rubyEmbedCredsInSourceArg(rc.args, serverDetails)
+				log.Debug("Ruby auth [gem install/fetch]: embedded credentials in --source URL for index downloads")
+			case "push":
+				// Strip trailing slash from --host in args (whether user-provided or injected).
+				// RubyGems' push_command.rb builds URLs as "#{host}/api/v1/gems" — a trailing
+				// slash on host produces a double-slash that Artifactory rejects with 405.
+				rc.args = rubyStripHostTrailingSlash(rc.args)
+				// Write temporary ~/.gem/credentials for the target host.
+				// CRITICAL: the credentials key MUST exactly match the --host value that
+				// gets passed to the native command (no trailing slash).
+				pushHost := strings.TrimRight(sourceURL, "/")
+				cleanup, credErr := rubyWriteTempGemCredentials(pushHost, serverDetails)
+				if credErr != nil {
+					log.Warn("Ruby auth [gem push]: failed to write temporary credentials: " + credErr.Error())
+				} else {
+					credCleanup = cleanup
+					log.Debug("Ruby auth [gem push]: wrote temporary ~/.gem/credentials entry for " + pushHost)
+				}
+			}
 		}
 	} else if serverDetails != nil && sourceURL == "" {
 		log.Debug("Ruby auth: no Artifactory gem source discovered in args/Gemfile/gem-sources — skipping credential injection")
 	}
+	defer func() {
+		if credCleanup != nil {
+			credCleanup()
+		}
+	}()
 
 	log.Info(fmt.Sprintf("Running %s %s.", rc.nativeTool, subCommand))
-	if runErr := runRubyBinary(rc.nativeTool, rc.args, extraEnv); runErr != nil {
-		return fmt.Errorf("%s %s failed: %w", rc.nativeTool, subCommand, runErr)
+	// For gem install/fetch, capture stdout to parse "Successfully installed"/"Downloaded" lines.
+	var capturedOutput string
+	needsCapture := rc.nativeTool == toolGem && (subCommand == "install" || subCommand == "fetch")
+	if needsCapture {
+		var runErr error
+		capturedOutput, runErr = runRubyBinaryCapture(rc.nativeTool, rc.args, extraEnv)
+		if runErr != nil {
+			return fmt.Errorf("%s %s failed: %w", rc.nativeTool, subCommand, runErr)
+		}
+	} else {
+		if runErr := runRubyBinary(rc.nativeTool, rc.args, extraEnv); runErr != nil {
+			return fmt.Errorf("%s %s failed: %w", rc.nativeTool, subCommand, runErr)
+		}
 	}
 
 	if rc.buildConfiguration != nil {
 		buildName, nameErr := rc.buildConfiguration.GetBuildName()
 		if nameErr == nil && buildName != "" {
-			if biErr := rc.collectBuildInfo(workingDir, subCommand, repoKey, serverDetails); biErr != nil {
+			if biErr := rc.collectBuildInfo(workingDir, subCommand, repoKey, serverDetails, capturedOutput); biErr != nil {
 				log.Warn("Failed to collect Ruby build info: " + biErr.Error())
 			}
 		}
@@ -146,6 +185,130 @@ func rubyEmbedCredsInSourceArg(args []string, serverDetails *coreConfig.ServerDe
 	return result
 }
 
+// rubyEmbedCredsInHostArg embeds credentials in the --host URL for gem push.
+// This is the fallback for RubyGems <= 3.0.x which does NOT respect GEM_HOST_API_KEY.
+// Uses the same logic as rubyEmbedCredsInSourceArg but only targets --host.
+func rubyEmbedCredsInHostArg(args []string, serverDetails *coreConfig.ServerDetails) []string {
+	user, pass := rubyCredentials(serverDetails)
+	if user == "" || pass == "" {
+		return args
+	}
+	result := make([]string, len(args))
+	copy(result, args)
+	for i, a := range result {
+		var rawURL string
+		var prefix string
+		switch {
+		case strings.HasPrefix(a, "--host="):
+			prefix = "--host="
+			rawURL = strings.TrimPrefix(a, prefix)
+		case a == "--host" && i+1 < len(result):
+			parsed, err := url.Parse(result[i+1])
+			if err != nil || parsed.User != nil {
+				continue
+			}
+			parsed.User = url.UserPassword(user, pass)
+			result[i+1] = parsed.String()
+			continue
+		default:
+			continue
+		}
+		if rawURL == "" {
+			continue
+		}
+		parsed, err := url.Parse(rawURL)
+		if err != nil || parsed.User != nil {
+			continue
+		}
+		parsed.User = url.UserPassword(user, pass)
+		result[i] = prefix + parsed.String()
+	}
+	return result
+}
+
+// rubyWriteTempGemCredentials writes a temporary entry to ~/.gem/credentials for gem push.
+// This is the only auth mechanism that works across ALL RubyGems versions (3.0.x through current).
+// RubyGems' push_command.rb ALWAYS checks ~/.gem/credentials keyed by host URL.
+// Returns a cleanup function that restores the original file (or removes the added entry).
+func rubyWriteTempGemCredentials(hostURL string, serverDetails *coreConfig.ServerDetails) (cleanup func(), err error) {
+	user, pass := rubyCredentials(serverDetails)
+	if user == "" || pass == "" {
+		return nil, fmt.Errorf("no credentials available")
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("could not determine home directory: %w", err)
+	}
+	gemDir := filepath.Join(homeDir, ".gem")
+	credFile := filepath.Join(gemDir, "credentials")
+
+	// Ensure ~/.gem directory exists.
+	if err := os.MkdirAll(gemDir, 0700); err != nil {
+		return nil, fmt.Errorf("could not create ~/.gem directory: %w", err)
+	}
+
+	// Read existing credentials file (if any) to preserve and restore later.
+	var originalContent []byte
+	var originalExists bool
+	if data, readErr := os.ReadFile(credFile); readErr == nil {
+		originalContent = data
+		originalExists = true
+	}
+
+	// The credential value: Basic auth encoded (what Artifactory expects).
+	credValue := "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
+
+	// CRITICAL: Use the host URL EXACTLY as-is (including trailing slash if present).
+	// RubyGems' Gem::GemcutterUtilities#api_key does an exact string match against
+	// the --host value. If we strip the trailing slash but --host has one, the lookup misses.
+	credKey := hostURL
+
+	// Build new credentials content: preserve existing + add our entry.
+	var newContent string
+	if originalExists {
+		newContent = string(originalContent)
+		// Remove existing entry for same host if present (we'll re-add it).
+		// Check both with and without trailing slash to avoid duplicates.
+		keyWithSlash := strings.TrimRight(hostURL, "/") + "/"
+		keyWithoutSlash := strings.TrimRight(hostURL, "/")
+		lines := strings.Split(newContent, "\n")
+		var filtered []string
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, keyWithSlash+":") || strings.HasPrefix(trimmed, keyWithoutSlash+":") {
+				continue
+			}
+			filtered = append(filtered, line)
+		}
+		newContent = strings.Join(filtered, "\n")
+	} else {
+		newContent = "---\n"
+	}
+
+	// Add our entry keyed by the EXACT host URL (preserving trailing slash).
+	if !strings.HasSuffix(newContent, "\n") {
+		newContent += "\n"
+	}
+	newContent += fmt.Sprintf("%s: %s\n", credKey, credValue)
+
+	// Write the credentials file with restricted permissions (0600 required by RubyGems).
+	if err := os.WriteFile(credFile, []byte(newContent), 0600); err != nil {
+		return nil, fmt.Errorf("could not write credentials file: %w", err)
+	}
+
+	// Return cleanup function.
+	cleanup = func() {
+		if originalExists {
+			_ = os.WriteFile(credFile, originalContent, 0600)
+		} else {
+			_ = os.Remove(credFile)
+		}
+		log.Debug("Ruby auth [gem push]: cleaned up temporary ~/.gem/credentials entry")
+	}
+	return cleanup, nil
+}
+
 // rubyInjectSourceArg appends the appropriate source/host flag to native args when
 // --repo was used to construct the URL and the user didn't provide one in their command.
 // For gem push → --host; for gem install/fetch → --source; for bundle → no arg needed
@@ -155,12 +318,34 @@ func rubyInjectSourceArg(tool, subCommand string, args []string, sourceURL strin
 	if tool == toolGem {
 		switch subCommand {
 		case "push":
-			return append(args, "--host", sourceURL)
+			// Strip trailing slash for gem push: RubyGems' push_command.rb builds
+			// the request URL as "#{host}/api/v1/gems" — if host already ends with /,
+			// the resulting URL has a double slash which Artifactory rejects with 405.
+			hostForPush := strings.TrimRight(sourceURL, "/")
+			return append(args, "--host", hostForPush)
 		case "install", "fetch":
 			return append(args, "--source", sourceURL)
 		}
 	}
 	return args
+}
+
+// rubyStripHostTrailingSlash removes the trailing slash from any --host value in args.
+// For gem push, RubyGems builds URLs as "#{host}/api/v1/gems" — a trailing slash on
+// the host creates a double-slash that Artifactory rejects with 405.
+func rubyStripHostTrailingSlash(args []string) []string {
+	result := make([]string, len(args))
+	copy(result, args)
+	for i, a := range result {
+		switch {
+		case strings.HasPrefix(a, "--host="):
+			val := strings.TrimPrefix(a, "--host=")
+			result[i] = "--host=" + strings.TrimRight(val, "/")
+		case a == "--host" && i+1 < len(result):
+			result[i+1] = strings.TrimRight(result[i+1], "/")
+		}
+	}
+	return result
 }
 
 // runRubyBinary executes gem/bundle with stdio pass-through and optional extra env vars.
@@ -174,6 +359,23 @@ func runRubyBinary(tool string, args, extraEnv []string) error {
 	}
 	return cmd.Run()
 }
+
+// runRubyBinaryCapture executes gem/bundle capturing stdout while still printing it.
+// Used for `gem install`/`fetch` to parse installed/downloaded gem names from output.
+func runRubyBinaryCapture(tool string, args, extraEnv []string) (string, error) {
+	cmd := exec.Command(tool, args...) // #nosec G204
+	cmd.Stdin = os.Stdin
+	cmd.Stderr = os.Stderr
+	if len(extraEnv) > 0 {
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
+	// Capture stdout while also printing it to the user's terminal.
+	var buf strings.Builder
+	cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
+	err := cmd.Run()
+	return buf.String(), err
+}
+
 
 // isRubyHelpRequest reports whether the invocation is purely a help request.
 func isRubyHelpRequest(subCommand string, args []string) bool {
@@ -246,7 +448,7 @@ func (rc *RubyCommand) injectAuth(serverDetails *coreConfig.ServerDetails, sourc
 		} else {
 			basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
 			extraEnv = append(extraEnv, fmt.Sprintf("GEM_HOST_API_KEY=%s", basicAuth))
-			log.Info("Ruby auth [gem]: injecting credentials via GEM_HOST_API_KEY")
+			log.Info("Ruby auth [gem]: injecting GEM_HOST_API_KEY (used by gem push on RubyGems >= 3.1; URL-embedded credentials used as primary auth for install/fetch/push)")
 		}
 	}
 	return extraEnv
@@ -458,12 +660,15 @@ func rubyHostMatchesServer(rawURL, artifactoryURL string) bool {
 // ── Build info ─────────────────────────────────────────────────────────────────
 
 // collectBuildInfo dispatches build-info collection based on the native tool/sub-command.
-func (rc *RubyCommand) collectBuildInfo(workingDir, subCommand, repoKey string, serverDetails *coreConfig.ServerDetails) error {
+// capturedOutput is the captured stdout from gem commands (empty for bundle commands).
+func (rc *RubyCommand) collectBuildInfo(workingDir, subCommand, repoKey string, serverDetails *coreConfig.ServerDetails, capturedOutput string) error {
 	switch {
-	case rc.nativeTool == toolGem && (subCommand == "build" || subCommand == "push"):
-		return rc.collectGemArtifactBuildInfo(workingDir, subCommand, repoKey, serverDetails)
+	case rc.nativeTool == toolGem && subCommand == "push":
+		// Only gem push records artifacts — it's the point where the .gem enters Artifactory.
+		// gem build is local-only; the artifact has no Artifactory path until pushed.
+		return rc.collectGemArtifactBuildInfo(workingDir, repoKey, serverDetails)
 	case rc.collectsDependencies(subCommand):
-		return rc.collectDependencyBuildInfo(workingDir, subCommand, repoKey, serverDetails)
+		return rc.collectDependencyBuildInfo(workingDir, subCommand, repoKey, serverDetails, capturedOutput)
 	default:
 		log.Debug(fmt.Sprintf("Ruby build-info: no collection for '%s %s'", rc.nativeTool, subCommand))
 		return nil
@@ -490,9 +695,10 @@ func (rc *RubyCommand) collectsDependencies(subCommand string) bool {
 	return false
 }
 
-// collectDependencyBuildInfo parses Gemfile.lock and records dependencies, enriching
-// checksums from Artifactory.
-func (rc *RubyCommand) collectDependencyBuildInfo(workingDir, subCommand, repoKey string, serverDetails *coreConfig.ServerDetails) error {
+// collectDependencyBuildInfo records dependencies in build-info. For bundle commands,
+// this parses Gemfile.lock via FlexPack. For gem install/fetch, it records the specific
+// gems that were actually installed/fetched (parsed from the native tool's stdout).
+func (rc *RubyCommand) collectDependencyBuildInfo(workingDir, subCommand, repoKey string, serverDetails *coreConfig.ServerDetails, capturedOutput string) error {
 	buildName, err := rc.buildConfiguration.GetBuildName()
 	if err != nil {
 		return err
@@ -502,14 +708,15 @@ func (rc *RubyCommand) collectDependencyBuildInfo(workingDir, subCommand, repoKe
 		return err
 	}
 
-	gemConfig := flexpack.GemConfig{WorkingDirectory: workingDir}
-	// Parse Gemfile groups for scope classification (production/development/test).
-	gemConfig.GemGroups = parseGemfileGroups(workingDir)
-	// For bundler, use `bundle list` as the ground-truth installed set so group
-	// filtering (--without/--with) is reflected accurately.
-	if rc.nativeTool == toolBundle {
-		gemConfig.InstalledPackages = bundleInstalledPackages(workingDir)
+	// For gem install/fetch: parse stdout to determine exactly what was installed/fetched.
+	if rc.nativeTool == toolGem {
+		return rc.collectGemInstallDependencies(workingDir, subCommand, buildName, buildNumber, repoKey, serverDetails, capturedOutput)
 	}
+
+	// For bundle install/update/lock/add: use the full FlexPack lock-file parser.
+	gemConfig := flexpack.GemConfig{WorkingDirectory: workingDir}
+	gemConfig.GemGroups = parseGemfileGroups(workingDir)
+	gemConfig.InstalledPackages = bundleInstalledPackages(workingDir)
 
 	collector, err := flexpack.NewRubygemsFlexPack(gemConfig)
 	if err != nil {
@@ -526,7 +733,7 @@ func (rc *RubyCommand) collectDependencyBuildInfo(workingDir, subCommand, repoKe
 
 	if len(bi.Modules) > 0 && len(bi.Modules[0].Dependencies) > 0 && repoKey != "" && serverDetails != nil {
 		directURLDeps := collector.GetDirectURLDeps()
-		rubyEnrichDepsFromArtifactory(bi.Modules[0].Dependencies, repoKey, directURLDeps, serverDetails)
+		rubyEnrichDepsChecksums(bi.Modules[0].Dependencies, repoKey, directURLDeps, serverDetails)
 	} else if repoKey == "" {
 		log.Info("Ruby build-info: no Artifactory gems repo discovered — dependency checksum enrichment skipped. " +
 			"Point your Gemfile/gem source at an Artifactory gems repository or pass --server-id.")
@@ -539,8 +746,202 @@ func (rc *RubyCommand) collectDependencyBuildInfo(workingDir, subCommand, repoKe
 	return nil
 }
 
-// collectGemArtifactBuildInfo records the .gem artifact produced by `gem build`/`gem push`.
-func (rc *RubyCommand) collectGemArtifactBuildInfo(workingDir, subCommand, repoKey string, serverDetails *coreConfig.ServerDetails) error {
+// collectGemInstallDependencies records the gems that were actually installed/fetched.
+// Primary mechanism: parse stdout ("Successfully installed X-Y" / "Downloaded X-Y.gem").
+// Fallback: explicit -v/--version arg + gem name from args, or gem list query.
+func (rc *RubyCommand) collectGemInstallDependencies(workingDir, subCommand, buildName, buildNumber, repoKey string, serverDetails *coreConfig.ServerDetails, capturedOutput string) error {
+	// Primary: parse the captured stdout for definitive name:version pairs.
+	deps := parseGemCommandOutput(capturedOutput, subCommand)
+
+	// Fallback: if stdout parsing yielded nothing, try extracting from args + gem list.
+	if len(deps) == 0 {
+		explicitVersion := extractVersionFromArgs(rc.args)
+		gemNames := extractGemNamesFromArgs(rc.args)
+		for _, name := range gemNames {
+			version := explicitVersion
+			if version == "" {
+				version = queryInstalledGemVersion(name)
+			}
+			if version == "" {
+				log.Debug(fmt.Sprintf("Ruby build-info [gem %s]: could not determine version for %q — skipping", subCommand, name))
+				continue
+			}
+			deps = append(deps, buildinfo.Dependency{
+				Id:   fmt.Sprintf("%s:%s", name, version),
+				Type: gemDepArtifactType,
+			})
+		}
+	}
+
+	if len(deps) == 0 {
+		log.Debug(fmt.Sprintf("Ruby build-info [gem %s]: no gems detected in output or args — empty build-info", subCommand))
+		return nil
+	}
+
+	moduleID := "gem-" + subCommand
+	if customModule := rc.buildConfiguration.GetModule(); customModule != "" {
+		moduleID = customModule
+	}
+
+	bi := &buildinfo.BuildInfo{
+		Name:       buildName,
+		Number:     buildNumber,
+		Agent:      &buildinfo.Agent{Name: "gem"},
+		BuildAgent: &buildinfo.Agent{Name: "Generic", Version: "1.0"},
+		Modules: []buildinfo.Module{{
+			Id:           moduleID,
+			Type:         buildinfo.Gem,
+			Dependencies: deps,
+		}},
+	}
+
+	// Enrich checksums from Artifactory.
+	if repoKey != "" && serverDetails != nil {
+		rubyEnrichDepsChecksums(bi.Modules[0].Dependencies, repoKey, nil, serverDetails)
+	}
+
+	if err := rubySaveBuildInfo(bi, rc.buildConfiguration); err != nil {
+		return fmt.Errorf("failed to save RubyGems build info: %w", err)
+	}
+	log.Info(fmt.Sprintf("RubyGems build info collected (%d gem(s)). Use 'jf rt bp %s %s' to publish.", len(deps), buildName, buildNumber))
+	return nil
+}
+
+// extractGemNamesFromArgs parses gem names from `gem install/fetch` command args.
+// Skips flags (--source, --version, etc.) and their values.
+func extractGemNamesFromArgs(args []string) []string {
+	var names []string
+	skipNext := false
+	for i, a := range args {
+		if i == 0 {
+			continue // skip the subcommand itself (install/fetch)
+		}
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		// Skip flags and their values.
+		if strings.HasPrefix(a, "-") {
+			// Flags that take a value argument.
+			switch a {
+			case "--source", "-s", "--host", "--version", "-v", "--platform", "-i",
+				"--install-dir", "--bindir", "-n", "--document", "--build-root":
+				skipNext = true
+			}
+			continue
+		}
+		// Skip anything that looks like a path or URL (not a gem name).
+		if strings.Contains(a, "/") || strings.Contains(a, "\\") {
+			continue
+		}
+		names = append(names, a)
+	}
+	return names
+}
+
+// parseGemCommandOutput parses gem install/fetch stdout to extract name:version pairs.
+//
+// gem install prints: "Successfully installed <name>-<version>"
+// gem fetch prints:   "Downloaded <name>-<version>.gem" or "Fetching: <name>-<version>.gem"
+//
+// This is the primary (most accurate) mechanism — it reflects what actually happened.
+func parseGemCommandOutput(output, subCommand string) []buildinfo.Dependency {
+	if output == "" {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var deps []buildinfo.Dependency
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		var nameVersion string
+		switch {
+		case strings.HasPrefix(line, "Successfully installed "):
+			// "Successfully installed colorize-1.1.0"
+			nameVersion = strings.TrimPrefix(line, "Successfully installed ")
+		case strings.HasPrefix(line, "Downloaded "):
+			// "Downloaded colorize-1.1.0.gem"
+			nameVersion = strings.TrimSuffix(strings.TrimPrefix(line, "Downloaded "), ".gem")
+		case strings.HasPrefix(line, "Fetching: "):
+			// "Fetching: colorize-1.1.0.gem (100%)" — older gem versions
+			nameVersion = strings.TrimPrefix(line, "Fetching: ")
+			if idx := strings.Index(nameVersion, ".gem"); idx > 0 {
+				nameVersion = nameVersion[:idx]
+			}
+		default:
+			continue
+		}
+		name, version := splitGemNameVersion(nameVersion)
+		if name == "" || version == "" {
+			continue
+		}
+		depID := fmt.Sprintf("%s:%s", name, version)
+		if seen[depID] {
+			continue
+		}
+		seen[depID] = true
+		deps = append(deps, buildinfo.Dependency{
+			Id:   depID,
+			Type: gemDepArtifactType,
+		})
+	}
+	return deps
+}
+
+// splitGemNameVersion splits "colorize-1.1.0" into ("colorize", "1.1.0").
+// Gem names can contain hyphens (e.g., "rspec-core"), so we split on the LAST
+// hyphen that is followed by a digit.
+func splitGemNameVersion(s string) (name, version string) {
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] == '-' && i+1 < len(s) && s[i+1] >= '0' && s[i+1] <= '9' {
+			return s[:i], s[i+1:]
+		}
+	}
+	return "", ""
+}
+
+// extractVersionFromArgs extracts an explicit version from -v/--version flags in args.
+func extractVersionFromArgs(args []string) string {
+	for i, a := range args {
+		switch {
+		case (a == "-v" || a == "--version") && i+1 < len(args):
+			return strings.TrimSpace(args[i+1])
+		case strings.HasPrefix(a, "--version="):
+			return strings.TrimSpace(strings.TrimPrefix(a, "--version="))
+		case strings.HasPrefix(a, "-v") && len(a) > 2 && a[2] != '-':
+			// -v1.0.0 form (unusual but valid)
+			return strings.TrimSpace(a[2:])
+		}
+	}
+	return ""
+}
+
+// queryInstalledGemVersion queries the installed version of a gem via `gem list --exact <name>`.
+// Used as a fallback when stdout parsing doesn't yield results.
+// Returns the latest installed version or empty string if not found.
+func queryInstalledGemVersion(name string) string {
+	cmd := exec.Command("gem", "list", "--exact", name)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	// Output format: "colorize (1.1.0, 0.8.1)" or "colorize (1.1.0)"
+	line := strings.TrimSpace(string(out))
+	openParen := strings.Index(line, "(")
+	closeParen := strings.Index(line, ")")
+	if openParen == -1 || closeParen == -1 || closeParen <= openParen {
+		return ""
+	}
+	versions := line[openParen+1 : closeParen]
+	parts := strings.Split(versions, ",")
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(parts[0])
+}
+
+// collectGemArtifactBuildInfo records the .gem artifact uploaded by `gem push`.
+func (rc *RubyCommand) collectGemArtifactBuildInfo(workingDir, repoKey string, serverDetails *coreConfig.ServerDetails) error {
 	buildName, err := rc.buildConfiguration.GetBuildName()
 	if err != nil {
 		return err
@@ -576,8 +977,7 @@ func (rc *RubyCommand) collectGemArtifactBuildInfo(workingDir, subCommand, repoK
 		}},
 	}
 
-	// On push, set build properties on the uploaded artifacts in Artifactory.
-	if subCommand == "push" && repoKey != "" && serverDetails != nil {
+	if repoKey != "" && serverDetails != nil {
 		if propErr := rubySetBuildProperties(serverDetails, repoKey, buildName, buildNumber, rc.buildConfiguration.GetProject(), bi); propErr != nil {
 			log.Warn("Failed to set build properties on gem artifacts: " + propErr.Error())
 		}
@@ -599,37 +999,21 @@ func (rc *RubyCommand) gemModuleID(workingDir string) string {
 	return name
 }
 
-// rubyCollectGemArtifacts locates .gem files (build output or explicit push target)
-// and computes their checksums for build-info.
+// rubyCollectGemArtifacts locates the .gem file from the `gem push` command args.
 func rubyCollectGemArtifacts(workingDir string, args []string) ([]buildinfo.Artifact, error) {
-	gemFiles := make(map[string]bool)
-
-	// Explicit .gem path on a `gem push <file>` command.
+	var gemFiles []string
 	for _, a := range args {
-		if strings.HasSuffix(a, ".gem") {
+		if strings.HasSuffix(a, ".gem") && !strings.HasPrefix(a, "-") {
 			p := a
 			if !filepath.IsAbs(p) {
 				p = filepath.Join(workingDir, a)
 			}
-			gemFiles[p] = true
-		}
-	}
-
-	// `gem build` writes <name>-<version>.gem into the working dir and pkg/.
-	for _, dir := range []string{workingDir, filepath.Join(workingDir, "pkg")} {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), ".gem") {
-				gemFiles[filepath.Join(dir, e.Name())] = true
-			}
+			gemFiles = append(gemFiles, p)
 		}
 	}
 
 	var artifacts []buildinfo.Artifact
-	for path := range gemFiles {
+	for _, path := range gemFiles {
 		checksum, err := rubyFileChecksums(path)
 		if err != nil {
 			log.Warn(fmt.Sprintf("Could not compute checksums for %s: %v", path, err))
@@ -851,29 +1235,22 @@ func parseInlineGroups(line string) []string {
 	return result
 }
 
-// rubyEnrichDepsFromArtifactory fetches sha1/sha256/md5 for registry-based dependencies
-// in a single batched AQL call, matching .gem filenames by "<name>-<version>" prefix.
+// rubyDepEntry associates a dependency index with its gem filename prefix for enrichment.
+type rubyDepEntry struct {
+	idx    int
+	prefix string // "<name>-<version>" used to match the .gem filename
+}
+
+// rubyEnrichDepsChecksums enriches dependency checksums using a hybrid approach:
+// 1. Try local gem cache first (fast, no network)
+// 2. Fall back to AQL for any that couldn't be resolved locally
 // GIT/PATH deps (in directURLDeps) are skipped since they are not stored in Artifactory.
-func rubyEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, directURLDeps map[string]string, serverDetails *coreConfig.ServerDetails) {
+func rubyEnrichDepsChecksums(deps []buildinfo.Dependency, repoKey string, directURLDeps map[string]string, serverDetails *coreConfig.ServerDetails) {
 	if len(deps) == 0 {
 		return
 	}
-	servicesManager, err := utils.CreateServiceManager(serverDetails, -1, 0, false)
-	if err != nil {
-		log.Warn("Could not create services manager for dependency enrichment: " + err.Error())
-		return
-	}
-	searchRepo, err := utils.GetRepoNameForDependenciesSearch(repoKey, servicesManager)
-	if err != nil {
-		log.Warn("Could not resolve repo for dependency search, using as-is: " + err.Error())
-		searchRepo = repoKey
-	}
 
-	type depEntry struct {
-		idx    int
-		prefix string // "<name>-<version>" used to match the .gem filename
-	}
-	var entries []depEntry
+	var entries []rubyDepEntry
 	for i, dep := range deps {
 		if dep.Id == "" {
 			continue
@@ -886,10 +1263,78 @@ func rubyEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, 
 			continue
 		}
 		name, version := dep.Id[:colonIdx], dep.Id[colonIdx+1:]
-		entries = append(entries, depEntry{i, name + "-" + version})
+		entries = append(entries, rubyDepEntry{i, name + "-" + version})
 	}
 	if len(entries) == 0 {
 		return
+	}
+
+	// Phase 1: Try local gem cache.
+	cacheDir := rubyGemCacheDir()
+	localHits := 0
+	var needsAQL []rubyDepEntry
+	for _, e := range entries {
+		if cacheDir == "" {
+			needsAQL = append(needsAQL, e)
+			continue
+		}
+		gemFile := filepath.Join(cacheDir, e.prefix+".gem")
+		checksum, err := rubyFileChecksums(gemFile)
+		if err == nil {
+			deps[e.idx].Sha1 = checksum.Sha1
+			deps[e.idx].Md5 = checksum.Md5
+			deps[e.idx].Sha256 = checksum.Sha256
+			localHits++
+			log.Debug(fmt.Sprintf("Checksum from local cache: %s", e.prefix))
+		} else {
+			needsAQL = append(needsAQL, e)
+		}
+	}
+	if localHits > 0 {
+		log.Info(fmt.Sprintf("Resolved %d/%d dependency checksums from local gem cache", localHits, len(entries)))
+	}
+
+	// Phase 2: AQL fallback for remaining deps (also provides repo path).
+	if len(needsAQL) == 0 && repoKey == "" {
+		return
+	}
+	// Even locally-resolved deps need repo path from AQL if we have a repo key.
+	entriesToQuery := needsAQL
+	if repoKey != "" {
+		entriesToQuery = entries
+	}
+	if len(entriesToQuery) == 0 || serverDetails == nil {
+		return
+	}
+	rubyEnrichDepsViaAQL(deps, entriesToQuery, repoKey, serverDetails)
+}
+
+// rubyGemCacheDir returns the local RubyGems cache directory.
+// Typically ~/.local/share/gem/ruby/<version>/cache or from `gem env gemdir`/cache.
+func rubyGemCacheDir() string {
+	out, err := exec.Command("gem", "env", "gemdir").Output()
+	if err != nil {
+		log.Debug("Could not determine gem cache dir: " + err.Error())
+		return ""
+	}
+	dir := filepath.Join(strings.TrimSpace(string(out)), "cache")
+	if info, statErr := os.Stat(dir); statErr == nil && info.IsDir() {
+		return dir
+	}
+	return ""
+}
+
+// rubyEnrichDepsViaAQL fetches checksums and repo paths from Artifactory via batched AQL.
+func rubyEnrichDepsViaAQL(deps []buildinfo.Dependency, entries []rubyDepEntry, repoKey string, serverDetails *coreConfig.ServerDetails) {
+	servicesManager, err := utils.CreateServiceManager(serverDetails, -1, 0, false)
+	if err != nil {
+		log.Warn("Could not create services manager for dependency enrichment: " + err.Error())
+		return
+	}
+	searchRepo, err := utils.GetRepoNameForDependenciesSearch(repoKey, servicesManager)
+	if err != nil {
+		log.Warn("Could not resolve repo for dependency search, using as-is: " + err.Error())
+		searchRepo = repoKey
 	}
 
 	var orClauses []string
@@ -899,13 +1344,13 @@ func rubyEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, 
 			continue
 		}
 		seen[e.prefix] = true
-		// Match "<name>-<version>.gem" and platform-specific "<name>-<version>-<platform>.gem".
 		orClauses = append(orClauses, fmt.Sprintf(`{"name":{"$match":%q}}`, e.prefix+"*.gem"))
 	}
 	aqlQuery := fmt.Sprintf(
 		`items.find({"repo":%q,"$or":[%s]}).include("name","path","actual_sha1","actual_md5","sha256")`,
 		searchRepo, strings.Join(orClauses, ","),
 	)
+	log.Debug(fmt.Sprintf("AQL fallback query for %d deps (repo: %s)", len(entries), searchRepo))
 
 	stream, err := servicesManager.Aql(aqlQuery)
 	if err != nil {
@@ -935,17 +1380,14 @@ func rubyEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, 
 			continue
 		}
 		for _, e := range entries {
-			if deps[e.idx].Sha1 != "" {
-				continue
-			}
-			// "<name>-<version>.gem" or "<name>-<version>-<platform>.gem"
 			if r.Name == e.prefix+".gem" || strings.HasPrefix(r.Name, e.prefix+"-") {
-				deps[e.idx].Sha1 = r.ActualSha1
-				deps[e.idx].Md5 = r.ActualMd5
-				if r.Sha256 != "" && deps[e.idx].Sha256 == "" {
-					deps[e.idx].Sha256 = r.Sha256
+				if deps[e.idx].Sha1 == "" {
+					deps[e.idx].Sha1 = r.ActualSha1
+					deps[e.idx].Md5 = r.ActualMd5
+					if r.Sha256 != "" && deps[e.idx].Sha256 == "" {
+						deps[e.idx].Sha256 = r.Sha256
+					}
 				}
-				// Set the repository path for the dependency (repo/path/filename).
 				if r.Path != "" && r.Path != "." {
 					deps[e.idx].Repository = searchRepo + "/" + r.Path + "/" + r.Name
 				} else {
@@ -958,9 +1400,9 @@ func rubyEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, 
 	}
 
 	if enriched > 0 {
-		log.Info(fmt.Sprintf("Enriched %d/%d RubyGems dependencies with Artifactory checksums (repo: %s)", enriched, len(deps), searchRepo))
+		log.Info(fmt.Sprintf("Enriched %d/%d dependencies via AQL (repo: %s)", enriched, len(entries), searchRepo))
 	} else {
-		log.Debug(fmt.Sprintf("No RubyGems dependencies enriched from repo %s — gems may not be cached yet", searchRepo))
+		log.Debug(fmt.Sprintf("No dependencies enriched via AQL from repo %s — gems may not be cached yet", searchRepo))
 	}
 }
 
