@@ -1,6 +1,7 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -8,6 +9,12 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
+
+// ErrPluginNotFoundInRepo is returned when repoKey/slug doesn't exist in Artifactory
+// (compare with errors.Is). This can mean the plugin was genuinely never published there,
+// or that repoKey isn't an Artifactory repo jf manages at all — e.g. a native marketplace
+// name passed via --repo (such as Claude's built-in "claude-plugins-official").
+var ErrPluginNotFoundInRepo = errors.New("not found in repository")
 
 // listPluginVersions returns the version folders published under <repoKey>/<slug>/ using
 // the generic Artifactory storage API. Folder children that are not directories are skipped.
@@ -67,7 +74,7 @@ func ResolvePluginVersion(serverDetails *config.ServerDetails, repoKey, slug, re
 	versions, err := listPluginVersions(serverDetails, repoKey, slug)
 	if err != nil {
 		if agentcommon.IsHTTPNotFound(err) {
-			return "", fmt.Errorf("plugin '%s' not found in repository '%s'", slug, repoKey)
+			return "", fmt.Errorf("plugin '%s' %w '%s'", slug, ErrPluginNotFoundInRepo, repoKey)
 		}
 		return "", fmt.Errorf("failed to list versions: %w", err)
 	}
