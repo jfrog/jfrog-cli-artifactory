@@ -367,7 +367,7 @@ func TestCollectsDependencies(t *testing.T) {
 	cmd.nativeTool = toolBundle
 	assert.True(t, cmd.collectsDependencies("install"))
 	assert.True(t, cmd.collectsDependencies("update"))
-	assert.True(t, cmd.collectsDependencies("lock"))
+	assert.False(t, cmd.collectsDependencies("lock"))
 	assert.True(t, cmd.collectsDependencies("add"))
 	assert.False(t, cmd.collectsDependencies("exec"))
 

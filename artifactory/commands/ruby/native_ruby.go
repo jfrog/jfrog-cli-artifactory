@@ -675,12 +675,13 @@ func (rc *RubyCommand) collectBuildInfo(workingDir, subCommand, repoKey string, 
 	}
 }
 
-// collectsDependencies reports whether the sub-command resolves a dependency tree
-// (i.e. produces/uses a Gemfile.lock we can read).
+// collectsDependencies reports whether the sub-command actually downloads/installs
+// gems from a remote source. Only commands that consume gems should record build-info.
+// `bundle lock` is excluded — it only resolves and writes Gemfile.lock without downloading.
 func (rc *RubyCommand) collectsDependencies(subCommand string) bool {
 	if rc.nativeTool == toolBundle {
 		switch subCommand {
-		case "install", "update", "lock", "add":
+		case "install", "update", "add":
 			return true
 		}
 	}
