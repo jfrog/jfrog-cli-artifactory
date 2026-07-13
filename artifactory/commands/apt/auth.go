@@ -95,6 +95,9 @@ func FetchAndInstallPublicKey(serverDetails *config.ServerDetails, repoName, dis
 	if err != nil {
 		return "", fmt.Errorf("fetch public key: request failed: %w", err)
 	}
+	if resp.StatusCode == http.StatusNotFound {
+		return "", fmt.Errorf("fetch public key: repository '%s' has no GPG signing key configured — set a key pair on the repository in Artifactory, or use --trusted to skip GPG verification", repoName)
+	}
 	if err = errorutils.CheckResponseStatusWithBody(resp, body, http.StatusOK); err != nil {
 		return "", fmt.Errorf("fetch public key: %w", err)
 	}

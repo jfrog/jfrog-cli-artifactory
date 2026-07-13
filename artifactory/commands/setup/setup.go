@@ -869,11 +869,17 @@ func (sc *SetupCommand) configureHelm() error {
 	return cmdLogin.Run()
 }
 
-// configureApt interactively prompts for dist and GPG mode, then delegates to
-// AptSetupCommand which writes the persistent sources.list entry and pinning file.
-// The repository was already selected by promptUserToSelectRepository before Run() dispatched here.
+// configureApt interactively prompts for repo, dist, component, and GPG mode,
+// then delegates to AptSetupCommand which writes the persistent sources.list entry and pinning file.
+// sc.repoName was pre-selected by promptUserToSelectRepository; we let the user confirm or change it.
 func (sc *SetupCommand) configureApt() error {
-	dist := ioutils.AskString("", "Distribution name (e.g. noble, jammy, bookworm):", false, false)
+	// Show the auto-selected repo and let the user confirm or override.
+	ioutils.ScanFromConsole("Repository name", &sc.repoName, sc.repoName)
+
+	var dist string
+	for dist == "" {
+		ioutils.ScanFromConsole("Distribution name (e.g. noble, jammy, bookworm)", &dist, "")
+	}
 
 	var component string
 	ioutils.ScanFromConsole("Component (e.g. main, contrib, non-free — leave empty for 'main')", &component, "main")
