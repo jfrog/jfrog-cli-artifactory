@@ -387,7 +387,7 @@ func applyUpdateAllForSlugs(opts update, discovered []discoveredPlugin) ([]agent
 			if outcome.firstResolveErr == nil {
 				outcome.firstResolveErr = err
 			}
-			log.Warn(fmt.Sprintf("Skipping plugin '%s@%s': could not resolve latest version: %s", dp.slug, dp.repo, err.Error()))
+			log.Error(fmt.Sprintf("Skipping plugin '%s@%s': could not resolve latest version: %s", dp.slug, dp.repo, err.Error()))
 			results := failedRowsForTargets(dp.targets, err.Error())
 			combined = agentcommon.AppendUpdateAllSummaryRows(combined, dp.slug, "", results)
 			outcome.updatedSlugCount++
@@ -397,7 +397,7 @@ func applyUpdateAllForSlugs(opts update, discovered []discoveredPlugin) ([]agent
 		}
 		results, err := updateSlugAcrossTargetsFn(pluginOpts, dp.slug, targetVersion, dp.targets)
 		if err != nil {
-			log.Warn(fmt.Sprintf("Skipping plugin '%s@%s': download failed: %s", dp.slug, dp.repo, err.Error()))
+			log.Error(fmt.Sprintf("Skipping plugin '%s@%s': download failed: %s", dp.slug, dp.repo, err.Error()))
 			results = failedRowsForTargets(dp.targets, err.Error())
 		}
 		combined = agentcommon.AppendUpdateAllSummaryRows(combined, dp.slug, targetVersion, results)

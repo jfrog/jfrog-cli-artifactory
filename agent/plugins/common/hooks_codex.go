@@ -105,9 +105,13 @@ func codexPostUpdate(slug, version, installDir, repoKey string) error {
 	if err == nil {
 		// CLI found, proceed with marketplace refresh + plugin resync.
 		log.Info(fmt.Sprintf("[codex] refreshing marketplace: codex plugin marketplace upgrade %s", repoKey))
-		CodexExec("plugin", "marketplace", "upgrade", repoKey)
+		if execErr := CodexExec("plugin", "marketplace", "upgrade", repoKey); execErr != nil {
+			log.Warn(fmt.Sprintf("[codex] marketplace refresh failed: %v", execErr))
+		}
 		log.Info(fmt.Sprintf("[codex] updating plugin: codex plugin add %s@%s", slug, repoKey))
-		CodexExec("plugin", "add", slug+"@"+repoKey)
+		if execErr := CodexExec("plugin", "add", slug+"@"+repoKey); execErr != nil {
+			log.Warn(fmt.Sprintf("[codex] plugin resync failed: %v", execErr))
+		}
 	} else {
 		// CLI not found, log warning but continue (not a fatal error)
 		log.Warn("[codex] codex CLI not found on PATH; skipping native marketplace refresh. " +

@@ -108,3 +108,96 @@ func isRegisteredWithCodex(slug, repoKey string) (bool, error) {
 	}
 	return false, nil
 }
+
+// NativePluginInfo is one plugin entry as reported by a native agent's own plugin
+// registry — as opposed to jf's local install-directory bookkeeping. Repo is the
+// marketplace/source identifier the agent registered the plugin under (an Artifactory
+// repo key for jf-published plugins, but not necessarily for third-party ones).
+type NativePluginInfo struct {
+	Slug    string
+	Repo    string
+	Version string
+	Path    string
+}
+
+// ListNativePlugins returns every plugin agentName's own CLI reports as installed —
+// including plugins jf did not itself publish or install (e.g. Claude's built-in
+// official marketplace plugins). Only claude and codex have a native registry to query;
+// callers must gate on HasNativeRegistry first.
+func ListNativePlugins(agentName string) ([]NativePluginInfo, error) {
+	switch strings.ToLower(agentName) {
+	case "claude":
+		return listClaudeNativePlugins()
+	case "codex":
+		return listCodexNativePlugins()
+	default:
+		return nil, fmt.Errorf("agent %q has no native plugin registry to list", agentName)
+	}
+}
+
+func listClaudeNativePlugins() ([]NativePluginInfo, error) {
+	out, err := claudePluginListJSON()
+	if err != nil {
+		return nil, fmt.Errorf("claude plugin list --json: %w", err)
+	}
+	var plugins []struct {
+		ID          string `json:"id"`
+		Version     string `json:"version"`
+		InstallPath string `json:"installPath"`
+	}
+	if err := json.Unmarshal(out, &plugins); err != nil {
+		return nil, fmt.Errorf("parse claude plugin list --json output: %w", err)
+	}
+	result := make([]NativePluginInfo, 0, len(plugins))
+	for _, p := range plugins {
+		slug, repo := splitPluginID(p.ID)
+		result = append(result, NativePluginInfo{Slug: slug, Repo: repo, Version: p.Version, Path: p.InstallPath})
+	}
+	return result, nil
+}
+
+func listCodexNativePlugins() ([]NativePluginInfo, error) {
+	out, err := codexPluginListJSON()
+	if err != nil {
+		return nil, fmt.Errorf("codex plugin list --json: %w", err)
+	}
+	var result struct {
+		Installed []struct {
+			PluginID        string `json:"pluginId"`
+			Name            string `json:"name"`
+			MarketplaceName string `json:"marketplaceName"`
+			Version         string `json:"version"`
+			Source          struct {
+				Path string `json:"path"`
+			} `json:"source"`
+		} `json:"installed"`
+	}
+	if err := json.Unmarshal(out, &result); err != nil {
+		return nil, fmt.Errorf("parse codex plugin list --json output: %w", err)
+	}
+	plugins := make([]NativePluginInfo, 0, len(result.Installed))
+	for _, p := range result.Installed {
+		slug, repo := p.Name, p.MarketplaceName
+		if slug == "" || repo == "" {
+			fallbackSlug, fallbackRepo := splitPluginID(p.PluginID)
+			if slug == "" {
+				slug = fallbackSlug
+			}
+			if repo == "" {
+				repo = fallbackRepo
+			}
+		}
+		plugins = append(plugins, NativePluginInfo{Slug: slug, Repo: repo, Version: p.Version, Path: p.Source.Path})
+	}
+	return plugins, nil
+}
+
+// splitPluginID splits a native agent's "<slug>@<repo>" identifier. An id with no "@"
+// (shouldn't happen in practice) is returned whole as the slug.
+func splitPluginID(id string) (slug, repo string) {
+	before, after, found := strings.Cut(id, "@")
+	if !found {
+		return id, ""
+	}
+	return before, after
+}

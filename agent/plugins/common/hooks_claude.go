@@ -61,10 +61,14 @@ func claudePostUpdate(slug, version, installDir, repoKey string) error {
 	if err == nil {
 		// CLI found, proceed with marketplace refresh + plugin update.
 		log.Info(fmt.Sprintf("[claude] refreshing marketplace: claude plugin marketplace update %s", repoKey))
-		ClaudeExec("plugin", "marketplace", "update", repoKey)
+		if execErr := ClaudeExec("plugin", "marketplace", "update", repoKey); execErr != nil {
+			log.Warn(fmt.Sprintf("[claude] marketplace refresh failed: %v", execErr))
+		}
 		log.Info(fmt.Sprintf("[claude] updating plugin: claude plugin update %s@%s", slug, repoKey))
 		// Include the @<repoKey> qualifier so Claude resolves the correct marketplace source.
-		ClaudeExec("plugin", "update", slug+"@"+repoKey)
+		if execErr := ClaudeExec("plugin", "update", slug+"@"+repoKey); execErr != nil {
+			log.Warn(fmt.Sprintf("[claude] plugin update failed: %v", execErr))
+		}
 	} else {
 		// CLI not found, log warning but continue (not a fatal error)
 		log.Warn("[claude] claude CLI not found on PATH; skipping native marketplace refresh. " +
