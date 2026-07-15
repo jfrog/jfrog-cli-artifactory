@@ -198,7 +198,7 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/jfrog/build-info-go => ../build-info-go
+replace github.com/jfrog/build-info-go => github.com/jfrog/build-info-go v1.13.1-0.20260715194847-6e04c9b133c8
 
 // replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260604085947-7c110b77b4b4
 
