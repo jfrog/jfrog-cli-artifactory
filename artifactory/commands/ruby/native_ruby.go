@@ -438,12 +438,23 @@ func (rc *RubyCommand) injectAuth(serverDetails *coreConfig.ServerDetails, sourc
 	var extraEnv []string
 	switch rc.nativeTool {
 	case toolBundle:
+		cred := fmt.Sprintf("%s:%s", user, pass)
 		key := bundleEnvKeyForHost(host)
 		if os.Getenv(key) != "" {
 			log.Info(fmt.Sprintf("Ruby auth [bundle]: %s already set — respecting existing credentials", key))
 		} else {
-			extraEnv = append(extraEnv, fmt.Sprintf("%s=%s:%s", key, user, pass))
+			extraEnv = append(extraEnv, key+"="+cred)
 			log.Info(fmt.Sprintf("Ruby auth [bundle]: injecting credentials via %s", key))
+		}
+		// Bundler's credential lookup may strip the port from the key (e.g., for
+		// localhost:8081 it may check BUNDLE_LOCALHOST rather than BUNDLE_LOCALHOST_8081).
+		// Inject credentials under the hostname-only key as well to cover all versions.
+		hostOnly := strings.Split(host, ":")[0]
+		if hostOnly != host {
+			keyNoPort := bundleEnvKeyForHost(hostOnly)
+			if os.Getenv(keyNoPort) == "" {
+				extraEnv = append(extraEnv, keyNoPort+"="+cred)
+			}
 		}
 	case toolGem:
 		if os.Getenv("GEM_HOST_API_KEY") != "" {
