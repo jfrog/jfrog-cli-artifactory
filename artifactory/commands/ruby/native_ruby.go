@@ -146,7 +146,7 @@ func (rc *RubyCommand) Run() error {
 // (specs.4.8.gz) but does NOT use GEM_HOST_API_KEY for those requests.
 func rubyEmbedCredsInSourceArg(args []string, serverDetails *coreConfig.ServerDetails) []string {
 	user, pass := rubyCredentials(serverDetails)
-	if user == "" || pass == "" {
+	if !rubyHasCredentials(user, pass) {
 		return args
 	}
 	result := make([]string, len(args))
@@ -190,7 +190,7 @@ func rubyEmbedCredsInSourceArg(args []string, serverDetails *coreConfig.ServerDe
 // Uses the same logic as rubyEmbedCredsInSourceArg but only targets --host.
 func rubyEmbedCredsInHostArg(args []string, serverDetails *coreConfig.ServerDetails) []string {
 	user, pass := rubyCredentials(serverDetails)
-	if user == "" || pass == "" {
+	if !rubyHasCredentials(user, pass) {
 		return args
 	}
 	result := make([]string, len(args))
@@ -232,7 +232,7 @@ func rubyEmbedCredsInHostArg(args []string, serverDetails *coreConfig.ServerDeta
 // Returns a cleanup function that restores the original file (or removes the added entry).
 func rubyWriteTempGemCredentials(hostURL string, serverDetails *coreConfig.ServerDetails) (cleanup func(), err error) {
 	user, pass := rubyCredentials(serverDetails)
-	if user == "" || pass == "" {
+	if !rubyHasCredentials(user, pass) {
 		return nil, fmt.Errorf("no credentials available")
 	}
 
@@ -410,7 +410,7 @@ func rubyResolveServerDetails(serverID string) (*coreConfig.ServerDetails, error
 // RubyGems → GEM_HOST_API_KEY="user:password" (used by `gem push`/`gem fetch`).
 func (rc *RubyCommand) injectAuth(serverDetails *coreConfig.ServerDetails, sourceURL string) []string {
 	user, pass := rubyCredentials(serverDetails)
-	if user == "" || pass == "" {
+	if !rubyHasCredentials(user, pass) {
 		log.Debug("Ruby auth: no username/password/token available in server config; relying on native configuration")
 		return nil
 	}
@@ -464,7 +464,15 @@ func rubyCredentials(serverDetails *coreConfig.ServerDetails) (user, pass string
 		}
 		pass = serverDetails.GetAccessToken()
 	}
+	// Artifactory accepts basic auth with an empty username when the password
+	// is a valid access token (reference or JWT). This matches the Go module
+	// proxy pattern which also uses url.UserPassword("", token).
 	return user, pass
+}
+
+// rubyHasCredentials returns true when at least a password or token is available.
+func rubyHasCredentials(user, pass string) bool {
+	return pass != ""
 }
 
 // bundleEnvKeyForHost converts a host into Bundler's per-host credential env var name,
