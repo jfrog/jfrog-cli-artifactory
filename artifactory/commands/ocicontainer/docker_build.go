@@ -6,6 +6,8 @@ import (
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	ioutils "github.com/jfrog/gofrog/io"
+	artutils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
@@ -126,6 +128,12 @@ func (dbib *DockerBuildInfoBuilder) applyBuildProps(items []utils.ResultItem, pu
 		log.Warn(fmt.Sprintf("No eligible layers found to apply build properties for pushedRepo: %s. "+
 			"Skipping...", pushedRepo))
 		return nil
+	}
+	searchDir, wdErr := artutils.ResolveWorkingDirectoryFromDockerArgs(dbib.cmdArgs)
+	if wdErr != nil {
+		log.Warn("Failed to resolve docker build context for VCS props:", wdErr.Error())
+	} else {
+		props = civcs.MergeWithUserProps(props, searchDir)
 	}
 	pathToFile, err := writeLayersToFile(filteredLayers)
 	if err != nil {

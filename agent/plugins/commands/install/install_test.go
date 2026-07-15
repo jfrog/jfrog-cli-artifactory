@@ -12,17 +12,45 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func init() {
+	// Prevent real agent CLI binaries from being invoked during unit tests, and make
+	// results independent of whether claude/codex happen to be installed on the
+	// machine running the tests (e.g. CI runners don't have them on PATH).
+	plugincommon.ClaudeExec = func(_ ...string) error { return nil }
+	plugincommon.CodexExec = func(_ ...string) error { return nil }
+	plugincommon.LookPathClaude = func() (string, error) { return "/usr/bin/claude", nil }
+	plugincommon.LookPathCodex = func() (string, error) { return "/usr/bin/codex", nil }
+}
+
 func TestResolveAgentTargetDirectories_ProjectScope(t *testing.T) {
 	projectRoot := t.TempDir()
 	cmd := NewInstallCommand().
 		SetSlug("my-plugin").
 		SetAgents([]plugincommon.AgentSpec{{Name: "claude", Config: plugincommon.AgentConfig{ProjectDir: ".claude/plugins"}}}).
-		SetProjectDir(projectRoot)
+		SetProjectDir(projectRoot).
+		SetGlobal(false) // Explicitly set to project scope
+
+	// Claude does not support project scope - should error
+	targets, err := cmd.resolveAgentTargetDirectories()
+	require.Error(t, err)
+	assert.Nil(t, targets)
+	assert.Contains(t, err.Error(), "claude does not support project-scoped plugin installs")
+}
+
+func TestResolveAgentTargetDirectories_DefaultScopeUsesGlobalForCursor(t *testing.T) {
+	globalBase := filepath.Join(t.TempDir(), "global", ".cursor", "plugins", "local")
+	wantBase, err := filepath.Abs(globalBase)
+	require.NoError(t, err)
+
+	cmd := NewInstallCommand().
+		SetSlug("jfrog-plugin-timepass").
+		SetAgents([]plugincommon.AgentSpec{{Name: "cursor", Config: plugincommon.AgentConfig{GlobalDir: globalBase}}})
 
 	targets, err := cmd.resolveAgentTargetDirectories()
 	require.NoError(t, err)
 	require.Len(t, targets, 1)
-	assert.Equal(t, filepath.Join(projectRoot, ".claude", "plugins", "my-plugin"), targets[0].DestinationDir)
+	assert.Equal(t, filepath.Join(wantBase, "jfrog-plugin-timepass"), targets[0].DestinationDir)
+	assert.Equal(t, plugincommon.ScopeGlobal, targets[0].Scope)
 }
 
 func TestResolveAgentTargetDirectories_GlobalScope(t *testing.T) {

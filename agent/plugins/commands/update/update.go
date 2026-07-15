@@ -110,7 +110,7 @@ type update struct {
 }
 
 func newUpdate(c *components.Context) (update, error) {
-	flags, err := agentcommon.ValidateInstallFlags(c, plugincommon.Agents, agentcommon.PluginsAgentsKey, plugincommon.RegistryHelp)
+	flags, err := agentcommon.ValidateInstallFlags(c, plugincommon.Agents, agentcommon.PluginsAgentsKey, plugincommon.RegistryHelp, agentcommon.InstallFlagsOptions{DefaultGlobalScope: true})
 	if err != nil {
 		return update{}, err
 	}

@@ -9,11 +9,33 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+// WarningError wraps an error that should be reported as a warning, not a fatal failure.
+type WarningError struct {
+	msg string
+}
+
+// NewWarningError creates a warning error that is not fatal but should be reported to the user.
+func NewWarningError(msg string) *WarningError {
+	return &WarningError{msg: msg}
+}
+
+// Error implements the error interface.
+func (we *WarningError) Error() string {
+	return we.msg
+}
+
+// IsWarning returns true if an error is a WarningError.
+func IsWarning(err error) bool {
+	_, ok := err.(*WarningError)
+	return ok
+}
+
 // Summary row statuses for install/update tables and JSON output.
 const (
 	SummaryStatusOK        = "ok"
 	SummaryStatusFailed    = "failed"
 	SummaryStatusSkipped   = "skipped"
+	SummaryStatusWarning   = "warning"
 	SummaryDetailOKInstall = "Executed successfully with no issues."
 )
 
@@ -40,6 +62,18 @@ func InstallFailureRow(agentName, scope, destinationDir string, err error) Summa
 		Path:   destinationDir,
 		Status: SummaryStatusFailed,
 		Detail: err.Error(),
+	}
+}
+
+// InstallWarningRow builds a warning install/update summary row for one target.
+// Warning rows indicate partial success (e.g., files copied but native registration skipped).
+func InstallWarningRow(agentName, scope, destinationDir, detail string) SummaryRow {
+	return SummaryRow{
+		Agent:  agentName,
+		Scope:  scope,
+		Path:   destinationDir,
+		Status: SummaryStatusWarning,
+		Detail: detail,
 	}
 }
 
