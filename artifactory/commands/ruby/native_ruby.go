@@ -61,6 +61,9 @@ func (rc *RubyCommand) Run() error {
 
 	serverDetails, srvErr := rc.ServerDetails()
 	if srvErr != nil {
+		if rc.serverID != "" {
+			return fmt.Errorf("server ID %q not found: %w", rc.serverID, srvErr)
+		}
 		log.Warn("Ruby auth: could not load jf server config — " + srvErr.Error())
 		serverDetails = nil
 	}
