@@ -188,8 +188,8 @@ func (pc *PublishCommand) resolveMissingVersion(slug string) (string, error) {
 			}
 			// Convert PluginVersion to PublishableVersion
 			result := make([]common.PublishableVersion, len(versions))
-			for i, v := range versions {
-				result[i] = common.PublishableVersion{Version: v.Version}
+			for index, pluginVersion := range versions {
+				result[index] = common.PublishableVersion(pluginVersion)
 			}
 			return result, nil
 		},

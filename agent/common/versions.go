@@ -176,41 +176,72 @@ type ResolveMissingVersionOpts struct {
 // - Quiet/CI mode: auto-increments the next minor version OR defaults to 0.1.0
 // This function is the single source of truth for publish version resolution across all package types.
 func ResolveMissingVersion(opts ResolveMissingVersionOpts) (string, error) {
+	versionStrs := fetchExistingVersionStrings(opts)
+
+	if opts.Quiet {
+		return resolveQuietDefaultVersion(versionStrs)
+	}
+	printVersionResolutionBanner(opts.Slug, versionStrs)
+	return promptForNewVersion()
+}
+
+// fetchExistingVersionStrings fetches published versions for the slug. A lookup failure is
+// logged, not fatal, and yields an empty slice (treated the same as "nothing published yet").
+func fetchExistingVersionStrings(opts ResolveMissingVersionOpts) []string {
 	versions, err := opts.ListVersions(opts.ServerDetails, opts.RepoKey, opts.Slug)
 	if err != nil {
 		log.Debug("Could not fetch existing versions:", err.Error())
 	}
-
 	versionStrs := make([]string, len(versions))
 	for idx, v := range versions {
 		versionStrs[idx] = v.Version
 	}
+	return versionStrs
+}
 
-	if len(versionStrs) > 0 {
-		latest, err := LatestVersion(versionStrs)
-		if err != nil {
-			log.Debug("Could not determine latest version:", err.Error())
-			latest = versionStrs[len(versionStrs)-1] // Use last version as fallback
-		}
-		if opts.Quiet {
-			next, err := NextMinorVersion(latest)
-			if err != nil {
-				return "", fmt.Errorf("failed to compute next version from '%s': %w", latest, err)
-			}
-			log.Info(fmt.Sprintf("No version specified. Auto-incrementing to %s", next))
-			return next, nil
-		}
-		fmt.Printf("No version specified in manifest or --version flag.\n")
-		fmt.Printf("Existing versions: %v  (latest: %s)\n", versionStrs, latest)
-	} else {
-		if opts.Quiet {
-			log.Info("No version specified and no existing versions found. Defaulting to 0.1.0")
-			return "0.1.0", nil
-		}
-		fmt.Printf("No version specified in manifest or --version flag.\n")
-		fmt.Printf("No existing versions found for '%s'.\n", opts.Slug)
+// latestOrFallback returns the latest semver in versionStrs, or its last element if the
+// versions can't be parsed as semver. Requires len(versionStrs) > 0.
+func latestOrFallback(versionStrs []string) string {
+	if len(versionStrs) == 0 {
+		return ""
 	}
+	latest, err := LatestVersion(versionStrs)
+	if err != nil {
+		log.Debug("Could not determine latest version:", err.Error())
+		return versionStrs[len(versionStrs)-1]
+	}
+	return latest
+}
 
+// resolveQuietDefaultVersion picks a version automatically for --quiet/CI mode: the next
+// minor version after the latest existing one, or 0.1.0 when nothing is published yet.
+func resolveQuietDefaultVersion(versionStrs []string) (string, error) {
+	if len(versionStrs) == 0 {
+		log.Info("No version specified and no existing versions found. Defaulting to 0.1.0")
+		return "0.1.0", nil
+	}
+	latest := latestOrFallback(versionStrs)
+	next, err := NextMinorVersion(latest)
+	if err != nil {
+		return "", fmt.Errorf("failed to compute next version from '%s': %w", latest, err)
+	}
+	log.Info(fmt.Sprintf("No version specified. Auto-incrementing to %s", next))
+	return next, nil
+}
+
+// printVersionResolutionBanner prints the interactive-mode "no version specified" banner,
+// listing existing versions when any were found.
+func printVersionResolutionBanner(slug string, versionStrs []string) {
+	fmt.Printf("No version specified in manifest or --version flag.\n")
+	if len(versionStrs) == 0 {
+		fmt.Printf("No existing versions found for '%s'.\n", slug)
+		return
+	}
+	fmt.Printf("Existing versions: %v  (latest: %s)\n", versionStrs, latestOrFallback(versionStrs))
+}
+
+// promptForNewVersion asks the user to type a version to publish; empty input aborts.
+func promptForNewVersion() (string, error) {
 	newVersion, err := PromptLine("Enter version to publish: ")
 	if err != nil {
 		return "", err

@@ -267,13 +267,34 @@ func (o orderedObject) MarshalJSON() ([]byte, error) {
 // the on-disk member order (json.Decoder reads object keys in document order).
 func decodeOrderedTopLevel(data []byte) (orderedObject, error) {
 	dec := json.NewDecoder(bytes.NewReader(data))
-	tok, err := dec.Token()
+	if err := expectObjectStart(dec); err != nil {
+		return nil, err
+	}
+	fields, err := decodeObjectFields(dec)
 	if err != nil {
 		return nil, err
 	}
-	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
-		return nil, fmt.Errorf("expected a top-level JSON object")
+	if _, err := dec.Token(); err != nil { // closing '}'
+		return nil, err
 	}
+	return fields, nil
+}
+
+// expectObjectStart consumes the opening '{' token, erroring if data isn't a JSON object.
+func expectObjectStart(dec *json.Decoder) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
+		return fmt.Errorf("expected a top-level JSON object")
+	}
+	return nil
+}
+
+// decodeObjectFields reads key/raw-value pairs from dec until the object closes, preserving
+// their on-disk order.
+func decodeObjectFields(dec *json.Decoder) (orderedObject, error) {
 	var fields orderedObject
 	for dec.More() {
 		keyTok, err := dec.Token()
@@ -289,9 +310,6 @@ func decodeOrderedTopLevel(data []byte) (orderedObject, error) {
 			return nil, err
 		}
 		fields = append(fields, orderedField{Key: key, Value: raw})
-	}
-	if _, err := dec.Token(); err != nil { // closing '}'
-		return nil, err
 	}
 	return fields, nil
 }

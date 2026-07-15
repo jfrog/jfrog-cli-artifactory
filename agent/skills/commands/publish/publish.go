@@ -230,8 +230,8 @@ func (pc *PublishCommand) resolveMissingVersion(slug string) (string, error) {
 			}
 			// Convert SkillVersion to PublishableVersion
 			result := make([]agentcommon.PublishableVersion, len(versions))
-			for i, v := range versions {
-				result[i] = agentcommon.PublishableVersion{Version: v.Version}
+			for index, skillVersion := range versions {
+				result[index] = agentcommon.PublishableVersion{Version: skillVersion.Version}
 			}
 			return result, nil
 		},

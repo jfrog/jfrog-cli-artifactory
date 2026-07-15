@@ -435,3 +435,36 @@ func TestUpdatePluginManifestVersions_SkipsWhenNoManifestVersion(t *testing.T) {
 		t.Fatalf("expected no version field inserted, got %s", string(data))
 	}
 }
+
+func TestDecodeOrderedTopLevel_PreservesOrder(t *testing.T) {
+	fields, err := decodeOrderedTopLevel([]byte(`{"b": 1, "a": 2, "c": 3}`))
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	want := []string{"b", "a", "c"}
+	if len(fields) != len(want) {
+		t.Fatalf("got %d fields, want %d", len(fields), len(want))
+	}
+	for i, key := range want {
+		if fields[i].Key != key {
+			t.Fatalf("field %d key = %q, want %q", i, fields[i].Key, key)
+		}
+	}
+}
+
+func TestDecodeOrderedTopLevel_RejectsNonObject(t *testing.T) {
+	_, err := decodeOrderedTopLevel([]byte(`["not", "an", "object"]`))
+	if err == nil {
+		t.Fatal("expected error for a top-level JSON array")
+	}
+	if !strings.Contains(err.Error(), "expected a top-level JSON object") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDecodeOrderedTopLevel_RejectsMalformedJSON(t *testing.T) {
+	_, err := decodeOrderedTopLevel([]byte(`{"a": }`))
+	if err == nil {
+		t.Fatal("expected error for malformed JSON")
+	}
+}
