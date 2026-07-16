@@ -495,24 +495,23 @@ func TestMapAQLResults(t *testing.T) {
 func TestValidatePnpmPrerequisites(t *testing.T) {
 	// This test runs against the actual pnpm and Node.js installed on the machine.
 	// It will pass if pnpm >= 10.0.0 and Node.js >= 18.12.0 are installed.
-	err := validatePnpmPrerequisites()
+	_, err := validatePnpmPrerequisites()
 	assert.NoError(t, err, "pnpm and Node.js should meet minimum version requirements in CI")
 }
 
-// TestPnpmVersionValidation verifies the pnpm 10 version range check logic.
+// TestPnpmVersionValidation verifies the pnpm minimum version check logic.
 func TestPnpmVersionValidation(t *testing.T) {
 	// pnpm 9.x should be below minimum
 	belowPnpm := version.NewVersion("9.15.9")
 	assert.Greater(t, belowPnpm.Compare(minSupportedPnpmVersion), 0, "pnpm 9.x should be below minimum")
 
-	// pnpm 10.x should be within supported range
+	// pnpm 10.x should meet minimum
 	pnpm10 := version.NewVersion("10.32.1")
 	assert.LessOrEqual(t, pnpm10.Compare(minSupportedPnpmVersion), 0, "pnpm 10.32.1 should meet minimum")
-	assert.Greater(t, pnpm10.Compare(firstUnsupportedPnpmVersion), 0, "pnpm 10.32.1 should be below max")
 
-	// pnpm 11.x should be rejected (above max)
+	// pnpm 11.x should also meet minimum (no upper bound)
 	pnpm11 := version.NewVersion("11.0.0")
-	assert.LessOrEqual(t, pnpm11.Compare(firstUnsupportedPnpmVersion), 0, "pnpm 11.0.0 should be at or above max")
+	assert.LessOrEqual(t, pnpm11.Compare(minSupportedPnpmVersion), 0, "pnpm 11.0.0 should meet minimum")
 
 	// Exact minimum should pass
 	exactPnpm := version.NewVersion(minSupportedPnpmVersion)
@@ -551,4 +550,43 @@ func TestPublishBuildInfoGracefulDegradation(t *testing.T) {
 		collectSinglePublishBuildInfo([]byte("{invalid json"))
 	assert.Error(t, err, "collectSinglePublishBuildInfo should fail with invalid JSON")
 	assert.Contains(t, err.Error(), "parsing pnpm publish --json output")
+}
+
+// TestBuildCommandMetadataEnv verifies the pnpm.command/pnpm.version build-info
+// properties are built correctly, including when the version is unknown.
+func TestBuildCommandMetadataEnv(t *testing.T) {
+	env := buildCommandMetadataEnv(version.NewVersion("11.13.0"), []string{"install", "--frozen-lockfile"})
+	assert.Equal(t, "pnpm install --frozen-lockfile", env["pnpm.command"])
+	assert.Equal(t, "11.13.0", env["pnpm.version"])
+
+	env = buildCommandMetadataEnv(nil, []string{"publish", "--json"})
+	assert.Equal(t, "pnpm publish --json", env["pnpm.command"])
+	_, hasVersion := env["pnpm.version"]
+	assert.False(t, hasVersion, "pnpm.version should be omitted when version is unknown")
+}
+
+// TestRunPnpmInstallSetsExecutedArgs verifies runPnpmInstall records the full
+// command (including the "install" subcommand) for build-info metadata (RTECO-918),
+// so it matches PnpmPublishCommand's executedArgs, which already includes the
+// subcommand.
+func TestRunPnpmInstallSetsExecutedArgs(t *testing.T) {
+	cmd := &PnpmInstallCommand{
+		pnpmArgs:         []string{"--help"},
+		workingDirectory: t.TempDir(),
+	}
+	// --help exits immediately without touching the network or requiring a package.json.
+	_ = cmd.runPnpmInstall()
+	assert.Equal(t, []string{"install", "--help"}, cmd.executedArgs)
+}
+
+// TestRunPnpmPublishSetsExecutedArgs verifies both publish execution paths record
+// the full command (subcommand + flags) for build-info metadata.
+func TestRunPnpmPublishSetsExecutedArgs(t *testing.T) {
+	cmd := &PnpmPublishCommand{workingDirectory: t.TempDir()}
+
+	_, _ = cmd.runPnpmPublishCaptured(publishFlags{publishArgs: []string{"--help"}})
+	assert.Equal(t, []string{"publish", "--help"}, cmd.executedArgs)
+
+	_ = cmd.runPnpmPublishNative(publishFlags{isRecursive: true, publishArgs: []string{"--help"}})
+	assert.Equal(t, []string{"publish", "-r", "--help"}, cmd.executedArgs)
 }
