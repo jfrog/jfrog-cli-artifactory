@@ -220,7 +220,11 @@ func createMvnRunProps(vConfig *viper.Viper, buildArtifactsDetailsFile string, t
 	}
 
 	// Set CI VCS properties if in CI environment
-	civcs.SetCIVcsPropsToConfig(vConfig)
+	workingDir, wdErr := os.Getwd()
+	if wdErr != nil {
+		workingDir = "."
+	}
+	civcs.SetCIVcsPropsToConfig(vConfig, workingDir)
 
 	buildInfoProps, err := buildUtils.CreateBuildInfoProps(buildArtifactsDetailsFile, vConfig, project.Maven)
 	if err != nil {

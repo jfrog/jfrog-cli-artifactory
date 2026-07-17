@@ -27,7 +27,7 @@ func CollectHelmBuildInfoWithFlexPack(workingDir, buildName, buildNumber, projec
 	}
 	switch commandName {
 	case "push":
-		return handlePushCommand(buildInfo, helmArgs, serviceManager, buildName, buildNumber, project)
+		return handlePushCommand(buildInfo, helmArgs, serviceManager, buildName, buildNumber, project, workingDir)
 	case "package":
 		return handlePackageCommand(buildInfo, helmArgs, serviceManager, buildName, buildNumber, project)
 	case "dependency":

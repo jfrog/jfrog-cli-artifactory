@@ -12,6 +12,7 @@ import (
 	buildInfo "github.com/jfrog/build-info-go/entities"
 	ioutils "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/gofrog/parallel"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	commandsUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -256,7 +257,7 @@ func (tpc *TerraformPublishCommand) walkDirAndUploadTerraformModules(pwd string,
 			return e
 		}
 		if isTerraformModule {
-			uploadParams := tpc.uploadParamsForTerraformPublish(pathInfo.Name(), strings.TrimPrefix(path, pwd+string(filepath.Separator)))
+			uploadParams := tpc.uploadParamsForTerraformPublish(pathInfo.Name(), path)
 			_, e = produceTaskFunc(producer, tpc.serverDetails, uploadSummary, uploadParams, errorsQueue)
 			if e != nil {
 				log.Error(e)
@@ -313,16 +314,20 @@ func readArtifactsFromSummary(summary *servicesUtils.OperationSummary) (artifact
 	return servicesUtils.ConvertArtifactsDetailsToBuildInfoArtifacts(artifactsDetailsReader)
 }
 
-func (tpc *TerraformPublishCommand) uploadParamsForTerraformPublish(moduleName, dirPath string) *services.UploadParams {
+func (tpc *TerraformPublishCommand) uploadParamsForTerraformPublish(moduleName, moduleDir string) *services.UploadParams {
 	uploadParams := services.NewUploadParams()
 	uploadParams.Target = tpc.getPublishTarget(moduleName)
-	uploadParams.Pattern = dirPath + "/(*)"
+	uploadParams.Pattern = moduleDir + string(filepath.Separator) + "(*)"
 	uploadParams.TargetPathInArchive = "{1}"
 	uploadParams.Archive = "zip"
 	uploadParams.Recursive = true
 	uploadParams.TargetProps = servicesUtils.NewProperties()
 	uploadParams.Exclusions = append(slices.Clone(tpc.exclusions), "*.git", "*.DS_Store")
-	uploadParams.BuildProps = tpc.buildProps
+	buildProps := tpc.buildProps
+	if moduleDir != "" {
+		buildProps = civcs.MergeWithUserProps(buildProps, moduleDir)
+	}
+	uploadParams.BuildProps = buildProps
 	return &uploadParams
 }
 

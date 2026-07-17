@@ -11,6 +11,7 @@ type AgentConfig = agentcommon.AgentConfig
 type AgentSpec = agentcommon.AgentSpec
 
 // Agents is built-in defaults; merged with ~/.jfrog/agents/agent-config.json.
+// Paths ending in /jfrog are rooted under ~/.jfrog for JFrog-specific agent configurations.
 var Agents = map[string]AgentConfig{
 	"claude-code":    {GlobalDir: "~/.claude/skills", ProjectDir: ".claude/skills"},
 	"cursor":         {GlobalDir: "~/.cursor/skills", ProjectDir: ".cursor/skills"},
