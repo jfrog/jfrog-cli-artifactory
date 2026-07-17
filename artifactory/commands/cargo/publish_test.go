@@ -7,6 +7,26 @@ import (
 	"github.com/jfrog/build-info-go/entities"
 )
 
+func TestPublishedCrateFileName(t *testing.T) {
+	mk := func(id string) *entities.BuildInfo {
+		return &entities.BuildInfo{Modules: []entities.Module{{Id: id}}}
+	}
+	cases := map[string]string{
+		"jf-cargo-sample:0.1.0": "jf-cargo-sample-0.1.0.crate",
+		"serde:1.0.228":         "serde-1.0.228.crate",
+		"noversion":             "", // no ":" -> cannot derive
+		"trailing:":             "", // empty version
+	}
+	for id, want := range cases {
+		if got := publishedCrateFileName(mk(id)); got != want {
+			t.Errorf("publishedCrateFileName(%q) = %q, want %q", id, got, want)
+		}
+	}
+	if got := publishedCrateFileName(&entities.BuildInfo{}); got != "" {
+		t.Errorf("no modules: got %q, want empty", got)
+	}
+}
+
 func TestRegistryNameFromArgs(t *testing.T) {
 	if got := registryNameFromArgs([]string{"publish", "--registry", "my-crates"}); got != "my-crates" {
 		t.Errorf("got %q", got)

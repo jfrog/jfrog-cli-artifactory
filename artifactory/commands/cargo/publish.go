@@ -110,9 +110,13 @@ func (c *CargoCommand) collectDeps() error {
 	return c.saveBuildInfo(bi)
 }
 
-// collectArtifacts collects deps (module type cargo), appends the scanned crate
-// artifacts to module 0, optionally sets build properties, and saves build-info.
-func (c *CargoCommand) collectArtifacts(setProps bool) error {
+// collectArtifacts collects deps (module type cargo), determines the published crate artifact,
+// applies build properties, and saves build-info. Used by the publish flow.
+//
+// `cargo publish` deletes the local .crate after uploading, so scanning target/package usually
+// finds nothing; in that case the artifact is resolved from the repo it was just uploaded to via a
+// single AQL call (local-first, else one Artifactory call — the artifact-collection rule).
+func (c *CargoCommand) collectArtifacts() error {
 	name, number := c.buildNameNumber()
 	if name == "" {
 		log.Debug("cargo: no --build-name; skipping artifact collection")
@@ -137,15 +141,67 @@ func (c *CargoCommand) collectArtifacts(setProps bool) error {
 	if err != nil {
 		return err
 	}
+	if len(arts) == 0 && repo != "" {
+		// Local .crate is gone (cargo publish removed it after upload) — read it back from the repo.
+		if art, ok := c.resolvePublishedArtifact(bi, repo); ok {
+			arts = append(arts, art)
+		}
+	}
 	if len(bi.Modules) > 0 {
 		bi.Modules[0].Artifacts = append(bi.Modules[0].Artifacts, arts...)
 	}
-	if setProps && repo != "" && len(arts) > 0 {
+	if repo != "" && len(arts) > 0 {
 		if err := c.setBuildProperties(arts, repo, name, number); err != nil {
 			log.Warn("cargo: failed to set build properties: " + err.Error())
 		}
 	}
 	return c.saveBuildInfo(bi)
+}
+
+// resolvePublishedArtifact builds the artifact entry for the just-published crate. After
+// `cargo publish` the local .crate is gone, but the crate is in the target repo, so a single AQL
+// call fetches its checksums. The repo path is constructed via crateRepoPath (crates/ layout).
+func (c *CargoCommand) resolvePublishedArtifact(bi *entities.BuildInfo, repo string) (entities.Artifact, bool) {
+	fileName := publishedCrateFileName(bi)
+	if fileName == "" {
+		log.Debug("cargo: could not derive published crate name from build-info")
+		return entities.Artifact{}, false
+	}
+	repoPath, _, _ := crateRepoPath(fileName)
+	art := entities.Artifact{Name: fileName, Path: repoPath, Type: "crate", OriginalDeploymentRepo: repo}
+	if c.serverDetails == nil {
+		return art, true
+	}
+	sm, err := artutils.CreateServiceManager(c.serverDetails, -1, 0, false)
+	if err != nil {
+		log.Debug("cargo: could not create service manager for artifact lookup: " + err.Error())
+		return art, true
+	}
+	byName, err := queryChecksums(sm, repo, []string{fileName})
+	if err != nil {
+		log.Warn("cargo: could not fetch published crate checksums from Artifactory: " + err.Error())
+		return art, true
+	}
+	if cs, ok := byName[fileName]; ok {
+		art.Checksum = cs
+		log.Debug("cargo: resolved published artifact " + fileName + " checksums from Artifactory (AQL)")
+	} else {
+		log.Warn("cargo: published crate " + fileName + " not found in repo " + repo + " yet; checksums omitted")
+	}
+	return art, true
+}
+
+// publishedCrateFileName derives "<name>-<version>.crate" from the build-info module id ("name:version").
+func publishedCrateFileName(bi *entities.BuildInfo) string {
+	if bi == nil || len(bi.Modules) == 0 {
+		return ""
+	}
+	id := bi.Modules[0].Id
+	i := strings.LastIndex(id, ":")
+	if i <= 0 || i >= len(id)-1 {
+		return ""
+	}
+	return id[:i] + "-" + id[i+1:] + ".crate"
 }
 
 // targetRepo determines and virtual-resolves the deployment repo from the

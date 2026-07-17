@@ -7,13 +7,14 @@ import (
 )
 
 func TestCrateRepoPath(t *testing.T) {
+	// Artifactory Cargo layout: crates/<name>/<name>-<version>.crate (verified live).
 	path, name, version := crateRepoPath("serde-1.0.197.crate")
-	if path != "serde/1.0.197/serde-1.0.197.crate" || name != "serde" || version != "1.0.197" {
+	if path != "crates/serde/serde-1.0.197.crate" || name != "serde" || version != "1.0.197" {
 		t.Errorf("got (%q,%q,%q)", path, name, version)
 	}
 	// hyphenated crate name
 	path, name, version = crateRepoPath("my-crate-0.2.0.crate")
-	if path != "my-crate/0.2.0/my-crate-0.2.0.crate" || name != "my-crate" || version != "0.2.0" {
+	if path != "crates/my-crate/my-crate-0.2.0.crate" || name != "my-crate" || version != "0.2.0" {
 		t.Errorf("hyphenated: got (%q,%q,%q)", path, name, version)
 	}
 }
@@ -35,7 +36,7 @@ func TestScanCrateArtifacts(t *testing.T) {
 		t.Fatalf("expected 1 artifact, got %d", len(arts))
 	}
 	a := arts[0]
-	if a.Name != "serde-1.0.197.crate" || a.Type != "crate" || a.Path != "serde/1.0.197/serde-1.0.197.crate" || a.OriginalDeploymentRepo != "cargo-local" {
+	if a.Name != "serde-1.0.197.crate" || a.Type != "crate" || a.Path != "crates/serde/serde-1.0.197.crate" || a.OriginalDeploymentRepo != "cargo-local" {
 		t.Errorf("artifact fields wrong: %+v", a)
 	}
 	// entities.Artifact embeds entities.Checksum, so Sha256 is promoted

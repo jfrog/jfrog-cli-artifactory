@@ -88,8 +88,10 @@ index = "sparse+https://acme.jfrog.io/artifactory/api/cargo/internal/"
 
 func TestCommandBucket(t *testing.T) {
 	cases := map[string]string{
-		"build": "deps", "install": "deps", "update": "deps", "add": "deps", "fetch": "deps",
-		"package": "artifacts", "publish": "publish",
+		// "build" and "package" are intentionally not collected (bucket "none"); only "publish"
+		// records artifacts.
+		"build": "none", "package": "none", "install": "deps", "update": "deps", "add": "deps", "fetch": "deps",
+		"publish": "publish",
 		"metadata": "none", "tree": "none", "search": "none", "--version": "none",
 	}
 	for cmd, want := range cases {
@@ -107,6 +109,7 @@ func TestCargoRegistryEnvKey(t *testing.T) {
 
 func TestBuildAuthEnv(t *testing.T) {
 	got := buildAuthEnv("my-crates", "abc")
+	// "Bearer " scheme — required by Artifactory's Cargo index (verified live).
 	want := []string{`CARGO_REGISTRIES_MY_CRATES_TOKEN=Bearer abc`}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)

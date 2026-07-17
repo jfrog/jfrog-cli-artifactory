@@ -3,12 +3,27 @@ package cargo
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	flexpack "github.com/jfrog/build-info-go/flexpack"
 )
+
+// applyEnv sets each "KEY=VALUE" entry into this process's environment. The build-info collector
+// runs `cargo metadata` in its own subprocess (build-info-go) which inherits our environment, so
+// the auth env injected for `cargo build` must also be applied here for metadata to resolve
+// through the authenticated Artifactory registry.
+func applyEnv(env []string) {
+	for _, kv := range env {
+		if i := strings.IndexByte(kv, '='); i > 0 {
+			if err := os.Setenv(kv[:i], kv[i+1:]); err != nil {
+				log.Debug("cargo: could not set env " + kv[:i] + ": " + err.Error())
+			}
+		}
+	}
+}
 
 // authGate reports whether auth env should be injected for this run:
 // only in native mode, and only for commands that talk to the registry.
@@ -84,13 +99,15 @@ func (c *CargoCommand) Run() error {
 		return err
 	}
 
+	// The collector's `cargo metadata` subprocess inherits this process's env — apply the same
+	// auth so it can resolve through the authenticated Artifactory registry.
+	applyEnv(extraEnv)
+
 	switch collectionBucket(native, c.commandName) {
 	case "deps":
 		return c.collectDeps()
-	case "artifacts":
-		return c.collectArtifacts(false)
 	case "publish":
-		return c.collectArtifacts(true)
+		return c.collectArtifacts()
 	default:
 		return nil
 	}

@@ -12,6 +12,7 @@ import (
 
 	bidotnet "github.com/jfrog/build-info-go/build/utils/dotnet"
 	biutils "github.com/jfrog/build-info-go/utils"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/cargo"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/golang"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
@@ -61,6 +62,8 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 
 	project.Gradle: repository.Gradle,
 	project.Maven:  repository.Maven,
+
+	project.Cargo: repository.Cargo,
 }
 
 // SetupCommand configures registries and authentication for various package manager (npm, Yarn, Pip, Pipenv, Poetry, UV, Go)
@@ -184,6 +187,8 @@ func (sc *SetupCommand) Run() (err error) {
 		err = sc.configureMaven()
 	case project.UV:
 		err = sc.configureUV()
+	case project.Cargo:
+		err = sc.configureCargo()
 	default:
 		err = errorutils.CheckErrorf("unsupported package manager: %s", sc.packageManager)
 	}
@@ -611,4 +616,17 @@ func (sc *SetupCommand) configureHelm() error {
 	cmdLogin.Stderr = os.Stderr
 
 	return cmdLogin.Run()
+}
+
+// configureCargo configures Cargo (Rust) to use the Artifactory repository for both dependency
+// resolution and publishing, by writing the user-level cargo config and credentials files.
+// It writes:
+//
+//	~/.cargo/config.toml     — [registries.jfrog] index, [registry] default, [source.crates-io] replace-with
+//	~/.cargo/credentials.toml — [registries.jfrog] token
+//
+// After setup, plain `cargo build` resolves crates through Artifactory (crates.io is redirected)
+// and `cargo publish --registry jfrog` uploads to it.
+func (sc *SetupCommand) configureCargo() error {
+	return cargo.ConfigureNativeRegistry(sc.serverDetails, sc.repoName)
 }

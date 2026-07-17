@@ -105,10 +105,16 @@ func TestCollectionBucket(t *testing.T) {
 			expectBucket: "publish",
 		},
 		{
-			name:         "native=true, build",
+			name:         "native=true, install (deps)",
+			native:       true,
+			commandName:  "install",
+			expectBucket: "deps",
+		},
+		{
+			name:         "native=true, build (not collected)",
 			native:       true,
 			commandName:  "build",
-			expectBucket: "deps",
+			expectBucket: "none",
 		},
 		{
 			name:         "native=false, build",

@@ -11,7 +11,9 @@ import (
 )
 
 // crateRepoPath parses "<name>-<version>.crate" into the Artifactory path and parts.
-// The version is the substring after the LAST hyphen that begins a semver-looking token.
+// The layout matches how Artifactory stores Cargo crates (verified live against a Cargo repo and
+// per JFrog docs): "crates/<name>/<name>-<version>.crate". The version is the substring after the
+// LAST hyphen that begins a semver-looking token.
 func crateRepoPath(fileName string) (path, name, version string) {
 	base := strings.TrimSuffix(fileName, ".crate")
 	// version starts at the last '-' followed by a digit
@@ -22,11 +24,11 @@ func crateRepoPath(fileName string) (path, name, version string) {
 		}
 	}
 	if idx == -1 {
-		return fileName, base, ""
+		return "crates/" + base + "/" + fileName, base, ""
 	}
 	name = base[:idx]
 	version = base[idx+1:]
-	return name + "/" + version + "/" + fileName, name, version
+	return "crates/" + name + "/" + fileName, name, version
 }
 
 // scanCrateArtifacts finds built .crate files under target/package and builds artifacts.
