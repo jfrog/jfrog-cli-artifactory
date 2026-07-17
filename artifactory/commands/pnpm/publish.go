@@ -367,7 +367,7 @@ func parseNpmPublishJson(data []byte) (*publishedPackage, error) {
 	if out.Name == "" {
 		return nil, nil
 	}
-	return &publishedPackage{Name: out.Name, Version: out.Version}, nil
+	return &publishedPackage{Name: out.Name, Version: normalizeVersion(out.Version)}, nil
 }
 
 type publishSummary struct {
@@ -395,8 +395,9 @@ func readPublishSummary(path string) ([]publishedPackage, error) {
 		return nil, errorutils.CheckErrorf("parsing publish summary: %s", err.Error())
 	}
 
-	for _, pkg := range summary.PublishedPackages {
-		log.Debug(fmt.Sprintf("Published: %s@%s", pkg.Name, pkg.Version))
+	for i, pkg := range summary.PublishedPackages {
+		summary.PublishedPackages[i].Version = normalizeVersion(pkg.Version)
+		log.Debug(fmt.Sprintf("Published: %s@%s", pkg.Name, summary.PublishedPackages[i].Version))
 	}
 	return summary.PublishedPackages, nil
 }
