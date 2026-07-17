@@ -406,6 +406,9 @@ func TestNewCommandUnsupported(t *testing.T) {
 	cmd, err := NewCommand("install", nil, nil, nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, cmd)
+	installCmd, ok := cmd.(*PnpmInstallCommand)
+	assert.True(t, ok, "expected *PnpmInstallCommand")
+	assert.NotNil(t, installCmd.pnpmVersion, "NewCommand should wire the resolved pnpm version onto the install command")
 
 	cmd, err = NewCommand("i", nil, nil, nil)
 	assert.NoError(t, err)
@@ -414,6 +417,9 @@ func TestNewCommandUnsupported(t *testing.T) {
 	cmd, err = NewCommand("publish", nil, nil, nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, cmd)
+	publishCmd, ok := cmd.(*PnpmPublishCommand)
+	assert.True(t, ok, "expected *PnpmPublishCommand")
+	assert.NotNil(t, publishCmd.pnpmVersion, "NewCommand should wire the resolved pnpm version onto the publish command")
 
 	_, err = NewCommand("p", nil, nil, nil)
 	assert.Error(t, err)

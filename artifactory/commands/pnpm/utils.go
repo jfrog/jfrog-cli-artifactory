@@ -25,7 +25,7 @@ import (
 func recordPnpmCommandMetadata(pnpmBuild *build.Build, pnpmVersion *version.Version, commandArgs []string) {
 	env := buildCommandMetadataEnv(pnpmVersion, commandArgs)
 	if err := pnpmBuild.SavePartialBuildInfo(&entities.Partial{Env: env}); err != nil {
-		log.Debug("Failed to save pnpm command metadata:", err.Error())
+		log.Warn("Failed to save pnpm command metadata:", err.Error())
 	}
 }
 
