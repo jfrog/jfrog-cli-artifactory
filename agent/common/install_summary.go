@@ -32,11 +32,12 @@ func IsWarning(err error) bool {
 
 // Summary row statuses for install/update tables and JSON output.
 const (
-	SummaryStatusOK        = "ok"
-	SummaryStatusFailed    = "failed"
-	SummaryStatusSkipped   = "skipped"
-	SummaryStatusWarning   = "warning"
-	SummaryDetailOKInstall = "Executed successfully with no issues."
+	SummaryStatusOK         = "ok"
+	SummaryStatusFailed     = "failed"
+	SummaryStatusSkipped    = "skipped"
+	SummaryStatusWarning    = "warning"
+	SummaryDetailOKInstall  = "Executed successfully with no issues."
+	SummaryDetailOKUpdate   = "Updated successfully with no issues."
 )
 
 // SummaryRow is one row in the install/update summary table.
