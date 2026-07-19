@@ -252,6 +252,95 @@ func TestResolveVersionCollision_InteractiveUnknownExistenceProceeds(t *testing.
 	assert.Equal(t, "2.0.0", version)
 }
 
+func TestPromptForVersion_Success(t *testing.T) {
+	origStdin := os.Stdin
+	defer func() { os.Stdin = origStdin }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	os.Stdin = r
+
+	go func() {
+		defer func() { _ = w.Close() }()
+		_, _ = w.WriteString("3.0.0\n")
+	}()
+
+	pc := NewPublishCommand()
+	version, err := pc.promptForVersion("2.0.0")
+	require.NoError(t, err)
+	assert.Equal(t, "3.0.0", version)
+}
+
+func TestPromptForVersion_EmptyInput(t *testing.T) {
+	origStdin := os.Stdin
+	defer func() { os.Stdin = origStdin }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	os.Stdin = r
+
+	go func() {
+		defer func() { _ = w.Close() }()
+		_, _ = w.WriteString("\n")
+	}()
+
+	pc := NewPublishCommand()
+	version, err := pc.promptForVersion("1.0.0")
+	require.Error(t, err)
+	assert.Equal(t, "", version)
+	assert.Contains(t, err.Error(), "no version provided")
+}
+
+func TestPromptForVersion_NoManifestVersion(t *testing.T) {
+	origStdin := os.Stdin
+	defer func() { os.Stdin = origStdin }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	os.Stdin = r
+
+	go func() {
+		defer func() { _ = w.Close() }()
+		_, _ = w.WriteString("1.0.0\n")
+	}()
+
+	pc := NewPublishCommand()
+	version, err := pc.promptForVersion("")
+	require.NoError(t, err)
+	assert.Equal(t, "1.0.0", version)
+}
+
+func TestPromptForVersion_StdinError(t *testing.T) {
+	origStdin := os.Stdin
+	defer func() { os.Stdin = origStdin }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+
+	os.Stdin = r
+	_ = w.Close()
+
+	pc := NewPublishCommand()
+	version, err := pc.promptForVersion("1.0.0")
+	require.Error(t, err)
+	assert.Equal(t, "", version)
+	assert.Contains(t, err.Error(), "read user input")
+}
+
 func TestResolveMissingVersion_InteractiveWithExistingVersions(t *testing.T) {
 	origStdin := os.Stdin
 	defer func() { os.Stdin = origStdin }()
@@ -283,36 +372,6 @@ func TestResolveMissingVersion_InteractiveWithExistingVersions(t *testing.T) {
 	version, err := pc.resolveMissingVersion("demo")
 	require.NoError(t, err)
 	assert.Equal(t, "2.0.0", version)
-}
-
-func TestResolveMissingVersion_InteractiveNoExistingVersions(t *testing.T) {
-	origStdin := os.Stdin
-	defer func() { os.Stdin = origStdin }()
-
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("failed to create pipe: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	os.Stdin = r
-
-	go func() {
-		defer func() { _ = w.Close() }()
-		_, _ = w.WriteString("0.1.0\n")
-	}()
-
-	origListVersions := listPluginVersionsFunc
-	defer func() { listPluginVersionsFunc = origListVersions }()
-
-	listPluginVersionsFunc = func(*config.ServerDetails, string, string) ([]common.PluginVersion, error) {
-		return []common.PluginVersion{}, nil // No existing versions
-	}
-
-	pc := NewPublishCommand()
-	version, err := pc.resolveMissingVersion("demo")
-	require.NoError(t, err)
-	assert.Equal(t, "0.1.0", version)
 }
 
 func TestResolveMissingVersion_QuietModeAutoIncrement(t *testing.T) {

@@ -1,6 +1,7 @@
 package publish
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"os"
@@ -188,12 +189,34 @@ func (pc *PublishCommand) resolveMissingVersion(slug string) (string, error) {
 			}
 			// Convert PluginVersion to PublishableVersion
 			result := make([]common.PublishableVersion, len(versions))
-			for index, pluginVersion := range versions {
-				result[index] = common.PublishableVersion(pluginVersion)
+			for i, v := range versions {
+				result[i] = common.PublishableVersion(v)
 			}
 			return result, nil
 		},
 	})
+}
+
+// promptForVersion asks the user to enter a version when --version was not provided and prompts
+// are safe (interactive terminal, not --quiet/CI). manifestVersion, if any, is shown for reference
+// only; the user must type a value.
+func (pc *PublishCommand) promptForVersion(manifestVersion string) (string, error) {
+	if manifestVersion != "" {
+		fmt.Printf("No --version flag provided. Current plugin.json version: %s\n", manifestVersion)
+	} else {
+		fmt.Println("No --version flag provided and no version found in plugin.json.")
+	}
+	fmt.Print("Enter version to publish: ")
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return "", fmt.Errorf("read user input: %w", err)
+	}
+	version := strings.TrimSpace(input)
+	if version == "" {
+		return "", fmt.Errorf("no version provided, aborting")
+	}
+	return version, nil
 }
 
 // resolveVersionCollision checks whether the given version already exists in Artifactory.

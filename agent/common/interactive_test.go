@@ -65,9 +65,7 @@ func TestPromptLine_Success(t *testing.T) {
 
 	go func() {
 		defer func() { _ = w.Close() }()
-		if _, err := w.WriteString("1.0.0\n"); err != nil {
-			panic("test write failed: " + err.Error())
-		}
+		_, _ = w.WriteString("1.0.0\n")
 	}()
 
 	result, err := PromptLine("Enter version: ")
@@ -89,9 +87,7 @@ func TestPromptLine_TrimmsWhitespace(t *testing.T) {
 
 	go func() {
 		defer func() { _ = w.Close() }()
-		if _, err := w.WriteString("  2.5.0  \n"); err != nil {
-			panic("test write failed: " + err.Error())
-		}
+		_, _ = w.WriteString("  2.5.0  \n")
 	}()
 
 	result, err := PromptLine("Version: ")
@@ -113,9 +109,7 @@ func TestPromptLine_EmptyInput(t *testing.T) {
 
 	go func() {
 		defer func() { _ = w.Close() }()
-		if _, err := w.WriteString("\n"); err != nil {
-			panic("test write failed: " + err.Error())
-		}
+		_, _ = w.WriteString("\n")
 	}()
 
 	result, err := PromptLine("Enter version: ")
