@@ -102,20 +102,26 @@ func codexPostUpdate(slug, version, installDir, repoKey string) error {
 		return err
 	}
 	_, err := LookPathCodex()
-	if err == nil {
-		// CLI found, proceed with marketplace refresh + plugin resync.
-		log.Info(fmt.Sprintf("[codex] refreshing marketplace: codex plugin marketplace upgrade %s", repoKey))
-		if execErr := CodexExec("plugin", "marketplace", "upgrade", repoKey); execErr != nil {
-			log.Warn(fmt.Sprintf("[codex] marketplace refresh failed: %v", execErr))
-		}
-		log.Info(fmt.Sprintf("[codex] updating plugin: codex plugin add %s@%s", slug, repoKey))
-		if execErr := CodexExec("plugin", "add", slug+"@"+repoKey); execErr != nil {
-			log.Warn(fmt.Sprintf("[codex] plugin resync failed: %v", execErr))
-		}
-	} else {
+	if err != nil {
 		// CLI not found, log warning but continue (not a fatal error)
 		log.Warn("[codex] codex CLI not found on PATH; skipping native marketplace refresh. " +
 			"Run: codex plugin marketplace add " + codexMarketplaceRoot(installDir))
+		return nil //nolint:nilerr // deliberate: missing CLI is non-fatal, not an error to propagate
+	}
+	// CLI found, proceed with marketplace refresh + plugin resync.
+	log.Info(fmt.Sprintf("[codex] refreshing marketplace: codex plugin marketplace upgrade %s", repoKey))
+	if execErr := CodexExec("plugin", "marketplace", "upgrade", repoKey); execErr != nil {
+		// Cosmetic: only refreshes the catalog view (and always fails for jf's local
+		// marketplaces — codex's upgrade verb expects a Git marketplace). The plugin
+		// resync call below is what actually matters for native state.
+		log.Warn(fmt.Sprintf("[codex] marketplace refresh failed: %v", execErr))
+	}
+	log.Info(fmt.Sprintf("[codex] updating plugin: codex plugin add %s@%s", slug, repoKey))
+	if execErr := CodexExec("plugin", "add", slug+"@"+repoKey); execErr != nil {
+		// Plugin files on disk are already updated; only native re-registration failed.
+		// Surface as a warning (not swallowed) so the row doesn't misreport "ok" while
+		// codex's own registry is left stale/unregistered.
+		return agentcommon.NewWarningError(fmt.Sprintf("native plugin resync failed: %v", execErr))
 	}
 	return nil
 }
@@ -150,9 +156,9 @@ func upsertCodexMarketplaceEntry(path, slug, marketplaceName string) error {
 		Policy: codexPolicy{Installation: "AVAILABLE"},
 	}
 	found := false
-	for i, p := range m.Plugins {
-		if strings.EqualFold(p.Name, slug) {
-			m.Plugins[i] = entry
+	for index, plugin := range m.Plugins {
+		if strings.EqualFold(plugin.Name, slug) {
+			m.Plugins[index] = entry
 			found = true
 			break
 		}

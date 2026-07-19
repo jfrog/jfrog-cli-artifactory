@@ -43,7 +43,7 @@ func TestBuildRowForPlugin_ManifestOnlyMatchesUpdate(t *testing.T) {
 		Agent:            "claude",
 	}))
 
-	row, ok := (&ListCommand{}).buildRowForPlugin(dir, "web", "")
+	row, ok := (&ListCommand{}).buildRowForPlugin(dir, "web", "", "claude")
 	require.True(t, ok)
 	assert.Equal(t, "2.0.0", row.Version)
 	assert.Equal(t, "plugins-local", row.Repo)
@@ -54,7 +54,7 @@ func TestBuildRowForPlugin_SkipsWhenNotInstalled(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "cache")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 
-	_, ok := (&ListCommand{}).buildRowForPlugin(dir, "cache", "")
+	_, ok := (&ListCommand{}).buildRowForPlugin(dir, "cache", "", "cursor")
 	assert.False(t, ok)
 }
 

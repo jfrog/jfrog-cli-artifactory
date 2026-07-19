@@ -291,7 +291,7 @@ func (lc *ListCommand) buildDirRows(registry map[string]agentcommon.AgentSpec, a
 		if !entry.IsDir() {
 			continue
 		}
-		row, ok := lc.buildRowForPlugin(filepath.Join(dir, entry.Name()), entry.Name(), projectDir)
+		row, ok := lc.buildRowForPlugin(filepath.Join(dir, entry.Name()), entry.Name(), projectDir, agentName)
 		if ok {
 			rows = append(rows, row)
 		}
@@ -319,7 +319,7 @@ func (lc *ListCommand) buildNativeRows(agentName string) ([]localListRow, error)
 	rows := make([]localListRow, 0, len(entries))
 	for _, e := range entries {
 		description := emDash
-		if meta, metaErr := pluginscommon.ReadPluginMeta(e.Path); metaErr != nil {
+		if meta, metaErr := pluginscommon.ReadPluginMetaForAgent(e.Path, agentName); metaErr != nil {
 			log.Debug(fmt.Sprintf("Plugin '%s': could not read plugin.json (%s)", e.Slug, metaErr.Error()))
 		} else {
 			description = descriptionOrPlaceholder(meta.Description)
@@ -342,8 +342,9 @@ func (lc *ListCommand) buildNativeRows(agentName string) ([]localListRow, error)
 
 // buildRowForPlugin builds one local list row. Inclusion and installed version match update:
 // ReadInstalledPluginVersion (plugin-info.json, then plugin.json). Description comes from
-// plugin.json when present.
-func (lc *ListCommand) buildRowForPlugin(pluginDir, name, projectDir string) (localListRow, bool) {
+// agentName's own manifest convention when present (see ReadPluginMetaForAgent), so cursor's
+// listing reads .cursor-plugin/plugin.json rather than always falling back to Claude's.
+func (lc *ListCommand) buildRowForPlugin(pluginDir, name, projectDir, agentName string) (localListRow, bool) {
 	installedVer, err := pluginscommon.ReadInstalledPluginVersion(pluginDir)
 	if err != nil {
 		log.Warn(fmt.Sprintf("Skipping plugin '%s': %s", name, err.Error()))
@@ -362,7 +363,7 @@ func (lc *ListCommand) buildRowForPlugin(pluginDir, name, projectDir string) (lo
 	}
 
 	description := emDash
-	if meta, metaErr := pluginscommon.ReadPluginMeta(pluginDir); metaErr != nil {
+	if meta, metaErr := pluginscommon.ReadPluginMetaForAgent(pluginDir, agentName); metaErr != nil {
 		log.Warn(fmt.Sprintf("Plugin '%s': could not read plugin.json (%s)", name, metaErr.Error()))
 	} else {
 		description = descriptionOrPlaceholder(meta.Description)

@@ -23,9 +23,7 @@ var askYesNo = coreutils.AskYesNo
 // isNonInteractive is swappable in tests (GitHub Actions sets CI=true).
 var isNonInteractive = agentcommon.IsNonInteractive
 
-const updateAllConfirmPrompt = "Update all discovered plugins under the given harness(es) to their latest version in the repository? " +
-	"Each install folder name is used as the repository slug (same as update --slug). " +
-	"Matching packages will be updated, including installs that were not made with JFrog CLI."
+const updateAllConfirmPrompt = "Update all discovered plugins under the given harness(es) to their latest version in the repository?"
 
 // pluginBackupDirName is the directory under the plugins parent where update backups are stored.
 const pluginBackupDirName = ".plugin-backup"
@@ -437,6 +435,9 @@ func finalizeUpdateAll(combined []agentcommon.UpdateAllSummaryRow, outcome updat
 	}
 	if !outcome.anyOK && outcome.anyFailed {
 		return fmt.Errorf("update failed for all targets (see summary above)")
+	}
+	if outcome.anyFailed {
+		return fmt.Errorf("update failed for one or more targets (see summary above)")
 	}
 	if !outcome.anyOK && outcome.updatedSlugCount == 0 && outcome.firstResolveErr != nil {
 		return outcome.firstResolveErr

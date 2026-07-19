@@ -193,8 +193,8 @@ func fetchExistingVersionStrings(opts ResolveMissingVersionOpts) []string {
 		log.Debug("Could not fetch existing versions:", err.Error())
 	}
 	versionStrs := make([]string, len(versions))
-	for idx, v := range versions {
-		versionStrs[idx] = v.Version
+	for index, version := range versions {
+		versionStrs[index] = version.Version
 	}
 	return versionStrs
 }
@@ -232,12 +232,12 @@ func resolveQuietDefaultVersion(versionStrs []string) (string, error) {
 // printVersionResolutionBanner prints the interactive-mode "no version specified" banner,
 // listing existing versions when any were found.
 func printVersionResolutionBanner(slug string, versionStrs []string) {
-	fmt.Printf("No version specified in manifest or --version flag.\n")
+	log.Info("No version specified in manifest or --version flag.")
 	if len(versionStrs) == 0 {
-		fmt.Printf("No existing versions found for '%s'.\n", slug)
+		log.Info(fmt.Sprintf("No existing versions found for '%s'.", slug))
 		return
 	}
-	fmt.Printf("Existing versions: %v  (latest: %s)\n", versionStrs, latestOrFallback(versionStrs))
+	log.Info(fmt.Sprintf("Existing versions: %v  (latest: %s)", versionStrs, latestOrFallback(versionStrs)))
 }
 
 // promptForNewVersion asks the user to type a version to publish; empty input aborts.
