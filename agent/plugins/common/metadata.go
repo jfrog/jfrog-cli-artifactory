@@ -98,6 +98,41 @@ type PluginMeta struct {
 	ManifestVersion string `json:"-"`
 }
 
+// agentManifestRelPath maps a harness name to the manifest path convention jf publishes
+// per-harness content under. Returns ok=false for harnesses with no such convention (e.g.
+// custom agents from agent-config.json), which fall back to the default search order.
+func agentManifestRelPath(agentName string) (string, bool) {
+	switch strings.ToLower(agentName) {
+	case "claude":
+		return ".claude-plugin/" + manifestFileName, true
+	case "codex":
+		return ".codex-plugin/" + manifestFileName, true
+	case "cursor":
+		return ".cursor-plugin/" + manifestFileName, true
+	default:
+		return "", false
+	}
+}
+
+// findPluginManifestForAgent behaves like findPrimaryPluginManifest, but tries agentName's
+// own manifest convention first (e.g. .codex-plugin/plugin.json for codex) before falling
+// back to the default search order. Without this, fields like Description would always come
+// from .claude-plugin/plugin.json regardless of which harness is actually being read, since
+// that's first in knownManifestRelPaths.
+func findPluginManifestForAgent(pluginRoot, agentName string) (relativePath string, meta PluginMeta, err error) {
+	if preferred, ok := agentManifestRelPath(agentName); ok {
+		fullPath := filepath.Join(pluginRoot, preferred)
+		if info, statErr := os.Stat(fullPath); statErr == nil && !info.IsDir() {
+			meta, err := readPluginManifest(fullPath)
+			if err != nil {
+				return "", PluginMeta{}, fmt.Errorf("failed to parse %s: %w", preferred, err)
+			}
+			return preferred, meta, nil
+		}
+	}
+	return findPrimaryPluginManifest(pluginRoot)
+}
+
 // findPrimaryPluginManifest returns the first plugin.json found under pluginRoot,
 // searching loadPluginManifestPaths() in order.
 func findPrimaryPluginManifest(pluginRoot string) (relativePath string, meta PluginMeta, err error) {
@@ -247,17 +282,17 @@ type orderedObject []orderedField
 func (o orderedObject) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	buf.WriteByte('{')
-	for i, f := range o {
-		if i > 0 {
+	for fieldIndex, field := range o {
+		if fieldIndex > 0 {
 			buf.WriteByte(',')
 		}
-		keyJSON, err := json.Marshal(f.Key)
+		keyJSON, err := json.Marshal(field.Key)
 		if err != nil {
 			return nil, err
 		}
 		buf.Write(keyJSON)
 		buf.WriteByte(':')
-		buf.Write(f.Value)
+		buf.Write(field.Value)
 	}
 	buf.WriteByte('}')
 	return buf.Bytes(), nil
@@ -266,47 +301,47 @@ func (o orderedObject) MarshalJSON() ([]byte, error) {
 // decodeOrderedTopLevel parses a top-level JSON object into orderedObject, preserving
 // the on-disk member order (json.Decoder reads object keys in document order).
 func decodeOrderedTopLevel(data []byte) (orderedObject, error) {
-	dec := json.NewDecoder(bytes.NewReader(data))
-	if err := expectObjectStart(dec); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := expectObjectStart(decoder); err != nil {
 		return nil, err
 	}
-	fields, err := decodeObjectFields(dec)
+	fields, err := decodeObjectFields(decoder)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := dec.Token(); err != nil { // closing '}'
+	if _, err := decoder.Token(); err != nil { // closing '}'
 		return nil, err
 	}
 	return fields, nil
 }
 
 // expectObjectStart consumes the opening '{' token, erroring if data isn't a JSON object.
-func expectObjectStart(dec *json.Decoder) error {
-	tok, err := dec.Token()
+func expectObjectStart(decoder *json.Decoder) error {
+	token, err := decoder.Token()
 	if err != nil {
 		return err
 	}
-	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
+	if delim, ok := token.(json.Delim); !ok || delim != '{' {
 		return fmt.Errorf("expected a top-level JSON object")
 	}
 	return nil
 }
 
-// decodeObjectFields reads key/raw-value pairs from dec until the object closes, preserving
+// decodeObjectFields reads key/raw-value pairs from decoder until the object closes, preserving
 // their on-disk order.
-func decodeObjectFields(dec *json.Decoder) (orderedObject, error) {
+func decodeObjectFields(decoder *json.Decoder) (orderedObject, error) {
 	var fields orderedObject
-	for dec.More() {
-		keyTok, err := dec.Token()
+	for decoder.More() {
+		keyToken, err := decoder.Token()
 		if err != nil {
 			return nil, err
 		}
-		key, ok := keyTok.(string)
+		key, ok := keyToken.(string)
 		if !ok {
 			return nil, fmt.Errorf("expected string key in JSON object")
 		}
 		var raw json.RawMessage
-		if err := dec.Decode(&raw); err != nil {
+		if err := decoder.Decode(&raw); err != nil {
 			return nil, err
 		}
 		fields = append(fields, orderedField{Key: key, Value: raw})
@@ -338,9 +373,9 @@ func writePluginManifestVersion(path, newVersion string) error {
 		return err
 	}
 	found := false
-	for i := range fields {
-		if fields[i].Key == manifestVersionField {
-			fields[i].Value = versionJSON
+	for fieldIndex := range fields {
+		if fields[fieldIndex].Key == manifestVersionField {
+			fields[fieldIndex].Value = versionJSON
 			found = true
 			break
 		}

@@ -526,6 +526,17 @@ func TestFinalizeUpdateAll_AllFailed(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed for all targets")
 }
 
+func TestFinalizeUpdateAll_PartialFailure(t *testing.T) {
+	combined := []agentcommon.UpdateAllSummaryRow{
+		{Agent: "cursor", Name: "good", Status: agentcommon.SummaryStatusOK},
+		{Agent: "cursor", Name: "bad", Status: agentcommon.SummaryStatusFailed},
+	}
+	outcome := updateAllOutcome{anyOK: true, anyFailed: true}
+	err := finalizeUpdateAll(combined, outcome, "table")
+	require.Error(t, err, "one failed target among others must not be silently swallowed as success")
+	assert.Contains(t, err.Error(), "failed for one or more targets")
+}
+
 func TestFinalizeUpdateAll_ReturnsFirstResolveErrWhenNothingUpdated(t *testing.T) {
 	resolveErr := errors.New("no versions in repo")
 	outcome := updateAllOutcome{firstResolveErr: resolveErr}

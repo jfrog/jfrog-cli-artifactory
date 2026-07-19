@@ -52,7 +52,7 @@ func TestInjectRepoKey_Cursor_Unchanged(t *testing.T) {
 }
 
 func TestInjectRepoKey_UnknownAgent_Unchanged(t *testing.T) {
-	originalPath := "/custom/install/path/my-plugin"
+	originalPath := filepath.FromSlash("/custom/install/path/my-plugin")
 	targets := []AgentTarget{
 		{
 			Agent:          AgentSpec{Name: "unknown-agent"},
@@ -95,25 +95,25 @@ func TestInjectRepoKey_MultipleTargets(t *testing.T) {
 		{
 			name:           "claude_modified",
 			agentName:      "claude",
-			inputPath:      "/home/user/.claude/plugins/local/plugin1",
+			inputPath:      filepath.FromSlash("/home/user/.claude/plugins/local/plugin1"),
 			expectedChange: true,
 		},
 		{
 			name:           "codex_modified",
 			agentName:      "codex",
-			inputPath:      "/home/user/.agents/plugins/local/plugin2",
+			inputPath:      filepath.FromSlash("/home/user/.agents/plugins/local/plugin2"),
 			expectedChange: true,
 		},
 		{
 			name:           "cursor_unchanged",
 			agentName:      "cursor",
-			inputPath:      "/home/user/.cursor/plugins/local/plugin3",
+			inputPath:      filepath.FromSlash("/home/user/.cursor/plugins/local/plugin3"),
 			expectedChange: false,
 		},
 		{
 			name:           "unknown_agent_unchanged",
 			agentName:      "my-agent",
-			inputPath:      "/custom/path/plugin4",
+			inputPath:      filepath.FromSlash("/custom/path/plugin4"),
 			expectedChange: false,
 		},
 	}

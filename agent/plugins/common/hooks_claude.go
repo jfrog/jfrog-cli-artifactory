@@ -58,21 +58,26 @@ func claudePostUpdate(slug, version, installDir, repoKey string) error {
 		return err
 	}
 	_, err := LookPathClaude()
-	if err == nil {
-		// CLI found, proceed with marketplace refresh + plugin update.
-		log.Info(fmt.Sprintf("[claude] refreshing marketplace: claude plugin marketplace update %s", repoKey))
-		if execErr := ClaudeExec("plugin", "marketplace", "update", repoKey); execErr != nil {
-			log.Warn(fmt.Sprintf("[claude] marketplace refresh failed: %v", execErr))
-		}
-		log.Info(fmt.Sprintf("[claude] updating plugin: claude plugin update %s@%s", slug, repoKey))
-		// Include the @<repoKey> qualifier so Claude resolves the correct marketplace source.
-		if execErr := ClaudeExec("plugin", "update", slug+"@"+repoKey); execErr != nil {
-			log.Warn(fmt.Sprintf("[claude] plugin update failed: %v", execErr))
-		}
-	} else {
+	if err != nil {
 		// CLI not found, log warning but continue (not a fatal error)
 		log.Warn("[claude] claude CLI not found on PATH; skipping native marketplace refresh. " +
 			"Install the Claude CLI to complete the native plugin update.")
+		return nil //nolint:nilerr // deliberate: missing CLI is non-fatal, not an error to propagate
+	}
+	// CLI found, proceed with marketplace refresh + plugin update.
+	log.Info(fmt.Sprintf("[claude] refreshing marketplace: claude plugin marketplace update %s", repoKey))
+	if execErr := ClaudeExec("plugin", "marketplace", "update", repoKey); execErr != nil {
+		// Cosmetic: only refreshes the catalog view. The plugin update call below is what
+		// actually matters for native state, so this alone doesn't warrant a warning row.
+		log.Warn(fmt.Sprintf("[claude] marketplace refresh failed: %v", execErr))
+	}
+	log.Info(fmt.Sprintf("[claude] updating plugin: claude plugin update %s@%s", slug, repoKey))
+	// Include the @<repoKey> qualifier so Claude resolves the correct marketplace source.
+	if execErr := ClaudeExec("plugin", "update", slug+"@"+repoKey); execErr != nil {
+		// Plugin files on disk are already updated; only native re-registration failed.
+		// Surface as a warning (not swallowed) so the row doesn't misreport "ok" while
+		// claude's own registry is left stale/unregistered.
+		return agentcommon.NewWarningError(fmt.Sprintf("native plugin update failed: %v", execErr))
 	}
 	return nil
 }

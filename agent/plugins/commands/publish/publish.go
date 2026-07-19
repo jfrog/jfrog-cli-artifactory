@@ -202,11 +202,11 @@ func (pc *PublishCommand) resolveMissingVersion(slug string) (string, error) {
 // only; the user must type a value.
 func (pc *PublishCommand) promptForVersion(manifestVersion string) (string, error) {
 	if manifestVersion != "" {
-		fmt.Printf("No --version flag provided. Current plugin.json version: %s\n", manifestVersion)
+		log.Info(fmt.Sprintf("No --version flag provided. Current plugin.json version: %s", manifestVersion))
 	} else {
-		fmt.Println("No --version flag provided and no version found in plugin.json.")
+		log.Info("No --version flag provided and no version found in plugin.json.")
 	}
-	fmt.Print("Enter version to publish: ")
+	log.Info("Enter version to publish: ")
 	reader := bufio.NewReader(os.Stdin)
 	input, err := reader.ReadString('\n')
 	if err != nil {

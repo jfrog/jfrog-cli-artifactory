@@ -66,8 +66,8 @@ func isRegisteredWithClaude(slug, repoKey string) (bool, error) {
 		return false, fmt.Errorf("parse claude plugin list --json output: %w", err)
 	}
 	want := slug + "@" + repoKey
-	for _, p := range plugins {
-		if p.ID == want {
+	for _, plugin := range plugins {
+		if plugin.ID == want {
 			return true, nil
 		}
 	}
@@ -101,8 +101,8 @@ func isRegisteredWithCodex(slug, repoKey string) (bool, error) {
 		return false, fmt.Errorf("parse codex plugin list --json output: %w", err)
 	}
 	want := slug + "@" + repoKey
-	for _, p := range result.Installed {
-		if p.PluginID == want {
+	for _, plugin := range result.Installed {
+		if plugin.PluginID == want {
 			return true, nil
 		}
 	}
@@ -149,9 +149,9 @@ func listClaudeNativePlugins() ([]NativePluginInfo, error) {
 		return nil, fmt.Errorf("parse claude plugin list --json output: %w", err)
 	}
 	result := make([]NativePluginInfo, 0, len(plugins))
-	for _, p := range plugins {
-		slug, repo := splitPluginID(p.ID)
-		result = append(result, NativePluginInfo{Slug: slug, Repo: repo, Version: p.Version, Path: p.InstallPath})
+	for _, plugin := range plugins {
+		slug, repo := splitPluginID(plugin.ID)
+		result = append(result, NativePluginInfo{Slug: slug, Repo: repo, Version: plugin.Version, Path: plugin.InstallPath})
 	}
 	return result, nil
 }
@@ -176,10 +176,10 @@ func listCodexNativePlugins() ([]NativePluginInfo, error) {
 		return nil, fmt.Errorf("parse codex plugin list --json output: %w", err)
 	}
 	plugins := make([]NativePluginInfo, 0, len(result.Installed))
-	for _, p := range result.Installed {
-		slug, repo := p.Name, p.MarketplaceName
+	for _, plugin := range result.Installed {
+		slug, repo := plugin.Name, plugin.MarketplaceName
 		if slug == "" || repo == "" {
-			fallbackSlug, fallbackRepo := splitPluginID(p.PluginID)
+			fallbackSlug, fallbackRepo := splitPluginID(plugin.PluginID)
 			if slug == "" {
 				slug = fallbackSlug
 			}
@@ -187,7 +187,7 @@ func listCodexNativePlugins() ([]NativePluginInfo, error) {
 				repo = fallbackRepo
 			}
 		}
-		plugins = append(plugins, NativePluginInfo{Slug: slug, Repo: repo, Version: p.Version, Path: p.Source.Path})
+		plugins = append(plugins, NativePluginInfo{Slug: slug, Repo: repo, Version: plugin.Version, Path: plugin.Source.Path})
 	}
 	return plugins, nil
 }
