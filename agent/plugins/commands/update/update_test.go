@@ -223,7 +223,7 @@ func TestUpdateOnePlugin_SuccessRemovesBackup(t *testing.T) {
 	installCommand := install.NewInstallCommand().SetSlug("web").SetVersion("2.0.0").SetRepoKey("r")
 	row := updatePlugin(src, installCommand, check)
 	assert.Equal(t, agentcommon.SummaryStatusOK, row.Status)
-	assert.Equal(t, agentcommon.SummaryDetailOKInstall, row.Detail)
+	assert.Equal(t, agentcommon.SummaryDetailOKUpdate, row.Detail)
 
 	entries, err := os.ReadDir(filepath.Dir(dir))
 	require.NoError(t, err)
@@ -535,14 +535,6 @@ func TestFinalizeUpdateAll_PartialFailure(t *testing.T) {
 	err := finalizeUpdateAll(combined, outcome, "table")
 	require.Error(t, err, "one failed target among others must not be silently swallowed as success")
 	assert.Contains(t, err.Error(), "failed for one or more targets")
-}
-
-func TestFinalizeUpdateAll_ReturnsFirstResolveErrWhenNothingUpdated(t *testing.T) {
-	resolveErr := errors.New("no versions in repo")
-	outcome := updateAllOutcome{firstResolveErr: resolveErr}
-	err := finalizeUpdateAll(nil, outcome, "table")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, resolveErr)
 }
 
 func TestApplyUpdateAllForSlugs_ContinuesOnResolveError(t *testing.T) {

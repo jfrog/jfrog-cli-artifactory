@@ -116,7 +116,7 @@ func AgentRegistryHelp(registry map[string]AgentSpec, helpExample AgentRegistryH
     }
   }`, helpExample.ConfigSectionKey, helpExample.ExampleProjectDir, helpExample.ExampleGlobalDir)
 	helpBuf.WriteString(
-		"\n\nNote: for custom agents configured this way, jf only installs the plugin's files into " +
+		"\n\nNote: For custom agents configured this way, CLI only installs the plugin's files into " +
 			"the configured path — it does not register or notify the agent (unlike claude/codex, " +
 			"which have native CLI hooks). Loading the plugin from that path is the harness's own " +
 			"responsibility.",
