@@ -1264,12 +1264,20 @@ type rubyDepEntry struct {
 	prefix string // "<name>-<version>" used to match the .gem filename
 }
 
-// rubyEnrichDepsChecksums enriches dependency checksums using a hybrid approach:
-// 1. Try local gem cache first (fast, no network)
-// 2. Fall back to AQL for any that couldn't be resolved locally
-// GIT/PATH deps (in directURLDeps) are skipped since they are not stored in Artifactory.
+// rubyEnrichDepsChecksums enriches dependency checksums exclusively from Artifactory via AQL.
+//
+// A local-gem-cache-first fast path was tried here previously and has been removed: it let a
+// file merely *present* in the local RubyGems cache stand in as proof of what Artifactory
+// actually served, with no cross-check. That's a provenance bug, not an optimization — a stale,
+// mismatched, or tampered file with the right filename would silently produce build-info
+// checksums for a dependency that never came from the configured repo at all (confirmed via
+// two reproductions: a version that only ever existed in the local cache, and a deliberately
+// tampered cache file shadowing a correctly-installed real gem). Build-info checksums are relied
+// on for provenance (Xray scanning, SBOM, audit trails), so they must always come from a source
+// that actually verifies against Artifactory. GIT/PATH deps (in directURLDeps) are skipped since
+// they are not stored in Artifactory.
 func rubyEnrichDepsChecksums(deps []buildinfo.Dependency, repoKey string, directURLDeps map[string]string, serverDetails *coreConfig.ServerDetails) {
-	if len(deps) == 0 {
+	if len(deps) == 0 || serverDetails == nil {
 		return
 	}
 
@@ -1292,59 +1300,7 @@ func rubyEnrichDepsChecksums(deps []buildinfo.Dependency, repoKey string, direct
 		return
 	}
 
-	// Phase 1: Try local gem cache.
-	cacheDir := rubyGemCacheDir()
-	localHits := 0
-	var needsAQL []rubyDepEntry
-	for _, e := range entries {
-		if cacheDir == "" {
-			needsAQL = append(needsAQL, e)
-			continue
-		}
-		gemFile := filepath.Join(cacheDir, e.prefix+".gem")
-		checksum, err := rubyFileChecksums(gemFile)
-		if err == nil {
-			deps[e.idx].Sha1 = checksum.Sha1
-			deps[e.idx].Md5 = checksum.Md5
-			deps[e.idx].Sha256 = checksum.Sha256
-			localHits++
-			log.Debug(fmt.Sprintf("Checksum from local cache: %s", e.prefix))
-		} else {
-			needsAQL = append(needsAQL, e)
-		}
-	}
-	if localHits > 0 {
-		log.Info(fmt.Sprintf("Resolved %d/%d dependency checksums from local gem cache", localHits, len(entries)))
-	}
-
-	// Phase 2: AQL fallback for remaining deps (also provides repo path).
-	if len(needsAQL) == 0 && repoKey == "" {
-		return
-	}
-	// Even locally-resolved deps need repo path from AQL if we have a repo key.
-	entriesToQuery := needsAQL
-	if repoKey != "" {
-		entriesToQuery = entries
-	}
-	if len(entriesToQuery) == 0 || serverDetails == nil {
-		return
-	}
-	rubyEnrichDepsViaAQL(deps, entriesToQuery, repoKey, serverDetails)
-}
-
-// rubyGemCacheDir returns the local RubyGems cache directory.
-// Typically ~/.local/share/gem/ruby/<version>/cache or from `gem env gemdir`/cache.
-func rubyGemCacheDir() string {
-	out, err := exec.Command("gem", "env", "gemdir").Output()
-	if err != nil {
-		log.Debug("Could not determine gem cache dir: " + err.Error())
-		return ""
-	}
-	dir := filepath.Join(strings.TrimSpace(string(out)), "cache")
-	if info, statErr := os.Stat(dir); statErr == nil && info.IsDir() {
-		return dir
-	}
-	return ""
+	rubyEnrichDepsViaAQL(deps, entries, repoKey, serverDetails)
 }
 
 // rubyEnrichDepsViaAQL fetches checksums and repo paths from Artifactory via batched AQL.

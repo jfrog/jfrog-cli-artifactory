@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	buildinfo "github.com/jfrog/build-info-go/entities"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/stretchr/testify/assert"
 )
@@ -593,4 +594,22 @@ func TestRubyWriteTempGemCredentials_PreservesExisting(t *testing.T) {
 	cleanup()
 	restored, _ := os.ReadFile(filepath.Join(gemDir, "credentials"))
 	assert.Equal(t, existingContent, string(restored))
+}
+
+// TestRubyEnrichDepsChecksums_NeverTrustsLocalCache guards against reintroducing a provenance
+// bug: checksum enrichment must only ever come from a verified Artifactory (AQL) lookup, never
+// from a file merely present in the local RubyGems cache. Without network access (serverDetails
+// nil), enrichment must leave checksums empty rather than falling back to any local filesystem
+// read — there must be no code path that can populate build-info checksums without going through
+// Artifactory.
+func TestRubyEnrichDepsChecksums_NeverTrustsLocalCache(t *testing.T) {
+	deps := []buildinfo.Dependency{
+		{Id: "rake:13.4.2", Type: "gem"},
+	}
+
+	rubyEnrichDepsChecksums(deps, "my-gems-repo", nil, nil)
+
+	assert.Empty(t, deps[0].Sha1, "checksum must not be populated without a verified Artifactory lookup")
+	assert.Empty(t, deps[0].Sha256, "checksum must not be populated without a verified Artifactory lookup")
+	assert.Empty(t, deps[0].Md5, "checksum must not be populated without a verified Artifactory lookup")
 }
