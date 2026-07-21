@@ -402,6 +402,10 @@ func RunInstall(c *components.Context) error {
 		return err
 	}
 
+	if err := plugincommon.RejectUnsupportedProjectScope(!flags.IsGlobal, flags.Specs, "install"); err != nil {
+		return err
+	}
+
 	serverDetails, err := agentcommon.GetServerDetails(c)
 	if err != nil {
 		return err

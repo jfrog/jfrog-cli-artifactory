@@ -188,6 +188,30 @@ func SearchRowsByProperty(
 	if err != nil {
 		return nil, err
 	}
+	return rowsFromPropertySearchHits(serverDetails, hits, descriptionPropertyKeys)
+}
+
+// SearchLatestRowsByProperty is SearchRowsByProperty, but keeps only the highest-semver hit per
+// plugin name before resolving descriptions — one row per name instead of one per published
+// version. Skips a GetItemPropertyDescription call for every non-latest version, so it also cuts
+// the number of description lookups down to one per unique name.
+func SearchLatestRowsByProperty(
+	serverDetails *config.ServerDetails,
+	opts PropertySearchOptions,
+	descriptionPropertyKeys []string,
+) ([]SearchResultRow, error) {
+	hits, err := SearchByProperty(serverDetails, opts)
+	if err != nil {
+		return nil, err
+	}
+	return rowsFromPropertySearchHits(serverDetails, dedupeToLatestPerName(hits), descriptionPropertyKeys)
+}
+
+func rowsFromPropertySearchHits(
+	serverDetails *config.ServerDetails,
+	hits []PropertySearchResult,
+	descriptionPropertyKeys []string,
+) ([]SearchResultRow, error) {
 	rows := make([]SearchResultRow, 0, len(hits))
 	for _, hit := range hits {
 		desc := ""
@@ -206,4 +230,33 @@ func SearchRowsByProperty(
 		})
 	}
 	return rows, nil
+}
+
+// dedupeToLatestPerName groups hits by Name and keeps only the highest-semver Version for each,
+// preserving first-seen order. A hit whose version can't be compared against the one already
+// kept is left as-is (first-seen wins) rather than dropped, so a malformed version doesn't
+// silently disappear from results.
+func dedupeToLatestPerName(hits []PropertySearchResult) []PropertySearchResult {
+	latestByName := make(map[string]PropertySearchResult, len(hits))
+	order := make([]string, 0, len(hits))
+	for _, hit := range hits {
+		existing, ok := latestByName[hit.Name]
+		if !ok {
+			latestByName[hit.Name] = hit
+			order = append(order, hit.Name)
+			continue
+		}
+		cmp, err := CompareSemver(hit.Version, existing.Version)
+		if err != nil {
+			continue
+		}
+		if cmp > 0 {
+			latestByName[hit.Name] = hit
+		}
+	}
+	result := make([]PropertySearchResult, 0, len(order))
+	for _, name := range order {
+		result = append(result, latestByName[name])
+	}
+	return result
 }

@@ -81,9 +81,6 @@ func RunUpdate(c *components.Context) error {
 		return err
 	}
 	opts.skipNativeCheck = all
-	if err := validateUpdateScope(opts.flags); err != nil {
-		return err
-	}
 	if all && opts.flags.AbsoluteInstallBaseDir != "" {
 		return fmt.Errorf("--all requires --harness; --path is not supported")
 	}
@@ -136,6 +133,9 @@ type update struct {
 func newUpdate(c *components.Context, all bool) (update, error) {
 	flags, err := agentcommon.ValidateInstallFlags(c, plugincommon.Agents, agentcommon.PluginsAgentsKey, plugincommon.RegistryHelp, agentcommon.InstallFlagsOptions{DefaultGlobalScope: true})
 	if err != nil {
+		return update{}, err
+	}
+	if err := validateUpdateScope(flags); err != nil {
 		return update{}, err
 	}
 	serverDetails, err := agentcommon.GetServerDetails(c)
