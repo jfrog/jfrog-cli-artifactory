@@ -532,6 +532,22 @@ func TestNodeVersionValidation(t *testing.T) {
 	assert.Greater(t, version.NewVersion("18.11.0").Compare(minRequiredNodeVersion), 0, "Node 18.11.0 should be rejected")
 }
 
+// TestNodeVersionValidationForPnpm11 verifies the Node.js floor is raised for pnpm >= 11 (RTECO-1644).
+func TestNodeVersionValidationForPnpm11(t *testing.T) {
+	// pnpm 10.x stays below the pnpm11Version threshold, so it keeps the lower Node floor
+	assert.Greater(t, version.NewVersion("10.34.5").Compare(pnpm11Version), 0, "pnpm 10.x should be below the pnpm11Version threshold")
+	// pnpm 11.x meets the pnpm11Version threshold, so it should use the higher Node floor
+	assert.LessOrEqual(t, version.NewVersion("11.0.0").Compare(pnpm11Version), 0, "pnpm 11.x should meet the pnpm11Version threshold")
+
+	// Node 20.x is valid for pnpm 10 but not for pnpm 11
+	assert.LessOrEqual(t, version.NewVersion("20.20.1").Compare(minRequiredNodeVersion), 0, "Node 20.x should be valid for pnpm 10")
+	assert.Greater(t, version.NewVersion("20.20.1").Compare(minRequiredNodeVersionForPnpm11), 0, "Node 20.x should be rejected for pnpm 11")
+
+	// pnpm 11's actual floor: Node 22.13.0 valid, just below it rejected
+	assert.LessOrEqual(t, version.NewVersion("22.13.0").Compare(minRequiredNodeVersionForPnpm11), 0, "Node 22.13.0 should be valid for pnpm 11")
+	assert.Greater(t, version.NewVersion("22.12.9").Compare(minRequiredNodeVersionForPnpm11), 0, "Node 22.12.9 should be rejected for pnpm 11")
+}
+
 // TestInstallBuildInfoGracefulDegradation verifies that collectAndSaveBuildInfo returns an error
 // when server details are nil. In Run(), this error is caught and logged as a warning,
 // allowing the install to succeed even when build info collection fails (RTECO-912).

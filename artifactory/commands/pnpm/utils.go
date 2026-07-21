@@ -40,7 +40,11 @@ func buildCommandMetadataEnv(pnpmVersion *version.Version, commandArgs []string)
 
 const (
 	minSupportedPnpmVersion = "10.0.0"
-	minRequiredNodeVersion  = "18.12.0"
+	pnpm11Version           = "11.0.0"
+	// minRequiredNodeVersion applies to pnpm 10.x. pnpm 11 dropped support for Node
+	// versions below 22.13 (pure ESM), so pnpm >= 11 requires minRequiredNodeVersionForPnpm11 instead.
+	minRequiredNodeVersion          = "18.12.0"
+	minRequiredNodeVersionForPnpm11 = "22.13.0"
 )
 
 // NewCommand creates a pnpm command by subcommand name with common fields set.
@@ -76,9 +80,13 @@ func validatePnpmPrerequisites() (*version.Version, error) {
 	if err != nil {
 		return nil, err
 	}
-	if nodeVer.Compare(minRequiredNodeVersion) > 0 {
+	requiredNodeVersion := minRequiredNodeVersion
+	if pnpmVer.Compare(pnpm11Version) <= 0 {
+		requiredNodeVersion = minRequiredNodeVersionForPnpm11
+	}
+	if nodeVer.Compare(requiredNodeVersion) > 0 {
 		return nil, errorutils.CheckErrorf(
-			"pnpm requires Node.js version %s or higher. Current version: %s", minRequiredNodeVersion, nodeVer.GetVersion())
+			"pnpm %s requires Node.js version %s or higher. Current version: %s", pnpmVer.GetVersion(), requiredNodeVersion, nodeVer.GetVersion())
 	}
 	log.Debug("Node.js version:", nodeVer.GetVersion())
 	return pnpmVer, nil
