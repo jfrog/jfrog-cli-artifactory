@@ -42,6 +42,13 @@ func parsePnpmLsProjects(projects []pnpmLsProject) []*moduleInfo {
 	return modules
 }
 
+// normalizeVersion strips leading "v" or "=" prefixes pnpm/npm sometimes carry
+// on a package version (e.g. from an un-normalized package.json "version" field).
+func normalizeVersion(version string) string {
+	version = strings.TrimPrefix(version, "v")
+	return strings.TrimPrefix(version, "=")
+}
+
 // formatModuleId produces a module ID consistent with npm's BuildInfoModuleId:
 //   - unscoped: name:version  (e.g. "lodash:4.17.21")
 //   - scoped:   scope:name:version  (e.g. "jscope:pkg:1.0.0")
@@ -51,8 +58,7 @@ func formatModuleId(name, version string) string {
 	if name == "" || version == "" {
 		return name
 	}
-	version = strings.TrimPrefix(version, "v")
-	version = strings.TrimPrefix(version, "=")
+	version = normalizeVersion(version)
 	if strings.HasPrefix(name, "@") {
 		parts := strings.SplitN(name, "/", 2)
 		if len(parts) == 2 {
