@@ -94,9 +94,15 @@ func TestResolveMavenExecutable(t *testing.T) {
 				assert.Equal(t, tt.expectedExe, exe)
 				return
 			}
-			resolvedRoot, err := filepath.EvalSymlinks(wrapperRoot)
+			// Compare file identity rather than the path string: Windows CI runners can report
+			// the same directory via a short (8.3) alias (e.g. "RUNNER~1" vs "runneradmin"),
+			// which would make a plain string comparison fail even though exe correctly points
+			// at the wrapper script.
+			expectedInfo, err := os.Stat(filepath.Join(wrapperRoot, wrapperName))
 			require.NoError(t, err)
-			assert.Equal(t, filepath.Join(resolvedRoot, wrapperName), exe)
+			actualInfo, err := os.Stat(exe)
+			require.NoError(t, err)
+			assert.True(t, os.SameFile(expectedInfo, actualInfo), "resolved executable %q does not refer to the expected wrapper in %q", exe, wrapperRoot)
 		})
 	}
 }
