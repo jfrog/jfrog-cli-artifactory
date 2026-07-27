@@ -356,7 +356,11 @@ func collectFiles(skillDir string) (files []skillFile, maxMtime time.Time, err e
 	if err != nil {
 		return
 	}
-	sort.Slice(files, func(i, j int) bool { return files[i].relPath < files[j].relPath })
+	// Sort on the slash form so entry order matches the names written to the zip,
+	// keeping output identical across Windows and Unix.
+	sort.Slice(files, func(i, j int) bool {
+		return filepath.ToSlash(files[i].relPath) < filepath.ToSlash(files[j].relPath)
+	})
 	return
 }
 
@@ -368,7 +372,9 @@ func addFileToZip(w *zip.Writer, skillDir string, sf skillFile, uniformTime time
 	absPath := filepath.Join(skillDir, sf.relPath)
 
 	header := &zip.FileHeader{
-		Name:     sf.relPath,
+		// The zip format requires forward slashes, while filepath.Rel yields the
+		// OS separator, which is a backslash on Windows.
+		Name:     filepath.ToSlash(sf.relPath),
 		Method:   zip.Deflate,
 		Modified: uniformTime,
 	}

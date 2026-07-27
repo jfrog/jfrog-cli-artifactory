@@ -312,6 +312,32 @@ func TestZipSkillFolder(t *testing.T) {
 	}
 }
 
+func TestZipSkillFolderUsesForwardSlashPaths(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: test\n---"), 0644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "scripts", "helpers"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "scripts", "run.py"), []byte("print(1)"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "scripts", "helpers", "util.py"), []byte("pass"), 0644))
+
+	zipPath, err := zipSkillFolder(dir, "test", "1.0.0")
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(filepath.Dir(zipPath)) }()
+
+	r, err := zip.OpenReader(zipPath)
+	require.NoError(t, err)
+	defer func() { _ = r.Close() }()
+
+	names := make(map[string]bool, len(r.File))
+	for _, file := range r.File {
+		assert.NotContains(t, file.Name, "\\", "zip entry must use forward slashes")
+		names[file.Name] = true
+	}
+
+	for _, want := range []string{"SKILL.md", "scripts/run.py", "scripts/helpers/util.py"} {
+		assert.True(t, names[want], "expected entry %q in zip, got %v", want, names)
+	}
+}
+
 func TestComputeSHA256(t *testing.T) {
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.txt")

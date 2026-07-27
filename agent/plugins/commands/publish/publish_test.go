@@ -184,7 +184,8 @@ func TestZipPluginFolderSkipsExcluded(t *testing.T) {
 	for _, file := range zr.File {
 		names[file.Name] = true
 	}
-	if !names["README.md"] || !names[filepath.Join("src", "main.go")] {
+	// Zip entry names always use forward slashes, regardless of host OS.
+	if !names["README.md"] || !names["src/main.go"] {
 		t.Fatalf("expected included files, got %v", names)
 	}
 	for name := range names {
