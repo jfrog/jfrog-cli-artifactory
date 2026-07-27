@@ -30,11 +30,13 @@ func GetServerDetails(commandContext *components.Context) (*config.ServerDetails
 	if details.ArtifactoryUrl == "" && details.Url == "" {
 		return nil, fmt.Errorf("no Artifactory URL configured")
 	}
-	normalizeArtifactoryUrl(details)
+	NormalizeArtifactoryUrl(details)
 	return details, nil
 }
 
-func normalizeArtifactoryUrl(details *config.ServerDetails) {
+// NormalizeArtifactoryUrl ensures details.ArtifactoryUrl always ends with /artifactory/,
+// filling in details.Url from it when Url is empty.
+func NormalizeArtifactoryUrl(details *config.ServerDetails) {
 	artifactoryURL := details.GetArtifactoryUrl()
 	if artifactoryURL == "" {
 		return

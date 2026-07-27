@@ -511,6 +511,12 @@ const (
 	SkillsDelete  = "skills-delete"
 	SkillsList    = "skills-list"
 
+	// Agent APM commands keys. install/publish/lock/update all take the identical
+	// server + build-info flag set, so they share one key; only the bare passthrough differs
+	// (no build-info flags, since it can't collect build-info at all).
+	ApmSubcommand  = "apm-subcommand"
+	ApmPassthrough = "apm-passthrough"
+
 	// Agent plugin commands keys
 	AgentPluginsPublish = "agent-plugins-publish"
 	AgentPluginsInstall = "agent-plugins-install"
@@ -919,6 +925,12 @@ var commandFlags = map[string][]string{
 	},
 	SkillsList: {
 		url, user, password, accessToken, serverId, repo, harness, projectDir, agentGlobal, agentFormat, agentLimit, agentSortBy, agentSortOrder, agentCheckUpdates,
+	},
+	ApmSubcommand: {
+		url, user, password, accessToken, serverId, BuildName, BuildNumber, module, Project,
+	},
+	ApmPassthrough: {
+		url, user, password, accessToken, serverId, repo,
 	},
 }
 

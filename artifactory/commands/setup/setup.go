@@ -12,6 +12,7 @@ import (
 
 	bidotnet "github.com/jfrog/build-info-go/build/utils/dotnet"
 	biutils "github.com/jfrog/build-info-go/utils"
+	apmcommon "github.com/jfrog/jfrog-cli-artifactory/agent/apm/common"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/golang"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
@@ -41,11 +42,12 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	project.Yarn: repository.Npm,
 
 	// Python (pypi) package managers
-	project.Pip:    repository.Pypi,
-	project.Pipenv: repository.Pypi,
-	project.Poetry: repository.Pypi,
-	project.Twine:  repository.Pypi,
-	project.UV:     repository.Pypi,
+	project.Pip:      repository.Pypi,
+	project.Pipenv:   repository.Pypi,
+	project.Poetry:   repository.Pypi,
+	project.Twine:    repository.Pypi,
+	project.UV:       repository.Pypi,
+	project.AgentApm: repository.AgentPackages,
 
 	// Nuget package managers
 	project.Nuget:  repository.Nuget,
@@ -184,6 +186,8 @@ func (sc *SetupCommand) Run() (err error) {
 		err = sc.configureMaven()
 	case project.UV:
 		err = sc.configureUV()
+	case project.AgentApm:
+		err = sc.configureAgentApm()
 	default:
 		err = errorutils.CheckErrorf("unsupported package manager: %s", sc.packageManager)
 	}
@@ -198,10 +202,16 @@ func (sc *SetupCommand) Run() (err error) {
 	return nil
 }
 
-// promptUserToSelectRepository prompts the user to select a compatible virtual repository.
+// promptUserToSelectRepository prompts the user to select a compatible repository - virtual for
+// every package manager except AgentApm, which is local-only (agentpackages has no remote/virtual
+// support in Artifactory at all, so a virtual-repo search can never find a match for it).
 func (sc *SetupCommand) promptUserToSelectRepository() (err error) {
+	repoType := utils.Virtual
+	if sc.packageManager == project.AgentApm {
+		repoType = utils.Local
+	}
 	repoFilterParams := services.RepositoriesFilterParams{
-		RepoType:    utils.Virtual.String(),
+		RepoType:    repoType.String(),
 		PackageType: packageManagerToRepositoryPackageType[sc.packageManager],
 		ProjectKey:  sc.projectKey,
 	}
@@ -568,6 +578,17 @@ func (sc *SetupCommand) configureUV() error {
 		return fmt.Errorf("failed to configure UV index: %w", err)
 	}
 	return nil
+}
+
+// configureAgentApm persistently configures the APM (Agent Package Manager) global config
+// (~/.apm/config.json) to authenticate against the specified Artifactory agentpackages repository.
+// This is the only APM operation that writes to the real home directory; all other APM commands
+// use a temporary HOME to avoid persistent side-effects.
+func (sc *SetupCommand) configureAgentApm() error {
+	if err := apmcommon.ValidateApmPrerequisites(); err != nil {
+		return err
+	}
+	return apmcommon.ConfigureApmRegistryPersistent(sc.serverDetails, sc.repoName)
 }
 
 // configureHelm configures Helm to use Artifactory as an OCI registry.

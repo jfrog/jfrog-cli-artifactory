@@ -1,8 +1,11 @@
 package cli
 
 import (
+	apmcli "github.com/jfrog/jfrog-cli-artifactory/agent/apm/cli"
+	"github.com/jfrog/jfrog-cli-artifactory/agent/apm/commands/passthrough"
 	pluginscli "github.com/jfrog/jfrog-cli-artifactory/agent/plugins/cli"
 	skillscli "github.com/jfrog/jfrog-cli-artifactory/agent/skills/cli"
+	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 )
 
@@ -19,6 +22,13 @@ func GetCommands() []components.Command {
 			Name:        "skills",
 			Description: "Agent skill commands.",
 			Subcommands: skillscli.GetSubCommands(),
+		},
+		{
+			Name:        "apm",
+			Description: "Agent Package Manager (APM) commands with JFrog Artifactory authentication.",
+			Flags:       flagkit.GetCommandFlags(flagkit.ApmPassthrough),
+			Subcommands: apmcli.GetSubCommands(),
+			Action:      passthrough.RunApmPassthroughDefault,
 		},
 	}
 }

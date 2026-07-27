@@ -55,9 +55,9 @@ func VerifyEvidence(serverDetails *config.ServerDetails, opts VerifyEvidenceOpts
 }
 
 // ensureServiceUrls populates service-specific URLs that the evidence library requires.
-// Platform URL comes from config.ServerDetails (Url / ArtifactoryUrl via normalizeArtifactoryUrl).
+// Platform URL comes from config.ServerDetails (Url / ArtifactoryUrl via NormalizeArtifactoryUrl).
 func ensureServiceUrls(localServerDetails *config.ServerDetails) {
-	normalizeArtifactoryUrl(localServerDetails)
+	NormalizeArtifactoryUrl(localServerDetails)
 	platformBase := clientutils.AddTrailingSlashIfNeeded(localServerDetails.GetUrl())
 	if platformBase == "" {
 		return
