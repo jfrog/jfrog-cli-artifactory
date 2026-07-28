@@ -35,6 +35,8 @@ type MvnCommand struct {
 	deploymentDisabled bool
 	// File path for Maven extractor in which all build's artifacts details will be listed at the end of the build.
 	buildArtifactsDetailsFile string
+	// Only consulted in native (FlexPack) mode; set by jf mvnw to require a Maven Wrapper.
+	preferWrapper bool
 }
 
 func NewMvnCommand() *MvnCommand {
@@ -68,6 +70,13 @@ func (mc *MvnCommand) SetThreads(threads int) *MvnCommand {
 
 func (mc *MvnCommand) SetInsecureTls(insecureTls bool) *MvnCommand {
 	mc.insecureTls = insecureTls
+	return mc
+}
+
+// SetPreferWrapper is only consulted in native (FlexPack) mode. jf mvnw sets this to true,
+// requiring a Maven Wrapper (mvnw/mvnw.cmd) to be present; legacy (config-file) mode ignores it.
+func (mc *MvnCommand) SetPreferWrapper(preferWrapper bool) *MvnCommand {
+	mc.preferWrapper = preferWrapper
 	return mc
 }
 
@@ -182,7 +191,8 @@ func (mc *MvnCommand) Run() error {
 		mvnParams := NewMvnUtils().
 			SetConfigPath(mc.configPath).
 			SetGoals(mc.goals).
-			SetBuildConf(mc.configuration)
+			SetBuildConf(mc.configuration).
+			SetPreferWrapper(mc.preferWrapper)
 		return RunMvn(mvnParams)
 	}
 
