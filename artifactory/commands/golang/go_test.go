@@ -223,3 +223,44 @@ func TestGoProxyUrlParams_AddDirectIsIdempotent(t *testing.T) {
 		})
 	}
 }
+
+// hasDirectFallback must agree with the go command's own GOPROXY parsing, which
+// trims each entry before comparing it against "direct" and is case-sensitive.
+// Verified against go1.26.5: "url , direct" and "url | direct" resolve normally,
+// while "url,DIRECT" fails with "invalid proxy URL missing scheme".
+func TestHasDirectFallback(t *testing.T) {
+	testCases := []struct {
+		name     string
+		url      string
+		expected bool
+	}{
+		// Go accepts these, so they already carry a fallback.
+		{name: "comma, no space", url: "https://test/api/go/go,direct", expected: true},
+		{name: "pipe, no space", url: "https://test/api/go/go|direct", expected: true},
+		{name: "space after comma", url: "https://test/api/go/go, direct", expected: true},
+		{name: "spaces around comma", url: "https://test/api/go/go , direct", expected: true},
+		{name: "spaces around pipe", url: "https://test/api/go/go | direct", expected: true},
+		{name: "tab after comma", url: "https://test/api/go/go,\tdirect", expected: true},
+		// Go rejects these as proxy URLs, so they are not a fallback.
+		{name: "uppercase DIRECT", url: "https://test/api/go/go,DIRECT", expected: false},
+		{name: "mixed case Direct", url: "https://test/api/go/go,Direct", expected: false},
+		// No fallback entry at all.
+		{name: "no separator", url: "https://test/api/go/go", expected: false},
+		{name: "separator but other entry", url: "https://test/api/go/go,https://other", expected: false},
+		{name: "off is not direct", url: "https://test/api/go/go,off", expected: false},
+		{name: "direct as a substring only", url: "https://test/api/go/go,directory", expected: false},
+		{name: "comma in the path, no fallback", url: "https://test/api/go/go,v2", expected: false},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			assert.Equal(t, testCase.expected, hasDirectFallback(testCase.url))
+			// A url Go already treats as having a fallback must not gain a second one.
+			gdu := &GoProxyUrlParams{Direct: true, Separator: GoProxyNotFoundSeparator}
+			if testCase.expected {
+				assert.Equal(t, testCase.url, gdu.addDirect(testCase.url))
+			} else {
+				assert.Equal(t, testCase.url+",direct", gdu.addDirect(testCase.url))
+			}
+		})
+	}
+}

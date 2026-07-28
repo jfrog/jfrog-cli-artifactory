@@ -357,6 +357,10 @@ func logGoVersion() error {
 }
 
 const (
+	// goProxyDirect is Go's keyword for fetching straight from the module's
+	// source. Case-sensitive: the go command compares entries with == against
+	// "direct", so "DIRECT" is treated as a proxy URL, not the keyword.
+	goProxyDirect = "direct"
 	// GoProxyAnyErrorSeparator ('|') makes the go command fall through to the
 	// next GOPROXY entry after ANY error, including 403 responses.
 	GoProxyAnyErrorSeparator = "|"
@@ -401,17 +405,25 @@ func (gdu *GoProxyUrlParams) separator() string {
 	return GoProxyAnyErrorSeparator
 }
 
+// hasDirectFallback reports whether the url already ends in a "direct" fallback
+// entry, mirroring how the go command itself parses GOPROXY: entries are split
+// on "," or "|" and trimmed before comparison, so "url , direct" counts. The
+// comparison is case-sensitive for the same reason Go's is - "DIRECT" is not the
+// direct keyword to Go either, it is parsed as a proxy URL and rejected with
+// "invalid proxy URL missing scheme".
+func hasDirectFallback(url string) bool {
+	i := strings.LastIndexAny(url, GoProxyAnyErrorSeparator+GoProxyNotFoundSeparator)
+	if i < 0 {
+		return false
+	}
+	return strings.TrimSpace(url[i+1:]) == goProxyDirect
+}
+
 func (gdu *GoProxyUrlParams) addDirect(url string) string {
-	if !gdu.Direct {
+	if !gdu.Direct || hasDirectFallback(url) {
 		return url
 	}
-	// Guard against both spellings so an already-suffixed url is never
-	// appended to twice, whichever separator it carries.
-	if strings.HasSuffix(url, GoProxyAnyErrorSeparator+"direct") ||
-		strings.HasSuffix(url, GoProxyNotFoundSeparator+"direct") {
-		return url
-	}
-	return url + gdu.separator() + "direct"
+	return url + gdu.separator() + goProxyDirect
 }
 
 func GetArtifactoryRemoteRepoUrl(serverDetails *config.ServerDetails, repo string, goProxyParams GoProxyUrlParams) (string, error) {
