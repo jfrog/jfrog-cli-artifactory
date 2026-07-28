@@ -137,12 +137,12 @@ func TestGetArtifactoryApiUrl(t *testing.T) {
 
 func TestGoProxyUrlParams_BuildUrl(t *testing.T) {
 	testCases := []struct {
-		name           string
-		RepoName       string
-		Direct         bool
-		Separator      string
-		EndpointPrefix string
-		ExpectedUrl    string
+		name                   string
+		RepoName               string
+		Direct                 bool
+		FallbackOnlyIfNotFound bool
+		EndpointPrefix         string
+		ExpectedUrl            string
 	}{
 		{
 			name:        "Url Without direct or Prefix",
@@ -162,31 +162,24 @@ func TestGoProxyUrlParams_BuildUrl(t *testing.T) {
 			ExpectedUrl:    "https://test/prefix/api/go/go",
 		},
 		{
-			name:        "Empty separator keeps the any-error default",
-			RepoName:    "go",
-			Direct:      true,
-			Separator:   "",
-			ExpectedUrl: "https://test/api/go/go|direct",
+			name:                   "Zero value keeps the any-error pipe for existing callers",
+			RepoName:               "go",
+			Direct:                 true,
+			FallbackOnlyIfNotFound: false,
+			ExpectedUrl:            "https://test/api/go/go|direct",
 		},
 		{
-			name:        "Comma separator limits fallback to 404/410",
-			RepoName:    "go",
-			Direct:      true,
-			Separator:   GoProxyNotFoundSeparator,
-			ExpectedUrl: "https://test/api/go/go,direct",
+			name:                   "FallbackOnlyIfNotFound limits the fallback to 404/410",
+			RepoName:               "go",
+			Direct:                 true,
+			FallbackOnlyIfNotFound: true,
+			ExpectedUrl:            "https://test/api/go/go,direct",
 		},
 		{
-			name:        "Explicit pipe separator",
-			RepoName:    "go",
-			Direct:      true,
-			Separator:   GoProxyAnyErrorSeparator,
-			ExpectedUrl: "https://test/api/go/go|direct",
-		},
-		{
-			name:        "Separator ignored when Direct is false",
-			RepoName:    "go",
-			Separator:   GoProxyNotFoundSeparator,
-			ExpectedUrl: "https://test/api/go/go",
+			name:                   "Ignored when Direct is false",
+			RepoName:               "go",
+			FallbackOnlyIfNotFound: true,
+			ExpectedUrl:            "https://test/api/go/go",
 		},
 	}
 	for _, testCase := range testCases {
@@ -194,73 +187,11 @@ func TestGoProxyUrlParams_BuildUrl(t *testing.T) {
 			remoteUrl, err := url.Parse("https://test")
 			require.NoError(t, err)
 			gdu := &GoProxyUrlParams{
-				Direct:         testCase.Direct,
-				Separator:      testCase.Separator,
-				EndpointPrefix: testCase.EndpointPrefix,
+				Direct:                 testCase.Direct,
+				FallbackOnlyIfNotFound: testCase.FallbackOnlyIfNotFound,
+				EndpointPrefix:         testCase.EndpointPrefix,
 			}
 			assert.Equalf(t, testCase.ExpectedUrl, gdu.BuildUrl(remoteUrl, testCase.RepoName), "BuildUrl(%v, %v)", remoteUrl, testCase.RepoName)
-		})
-	}
-}
-
-// addDirect must never append a second fallback entry, whichever separator the
-// url already carries - otherwise re-running setup would produce "...|direct,direct".
-func TestGoProxyUrlParams_AddDirectIsIdempotent(t *testing.T) {
-	testCases := []struct {
-		name      string
-		url       string
-		separator string
-	}{
-		{name: "pipe url, pipe separator", url: "https://test/api/go/go|direct", separator: GoProxyAnyErrorSeparator},
-		{name: "comma url, comma separator", url: "https://test/api/go/go,direct", separator: GoProxyNotFoundSeparator},
-		{name: "pipe url, comma separator", url: "https://test/api/go/go|direct", separator: GoProxyNotFoundSeparator},
-		{name: "comma url, pipe separator", url: "https://test/api/go/go,direct", separator: GoProxyAnyErrorSeparator},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			gdu := &GoProxyUrlParams{Direct: true, Separator: testCase.separator}
-			assert.Equal(t, testCase.url, gdu.addDirect(testCase.url))
-		})
-	}
-}
-
-// hasDirectFallback must agree with the go command's own GOPROXY parsing, which
-// trims each entry before comparing it against "direct" and is case-sensitive.
-// Verified against go1.26.5: "url , direct" and "url | direct" resolve normally,
-// while "url,DIRECT" fails with "invalid proxy URL missing scheme".
-func TestHasDirectFallback(t *testing.T) {
-	testCases := []struct {
-		name     string
-		url      string
-		expected bool
-	}{
-		// Go accepts these, so they already carry a fallback.
-		{name: "comma, no space", url: "https://test/api/go/go,direct", expected: true},
-		{name: "pipe, no space", url: "https://test/api/go/go|direct", expected: true},
-		{name: "space after comma", url: "https://test/api/go/go, direct", expected: true},
-		{name: "spaces around comma", url: "https://test/api/go/go , direct", expected: true},
-		{name: "spaces around pipe", url: "https://test/api/go/go | direct", expected: true},
-		{name: "tab after comma", url: "https://test/api/go/go,\tdirect", expected: true},
-		// Go rejects these as proxy URLs, so they are not a fallback.
-		{name: "uppercase DIRECT", url: "https://test/api/go/go,DIRECT", expected: false},
-		{name: "mixed case Direct", url: "https://test/api/go/go,Direct", expected: false},
-		// No fallback entry at all.
-		{name: "no separator", url: "https://test/api/go/go", expected: false},
-		{name: "separator but other entry", url: "https://test/api/go/go,https://other", expected: false},
-		{name: "off is not direct", url: "https://test/api/go/go,off", expected: false},
-		{name: "direct as a substring only", url: "https://test/api/go/go,directory", expected: false},
-		{name: "comma in the path, no fallback", url: "https://test/api/go/go,v2", expected: false},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			assert.Equal(t, testCase.expected, hasDirectFallback(testCase.url))
-			// A url Go already treats as having a fallback must not gain a second one.
-			gdu := &GoProxyUrlParams{Direct: true, Separator: GoProxyNotFoundSeparator}
-			if testCase.expected {
-				assert.Equal(t, testCase.url, gdu.addDirect(testCase.url))
-			} else {
-				assert.Equal(t, testCase.url+",direct", gdu.addDirect(testCase.url))
-			}
 		})
 	}
 }

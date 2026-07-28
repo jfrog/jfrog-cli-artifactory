@@ -374,13 +374,19 @@ func (sc *SetupCommand) configureGo() error {
 			"Unset it in your shell config (e.g., .zshrc, .bashrc).", goProxyVal))
 	}
 	repoWithCredsUrl, err := golang.GetArtifactoryRemoteRepoUrl(sc.serverDetails, sc.repoName,
-		golang.GoProxyUrlParams{Direct: true, Separator: golang.GoProxyNotFoundSeparator})
+		golang.GoProxyUrlParams{Direct: true, FallbackOnlyIfNotFound: true})
 	if err != nil {
 		return fmt.Errorf("failed to get Go repository URL: %w", err)
 	}
 	if err := biutils.RunGo([]string{"env", "-w", "GOPROXY=" + repoWithCredsUrl}, ""); err != nil {
 		return fmt.Errorf("failed to set GOPROXY environment variable: %w", err)
 	}
+	// This is a behavior change worth surfacing: previously any proxy error fell
+	// back to the module's public source, so an unreachable Artifactory still
+	// produced a working build.
+	log.Info("GOPROXY falls back to the module's source only for modules the repository does not serve (404/410). " +
+		"Any other error, including a Curation block or an unreachable Artifactory, now fails the command instead of " +
+		"resolving from the public internet.")
 	return nil
 }
 

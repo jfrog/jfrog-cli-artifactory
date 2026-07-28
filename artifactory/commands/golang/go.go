@@ -356,35 +356,18 @@ func logGoVersion() error {
 	return nil
 }
 
-const (
-	// goProxyDirect is Go's keyword for fetching straight from the module's
-	// source. Case-sensitive: the go command compares entries with == against
-	// "direct", so "DIRECT" is treated as a proxy URL, not the keyword.
-	goProxyDirect = "direct"
-	// GoProxyAnyErrorSeparator ('|') makes the go command fall through to the
-	// next GOPROXY entry after ANY error, including 403 responses.
-	GoProxyAnyErrorSeparator = "|"
-	// GoProxyNotFoundSeparator (',') makes the go command fall through only
-	// after a 404 or 410 response. Any other error - notably a 403 from
-	// Artifactory Curation - is a hard failure, so a blocked module is not
-	// silently fetched from its public source. This matches Go's own default
-	// of "https://proxy.golang.org,direct".
-	GoProxyNotFoundSeparator = ","
-)
-
 type GoProxyUrlParams struct {
 	// Fallback to retrieve the modules directly from the source if
 	// the module failed to be retrieved from the proxy.
-	// Appends <Separator>direct to the end of the url.
+	// add |direct to the end of the url.
 	// example: https://gocenter.io|direct
 	Direct bool
-	// Separator between the proxy url and the "direct" fallback entry, which
-	// decides WHEN the go command falls through to the public source:
-	//   "|" (default) - on any error, including a Curation 403.
-	//   "," - only on 404/410, so a blocked module fails instead of leaking.
-	// Empty means GoProxyAnyErrorSeparator, preserving the previous behavior
-	// for existing callers.
-	Separator string
+	// FallbackOnlyIfNotFound joins the "direct" entry with a comma instead of a
+	// pipe, so the go command falls through to the module's public source only
+	// after a 404/410 and a 403 from Artifactory Curation is a hard failure.
+	// The zero value keeps the previous any-error (pipe) behavior for existing
+	// callers. Ignored when Direct is false.
+	FallbackOnlyIfNotFound bool
 	// The path from baseUrl to the standard Go repository path
 	// URL structure: <baseUrl>/<EndpointPrefix>/api/go/<repoName>
 	EndpointPrefix string
@@ -396,34 +379,16 @@ func (gdu *GoProxyUrlParams) BuildUrl(url *url.URL, repoName string) string {
 	return gdu.addDirect(url.String())
 }
 
-// separator returns the configured fallback separator, defaulting to the
-// any-error form so callers that predate this field keep their behavior.
-func (gdu *GoProxyUrlParams) separator() string {
-	if gdu.Separator == GoProxyNotFoundSeparator {
-		return GoProxyNotFoundSeparator
-	}
-	return GoProxyAnyErrorSeparator
-}
-
-// hasDirectFallback reports whether the url already ends in a "direct" fallback
-// entry, mirroring how the go command itself parses GOPROXY: entries are split
-// on "," or "|" and trimmed before comparison, so "url , direct" counts. The
-// comparison is case-sensitive for the same reason Go's is - "DIRECT" is not the
-// direct keyword to Go either, it is parsed as a proxy URL and rejected with
-// "invalid proxy URL missing scheme".
-func hasDirectFallback(url string) bool {
-	i := strings.LastIndexAny(url, GoProxyAnyErrorSeparator+GoProxyNotFoundSeparator)
-	if i < 0 {
-		return false
-	}
-	return strings.TrimSpace(url[i+1:]) == goProxyDirect
-}
-
 func (gdu *GoProxyUrlParams) addDirect(url string) string {
-	if !gdu.Direct || hasDirectFallback(url) {
-		return url
+	if gdu.Direct && !strings.HasSuffix(url, "|direct") {
+		// A comma limits the fallback to 404/410, so a Curation 403 fails
+		// instead of being satisfied from the module's public source.
+		if gdu.FallbackOnlyIfNotFound {
+			return url + ",direct"
+		}
+		return url + "|direct"
 	}
-	return url + gdu.separator() + goProxyDirect
+	return url
 }
 
 func GetArtifactoryRemoteRepoUrl(serverDetails *config.ServerDetails, repo string, goProxyParams GoProxyUrlParams) (string, error) {
