@@ -1,7 +1,6 @@
 package apmcommon
 
 import (
-	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
@@ -19,9 +18,8 @@ type ApmSubcommandOptions struct {
 }
 
 // ExtractApmSubcommandOptions extracts every flag declared for install/publish/update
-// (--server-id, --build-name, --build-number, --module, --project, --url, --user,
-// --password, --access-token) from args, and resolves them into ServerDetails and a
-// BuildConfiguration.
+// (--server-id, --build-name, --build-number, --module, --project) from args, and resolves
+// them into ServerDetails and a BuildConfiguration.
 //
 // This exists because install/publish/update set SkipFlagParsing (so apm-native flags that
 // aren't in jf's own declared flag set - --package, --registry, --zip, --dry-run - don't get
@@ -31,10 +29,13 @@ type ApmSubcommandOptions struct {
 // install/publish/update require a registry to already be declared, so --repo isn't one of
 // jf's own flags here - it passes straight through in RemainingArgs like any other
 // apm-native flag (where apm itself will reject it, since apm has no --repo flag either).
+//
+// No direct-credential flags (--url/--user/--password/--access-token) either, matching the
+// pnpm/npm/yarn/nuget convention: auth is resolved purely from --server-id or the default
+// configured server, never from ad hoc credentials passed to the runtime command itself.
 func ExtractApmSubcommandOptions(args []string) (*ApmSubcommandOptions, error) {
 	rest := args
 	var serverID, buildName, buildNumber, module, project string
-	var url, user, password, accessToken string
 	var err error
 
 	for _, opt := range []struct {
@@ -46,10 +47,6 @@ func ExtractApmSubcommandOptions(args []string) (*ApmSubcommandOptions, error) {
 		{"build-number", &buildNumber},
 		{"module", &module},
 		{"project", &project},
-		{"url", &url},
-		{"user", &user},
-		{"password", &password},
-		{"access-token", &accessToken},
 	} {
 		rest, *opt.dest, err = coreutils.ExtractStringOptionFromArgs(rest, opt.name)
 		if err != nil {
@@ -57,7 +54,7 @@ func ExtractApmSubcommandOptions(args []string) (*ApmSubcommandOptions, error) {
 		}
 	}
 
-	sd, err := resolveServerDetails(serverID, url, user, password, accessToken)
+	sd, err := config.GetSpecificConfig(serverID, true, true)
 	if err != nil {
 		return nil, err
 	}
@@ -72,30 +69,4 @@ func ExtractApmSubcommandOptions(args []string) (*ApmSubcommandOptions, error) {
 		ServerDetails: sd,
 		BuildConfig:   buildConfig,
 	}, nil
-}
-
-// resolveServerDetails mirrors agent/common.GetServerDetails's two cases (explicit flags vs.
-// default config), extended with a third for --server-id specifically: explicit server-id
-// always wins over url/user/password/access-token, matching how the framework's own flag
-// parsing would have resolved these before SkipFlagParsing made manual extraction necessary.
-func resolveServerDetails(serverID, url, user, password, accessToken string) (*config.ServerDetails, error) {
-	if serverID != "" {
-		return config.GetSpecificConfig(serverID, true, true)
-	}
-	if url != "" || user != "" || password != "" || accessToken != "" {
-		details := &config.ServerDetails{
-			// --url is the Artifactory URL for this command domain, same as
-			// createServerDetailsFromFlags's cliutils.Rt case in jfrog-cli-core -
-			// NormalizeArtifactoryUrl (and everything downstream, e.g. AgentPackagesBaseURL)
-			// reads ArtifactoryUrl, not Url.
-			ArtifactoryUrl: url,
-			User:           user,
-			Password:       password,
-			AccessToken:    accessToken,
-		}
-		agentcommon.NormalizeArtifactoryUrl(details)
-		return details, nil
-	}
-	// No server flags at all - same fallback as GetSpecificConfig("", true, true).
-	return config.GetSpecificConfig("", true, true)
 }

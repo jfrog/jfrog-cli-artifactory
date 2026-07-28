@@ -26,7 +26,7 @@ func GetCommands() []components.Command {
 		{
 			Name:        "apm",
 			Description: "Agent Package Manager (APM) commands with JFrog Artifactory authentication.",
-			Flags:       flagkit.GetCommandFlags(flagkit.ApmPassthrough),
+			Flags:       flagkit.GetCommandFlags(flagkit.AgentApmPassthrough),
 			Subcommands: apmcli.GetSubCommands(),
 			Action:      passthrough.RunApmPassthroughDefault,
 		},

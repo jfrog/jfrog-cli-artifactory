@@ -513,9 +513,13 @@ const (
 
 	// Agent APM commands keys. install/publish/lock/update all take the identical
 	// server + build-info flag set, so they share one key; only the bare passthrough differs
-	// (no build-info flags, since it can't collect build-info at all).
-	ApmSubcommand  = "apm-subcommand"
-	ApmPassthrough = "apm-passthrough"
+	// (no build-info flags, since it can't collect build-info at all). Neither takes direct
+	// credential flags (--url/--user/--password/--access-token) - a registry/server must
+	// already be declared via --server-id, the default configured server, or (passthrough
+	// only) an already-known --repo, matching the pnpm/npm/yarn/nuget convention of resolving
+	// auth purely through --server-id rather than ad hoc credentials on the runtime command.
+	AgentApmSubcommand  = "agent-apm-subcommand"
+	AgentApmPassthrough = "agent-apm-passthrough"
 
 	// Agent plugin commands keys
 	AgentPluginsPublish = "agent-plugins-publish"
@@ -926,11 +930,11 @@ var commandFlags = map[string][]string{
 	SkillsList: {
 		url, user, password, accessToken, serverId, repo, harness, projectDir, agentGlobal, agentFormat, agentLimit, agentSortBy, agentSortOrder, agentCheckUpdates,
 	},
-	ApmSubcommand: {
-		url, user, password, accessToken, serverId, BuildName, BuildNumber, module, Project,
+	AgentApmSubcommand: {
+		serverId, BuildName, BuildNumber, module, Project,
 	},
-	ApmPassthrough: {
-		url, user, password, accessToken, serverId, repo,
+	AgentApmPassthrough: {
+		serverId, repo,
 	},
 }
 
