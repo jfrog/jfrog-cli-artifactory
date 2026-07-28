@@ -23,10 +23,10 @@ const headWorkerCount = 15
 //     headers directly. Confirmed live to match AQL results exactly, and the same mechanism
 //     ocicontainer/docker already uses for artifacts it can't resolve via AQL.
 //  3. Fallback: use lockfile SHA-256 only when the HEAD request finds no match.
-func ResolveChecksums(deps []ResolvedDep, sd *config.ServerDetails, buildConfig *buildUtils.BuildConfiguration) (map[string]entities.Checksum, error) {
+func ResolveChecksums(deps []ResolvedDep, serverDetails *config.ServerDetails, buildConfig *buildUtils.BuildConfiguration) (map[string]entities.Checksum, error) {
 	checksumMap := make(map[string]entities.Checksum)
 
-	servicesManager, err := coreArtUtils.CreateServiceManager(sd, -1, 0, false)
+	servicesManager, err := coreArtUtils.CreateServiceManager(serverDetails, -1, 0, false)
 	if err != nil {
 		return nil, err
 	}
@@ -43,8 +43,8 @@ func ResolveChecksums(deps []ResolvedDep, sd *config.ServerDetails, buildConfig 
 
 	var uncached []ResolvedDep
 	for _, dep := range deps {
-		if cs, ok := cachedChecksums[dep.ID]; ok {
-			checksumMap[dep.ID] = cs
+		if checksum, ok := cachedChecksums[dep.ID]; ok {
+			checksumMap[dep.ID] = checksum
 		} else {
 			uncached = append(uncached, dep)
 		}
@@ -58,8 +58,8 @@ func ResolveChecksums(deps []ResolvedDep, sd *config.ServerDetails, buildConfig 
 
 	headResults := resolveChecksumsByHead(uncached, servicesManager)
 	for _, dep := range uncached {
-		if cs, ok := headResults[dep.ID]; ok {
-			checksumMap[dep.ID] = cs
+		if checksum, ok := headResults[dep.ID]; ok {
+			checksumMap[dep.ID] = checksum
 		} else if dep.SHA256 != "" {
 			checksumMap[dep.ID] = entities.Checksum{Sha256: dep.SHA256}
 		}
@@ -85,16 +85,16 @@ func resolveChecksumsByHead(deps []ResolvedDep, servicesManager artifactory.Arti
 		}
 		wg.Add(1)
 		sem <- struct{}{}
-		go func(d ResolvedDep) {
+		go func(dep ResolvedDep) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			fileDetails, _, err := servicesManager.Client().GetRemoteFileDetails(d.ResolvedURL, &clientDetails)
+			fileDetails, _, err := servicesManager.Client().GetRemoteFileDetails(dep.ResolvedURL, &clientDetails)
 			if err != nil {
-				log.Debug(fmt.Sprintf("HEAD checksum lookup failed for %s: %s", d.ID, err.Error()))
+				log.Debug(fmt.Sprintf("HEAD checksum lookup failed for %s: %s", dep.ID, err.Error()))
 				return
 			}
 			mu.Lock()
-			checksumMap[d.ID] = fileDetails.Checksum
+			checksumMap[dep.ID] = fileDetails.Checksum
 			mu.Unlock()
 		}(dep)
 	}

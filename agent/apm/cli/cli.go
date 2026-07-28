@@ -17,7 +17,7 @@ func GetSubCommands() []components.Command {
 	return []components.Command{
 		{
 			Name:  "install",
-			Flags: flagkit.GetCommandFlags(flagkit.AgentApmSubcommand),
+			Flags: flagkit.GetCommandFlags(flagkit.AgentApm),
 			// SkipFlagParsing so apm-native flags (e.g. --frozen) that aren't in jf's own
 			// declared flag set above aren't rejected by urfave/cli before reaching apm.
 			// RunInstall extracts jf's own flags manually via ExtractApmSubcommandOptions.
@@ -27,14 +27,14 @@ func GetSubCommands() []components.Command {
 		},
 		{
 			Name:            "publish",
-			Flags:           flagkit.GetCommandFlags(flagkit.AgentApmSubcommand),
+			Flags:           flagkit.GetCommandFlags(flagkit.AgentApm),
 			SkipFlagParsing: true,
 			Description:     "Publish an APM package to JFrog Artifactory.",
 			Action:          publish.RunPublish,
 		},
 		{
 			Name:            "update",
-			Flags:           flagkit.GetCommandFlags(flagkit.AgentApmSubcommand),
+			Flags:           flagkit.GetCommandFlags(flagkit.AgentApm),
 			SkipFlagParsing: true,
 			Description:     "Refresh APM dependencies to their latest matching refs, with build-info collection.",
 			Action:          update.RunUpdate,

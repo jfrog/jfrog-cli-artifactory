@@ -511,15 +511,11 @@ const (
 	SkillsDelete  = "skills-delete"
 	SkillsList    = "skills-list"
 
-	// Agent APM commands keys. install/publish/lock/update all take the identical
-	// server + build-info flag set, so they share one key; only the bare passthrough differs
-	// (no build-info flags, since it can't collect build-info at all). Neither takes direct
-	// credential flags (--url/--user/--password/--access-token) - a registry/server must
-	// already be declared via --server-id, the default configured server, or (passthrough
-	// only) an already-known --repo, matching the pnpm/npm/yarn/nuget convention of resolving
-	// auth purely through --server-id rather than ad hoc credentials on the runtime command.
-	AgentApmSubcommand  = "agent-apm-subcommand"
-	AgentApmPassthrough = "agent-apm-passthrough"
+	// Agent APM commands key. install/publish/update take only build-info flags; auth always
+	// resolves from the default configured JFrog server, no --server-id/--repo/direct-credential
+	// override - apm's own registry/config resolution (~/.apm/config.json, apm.yml) is what
+	// package managers are for. The generic passthrough takes no flags of its own at all.
+	AgentApm = "agent-apm"
 
 	// Agent plugin commands keys
 	AgentPluginsPublish = "agent-plugins-publish"
@@ -930,11 +926,8 @@ var commandFlags = map[string][]string{
 	SkillsList: {
 		url, user, password, accessToken, serverId, repo, harness, projectDir, agentGlobal, agentFormat, agentLimit, agentSortBy, agentSortOrder, agentCheckUpdates,
 	},
-	AgentApmSubcommand: {
-		serverId, BuildName, BuildNumber, module, Project,
-	},
-	AgentApmPassthrough: {
-		serverId, repo,
+	AgentApm: {
+		BuildName, BuildNumber, module, Project,
 	},
 }
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	apmcommon "github.com/jfrog/jfrog-cli-artifactory/agent/apm/common"
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
@@ -38,13 +39,13 @@ func (c *ApmPublishCommand) SetArgs(args []string) *ApmPublishCommand {
 	return c
 }
 
-func (c *ApmPublishCommand) SetServerDetails(sd *config.ServerDetails) *ApmPublishCommand {
-	c.serverDetails = sd
+func (c *ApmPublishCommand) SetServerDetails(serverDetails *config.ServerDetails) *ApmPublishCommand {
+	c.serverDetails = serverDetails
 	return c
 }
 
-func (c *ApmPublishCommand) SetBuildConfiguration(bc *buildUtils.BuildConfiguration) *ApmPublishCommand {
-	c.buildConfiguration = bc
+func (c *ApmPublishCommand) SetBuildConfiguration(buildConfiguration *buildUtils.BuildConfiguration) *ApmPublishCommand {
+	c.buildConfiguration = buildConfiguration
 	return c
 }
 
@@ -59,17 +60,17 @@ func (c *ApmPublishCommand) ServerDetails() (*config.ServerDetails, error) {
 // withPackageFlag promotes a bare positional package spec (e.g. "jfrog/proj3") into the
 // --package flag apm publish requires. If --package is already present, args are left untouched.
 func withPackageFlag(args []string) []string {
-	for _, a := range args {
-		if a == "--package" || strings.HasPrefix(a, "--package=") {
+	for _, arg := range args {
+		if arg == "--package" || strings.HasPrefix(arg, "--package=") {
 			return args
 		}
 	}
-	for i, a := range args {
-		if !strings.HasPrefix(a, "-") {
+	for i, arg := range args {
+		if !strings.HasPrefix(arg, "-") {
 			rest := make([]string, 0, len(args)-1)
 			rest = append(rest, args[:i]...)
 			rest = append(rest, args[i+1:]...)
-			return append([]string{"--package", a}, rest...)
+			return append([]string{"--package", arg}, rest...)
 		}
 	}
 	return args
@@ -79,7 +80,7 @@ func (c *ApmPublishCommand) Run() error {
 	log.Info("Running apm publish...")
 
 	args := withPackageFlag(c.args)
-	if err := apmcommon.RunApmSubcommandWithAuth("publish", args, c.serverDetails, ""); err != nil {
+	if err := apmcommon.RunApmSubcommandWithAuth("publish", args, c.serverDetails); err != nil {
 		return fmt.Errorf("run apm publish: %w", err)
 	}
 
@@ -102,11 +103,11 @@ func (c *ApmPublishCommand) Run() error {
 // ownerFromArgs extracts the owner segment from a "--package owner/name" pair in args.
 // Returns "" if --package isn't present or doesn't contain a "/".
 func ownerFromArgs(args []string) string {
-	for i, a := range args {
+	for i, arg := range args {
 		var pkg string
-		if a == "--package" && i+1 < len(args) {
+		if arg == "--package" && i+1 < len(args) {
 			pkg = args[i+1]
-		} else if cut, ok := strings.CutPrefix(a, "--package="); ok {
+		} else if cut, ok := strings.CutPrefix(arg, "--package="); ok {
 			pkg = cut
 		}
 		if pkg == "" {
@@ -129,10 +130,14 @@ func RunPublish(c *components.Context) error {
 	if err != nil {
 		return err
 	}
+	serverDetails, err := agentcommon.GetServerDetails(c)
+	if err != nil {
+		return err
+	}
 
 	cmd := NewApmPublishCommand().
 		SetArgs(opts.RemainingArgs).
-		SetServerDetails(opts.ServerDetails).
+		SetServerDetails(serverDetails).
 		SetBuildConfiguration(opts.BuildConfig)
 
 	return commands.ExecWithPackageManager(cmd, "agent-apm")

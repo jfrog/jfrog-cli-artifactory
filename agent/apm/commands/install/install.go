@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	apmcommon "github.com/jfrog/jfrog-cli-artifactory/agent/apm/common"
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
@@ -36,13 +37,13 @@ func (c *ApmInstallCommand) SetArgs(args []string) *ApmInstallCommand {
 	return c
 }
 
-func (c *ApmInstallCommand) SetServerDetails(sd *config.ServerDetails) *ApmInstallCommand {
-	c.serverDetails = sd
+func (c *ApmInstallCommand) SetServerDetails(serverDetails *config.ServerDetails) *ApmInstallCommand {
+	c.serverDetails = serverDetails
 	return c
 }
 
-func (c *ApmInstallCommand) SetBuildConfiguration(bc *buildUtils.BuildConfiguration) *ApmInstallCommand {
-	c.buildConfiguration = bc
+func (c *ApmInstallCommand) SetBuildConfiguration(buildConfiguration *buildUtils.BuildConfiguration) *ApmInstallCommand {
+	c.buildConfiguration = buildConfiguration
 	return c
 }
 
@@ -57,7 +58,7 @@ func (c *ApmInstallCommand) ServerDetails() (*config.ServerDetails, error) {
 func (c *ApmInstallCommand) Run() error {
 	log.Info("Running apm install...")
 
-	if err := apmcommon.RunApmSubcommandWithAuth("install", c.args, c.serverDetails, ""); err != nil {
+	if err := apmcommon.RunApmSubcommandWithAuth("install", c.args, c.serverDetails); err != nil {
 		return fmt.Errorf("run apm install: %w", err)
 	}
 
@@ -86,10 +87,14 @@ func RunInstall(c *components.Context) error {
 	if err != nil {
 		return err
 	}
+	serverDetails, err := agentcommon.GetServerDetails(c)
+	if err != nil {
+		return err
+	}
 
 	cmd := NewApmInstallCommand().
 		SetArgs(opts.RemainingArgs).
-		SetServerDetails(opts.ServerDetails).
+		SetServerDetails(serverDetails).
 		SetBuildConfiguration(opts.BuildConfig)
 
 	return commands.ExecWithPackageManager(cmd, "agent-apm")

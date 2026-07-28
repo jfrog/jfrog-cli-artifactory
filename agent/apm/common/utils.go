@@ -52,10 +52,10 @@ func parseApmVersion(output string) string {
 	return ""
 }
 
-// isDottedVersion reports whether s is two or three dot-separated numeric segments,
+// isDottedVersion reports whether token is two or three dot-separated numeric segments,
 // e.g. "1.2" or "0.23.1".
-func isDottedVersion(s string) bool {
-	parts := strings.Split(s, ".")
+func isDottedVersion(token string) bool {
+	parts := strings.Split(token, ".")
 	if len(parts) < 2 || len(parts) > 3 {
 		return false
 	}
@@ -63,8 +63,8 @@ func isDottedVersion(s string) bool {
 		if part == "" {
 			return false
 		}
-		for _, r := range part {
-			if r < '0' || r > '9' {
+		for _, char := range part {
+			if char < '0' || char > '9' {
 				return false
 			}
 		}

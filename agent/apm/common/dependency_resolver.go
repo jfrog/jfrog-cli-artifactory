@@ -47,13 +47,13 @@ func ResolveDependencies(lockfilePath string) ([]ResolvedDep, error) {
 
 // ToEntitiesDependency converts a ResolvedDep to entities.Dependency with resolved checksums.
 // Type is "zip" — confirmed live against Artifactory's real agentpackages storage layout.
-func (d ResolvedDep) ToEntitiesDependency(cs entities.Checksum) entities.Dependency {
+func (dep ResolvedDep) ToEntitiesDependency(checksum entities.Checksum) entities.Dependency {
 	return entities.Dependency{
-		Id:          d.ID,
+		Id:          dep.ID,
 		Type:        "zip",
-		Scopes:      d.Scopes,
-		RequestedBy: d.RequestedBy,
-		Checksum:    cs,
+		Scopes:      dep.Scopes,
+		RequestedBy: dep.RequestedBy,
+		Checksum:    checksum,
 	}
 }
 

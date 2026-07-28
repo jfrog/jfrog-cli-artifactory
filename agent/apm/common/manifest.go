@@ -54,9 +54,9 @@ func apmHostMatches(registryURL, artifactoryURL string) bool {
 }
 
 func parseHost(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Host == "" {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil || parsedURL.Host == "" {
 		return ""
 	}
-	return strings.ToLower(u.Host)
+	return strings.ToLower(parsedURL.Host)
 }

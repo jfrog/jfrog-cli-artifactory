@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	apmcommon "github.com/jfrog/jfrog-cli-artifactory/agent/apm/common"
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
@@ -36,13 +37,13 @@ func (c *ApmUpdateCommand) SetArgs(args []string) *ApmUpdateCommand {
 	return c
 }
 
-func (c *ApmUpdateCommand) SetServerDetails(sd *config.ServerDetails) *ApmUpdateCommand {
-	c.serverDetails = sd
+func (c *ApmUpdateCommand) SetServerDetails(serverDetails *config.ServerDetails) *ApmUpdateCommand {
+	c.serverDetails = serverDetails
 	return c
 }
 
-func (c *ApmUpdateCommand) SetBuildConfiguration(bc *buildUtils.BuildConfiguration) *ApmUpdateCommand {
-	c.buildConfiguration = bc
+func (c *ApmUpdateCommand) SetBuildConfiguration(buildConfiguration *buildUtils.BuildConfiguration) *ApmUpdateCommand {
+	c.buildConfiguration = buildConfiguration
 	return c
 }
 
@@ -61,7 +62,7 @@ func (c *ApmUpdateCommand) ServerDetails() (*config.ServerDetails, error) {
 func (c *ApmUpdateCommand) Run() error {
 	log.Info("Running apm update...")
 
-	if err := apmcommon.RunApmSubcommandWithAuth("update", c.args, c.serverDetails, ""); err != nil {
+	if err := apmcommon.RunApmSubcommandWithAuth("update", c.args, c.serverDetails); err != nil {
 		return fmt.Errorf("run apm update: %w", err)
 	}
 
@@ -90,10 +91,14 @@ func RunUpdate(c *components.Context) error {
 	if err != nil {
 		return err
 	}
+	serverDetails, err := agentcommon.GetServerDetails(c)
+	if err != nil {
+		return err
+	}
 
 	cmd := NewApmUpdateCommand().
 		SetArgs(opts.RemainingArgs).
-		SetServerDetails(opts.ServerDetails).
+		SetServerDetails(serverDetails).
 		SetBuildConfiguration(opts.BuildConfig)
 
 	return commands.ExecWithPackageManager(cmd, "agent-apm")
