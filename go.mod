@@ -203,3 +203,9 @@ require (
 // replace github.com/gfleury/go-bitbucket-v1 => github.com/gfleury/go-bitbucket-v1 v0.0.0-20230825095122-9bc1711434ab
 
 // replace github.com/ktrysmt/go-bitbucket => github.com/ktrysmt/go-bitbucket v0.9.80
+
+// LOCAL-ONLY (uncommitted, REVERT before PR): use local build-info-go for cargo flexpack work
+replace github.com/jfrog/build-info-go => github.com/jfrog/build-info-go v1.13.1-0.20260728061823-0ba531230559
+
+// LOCAL-ONLY (uncommitted, REVERT before PR): use local jfrog-cli-core for the project.Cargo enum (jf setup cargo)
+replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260717063801-dfcd55d10923
