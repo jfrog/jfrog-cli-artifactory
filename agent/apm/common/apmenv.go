@@ -124,7 +124,7 @@ func discoverMatchingRegistries(existing *apmConfigJSON, manifestPath string, se
 
 	if manifestPath != "" {
 		if manifest, loadErr := LoadManifest(manifestPath); loadErr == nil {
-			for name, reg := range manifest.Registries {
+			for name, reg := range manifest.Registries.Entries {
 				if seen[name] || !apmHostMatches(reg.URL, serverDetails.ArtifactoryUrl) {
 					continue
 				}

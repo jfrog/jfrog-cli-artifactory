@@ -19,9 +19,47 @@ const ApmManifestName = "apm.yml"
 // not a list. An earlier version of this struct modeled it as []ManifestRegistry, which
 // made LoadManifest fail on every real apm.yml that declares any registries at all.
 type ApmManifest struct {
-	Name       string                      `yaml:"name"`
-	Version    string                      `yaml:"version"`
-	Registries map[string]ManifestRegistry `yaml:"registries"`
+	Name       string             `yaml:"name"`
+	Version    string             `yaml:"version"`
+	Registries ManifestRegistries `yaml:"registries"`
+}
+
+// ManifestRegistries models apm.yml's registries: block: a map of registry name to entry,
+// plus an optional sibling "default: <name>" key (confirmed against the real schema at
+// https://microsoft.github.io/apm/reference/manifest-schema/ - a registries: block without a
+// default has no effect on plain owner/repo dependency resolution at all). "default" lives at
+// the same YAML level as the registry names themselves, not nested under one, so it can't be
+// modeled as a plain map[string]ManifestRegistry - yaml.Unmarshal would try to decode the
+// "default" value (a string) as a ManifestRegistry (a struct) and fail, silently discarding
+// every registry in the block along with it (see UnmarshalYAML).
+type ManifestRegistries struct {
+	Entries map[string]ManifestRegistry
+	Default string
+}
+
+// UnmarshalYAML splits the "default" key out from the registry-name entries before decoding
+// each one, so a real apm.yml with both (the schema-correct, common case) parses successfully
+// instead of failing outright.
+func (r *ManifestRegistries) UnmarshalYAML(value *yaml.Node) error {
+	raw := make(map[string]yaml.Node)
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	r.Entries = make(map[string]ManifestRegistry, len(raw))
+	for name, node := range raw {
+		if name == "default" {
+			if err := node.Decode(&r.Default); err != nil {
+				return err
+			}
+			continue
+		}
+		var entry ManifestRegistry
+		if err := node.Decode(&entry); err != nil {
+			return err
+		}
+		r.Entries[name] = entry
+	}
+	return nil
 }
 
 type ManifestRegistry struct {
