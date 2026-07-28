@@ -37,6 +37,7 @@ const (
 	SummaryStatusSkipped   = "skipped"
 	SummaryStatusWarning   = "warning"
 	SummaryDetailOKInstall = "Executed successfully with no issues."
+	SummaryDetailOKUpdate  = "Updated successfully with no issues."
 )
 
 // SummaryRow is one row in the install/update summary table.

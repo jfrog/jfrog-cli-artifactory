@@ -39,9 +39,9 @@ func (sc *SearchCommand) SetFormat(format string) *SearchCommand {
 }
 
 func (sc *SearchCommand) Run() error {
-	rows, err := agentcommon.SearchRowsByProperty(sc.serverDetails, agentcommon.PropertySearchOptions{
+	rows, err := agentcommon.SearchLatestRowsByProperty(sc.serverDetails, agentcommon.PropertySearchOptions{
 		NamePropertyKey: plugincommon.SearchNamePropertyKey,
-		Query:           sc.query,
+		Query:           wildcardSearchQuery(sc.query),
 		RepoKey:         sc.repoKey,
 	}, plugincommon.SearchDescriptionPropertyKeys)
 	if err != nil {
@@ -54,6 +54,17 @@ func (sc *SearchCommand) Run() error {
 		EmptyTableLabel: plugincommon.SearchEmptyTableLabel,
 		NotFoundMessage: plugincommon.SearchNotFoundMessage,
 	})
+}
+
+// wildcardSearchQuery wraps query in "*...*" so search matches substrings, not just an exact
+// plugin name — the underlying Artifactory property-search API only does exact matches
+// unless the caller supplies wildcards itself. A query that already contains "*" is passed
+// through unchanged so a caller who deliberately wrote their own pattern isn't double-wrapped.
+func wildcardSearchQuery(query string) string {
+	if strings.Contains(query, "*") {
+		return query
+	}
+	return "*" + query + "*"
 }
 
 // RunSearch is the CLI action for `jf agent plugins search`.

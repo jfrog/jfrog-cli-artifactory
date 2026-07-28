@@ -23,9 +23,7 @@ var askYesNo = coreutils.AskYesNo
 // isNonInteractive is swappable in tests (GitHub Actions sets CI=true).
 var isNonInteractive = agentcommon.IsNonInteractive
 
-const updateAllConfirmPrompt = "Update all discovered plugins under the given harness(es) to their latest version in the repository? " +
-	"Each install folder name is used as the repository slug (same as update --slug). " +
-	"Matching packages will be updated, including installs that were not made with JFrog CLI."
+const updateAllConfirmPrompt = "Update all JFrog CLI-installed plugins under the given harness(es) to their latest version in the repository?"
 
 // pluginBackupDirName is the directory under the plugins parent where update backups are stored.
 const pluginBackupDirName = ".plugin-backup"
@@ -39,6 +37,13 @@ var resolvePluginVersion = plugincommon.ResolvePluginVersion
 // updateSlugAcrossTargetsFn is swappable in tests.
 var updateSlugAcrossTargetsFn = updateSlugAcrossTargets
 
+// isRegisteredWithNativeAgent is swappable in tests to avoid depending on the
+// real machine's ~/.claude and ~/.codex state.
+var isRegisteredWithNativeAgent = plugincommon.IsRegisteredWithNativeAgent
+
+// preUpdate holds the result of a pre-flight check before attempting update on a target.
+// If failureReason is non-empty, this target cannot be updated and failureReason explains why.
+// Caller should skip generating update rows for targets with failureReason set.
 type preUpdate struct {
 	agentTarget            plugincommon.AgentTarget
 	installedVersion       string
@@ -71,10 +76,11 @@ func RunUpdate(c *components.Context) error {
 		}
 	}
 
-	opts, err := newUpdate(c)
+	opts, err := newUpdate(c, all)
 	if err != nil {
 		return err
 	}
+	opts.skipNativeCheck = all
 	if all && opts.flags.AbsoluteInstallBaseDir != "" {
 		return fmt.Errorf("--all requires --harness; --path is not supported")
 	}
@@ -99,6 +105,15 @@ func RunUpdate(c *components.Context) error {
 	return runUpdateOnSlug(opts, slugFlag, requestedVersion)
 }
 
+// validateUpdateScope rejects project-scoped updates for agents whose native plugin
+// configuration only supports global scope (claude, cursor, codex — see
+// plugincommon.RejectUnsupportedProjectScope). --path mode and --global are always allowed;
+// a custom agent registered via agent-config.json is not restricted here.
+func validateUpdateScope(flags agentcommon.InstallFlagsResult) error {
+	isProjectScope := !flags.PathMode() && !flags.IsGlobal
+	return plugincommon.RejectUnsupportedProjectScope(isProjectScope, flags.Specs, "update")
+}
+
 type update struct {
 	serverDetails *config.ServerDetails
 	repoKey       string
@@ -107,11 +122,20 @@ type update struct {
 	force         bool
 	format        string
 	quiet         bool
+	// skipNativeCheck disables the native-registration pre-check (see preUpdateTargets)
+	// for --all, whose discovery already only surfaces jf-managed slugs. Always false
+	// outside --all.
+	skipNativeCheck bool
 }
 
-func newUpdate(c *components.Context) (update, error) {
+// newUpdate builds update options. For --all, repo resolution is skipped entirely: each
+// plugin's repo comes from its own plugin-info.json, so --repo is only an optional filter.
+func newUpdate(c *components.Context, all bool) (update, error) {
 	flags, err := agentcommon.ValidateInstallFlags(c, plugincommon.Agents, agentcommon.PluginsAgentsKey, plugincommon.RegistryHelp, agentcommon.InstallFlagsOptions{DefaultGlobalScope: true})
 	if err != nil {
+		return update{}, err
+	}
+	if err := validateUpdateScope(flags); err != nil {
 		return update{}, err
 	}
 	serverDetails, err := agentcommon.GetServerDetails(c)
@@ -119,9 +143,15 @@ func newUpdate(c *components.Context) (update, error) {
 		return update{}, err
 	}
 	quiet := agentcommon.IsQuiet(c)
-	repoKey, err := agentcommon.ResolveRepo(serverDetails, c.GetStringFlagValue("repo"), quiet, plugincommon.RepoOptions())
-	if err != nil {
-		return update{}, err
+	repoFlag := strings.TrimSpace(c.GetStringFlagValue("repo"))
+	var repoKey string
+	if all {
+		repoKey = repoFlag // optional filter, applied per-plugin in discoverInstalledPluginTargets; empty means no filter
+	} else {
+		repoKey, err = agentcommon.ResolveRepo(serverDetails, repoFlag, quiet, plugincommon.RepoOptions())
+		if err != nil {
+			return update{}, err
+		}
 	}
 	format := "table"
 	if c.GetStringFlagValue("format") != "" {
@@ -140,14 +170,14 @@ func newUpdate(c *components.Context) (update, error) {
 
 // runUpdateOnSlug updates a single slug across all resolved targets.
 func runUpdateOnSlug(opts update, slug, requestedVersion string) error {
-	targets, err := agentcommon.ResolveAgentTargets(slug, opts.flags.AbsoluteInstallBaseDir, opts.flags.Specs, opts.flags.ProjectDirAbs, opts.flags.IsGlobal)
+	targets, err := resolveUpdateTargets(opts, slug)
 	if err != nil {
 		return err
 	}
 
 	targetVersion, err := resolveTargetVersion(opts.serverDetails, opts.repoKey, slug, requestedVersion, opts.quiet)
 	if err != nil {
-		return err
+		return diagnoseNotFoundError(err, slug, opts.repoKey, targets)
 	}
 
 	results, err := updateSlugAcrossTargetsFn(opts, slug, targetVersion, targets)
@@ -158,6 +188,50 @@ func runUpdateOnSlug(opts update, slug, requestedVersion string) error {
 		return err
 	}
 	return finalError(results)
+}
+
+// diagnoseNotFoundError enriches a "not found in repository" error when the plugin is
+// actually installed natively (e.g. from Claude's official marketplace) but not via jf —
+// clearer than a generic "not found" that reads like a typo'd repo or slug.
+func diagnoseNotFoundError(resolveErr error, slug, repoKey string, targets []plugincommon.AgentTarget) error {
+	if !errors.Is(resolveErr, plugincommon.ErrPluginNotFoundInRepo) {
+		return resolveErr
+	}
+	var unmanaged []string
+	for _, target := range targets {
+		if !plugincommon.HasNativeRegistry(target.Agent.Name) {
+			// No registry to confirm against (e.g. cursor): "not found" just means not
+			// installed here, not "installed but unmanaged by jf".
+			continue
+		}
+		registered, regErr := isRegisteredWithNativeAgent(target.Agent.Name, slug, repoKey)
+		if regErr != nil || !registered {
+			continue
+		}
+		if _, err := plugincommon.ReadInstalledPluginVersion(target.DestinationDir); err == nil {
+			continue // jf's own local copy also exists — this isn't the "unmanaged" case
+		}
+		unmanaged = append(unmanaged, target.Agent.Name)
+	}
+	if len(unmanaged) == 0 {
+		return resolveErr
+	}
+	return fmt.Errorf(
+		"plugin '%s@%s' is installed for %s, but not via jfrog-cli (no local install found under jf's managed path); "+
+			"jfrog-cli can only manage updates for plugins it installed itself (original lookup error: %s)",
+		slug, repoKey, strings.Join(unmanaged, ", "), resolveErr.Error(),
+	)
+}
+
+// resolveUpdateTargets resolves the install targets for slug and injects the
+// Artifactory repo key into the path for claude/codex, matching install's
+// <GlobalDir>/<repoKey>/<slug> layout for those two agents.
+func resolveUpdateTargets(opts update, slug string) ([]plugincommon.AgentTarget, error) {
+	targets, err := agentcommon.ResolveAgentTargets(slug, opts.flags.AbsoluteInstallBaseDir, opts.flags.Specs, opts.flags.ProjectDirAbs, opts.flags.IsGlobal)
+	if err != nil {
+		return nil, err
+	}
+	return plugincommon.InjectRepoKey(targets, opts.repoKey), nil
 }
 
 // updateAllOutcome tracks aggregate success/failure for a --all run.
@@ -181,76 +255,150 @@ func confirmUpdateAll(opts update) error {
 
 // runUpdateAll enumerates every installed plugin under each --harness and updates each to its latest version.
 func runUpdateAll(opts update) error {
-	slugOrder, slugToTargets, err := discoverInstalledPluginTargets(opts.flags)
+	discovered, err := discoverInstalledPluginTargets(opts.flags, opts.repoKey)
 	if err != nil {
 		return err
 	}
-	if len(slugOrder) == 0 {
+	if len(discovered) == 0 {
 		log.Info("No installed plugins found for the given --harness list; nothing to update.")
 		return nil
 	}
 
-	combined, outcome := applyUpdateAllForSlugs(opts, slugOrder, slugToTargets)
+	combined, outcome := applyUpdateAllForSlugs(opts, discovered)
 	return finalizeUpdateAll(combined, outcome, opts.format)
 }
 
-// discoverInstalledPluginTargets maps each installed slug to its harness install targets.
-func discoverInstalledPluginTargets(flags agentcommon.InstallFlagsResult) ([]string, map[string][]plugincommon.AgentTarget, error) {
-	slugToTargets := make(map[string][]plugincommon.AgentTarget)
-	slugOrder := make([]string, 0)
+// discoveredPlugin is one (slug, repo) pair discovered under some --harness install dir
+// during `update --all`, with every agent target installed from that same repo. The repo
+// comes from each plugin's own .jfrog/plugin-info.json, since a harness's install dir can
+// span multiple Artifactory repos (one subdirectory per repo — see UsesRepoKeyedLayout).
+type discoveredPlugin struct {
+	slug    string
+	repo    string
+	targets []plugincommon.AgentTarget
+}
+
+// discoverInstalledPluginTargets finds every jf-installed plugin (valid plugin-info.json)
+// under each --harness, grouped by (slug, repo); claude/codex scan every repo subdirectory
+// (UsesRepoKeyedLayout), others read the repo from the manifest. repoFilter, when non-empty,
+// keeps only that exact repo.
+func discoverInstalledPluginTargets(flags agentcommon.InstallFlagsResult, repoFilter string) ([]discoveredPlugin, error) {
+	byKey := make(map[string]*discoveredPlugin)
+	order := make([]string, 0)
 	scope := plugincommon.ScopeProject
 	if flags.IsGlobal {
 		scope = plugincommon.ScopeGlobal
 	}
+
 	for _, spec := range flags.Specs {
 		installDir, err := agentcommon.ResolveAgentInstallDir(spec, flags.ProjectDirAbs, flags.IsGlobal)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		slugs, err := plugincommon.DiscoverInstalledPluginSlugs(installDir)
-		if err != nil {
-			return nil, nil, err
-		}
-		for _, slug := range slugs {
-			if _, seen := slugToTargets[slug]; !seen {
-				slugOrder = append(slugOrder, slug)
+
+		pluginParentDirs := []string{installDir}
+		if plugincommon.UsesRepoKeyedLayout(spec.Name) {
+			repoDirNames, err := listSubdirectories(installDir)
+			if err != nil {
+				return nil, err
 			}
-			slugToTargets[slug] = append(slugToTargets[slug], plugincommon.AgentTarget{
-				Agent:          spec,
-				Scope:          scope,
-				DestinationDir: filepath.Join(installDir, slug),
-			})
+			pluginParentDirs = make([]string, 0, len(repoDirNames))
+			for _, repoDirName := range repoDirNames {
+				pluginParentDirs = append(pluginParentDirs, filepath.Join(installDir, repoDirName))
+			}
+		}
+
+		for _, parentDir := range pluginParentDirs {
+			slugs, err := plugincommon.DiscoverInstalledPluginSlugs(parentDir)
+			if err != nil {
+				return nil, err
+			}
+			for _, slug := range slugs {
+				pluginDir := filepath.Join(parentDir, slug)
+				manifest, err := agentcommon.ReadInstallInfoManifest(pluginDir, plugincommon.PluginInfoManifestFile)
+				if err != nil {
+					log.Warn(fmt.Sprintf("Skipping %s at %s: could not read plugin-info.json: %s", slug, pluginDir, err.Error()))
+					continue
+				}
+				if manifest == nil || strings.TrimSpace(manifest.Repo) == "" {
+					continue // not installed by jf (or missing repo) — can't determine which repo to check for updates
+				}
+				repo := manifest.Repo
+				if repoFilter != "" && repo != repoFilter {
+					continue
+				}
+				key := slug + "\x00" + repo
+				dp, ok := byKey[key]
+				if !ok {
+					dp = &discoveredPlugin{slug: slug, repo: repo}
+					byKey[key] = dp
+					order = append(order, key)
+				}
+				dp.targets = append(dp.targets, plugincommon.AgentTarget{
+					Agent:          spec,
+					Scope:          scope,
+					DestinationDir: pluginDir,
+				})
+			}
 		}
 	}
-	return slugOrder, slugToTargets, nil
+
+	result := make([]discoveredPlugin, 0, len(order))
+	for _, key := range order {
+		result = append(result, *byKey[key])
+	}
+	return result, nil
 }
 
-// applyUpdateAllForSlugs resolves latest version per slug, updates targets, and builds combined summary rows.
-// Resolve and download failures for one slug are logged and recorded as failed rows; remaining slugs still run.
-func applyUpdateAllForSlugs(opts update, slugOrder []string, slugToTargets map[string][]plugincommon.AgentTarget,
-) ([]agentcommon.UpdateAllSummaryRow, updateAllOutcome) {
+// listSubdirectories returns the names of direct subdirectories of dir, skipping
+// dot-prefixed entries. A missing dir is not an error — it just means no subdirectories.
+func listSubdirectories(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return []string{}, nil
+		}
+		return nil, fmt.Errorf("read dir %s: %w", dir, err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		names = append(names, entry.Name())
+	}
+	return names, nil
+}
+
+// applyUpdateAllForSlugs resolves the latest version per discovered (slug, repo) pair
+// (each against its own dp.repo, not one shared repo) and builds combined summary rows;
+// a failure for one plugin is logged and recorded, remaining plugins still run.
+func applyUpdateAllForSlugs(opts update, discovered []discoveredPlugin) ([]agentcommon.UpdateAllSummaryRow, updateAllOutcome) {
 	combined := make([]agentcommon.UpdateAllSummaryRow, 0)
 	var outcome updateAllOutcome
-	for _, slug := range slugOrder {
-		targetVersion, err := resolveLatestPluginVersion(opts.serverDetails, opts.repoKey, slug)
+	for _, dp := range discovered {
+		pluginOpts := opts
+		pluginOpts.repoKey = dp.repo
+
+		targetVersion, err := resolveLatestPluginVersion(pluginOpts.serverDetails, dp.repo, dp.slug)
 		if err != nil {
 			if outcome.firstResolveErr == nil {
 				outcome.firstResolveErr = err
 			}
-			log.Warn(fmt.Sprintf("Skipping plugin '%s': could not resolve latest version: %s", slug, err.Error()))
-			results := failedRowsForTargets(slugToTargets[slug], err.Error())
-			combined = agentcommon.AppendUpdateAllSummaryRows(combined, slug, "", results)
+			log.Error(fmt.Sprintf("Skipping plugin '%s@%s': could not resolve latest version: %s", dp.slug, dp.repo, err.Error()))
+			results := failedRowsForTargets(dp.targets, err.Error())
+			combined = agentcommon.AppendUpdateAllSummaryRows(combined, dp.slug, "", results)
 			outcome.updatedSlugCount++
 			_, slugFailed := tallySummaryRows(results)
 			outcome.anyFailed = outcome.anyFailed || slugFailed
 			continue
 		}
-		results, err := updateSlugAcrossTargetsFn(opts, slug, targetVersion, slugToTargets[slug])
+		results, err := updateSlugAcrossTargetsFn(pluginOpts, dp.slug, targetVersion, dp.targets)
 		if err != nil {
-			log.Warn(fmt.Sprintf("Skipping plugin '%s': download failed: %s", slug, err.Error()))
-			results = failedRowsForTargets(slugToTargets[slug], err.Error())
+			log.Error(fmt.Sprintf("Skipping plugin '%s@%s': download failed: %s", dp.slug, dp.repo, err.Error()))
+			results = failedRowsForTargets(dp.targets, err.Error())
 		}
-		combined = agentcommon.AppendUpdateAllSummaryRows(combined, slug, targetVersion, results)
+		combined = agentcommon.AppendUpdateAllSummaryRows(combined, dp.slug, targetVersion, results)
 		outcome.updatedSlugCount++
 		slugOK, slugFailed := tallySummaryRows(results)
 		outcome.anyOK = outcome.anyOK || slugOK
@@ -288,8 +436,8 @@ func finalizeUpdateAll(combined []agentcommon.UpdateAllSummaryRow, outcome updat
 	if !outcome.anyOK && outcome.anyFailed {
 		return fmt.Errorf("update failed for all targets (see summary above)")
 	}
-	if !outcome.anyOK && outcome.updatedSlugCount == 0 && outcome.firstResolveErr != nil {
-		return outcome.firstResolveErr
+	if outcome.anyFailed {
+		return fmt.Errorf("update failed for one or more targets (see summary above)")
 	}
 	return nil
 }
@@ -302,7 +450,7 @@ func resolveTargetVersion(serverDetails *config.ServerDetails, repoKey, slug, re
 // Returns the per-target summary rows. Targets that are not installed or already at the
 // target version are reported without performing a download.
 func updateSlugAcrossTargets(opts update, slug, targetVersion string, targets []plugincommon.AgentTarget) ([]agentcommon.SummaryRow, error) {
-	checks := preUpdateTargets(targets, targetVersion, opts.force, opts.quiet)
+	checks := preUpdateTargets(slug, opts.repoKey, targets, targetVersion, opts.force, opts.quiet, opts.skipNativeCheck)
 	results, updatable := initialResultsAndUpdatable(checks, targetVersion)
 
 	if opts.dryRun {
@@ -344,10 +492,30 @@ func updateSlugAcrossTargets(opts update, slug, targetVersion string, targets []
 	return results, nil
 }
 
-func preUpdateTargets(targets []plugincommon.AgentTarget, targetVersion string, force, quiet bool) []preUpdate {
+// preUpdateTargets checks, per target, whether the plugin can be updated. Beyond jf's
+// own .jfrog/plugin-info.json, it asks the native agent (claude/codex) whether the
+// plugin is still registered — a native uninstall clears that without touching jf's
+// files. A check error is logged and doesn't block; only a confirmed "not registered"
+// does. skipNativeCheck disables that check for --all, whose discovery already only
+// surfaces jf-managed slugs.
+func preUpdateTargets(slug, repoKey string, targets []plugincommon.AgentTarget, targetVersion string, force, quiet, skipNativeCheck bool) []preUpdate {
 	checks := make([]preUpdate, 0, len(targets))
 	for _, agentTarget := range targets {
 		preUpdateCheck := preUpdate{agentTarget: agentTarget}
+
+		if !skipNativeCheck {
+			if registered, err := isRegisteredWithNativeAgent(agentTarget.Agent.Name, slug, repoKey); err != nil {
+				log.Warn(fmt.Sprintf("Could not verify native registration for agent %s: %s; proceeding on jf's own install record", agentTarget.Agent.Name, err.Error()))
+			} else if !registered {
+				preUpdateCheck.failureReason = fmt.Sprintf(
+					"plugin '%s@%s' is not installed for %s (missing from its native plugin registry); run 'jf agent plugins install' first",
+					slug, repoKey, agentTarget.Agent.Name,
+				)
+				checks = append(checks, preUpdateCheck)
+				continue
+			}
+		}
+
 		installedVersion, err := plugincommon.ReadInstalledPluginVersion(agentTarget.DestinationDir)
 		if err != nil {
 			slug := filepath.Base(agentTarget.DestinationDir)
@@ -426,7 +594,7 @@ func updatePlugin(unzipDir string, installCommand *install.InstallCommand, check
 		return row
 	}
 	removePluginUpdateBackup(backupPath, filepath.Dir(agentTarget.DestinationDir))
-	return summaryRowFor(agentTarget, agentcommon.SummaryStatusOK, agentcommon.SummaryDetailOKInstall)
+	return row
 }
 
 // createPluginBackupForUpdate reserves a backup path and renames the live install directory aside.
@@ -459,7 +627,7 @@ func restorePluginFromBackup(agentTarget plugincommon.AgentTarget, backupPath st
 // If the copy fails or returns a non-ok summary row, restorePluginFromBackup removes any partial
 // new install and renames the backup back to DestinationDir so the previous version remains in place.
 func applyPluginUpdateCopy(unzipDir string, installCommand *install.InstallCommand, agentTarget plugincommon.AgentTarget, backupPath string) agentcommon.SummaryRow {
-	rows := installCommand.CopyExtractedToTargets(unzipDir, []plugincommon.AgentTarget{agentTarget})
+	rows := installCommand.CopyExtractedToTargetsForUpdate(unzipDir, []plugincommon.AgentTarget{agentTarget})
 	if len(rows) != 1 {
 		if restoreErr := restorePluginFromBackup(agentTarget, backupPath); restoreErr != nil {
 			return summaryRowFor(agentTarget, agentcommon.SummaryStatusFailed, fmt.Sprintf("internal error: unexpected copy result count; restore failed: %s", restoreErr.Error()))

@@ -35,6 +35,10 @@ const (
 	listCheckStatusAhead   = "ahead"
 )
 
+// listNativePluginsFunc lists installed plugins from a native agent's own registry
+// (claude/codex). Tests may replace it.
+var listNativePluginsFunc = pluginscommon.ListNativePlugins
+
 // repoListRow is one row for registry mode (jf agent plugins list --repo).
 type repoListRow struct {
 	Name    string `json:"name" col-name:"NAME"`
@@ -172,6 +176,22 @@ func (lc *ListCommand) listLocalPlugins() error {
 		return err
 	}
 
+	specs := make([]agentcommon.AgentSpec, 0, len(lc.agentNames))
+	for _, agentName := range lc.agentNames {
+		spec, err := agentcommon.ResolveAgent(registry, agentName, pluginscommon.RegistryHelp)
+		if err != nil {
+			return err
+		}
+		specs = append(specs, spec)
+	}
+	// claude/cursor/codex have no project-scoped plugin registry to list from — same
+	// restriction install/update already enforce (RejectUnsupportedProjectScope). Without
+	// this, a non-global list would silently show claude/codex's one global native list
+	// (see buildNativeRows) under a --project-dir the plugins were never actually scoped to.
+	if err := pluginscommon.RejectUnsupportedProjectScope(!lc.global, specs, "list"); err != nil {
+		return err
+	}
+
 	// For JSON with multiple harnesses, collect into a map keyed by harness name.
 	if strings.EqualFold(lc.format, "json") && len(lc.agentNames) > 1 {
 		allResults := make(map[string][]localListRow, len(lc.agentNames))
@@ -205,8 +225,43 @@ func (lc *ListCommand) listLocalPlugins() error {
 	return nil
 }
 
-// buildPluginRowsForHarness resolves the install dir for agentName and builds a sorted, limited row slice.
+// buildPluginRowsForHarness builds a sorted, limited row slice for agentName. Claude and
+// Codex have their own native plugin registry, so their installed-plugin list comes from
+// that CLI directly (same `plugin list --json` query `jf agent plugins update` uses to
+// verify native registration) rather than from jf's local install directory — this also
+// surfaces plugins jf did not itself install (e.g. Claude's official marketplace ones).
+// Agents with no native registry (e.g. cursor) fall back to scanning jf's local install
+// directory, as before.
 func (lc *ListCommand) buildPluginRowsForHarness(registry map[string]agentcommon.AgentSpec, agentName string) ([]localListRow, error) {
+	var rows []localListRow
+	var err error
+	if pluginscommon.HasNativeRegistry(agentName) {
+		rows, err = lc.buildNativeRows(agentName)
+	} else {
+		rows, err = lc.buildDirRows(registry, agentName)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	desc := strings.ToLower(lc.sortOrder) == sortOrderDesc
+	sort.Slice(rows, func(i, j int) bool {
+		ni, nj := strings.ToLower(rows[i].Name), strings.ToLower(rows[j].Name)
+		if desc {
+			return ni > nj
+		}
+		return ni < nj
+	})
+
+	if lc.limit > 0 && len(rows) > lc.limit {
+		rows = rows[:lc.limit]
+	}
+	return rows, nil
+}
+
+// buildDirRows resolves the install dir for agentName and lists installed plugins by
+// scanning it directly. Used for agents with no native plugin registry (e.g. cursor).
+func (lc *ListCommand) buildDirRows(registry map[string]agentcommon.AgentSpec, agentName string) ([]localListRow, error) {
 	spec, err := agentcommon.ResolveAgent(registry, agentName, pluginscommon.RegistryHelp)
 	if err != nil {
 		return nil, err
@@ -236,31 +291,60 @@ func (lc *ListCommand) buildPluginRowsForHarness(registry map[string]agentcommon
 		if !entry.IsDir() {
 			continue
 		}
-		row, ok := lc.buildRowForPlugin(filepath.Join(dir, entry.Name()), entry.Name(), projectDir)
+		row, ok := lc.buildRowForPlugin(filepath.Join(dir, entry.Name()), entry.Name(), projectDir, agentName)
 		if ok {
 			rows = append(rows, row)
 		}
 	}
+	return rows, nil
+}
 
-	desc := strings.ToLower(lc.sortOrder) == sortOrderDesc
-	sort.Slice(rows, func(i, j int) bool {
-		ni, nj := strings.ToLower(rows[i].Name), strings.ToLower(rows[j].Name)
-		if desc {
-			return ni > nj
+// buildNativeRows lists every plugin agentName's own CLI reports as installed. The native
+// registries themselves don't track a description, but the plugin's own manifest usually
+// exists on disk at its native install path (e.g. .claude-plugin/plugin.json), so Description
+// is read from there via the same ReadPluginMeta used by buildDirRows. A missing manifest is
+// expected here (e.g. third-party marketplace plugins that ship no plugin.json), so it's only
+// debug-logged, not warned about.
+func (lc *ListCommand) buildNativeRows(agentName string) ([]localListRow, error) {
+	entries, err := listNativePluginsFunc(agentName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list installed plugins for %s: %w", agentName, err)
+	}
+
+	projectDir := ""
+	if !lc.global {
+		projectDir = lc.projectDir
+	}
+
+	rows := make([]localListRow, 0, len(entries))
+	for _, e := range entries {
+		description := emDash
+		if meta, metaErr := pluginscommon.ReadPluginMetaForAgent(e.Path, agentName); metaErr != nil {
+			log.Debug(fmt.Sprintf("Plugin '%s': could not read plugin.json (%s)", e.Slug, metaErr.Error()))
+		} else {
+			description = descriptionOrPlaceholder(meta.Description)
 		}
-		return ni < nj
-	})
 
-	if lc.limit > 0 && len(rows) > lc.limit {
-		rows = rows[:lc.limit]
+		row := localListRow{
+			Name:        e.Slug,
+			Version:     e.Version,
+			Description: description,
+			Repo:        e.Repo,
+			Path:        pluginDisplayPath(e.Path, projectDir, lc.global),
+		}
+		if lc.checkUpdates {
+			lc.fillUpdateStatus(&row)
+		}
+		rows = append(rows, row)
 	}
 	return rows, nil
 }
 
 // buildRowForPlugin builds one local list row. Inclusion and installed version match update:
 // ReadInstalledPluginVersion (plugin-info.json, then plugin.json). Description comes from
-// plugin.json when present.
-func (lc *ListCommand) buildRowForPlugin(pluginDir, name, projectDir string) (localListRow, bool) {
+// agentName's own manifest convention when present (see ReadPluginMetaForAgent), so cursor's
+// listing reads .cursor-plugin/plugin.json rather than always falling back to Claude's.
+func (lc *ListCommand) buildRowForPlugin(pluginDir, name, projectDir, agentName string) (localListRow, bool) {
 	installedVer, err := pluginscommon.ReadInstalledPluginVersion(pluginDir)
 	if err != nil {
 		log.Warn(fmt.Sprintf("Skipping plugin '%s': %s", name, err.Error()))
@@ -278,11 +362,11 @@ func (lc *ListCommand) buildRowForPlugin(pluginDir, name, projectDir string) (lo
 		repo = manifest.Repo
 	}
 
-	description := ""
-	if meta, metaErr := pluginscommon.ReadPluginMeta(pluginDir); metaErr != nil {
+	description := emDash
+	if meta, metaErr := pluginscommon.ReadPluginMetaForAgent(pluginDir, agentName); metaErr != nil {
 		log.Warn(fmt.Sprintf("Plugin '%s': could not read plugin.json (%s)", name, metaErr.Error()))
 	} else {
-		description = meta.Description
+		description = descriptionOrPlaceholder(meta.Description)
 	}
 
 	row := localListRow{
@@ -296,6 +380,15 @@ func (lc *ListCommand) buildRowForPlugin(pluginDir, name, projectDir string) (lo
 		lc.fillUpdateStatus(&row)
 	}
 	return row, true
+}
+
+// descriptionOrPlaceholder returns desc, or emDash when no description is available —
+// matches how fillUpdateStatus already marks other "no value" cells in this table.
+func descriptionOrPlaceholder(desc string) string {
+	if strings.TrimSpace(desc) == "" {
+		return emDash
+	}
+	return desc
 }
 
 func pluginDisplayPath(pluginDirAbs, projectDir string, global bool) string {
@@ -410,9 +503,7 @@ func RunList(c *components.Context) error {
 	checkUpdates := c.GetBoolFlagValue("check-updates")
 
 	projectDir := c.GetStringFlagValue("project-dir")
-	if !isGlobal && projectDir == "" && rawHarness != "" {
-		projectDir = "."
-	}
+	isGlobal = resolveListScope(isGlobal, projectDir, rawHarness != "")
 	if projectDir != "" {
 		abs, err := filepath.Abs(projectDir)
 		if err != nil {
@@ -449,6 +540,19 @@ func RunList(c *components.Context) error {
 	}
 
 	return cmd.Run()
+}
+
+// resolveListScope applies the same project/global-scope default as install/update's
+// DefaultGlobalScope: when neither --global nor --project-dir is explicitly given, list
+// defaults to global scope, not project scope. claude/cursor/codex only support a global
+// native registry/config anyway (see agentcommon.RejectUnsupportedProjectScope), so
+// defaulting to project scope here would just make list --harness (no flags) reject in
+// listLocalPlugins where install/update would have quietly gone global.
+func resolveListScope(isGlobal bool, projectDir string, hasHarness bool) bool {
+	if !isGlobal && projectDir == "" && hasHarness {
+		return true
+	}
+	return isGlobal
 }
 
 func parseLimitFlag(c *components.Context) (int, error) {
