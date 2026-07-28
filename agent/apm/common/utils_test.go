@@ -7,12 +7,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestApmVersionPattern is a regression test: GetApmVersion used to feed apm's entire
+// TestParseApmVersion is a regression test: GetApmVersion used to feed apm's entire
 // descriptive `--version` output straight into version.NewVersion, which made
 // ValidateApmPrerequisites's min-version check pass or fail by accident of string shape
 // rather than by actually comparing semantic versions (verified against the real installed
-// apm binary during review). This confirms the regex extracts just the dotted version number.
-func TestApmVersionPattern(t *testing.T) {
+// apm binary during review). This confirms parseApmVersion extracts just the dotted version
+// number token.
+func TestParseApmVersion(t *testing.T) {
 	tests := []struct {
 		name   string
 		output string
@@ -41,7 +42,29 @@ func TestApmVersionPattern(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, apmVersionPattern.FindString(tt.output))
+			assert.Equal(t, tt.want, parseApmVersion(tt.output))
+		})
+	}
+}
+
+func TestIsDottedVersion(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{name: "three segments", in: "0.23.1", want: true},
+		{name: "two segments", in: "1.2", want: true},
+		{name: "one segment", in: "1", want: false},
+		{name: "four segments", in: "1.2.3.4", want: false},
+		{name: "trailing dot with empty segment", in: "1.2.", want: false},
+		{name: "non-numeric segment", in: "1.2a", want: false},
+		{name: "v-prefixed", in: "v1.2.3", want: false},
+		{name: "empty string", in: "", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isDottedVersion(tt.in))
 		})
 	}
 }
@@ -68,7 +91,7 @@ func TestValidateApmPrerequisites_VersionComparisonDirection(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			installed := apmVersionPattern.FindString(tt.rawOutput)
+			installed := parseApmVersion(tt.rawOutput)
 			require := assert.New(t)
 			require.NotEmpty(installed)
 
