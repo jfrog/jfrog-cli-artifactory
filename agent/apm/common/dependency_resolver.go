@@ -98,7 +98,7 @@ func resolveScopeAndRequestedBy(workingDir, repoURL string) (scopes []string, re
 		return []string{"runtime"}, nil
 	}
 
-	cmd := exec.Command("apm", "deps", "why", repoURL, "--json")
+	cmd := exec.Command("apm", "deps", "why", repoURL, "--json") // #nosec G204 -- repoURL is validated above to reject flag-shaped values; exec.Command never invokes a shell, so no injection vector remains
 	cmd.Dir = workingDir
 	out, err := cmd.Output()
 	if err != nil {

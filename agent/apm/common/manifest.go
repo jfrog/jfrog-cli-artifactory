@@ -28,8 +28,11 @@ type ManifestRegistry struct {
 	URL string `yaml:"url"`
 }
 
+// LoadManifest reads and parses apm.yml at path. Every caller in this codebase constructs path
+// from a working directory joined with the fixed ApmManifestName ("apm.yml"), never from
+// unsanitized user input.
 func LoadManifest(path string) (*ApmManifest, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is always workingDir+ApmManifestName, constructed by the caller, never user-supplied
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &ApmManifest{}, nil

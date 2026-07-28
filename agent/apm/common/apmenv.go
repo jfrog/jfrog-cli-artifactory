@@ -316,7 +316,7 @@ func loadExistingApmConfig() (realHome string, existing *apmConfigJSON, err erro
 }
 
 func readApmConfig(path string) (*apmConfigJSON, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is always os.UserHomeDir()+"/.apm/config.json" (see loadExistingApmConfig), never user-supplied
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &apmConfigJSON{}, nil
@@ -364,7 +364,7 @@ func replaceEnvHome(env []string, newHome string) []string {
 func RunApmCommand(env []string, subcmd string, args []string) error {
 	allArgs := append([]string{subcmd}, args...)
 	log.Debug(fmt.Sprintf("Running: apm %s", strings.Join(allArgs, " ")))
-	cmd := exec.Command("apm", allArgs...)
+	cmd := exec.Command("apm", allArgs...) // #nosec G204 -- args are this same invocation's own CLI arguments, forwarded verbatim by design (this is the passthrough wrapper); no shell is invoked and no privilege boundary is crossed
 	if env != nil {
 		cmd.Env = env
 	}

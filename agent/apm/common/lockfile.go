@@ -28,8 +28,11 @@ type ApmLockedPackage struct {
 	ResolvedHash string `yaml:"resolved_hash"`
 }
 
+// LoadLockFile reads and parses apm.lock.yaml at path. Every caller in this codebase constructs
+// path from a working directory joined with the fixed ApmLockfileName ("apm.lock.yaml"), never
+// from unsanitized user input.
 func LoadLockFile(path string) (*ApmLockFile, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is always workingDir+ApmLockfileName, constructed by the caller, never user-supplied
 	if err != nil {
 		return nil, errorutils.CheckError(err)
 	}
