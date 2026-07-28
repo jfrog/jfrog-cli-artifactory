@@ -356,12 +356,31 @@ func logGoVersion() error {
 	return nil
 }
 
+const (
+	// GoProxyAnyErrorSeparator ('|') makes the go command fall through to the
+	// next GOPROXY entry after ANY error, including 403 responses.
+	GoProxyAnyErrorSeparator = "|"
+	// GoProxyNotFoundSeparator (',') makes the go command fall through only
+	// after a 404 or 410 response. Any other error - notably a 403 from
+	// Artifactory Curation - is a hard failure, so a blocked module is not
+	// silently fetched from its public source. This matches Go's own default
+	// of "https://proxy.golang.org,direct".
+	GoProxyNotFoundSeparator = ","
+)
+
 type GoProxyUrlParams struct {
 	// Fallback to retrieve the modules directly from the source if
 	// the module failed to be retrieved from the proxy.
-	// add |direct to the end of the url.
+	// Appends <Separator>direct to the end of the url.
 	// example: https://gocenter.io|direct
 	Direct bool
+	// Separator between the proxy url and the "direct" fallback entry, which
+	// decides WHEN the go command falls through to the public source:
+	//   "|" (default) - on any error, including a Curation 403.
+	//   "," - only on 404/410, so a blocked module fails instead of leaking.
+	// Empty means GoProxyAnyErrorSeparator, preserving the previous behavior
+	// for existing callers.
+	Separator string
 	// The path from baseUrl to the standard Go repository path
 	// URL structure: <baseUrl>/<EndpointPrefix>/api/go/<repoName>
 	EndpointPrefix string
@@ -373,11 +392,26 @@ func (gdu *GoProxyUrlParams) BuildUrl(url *url.URL, repoName string) string {
 	return gdu.addDirect(url.String())
 }
 
-func (gdu *GoProxyUrlParams) addDirect(url string) string {
-	if gdu.Direct && !strings.HasSuffix(url, "|direct") {
-		return url + "|direct"
+// separator returns the configured fallback separator, defaulting to the
+// any-error form so callers that predate this field keep their behavior.
+func (gdu *GoProxyUrlParams) separator() string {
+	if gdu.Separator == GoProxyNotFoundSeparator {
+		return GoProxyNotFoundSeparator
 	}
-	return url
+	return GoProxyAnyErrorSeparator
+}
+
+func (gdu *GoProxyUrlParams) addDirect(url string) string {
+	if !gdu.Direct {
+		return url
+	}
+	// Guard against both spellings so an already-suffixed url is never
+	// appended to twice, whichever separator it carries.
+	if strings.HasSuffix(url, GoProxyAnyErrorSeparator+"direct") ||
+		strings.HasSuffix(url, GoProxyNotFoundSeparator+"direct") {
+		return url
+	}
+	return url + gdu.separator() + "direct"
 }
 
 func GetArtifactoryRemoteRepoUrl(serverDetails *config.ServerDetails, repo string, goProxyParams GoProxyUrlParams) (string, error) {

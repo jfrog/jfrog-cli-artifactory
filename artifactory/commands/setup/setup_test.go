@@ -358,6 +358,12 @@ func TestSetupCommand_Go(t *testing.T) {
 				assert.Contains(t, goProxy, "https://acme.jfrog.io/artifactory/api/go/test-repo")
 			}
 
+			// The fallback must be comma-separated. A pipe would make the go command
+			// fall through to the module's public source on ANY error, including a 403
+			// from Artifactory Curation, silently defeating the block.
+			assert.Contains(t, goProxy, ",direct", "jf setup must limit the direct fallback to 404/410")
+			assert.NotContains(t, goProxy, "|direct", "a pipe separator would fall back on any error, including a Curation 403")
+
 			// Clean up the global GOPROXY setting after each test case
 			err = exec.Command("go", "env", "-u", goProxyEnv).Run()
 			assert.NoError(t, err, "Failed to unset GOPROXY after test case")

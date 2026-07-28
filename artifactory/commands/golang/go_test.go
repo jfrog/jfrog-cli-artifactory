@@ -140,6 +140,7 @@ func TestGoProxyUrlParams_BuildUrl(t *testing.T) {
 		name           string
 		RepoName       string
 		Direct         bool
+		Separator      string
 		EndpointPrefix string
 		ExpectedUrl    string
 	}{
@@ -160,6 +161,33 @@ func TestGoProxyUrlParams_BuildUrl(t *testing.T) {
 			EndpointPrefix: "prefix",
 			ExpectedUrl:    "https://test/prefix/api/go/go",
 		},
+		{
+			name:        "Empty separator keeps the any-error default",
+			RepoName:    "go",
+			Direct:      true,
+			Separator:   "",
+			ExpectedUrl: "https://test/api/go/go|direct",
+		},
+		{
+			name:        "Comma separator limits fallback to 404/410",
+			RepoName:    "go",
+			Direct:      true,
+			Separator:   GoProxyNotFoundSeparator,
+			ExpectedUrl: "https://test/api/go/go,direct",
+		},
+		{
+			name:        "Explicit pipe separator",
+			RepoName:    "go",
+			Direct:      true,
+			Separator:   GoProxyAnyErrorSeparator,
+			ExpectedUrl: "https://test/api/go/go|direct",
+		},
+		{
+			name:        "Separator ignored when Direct is false",
+			RepoName:    "go",
+			Separator:   GoProxyNotFoundSeparator,
+			ExpectedUrl: "https://test/api/go/go",
+		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -167,9 +195,31 @@ func TestGoProxyUrlParams_BuildUrl(t *testing.T) {
 			require.NoError(t, err)
 			gdu := &GoProxyUrlParams{
 				Direct:         testCase.Direct,
+				Separator:      testCase.Separator,
 				EndpointPrefix: testCase.EndpointPrefix,
 			}
 			assert.Equalf(t, testCase.ExpectedUrl, gdu.BuildUrl(remoteUrl, testCase.RepoName), "BuildUrl(%v, %v)", remoteUrl, testCase.RepoName)
+		})
+	}
+}
+
+// addDirect must never append a second fallback entry, whichever separator the
+// url already carries - otherwise re-running setup would produce "...|direct,direct".
+func TestGoProxyUrlParams_AddDirectIsIdempotent(t *testing.T) {
+	testCases := []struct {
+		name      string
+		url       string
+		separator string
+	}{
+		{name: "pipe url, pipe separator", url: "https://test/api/go/go|direct", separator: GoProxyAnyErrorSeparator},
+		{name: "comma url, comma separator", url: "https://test/api/go/go,direct", separator: GoProxyNotFoundSeparator},
+		{name: "pipe url, comma separator", url: "https://test/api/go/go|direct", separator: GoProxyNotFoundSeparator},
+		{name: "comma url, pipe separator", url: "https://test/api/go/go,direct", separator: GoProxyAnyErrorSeparator},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			gdu := &GoProxyUrlParams{Direct: true, Separator: testCase.separator}
+			assert.Equal(t, testCase.url, gdu.addDirect(testCase.url))
 		})
 	}
 }

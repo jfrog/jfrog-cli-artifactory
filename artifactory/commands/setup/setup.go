@@ -352,6 +352,13 @@ func (sc *SetupCommand) configureYarn() (err error) {
 // Runs the following command:
 //
 //	go env -w GOPROXY=https://<user>:<token>@<your-artifactory-url>/artifactory/go/<repo-name>,direct
+//
+// The comma is deliberate. Unlike `jf go`, which resolves through the CLI for a
+// single invocation and exposes --no-fallback, this writes a persistent global
+// GOPROXY consumed by the native go command with no opt-out. A comma limits the
+// fallback to 404/410 (module not proxied); a pipe would fall through on ANY
+// error, so a 403 from Artifactory Curation would be silently satisfied from the
+// module's public source.
 func (sc *SetupCommand) configureGo() error {
 	if goProxyVal := os.Getenv("GOPROXY"); goProxyVal != "" {
 		// Remove the variable so it won't override the newly configured proxy (temporarily).
@@ -366,7 +373,8 @@ func (sc *SetupCommand) configureGo() error {
 		log.Warn(fmt.Sprintf("A local GOPROXY='%s' is set and will override the global setting.\n"+
 			"Unset it in your shell config (e.g., .zshrc, .bashrc).", goProxyVal))
 	}
-	repoWithCredsUrl, err := golang.GetArtifactoryRemoteRepoUrl(sc.serverDetails, sc.repoName, golang.GoProxyUrlParams{Direct: true})
+	repoWithCredsUrl, err := golang.GetArtifactoryRemoteRepoUrl(sc.serverDetails, sc.repoName,
+		golang.GoProxyUrlParams{Direct: true, Separator: golang.GoProxyNotFoundSeparator})
 	if err != nil {
 		return fmt.Errorf("failed to get Go repository URL: %w", err)
 	}
