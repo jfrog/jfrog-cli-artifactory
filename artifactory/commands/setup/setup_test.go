@@ -109,7 +109,8 @@ func TestSetupCommand_Cargo(t *testing.T) {
 			case testCase.password != "":
 				credsContent, cerr := os.ReadFile(credsPath)
 				require.NoError(t, cerr)
-				assert.Contains(t, string(credsContent), `token = "Bearer myPassword"`)
+				// Basic auth: "Basic base64(user:password)". base64("myUser:myPassword") = bXlVc2VyOm15UGFzc3dvcmQ=
+				assert.Contains(t, string(credsContent), `token = "Basic bXlVc2VyOm15UGFzc3dvcmQ="`)
 			default:
 				// Anonymous — no credentials file is written.
 				_, statErr := os.Stat(credsPath)

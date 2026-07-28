@@ -1,6 +1,7 @@
 package cargo
 
 import (
+	"encoding/base64"
 	"net/url"
 	"os"
 	"strings"
@@ -16,39 +17,44 @@ import (
 // cargo:token for the child process so the injected token is actually consumed.
 const cargoCredentialProviderEnv = "CARGO_REGISTRY_GLOBAL_CREDENTIAL_PROVIDERS"
 
-// cargoAuthToken returns the credential cargo should send to Artifactory: the access token if
-// present, otherwise the password. Empty means "run/configure unauthenticated". Shared by the
-// per-run env-var path (resolveAuthEnv) and the persistent `jf setup cargo` path.
-func cargoAuthToken(sd *config.ServerDetails) string {
+// cargoCredential returns the exact Authorization-header value cargo's cargo:token provider should
+// forward to Artifactory for the given server, selecting the auth scheme like the other package
+// managers' setup flows do (prefer an access token, else fall back to basic auth):
+//
+//   - access token configured           -> "Bearer <access-token>"
+//   - user + password (no access token) -> "Basic <base64(user:password)>"
+//   - neither                            -> "" (anonymous)
+//
+// cargo forwards this value verbatim as the Authorization header. Artifactory's Cargo index accepts
+// either scheme; the "Bearer" form must carry a JFrog ACCESS TOKEN (verified live: Bearer
+// access-token → 200, bare token → 401), and the "Basic" form carries username:password.
+// Shared by the per-run env-var path (resolveAuthEnv) and the persistent `jf setup cargo` path.
+func cargoCredential(sd *config.ServerDetails) string {
 	if sd == nil {
 		return ""
 	}
 	if sd.AccessToken != "" {
-		return sd.AccessToken
+		return "Bearer " + sd.AccessToken
 	}
-	return sd.Password
-}
-
-// cargoTokenValue formats a token the way cargo forwards it in the Authorization header.
-// Both the env-var (CARGO_REGISTRIES_<NAME>_TOKEN) and credentials.toml paths use this.
-//
-// cargo's cargo:token provider sends the token value verbatim as the Authorization header, and
-// Artifactory's Cargo index requires the "Bearer " scheme with a JFrog ACCESS TOKEN — verified
-// live against ecosysjfrog: `Authorization: Bearer <access-token>` → 200, bare token → 401.
-// (An API key, even with "Bearer ", is rejected as "Props Authentication Token not found" — the
-// credential must be an access token, not an API key.)
-func cargoTokenValue(token string) string {
-	return "Bearer " + token
+	if sd.User != "" && sd.Password != "" {
+		enc := base64.StdEncoding.EncodeToString([]byte(sd.User + ":" + sd.Password))
+		return "Basic " + enc
+	}
+	return ""
 }
 
 // commandBucket returns the build-info collection bucket for a cargo sub-command.
-// "build" and "package" are intentionally NOT collected: they produce no build-info we want
-// ("build" compiles with no publishable artifact; "package" only stages a local .crate). The
-// artifact-producing operation we record is "publish" (the crate ends up in Artifactory).
-// Both still authenticate (see needsRemoteAccess) so they resolve dependencies from Artifactory.
+// Only two cargo commands collect build-info:
+//   - "install" -> "deps"    (records the resolved dependency graph)
+//   - "publish" -> "publish" (records deps + the uploaded .crate artifact)
+//
+// Every other cargo command (build, fetch, update, add, check, test, run, package, metadata, …) is
+// a pure pass-through: it bucket-maps to "none" and collects nothing. Authentication for those is
+// expected to come from the user's own cargo credentials (e.g. written by `jf setup cargo`), not
+// from per-run token injection.
 func commandBucket(cmd string) string {
 	switch cmd {
-	case "install", "update", "add", "fetch", "generate-lockfile", "run", "test", "check":
+	case "install":
 		return "deps"
 	case "publish":
 		return "publish"
@@ -57,14 +63,11 @@ func commandBucket(cmd string) string {
 	}
 }
 
-// needsRemoteAccess reports whether the command talks to the registry (and thus needs auth).
-// "build" and "package" resolve dependencies from Artifactory (compile / verify build) even though
-// we collect no build-info for them, so they are included despite bucketing to "none".
+// needsRemoteAccess reports whether jf should inject registry auth for the command. Only the two
+// build-info-collecting commands (install, publish) are jf-integrated and get token injection so
+// they can resolve/upload against Artifactory. All other commands are pass-throughs and rely on the
+// user's cargo credentials (e.g. from `jf setup cargo`).
 func needsRemoteAccess(cmd string) bool {
-	switch cmd {
-	case "build", "package":
-		return true
-	}
 	switch commandBucket(cmd) {
 	case "deps", "publish":
 		return true
@@ -80,12 +83,14 @@ func cargoRegistryEnvKey(registryName string) string {
 	return "CARGO_REGISTRIES_" + norm + "_TOKEN"
 }
 
-// buildAuthEnv returns the env entries injecting the registry token (Bearer form).
-func buildAuthEnv(registryName, token string) []string {
-	if registryName == "" || token == "" {
+// buildAuthEnv returns the env entries injecting the registry credential. The credential is the
+// full Authorization-header value ("Bearer <token>" or "Basic <base64>") produced by cargoCredential
+// and forwarded verbatim by cargo's cargo:token provider.
+func buildAuthEnv(registryName, credential string) []string {
+	if registryName == "" || credential == "" {
 		return nil
 	}
-	return []string{cargoRegistryEnvKey(registryName) + "=" + cargoTokenValue(token)}
+	return []string{cargoRegistryEnvKey(registryName) + "=" + credential}
 }
 
 // registryNameFromArgs extracts the value of --registry (space or = form).
@@ -129,9 +134,9 @@ func (c *CargoCommand) resolveAuthEnv() []string {
 		log.Debug("cargo: no server details; running unauthenticated")
 		return nil
 	}
-	token := cargoAuthToken(c.serverDetails)
-	if token == "" {
-		log.Debug("cargo: no token/password in server config; running unauthenticated")
+	credential := cargoCredential(c.serverDetails)
+	if credential == "" {
+		log.Debug("cargo: no access token or user/password in server config; running unauthenticated")
 		return nil
 	}
 
@@ -139,7 +144,7 @@ func (c *CargoCommand) resolveAuthEnv() []string {
 	matched := map[string]bool{}
 	for name, indexURL := range parseCargoRegistries(c.workingDir) {
 		if registryHostMatches(indexURL, c.serverDetails.ArtifactoryUrl) {
-			env = append(env, buildAuthEnv(name, token)...)
+			env = append(env, buildAuthEnv(name, credential)...)
 			matched[name] = true
 		}
 	}
@@ -147,7 +152,7 @@ func (c *CargoCommand) resolveAuthEnv() []string {
 	// Fallback: ensure the explicitly-named --registry is authenticated even if
 	// config discovery missed it (e.g. registry configured outside the project dir).
 	if regName := registryNameFromArgs(c.args); regName != "" && !matched[regName] {
-		env = append(env, buildAuthEnv(regName, token)...)
+		env = append(env, buildAuthEnv(regName, credential)...)
 	}
 
 	if len(env) == 0 {

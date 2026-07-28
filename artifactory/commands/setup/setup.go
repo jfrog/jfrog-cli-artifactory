@@ -27,6 +27,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -72,6 +73,10 @@ type SetupCommand struct {
 	packageManager project.ProjectType
 	// repoName is the name of the repository used for configuration.
 	repoName string
+	// deployRepoName is the name of the repository used for publishing/deploying, when the package
+	// manager separates resolution and deployment repos (currently only Cargo, whose remote resolves
+	// crates.io and whose local is the publish target). Empty for single-repo package managers.
+	deployRepoName string
 	// projectKey is the JFrog Project key in JFrog Platform.
 	projectKey string
 	// serverDetails contains Artifactory server configuration.
@@ -155,8 +160,14 @@ func (sc *SetupCommand) Run() (err error) {
 	// If the repository name is not provided, and the package manager is not Docker or Podman, prompt the user to select a repository.
 	// Docker and Podman do not require a repository name as they authenticate directly with the platform and require the repository name as part of the image name.
 	if sc.repoName == "" && sc.packageManager != project.Docker && sc.packageManager != project.Podman {
-		// Prompt the user to select a virtual repository that matches the package manager.
-		if err = sc.promptUserToSelectRepository(); err != nil {
+		// Cargo has no virtual repositories and separates resolution (remote) from deployment
+		// (local), so it selects both instead of a single virtual repo.
+		if sc.packageManager == project.Cargo {
+			if err = sc.promptUserToSelectCargoRepositories(); err != nil {
+				return err
+			}
+		} else if err = sc.promptUserToSelectRepository(); err != nil {
+			// Prompt the user to select a virtual repository that matches the package manager.
 			return err
 		}
 	}
@@ -203,21 +214,90 @@ func (sc *SetupCommand) Run() (err error) {
 	return nil
 }
 
+// noMatchingRepositoriesErrSubstring matches the error returned by utils.SelectRepositoryInteractively
+// when no repository satisfies the filter (see jfrog-cli-core/artifactory/utils/repositoryutils.go).
+// Used to detect that case and fall back to a manual repository name prompt, e.g. for Cargo, which
+// Artifactory doesn't support as a virtual package type - a virtual-repo filter always returns zero results.
+const noMatchingRepositoriesErrSubstring = "no repositories were found that match"
+
 // promptUserToSelectRepository prompts the user to select a compatible virtual repository.
-func (sc *SetupCommand) promptUserToSelectRepository() (err error) {
+// If none is found (e.g. Cargo, which has no virtual repository support in Artifactory), falls back
+// to asking the user to type an existing repository name directly.
+func (sc *SetupCommand) promptUserToSelectRepository() error {
 	repoFilterParams := services.RepositoriesFilterParams{
 		RepoType:    utils.Virtual.String(),
 		PackageType: packageManagerToRepositoryPackageType[sc.packageManager],
 		ProjectKey:  sc.projectKey,
 	}
 
-	// Prompt for repository selection based on filter parameters.
-	sc.repoName, err = utils.SelectRepositoryInteractively(
+	repoName, err := utils.SelectRepositoryInteractively(
 		sc.serverDetails,
 		repoFilterParams,
 		fmt.Sprintf("To configure %s, we need you to select a %s repository:", repoFilterParams.PackageType, repoFilterParams.RepoType))
+	if err == nil {
+		sc.repoName = repoName
+		return nil
+	}
+	if !strings.Contains(err.Error(), noMatchingRepositoriesErrSubstring) {
+		return err
+	}
 
-	return err
+	log.Info(fmt.Sprintf("No virtual %s repository was found.", repoFilterParams.PackageType))
+	repoName = ioutils.AskString("", "Please enter the name of an existing repository to use", false, false)
+	serviceDetails, err := sc.serverDetails.CreateArtAuthConfig()
+	if err != nil {
+		return err
+	}
+	if err = utils.ValidateRepoExists(repoName, serviceDetails); err != nil {
+		return err
+	}
+	sc.repoName = repoName
+	return nil
+}
+
+// promptUserToSelectCargoRepositories selects the two repositories Cargo needs when --repo is not
+// given: a REMOTE for resolving dependencies (crates.io is redirected to it) and a LOCAL for
+// publishing. Artifactory has no virtual Cargo repositories, so — unlike the generic flow — this
+// lists local/remote repos directly. The remote is required (falls back to a manual name prompt if
+// none is found); the local is optional (setup configures resolution-only if none is selected).
+func (sc *SetupCommand) promptUserToSelectCargoRepositories() error {
+	packageType := packageManagerToRepositoryPackageType[sc.packageManager]
+
+	// Resolution repository — a remote Cargo repo (proxies crates.io).
+	remote, err := utils.SelectRepositoryInteractively(
+		sc.serverDetails,
+		services.RepositoriesFilterParams{RepoType: utils.Remote.String(), PackageType: packageType, ProjectKey: sc.projectKey},
+		"To configure cargo, select a remote repository for resolving dependencies:")
+	if err != nil {
+		if !strings.Contains(err.Error(), noMatchingRepositoriesErrSubstring) {
+			return err
+		}
+		log.Info(fmt.Sprintf("No remote %s repository was found.", packageType))
+		remote = ioutils.AskString("", "Please enter the name of an existing repository to resolve dependencies from", false, false)
+		serviceDetails, sErr := sc.serverDetails.CreateArtAuthConfig()
+		if sErr != nil {
+			return sErr
+		}
+		if vErr := utils.ValidateRepoExists(remote, serviceDetails); vErr != nil {
+			return vErr
+		}
+	}
+	sc.repoName = remote
+
+	// Deployment repository — a local Cargo repo (publish target). Optional.
+	local, err := utils.SelectRepositoryInteractively(
+		sc.serverDetails,
+		services.RepositoriesFilterParams{RepoType: utils.Local.String(), PackageType: packageType, ProjectKey: sc.projectKey},
+		"Select a local repository for publishing crates (optional):")
+	if err != nil {
+		if !strings.Contains(err.Error(), noMatchingRepositoriesErrSubstring) {
+			return err
+		}
+		log.Info(fmt.Sprintf("No local %s repository was found; configuring resolution only (publishing not configured).", packageType))
+		return nil
+	}
+	sc.deployRepoName = local
+	return nil
 }
 
 // configurePip sets the global index-url for pip and pipenv to use the Artifactory PyPI repository.
@@ -628,5 +708,5 @@ func (sc *SetupCommand) configureHelm() error {
 // After setup, plain `cargo build` resolves crates through Artifactory (crates.io is redirected)
 // and `cargo publish --registry jfrog` uploads to it.
 func (sc *SetupCommand) configureCargo() error {
-	return cargo.ConfigureNativeRegistry(sc.serverDetails, sc.repoName)
+	return cargo.ConfigureNativeRegistry(sc.serverDetails, sc.repoName, sc.deployRepoName)
 }

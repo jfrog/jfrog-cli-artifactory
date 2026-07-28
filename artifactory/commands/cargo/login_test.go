@@ -49,6 +49,10 @@ func TestRegistryHostMatches(t *testing.T) {
 }
 
 func TestParseCargoRegistries(t *testing.T) {
+	// Isolate the global cargo config (parseCargoRegistries also reads $CARGO_HOME/config.toml)
+	// so the test only sees the project-local config it writes.
+	t.Setenv("CARGO_HOME", t.TempDir())
+
 	// Empty dir — no config file — should return empty map without panic.
 	empty := parseCargoRegistries(t.TempDir())
 	if len(empty) != 0 {
@@ -86,17 +90,78 @@ index = "sparse+https://acme.jfrog.io/artifactory/api/cargo/internal/"
 	}
 }
 
+// TestParseCargoRegistriesMergesGlobalConfig guards the fix for `jf setup cargo`: registries live in
+// the global $CARGO_HOME/config.toml, so parseCargoRegistries must merge it with the project-local
+// config (project wins on conflict).
+func TestParseCargoRegistriesMergesGlobalConfig(t *testing.T) {
+	cargoHomeDir := t.TempDir()
+	t.Setenv("CARGO_HOME", cargoHomeDir)
+	// Global config (what `jf setup cargo` writes): jfrog + jfrog-local.
+	globalCfg := `
+[registries.jfrog]
+index = "sparse+https://acme.jfrog.io/artifactory/api/cargo/remote/index/"
+[registries.jfrog-local]
+index = "sparse+https://acme.jfrog.io/artifactory/api/cargo/local/index/"
+`
+	if err := os.WriteFile(filepath.Join(cargoHomeDir, "config.toml"), []byte(globalCfg), 0o644); err != nil {
+		t.Fatalf("write global config: %v", err)
+	}
+	// Project-local config overrides jfrog's URL and adds a project-only registry.
+	projDir := t.TempDir()
+	projCargo := filepath.Join(projDir, ".cargo")
+	if err := os.MkdirAll(projCargo, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	projCfg := `
+[registries.jfrog]
+index = "sparse+https://acme.jfrog.io/artifactory/api/cargo/project-override/index/"
+[registries.proj-only]
+index = "sparse+https://acme.jfrog.io/artifactory/api/cargo/proj-only/index/"
+`
+	if err := os.WriteFile(filepath.Join(projCargo, "config.toml"), []byte(projCfg), 0o644); err != nil {
+		t.Fatalf("write project config: %v", err)
+	}
+
+	got := parseCargoRegistries(projDir)
+	// jfrog-local comes from global; proj-only from project; jfrog is the project override.
+	if got["jfrog-local"] != "sparse+https://acme.jfrog.io/artifactory/api/cargo/local/index/" {
+		t.Errorf("jfrog-local (global) = %q", got["jfrog-local"])
+	}
+	if got["proj-only"] != "sparse+https://acme.jfrog.io/artifactory/api/cargo/proj-only/index/" {
+		t.Errorf("proj-only (project) = %q", got["proj-only"])
+	}
+	if got["jfrog"] != "sparse+https://acme.jfrog.io/artifactory/api/cargo/project-override/index/" {
+		t.Errorf("jfrog should be the project override, got %q", got["jfrog"])
+	}
+}
+
 func TestCommandBucket(t *testing.T) {
+	// Only install and publish collect build-info; every other cargo command is a pass-through.
 	cases := map[string]string{
-		// "build" and "package" are intentionally not collected (bucket "none"); only "publish"
-		// records artifacts.
-		"build": "none", "package": "none", "install": "deps", "update": "deps", "add": "deps", "fetch": "deps",
+		"install": "deps",
 		"publish": "publish",
+		// pass-through — collect nothing:
+		"build": "none", "package": "none", "update": "none", "add": "none", "fetch": "none",
+		"generate-lockfile": "none", "run": "none", "test": "none", "check": "none",
 		"metadata": "none", "tree": "none", "search": "none", "--version": "none",
 	}
 	for cmd, want := range cases {
 		if got := commandBucket(cmd); got != want {
 			t.Errorf("commandBucket(%q) = %q, want %q", cmd, got, want)
+		}
+	}
+}
+
+func TestNeedsRemoteAccess(t *testing.T) {
+	// Only the collecting commands get auth injection; the rest are pass-throughs.
+	for _, cmd := range []string{"install", "publish"} {
+		if !needsRemoteAccess(cmd) {
+			t.Errorf("needsRemoteAccess(%q) = false, want true", cmd)
+		}
+	}
+	for _, cmd := range []string{"build", "package", "fetch", "update", "add", "check", "test", "run", "metadata"} {
+		if needsRemoteAccess(cmd) {
+			t.Errorf("needsRemoteAccess(%q) = true, want false (pass-through)", cmd)
 		}
 	}
 }
@@ -108,13 +173,18 @@ func TestCargoRegistryEnvKey(t *testing.T) {
 }
 
 func TestBuildAuthEnv(t *testing.T) {
-	got := buildAuthEnv("my-crates", "abc")
-	// "Bearer " scheme — required by Artifactory's Cargo index (verified live).
+	// buildAuthEnv forwards the credential value verbatim (Bearer or Basic).
+	got := buildAuthEnv("my-crates", "Bearer abc")
 	want := []string{`CARGO_REGISTRIES_MY_CRATES_TOKEN=Bearer abc`}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
+	gotBasic := buildAuthEnv("my-crates", "Basic dTpw")
+	wantBasic := []string{`CARGO_REGISTRIES_MY_CRATES_TOKEN=Basic dTpw`}
+	if !reflect.DeepEqual(gotBasic, wantBasic) {
+		t.Errorf("got %v, want %v", gotBasic, wantBasic)
+	}
 	if len(buildAuthEnv("", "abc")) != 0 || len(buildAuthEnv("my-crates", "")) != 0 {
-		t.Error("expected empty env when registry or token missing")
+		t.Error("expected empty env when registry or credential missing")
 	}
 }

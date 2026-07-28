@@ -58,19 +58,6 @@ func metadataFlagsFromArgs(args []string) []string {
 	return out
 }
 
-// setModuleCommandProperties records the cargo sub-command and its args on the first
-// module of the build-info, so the executed command is captured in the build-info.
-func setModuleCommandProperties(bi *entities.BuildInfo, commandName string, args []string) {
-	if bi == nil || len(bi.Modules) == 0 {
-		return
-	}
-	props := map[string]string{"cargo.command": commandName}
-	if len(args) > 0 {
-		props["cargo.args"] = strings.Join(args, " ")
-	}
-	bi.Modules[0].Properties = props
-}
-
 // buildNameNumber returns the configured build name and number (empty strings if unset).
 func (c *CargoCommand) buildNameNumber() (string, string) {
 	if c.buildConfiguration == nil {
@@ -93,8 +80,8 @@ func (c *CargoCommand) newCollector() (*cargoflex.CargoFlexPack, error) {
 // collectDeps collects dependency build-info and saves it locally.
 func (c *CargoCommand) collectDeps() error {
 	name, number := c.buildNameNumber()
-	if name == "" {
-		log.Debug("cargo: no --build-name; skipping build-info collection")
+	if name == "" || number == "" {
+		log.Debug("cargo: --build-name and --build-number are both required; skipping build-info collection")
 		return nil
 	}
 	collector, err := c.newCollector()
@@ -105,7 +92,6 @@ func (c *CargoCommand) collectDeps() error {
 	if err != nil {
 		return err
 	}
-	setModuleCommandProperties(bi, c.commandName, c.args)
 	c.enrichChecksums(bi)
 	return c.saveBuildInfo(bi)
 }
@@ -118,8 +104,8 @@ func (c *CargoCommand) collectDeps() error {
 // single AQL call (local-first, else one Artifactory call — the artifact-collection rule).
 func (c *CargoCommand) collectArtifacts() error {
 	name, number := c.buildNameNumber()
-	if name == "" {
-		log.Debug("cargo: no --build-name; skipping artifact collection")
+	if name == "" || number == "" {
+		log.Debug("cargo: --build-name and --build-number are both required; skipping artifact collection")
 		return nil
 	}
 	collector, err := c.newCollector()
@@ -130,8 +116,15 @@ func (c *CargoCommand) collectArtifacts() error {
 	if err != nil {
 		return err
 	}
-	setModuleCommandProperties(bi, c.commandName, c.args)
 	c.enrichChecksums(bi)
+
+	// A dry-run publish uploads nothing, so there is no artifact to scan for and no repo item to
+	// stamp build properties on. Record the dependency build-info only (skip artifact collection to
+	// avoid spurious "not found"/set-properties errors).
+	if isDryRunPublish(c.args) {
+		log.Info("cargo: publish --dry-run — nothing uploaded; recording dependencies only")
+		return c.saveBuildInfo(bi)
+	}
 
 	repo, err := c.targetRepo()
 	if err != nil {
@@ -147,8 +140,13 @@ func (c *CargoCommand) collectArtifacts() error {
 			arts = append(arts, art)
 		}
 	}
-	if len(bi.Modules) > 0 {
-		bi.Modules[0].Artifacts = append(bi.Modules[0].Artifacts, arts...)
+	// Route each artifact to the module of the member it was published from (workspace); for a
+	// single-crate project this is the sole module. Falls back to module 0 if no id matches.
+	for _, art := range arts {
+		idx := moduleIndexForCrate(bi, art.Name)
+		if idx >= 0 && idx < len(bi.Modules) {
+			bi.Modules[idx].Artifacts = append(bi.Modules[idx].Artifacts, art)
+		}
 	}
 	if repo != "" && len(arts) > 0 {
 		if err := c.setBuildProperties(arts, repo, name, number); err != nil {
@@ -162,7 +160,7 @@ func (c *CargoCommand) collectArtifacts() error {
 // `cargo publish` the local .crate is gone, but the crate is in the target repo, so a single AQL
 // call fetches its checksums. The repo path is constructed via crateRepoPath (crates/ layout).
 func (c *CargoCommand) resolvePublishedArtifact(bi *entities.BuildInfo, repo string) (entities.Artifact, bool) {
-	fileName := publishedCrateFileName(bi)
+	fileName := publishedCrateFileName(bi, c.args)
 	if fileName == "" {
 		log.Debug("cargo: could not derive published crate name from build-info")
 		return entities.Artifact{}, false
@@ -191,17 +189,87 @@ func (c *CargoCommand) resolvePublishedArtifact(bi *entities.BuildInfo, repo str
 	return art, true
 }
 
-// publishedCrateFileName derives "<name>-<version>.crate" from the build-info module id ("name:version").
-func publishedCrateFileName(bi *entities.BuildInfo) string {
+// splitModuleId splits a "name:version" build-info module id. Returns (name, "") when there is
+// no parseable version (e.g. the "cargo-project" placeholder).
+func splitModuleId(id string) (name, version string) {
+	i := strings.LastIndex(id, ":")
+	if i <= 0 || i >= len(id)-1 {
+		return id, ""
+	}
+	return id[:i], id[i+1:]
+}
+
+// crateFileForModule returns "<name>-<version>.crate" for a module, or "" if the id lacks a version.
+func crateFileForModule(id string) string {
+	name, version := splitModuleId(id)
+	if name == "" || version == "" {
+		return ""
+	}
+	return name + "-" + version + ".crate"
+}
+
+// isDryRunPublish reports whether a publish invocation is a dry run (`--dry-run`/`-n`). A dry run
+// builds and verifies but uploads nothing, so there is no artifact to record and no repo item to
+// stamp build properties on.
+func isDryRunPublish(args []string) bool {
+	for _, a := range args {
+		if a == "--dry-run" || a == "-n" {
+			return true
+		}
+	}
+	return false
+}
+
+// packageNameFromArgs extracts the value of cargo's -p/--package selector (space or = form).
+func packageNameFromArgs(args []string) string {
+	for i, a := range args {
+		if (a == "-p" || a == "--package") && i+1 < len(args) {
+			return args[i+1]
+		}
+		if strings.HasPrefix(a, "--package=") {
+			return strings.TrimPrefix(a, "--package=")
+		}
+		if strings.HasPrefix(a, "-p=") {
+			return strings.TrimPrefix(a, "-p=")
+		}
+	}
+	return ""
+}
+
+// publishedCrateFileName derives the "<name>-<version>.crate" of the crate a publish uploaded.
+// When -p/--package selects a workspace member, it matches that member's module (to pick up its
+// version); otherwise, for a single-module (single-crate) build it uses the sole module. Returns
+// "" when the target is ambiguous (multi-module workspace with no -p) or the id has no version.
+func publishedCrateFileName(bi *entities.BuildInfo, args []string) string {
 	if bi == nil || len(bi.Modules) == 0 {
 		return ""
 	}
-	id := bi.Modules[0].Id
-	i := strings.LastIndex(id, ":")
-	if i <= 0 || i >= len(id)-1 {
+	if pkg := packageNameFromArgs(args); pkg != "" {
+		for _, m := range bi.Modules {
+			if name, version := splitModuleId(m.Id); name == pkg && version != "" {
+				return name + "-" + version + ".crate"
+			}
+		}
 		return ""
 	}
-	return id[:i] + "-" + id[i+1:] + ".crate"
+	if len(bi.Modules) == 1 {
+		return crateFileForModule(bi.Modules[0].Id)
+	}
+	return ""
+}
+
+// moduleIndexForCrate returns the index of the module whose id maps to the given crate filename,
+// or 0 when none matches (single-module fallback).
+func moduleIndexForCrate(bi *entities.BuildInfo, crateFile string) int {
+	if bi == nil {
+		return 0
+	}
+	for i, m := range bi.Modules {
+		if crateFileForModule(m.Id) == crateFile && crateFile != "" {
+			return i
+		}
+	}
+	return 0
 }
 
 // targetRepo determines and virtual-resolves the deployment repo from the
@@ -297,9 +365,59 @@ func (c *CargoCommand) enrichChecksums(bi *entities.BuildInfo) {
 	}
 }
 
+// moduleOverrideIndex selects which module a --module override should rename: the module of the
+// -p/--package-selected member when present (so a workspace `publish -p X --module Y` renames X's
+// module, keeping its routed artifact), else the sole/first module (single-crate case; mirrors the
+// nix/go convention of overriding the primary module).
+func moduleOverrideIndex(bi *entities.BuildInfo, args []string) int {
+	if bi == nil || len(bi.Modules) == 0 {
+		return 0
+	}
+	if pkg := packageNameFromArgs(args); pkg != "" {
+		for i, m := range bi.Modules {
+			if name, _ := splitModuleId(m.Id); name == pkg {
+				return i
+			}
+		}
+	}
+	return 0
+}
+
+// applyModuleOverride renames the module at idx to moduleName when --module is provided,
+// mirroring the nix/go convention (nix/command.go, golang/go.go) of honoring an explicit module
+// name. No-op when the name is empty or idx is out of range.
+//
+// The build-info convention (verified in build-info-go golang_test.go / yarn_test.go) is that every
+// dependency's requestedBy path TERMINATES at the module id — it anchors each path back to the build
+// module. Renaming the module therefore also rewrites those terminal ids (which equal the previous
+// module id) so the "requestedBy terminal == module.Id" invariant is preserved.
+func applyModuleOverride(bi *entities.BuildInfo, moduleName string, idx int) {
+	if moduleName == "" || bi == nil || idx < 0 || idx >= len(bi.Modules) {
+		return
+	}
+	oldId := bi.Modules[idx].Id
+	bi.Modules[idx].Id = moduleName
+	if oldId == "" || oldId == moduleName {
+		return
+	}
+	for di := range bi.Modules[idx].Dependencies {
+		for _, path := range bi.Modules[idx].Dependencies[di].RequestedBy {
+			for ei := range path {
+				if path[ei] == oldId {
+					path[ei] = moduleName
+				}
+			}
+		}
+	}
+}
+
 // saveBuildInfo persists the collected build-info locally for later publishing.
 // Mirrors conan's saveBuildInfo (commands/conan/upload.go).
 func (c *CargoCommand) saveBuildInfo(buildInfo *entities.BuildInfo) error {
+	if c.buildConfiguration != nil {
+		applyModuleOverride(buildInfo, c.buildConfiguration.GetModule(), moduleOverrideIndex(buildInfo, c.args))
+	}
+
 	service := buildUtils.CreateBuildInfoService()
 
 	var projectKey string
@@ -324,25 +442,40 @@ type cargoConfigToml struct {
 	} `toml:"registries"`
 }
 
-// parseCargoRegistries reads <workingDir>/.cargo/config.toml and returns a map of
-// registry name -> index URL. Returns an empty map on any read/parse error.
+// parseCargoRegistries returns registry name -> index URL, merging cargo's config sources the way
+// cargo resolves them: the user-global $CARGO_HOME/config.toml (default ~/.cargo/config.toml) — this
+// is what `jf setup cargo` writes — as a base, overlaid by the project-local
+// <workingDir>/.cargo/config.toml (project entries win). This lets `jf cargo` locate registries
+// whether they came from `jf setup cargo` (global) or a project-committed .cargo/config.toml.
 func parseCargoRegistries(workingDir string) map[string]string {
 	out := map[string]string{}
-	configPath := filepath.Join(workingDir, ".cargo", "config.toml")
+	// Global (lowest precedence) — written by `jf setup cargo`.
+	if home, err := cargoHome(); err == nil && home != "" {
+		readRegistriesInto(filepath.Join(home, "config.toml"), out)
+	}
+	// Project-local (highest precedence) overlays the global entries.
+	readRegistriesInto(filepath.Join(workingDir, ".cargo", "config.toml"), out)
+	return out
+}
+
+// readRegistriesInto parses one cargo config.toml and merges its [registries.<name>] index URLs
+// into out (existing keys are overwritten). Missing/invalid files are skipped (debug-logged).
+func readRegistriesInto(configPath string, out map[string]string) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		log.Debug("cargo: could not read " + configPath + ": " + err.Error())
-		return out
+		return
 	}
 	var cfg cargoConfigToml
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		log.Debug("cargo: could not parse " + configPath + ": " + err.Error())
-		return out
+		return
 	}
 	for name, reg := range cfg.Registries {
-		out[name] = reg.Index
+		if reg.Index != "" {
+			out[name] = reg.Index
+		}
 	}
-	return out
 }
 
 // cargoRegistryIndexURL reads <workingDir>/.cargo/config.toml and returns the
