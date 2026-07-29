@@ -1182,3 +1182,16 @@ func TestMaskGoProxyCredentials(t *testing.T) {
 		})
 	}
 }
+
+// packageManagerConfigs drives the note printed after every successful setup, so a
+// package manager added to packageManagerToRepositoryPackageType without an entry
+// here would silently print nothing. The map comment promises these stay in step.
+func TestPackageManagerConfigs_CoversEverySupportedPackageManager(t *testing.T) {
+	assert.Len(t, packageManagerConfigs, len(packageManagerToRepositoryPackageType))
+	for packageManager := range packageManagerToRepositoryPackageType {
+		config, ok := packageManagerConfigs[packageManager]
+		if assert.True(t, ok, "%s is supported by jf setup but has no packageManagerConfigs entry", packageManager) {
+			assert.NotEmpty(t, config.location, "%s has an entry with no location", packageManager)
+		}
+	}
+}
