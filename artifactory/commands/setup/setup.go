@@ -892,11 +892,15 @@ func (sc *SetupCommand) configureApt() error {
 		SetRepoName(sc.repoName).
 		SetDist(dist).
 		SetComponent(component)
-	switch gpgChoice {
+	switch strings.ToLower(strings.TrimSpace(gpgChoice)) {
+	case "":
+		// Leave GPG unconfigured.
 	case "import":
 		cmd.SetImportKey(true)
 	case "trusted":
 		cmd.SetTrusted(true)
+	default:
+		return errorutils.CheckErrorf("invalid GPG mode %q — expected 'import', 'trusted', or empty", gpgChoice)
 	}
 	return cmd.Run()
 }

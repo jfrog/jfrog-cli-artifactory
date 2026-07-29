@@ -61,6 +61,17 @@ func TestNeedsUpdate_OnlyFlags(t *testing.T) {
 	assert.False(t, needsUpdate([]string{"-y", "--quiet"}))
 }
 
+func TestNeedsUpdate_TwoTokenValueFlag(t *testing.T) {
+	// `-o` takes its value as a separate argv token; the value must not be
+	// mistaken for the subcommand, so `install` following it is still detected.
+	assert.True(t, needsUpdate([]string{"-o", "Debug::pkgProblemResolver=1", "install", "curl"}))
+	assert.True(t, needsUpdate([]string{"-t", "noble-backports", "install", "curl"}))
+}
+
+func TestNeedsUpdate_TwoTokenValueFlagBeforeNonUpdate(t *testing.T) {
+	assert.False(t, needsUpdate([]string{"-o", "Foo=bar", "remove", "curl"}))
+}
+
 // ── AptCommand setters/defaults ───────────────────────────────────────────────
 
 func TestSetComponent_DefaultsToMain(t *testing.T) {

@@ -85,15 +85,33 @@ var nativeTools = map[string]bool{
 	"dpkg-query": true,
 }
 
+// aptValueFlags are apt-get flags whose value is a separate argv token
+// (e.g. `-o KEY=VALUE`, `-t release`). The value token must be skipped so it is
+// not mistaken for the subcommand.
+var aptValueFlags = map[string]bool{
+	"-o": true, "--option": true,
+	"-c": true, "--config-file": true,
+	"-t": true, "--target-release": true,
+}
+
 func needsUpdate(args []string) bool {
+	skipNext := false
 	for _, a := range args {
-		if !strings.HasPrefix(a, "-") {
-			switch a {
-			case "install", "upgrade", "dist-upgrade", "full-upgrade", "satisfy":
-				return true
-			}
-			return false
+		if skipNext {
+			skipNext = false
+			continue
 		}
+		if strings.HasPrefix(a, "-") {
+			if aptValueFlags[a] {
+				skipNext = true
+			}
+			continue
+		}
+		switch a {
+		case "install", "upgrade", "dist-upgrade", "full-upgrade", "satisfy":
+			return true
+		}
+		return false
 	}
 	return false
 }

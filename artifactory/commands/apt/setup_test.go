@@ -2,6 +2,7 @@ package apt
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -52,6 +53,22 @@ func TestWriteSourcesListIdempotent_OverwritesOnDiff(t *testing.T) {
 	content, _ := os.ReadFile(path)
 	assert.Contains(t, string(content), "new-host")
 	assert.NotContains(t, string(content), "old-host")
+}
+
+func TestWriteSourcesListIdempotent_RewritesOnNarrowerSubstringLine(t *testing.T) {
+	// A narrower new line that is a substring of the existing broader line must
+	// still trigger a rewrite (regression: substring match left stale config).
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.list")
+	require.NoError(t, os.WriteFile(path, []byte("deb https://host/repo noble main contrib\n"), 0600))
+
+	cmd := &AptSetupCommand{}
+	wrote, err := cmd.writeSourcesListIdempotent(path, "deb https://host/repo noble main")
+	require.NoError(t, err)
+	assert.True(t, wrote, "narrower line is not an exact match — must rewrite")
+
+	content, _ := os.ReadFile(path)
+	assert.Equal(t, "deb https://host/repo noble main\n", string(content))
 }
 
 func TestWriteSourcesListIdempotent_FilePermissions(t *testing.T) {
@@ -172,11 +189,11 @@ func TestWrapPermErr_WrappedPermissionDenied(t *testing.T) {
 	innerErr := os.WriteFile(filepath.Join(dir, "x"), []byte("x"), 0600)
 	require.Error(t, innerErr)
 
-	// errors.Join produces an error with Unwrap() []error — wrapPermErr checks one level.
-	doubleWrapped := errors.Join(errors.New("context"), innerErr)
+	// wrapPermErr uses errors.Is, which walks the whole chain — nested/multiply
+	// wrapped permission errors must still get the sudo hint.
+	doubleWrapped := fmt.Errorf("import GPG key: %w", fmt.Errorf("write public key: %w", innerErr))
 	result := wrapPermErr(doubleWrapped)
-	// No panic is the main invariant here; sudo hint presence depends on unwrap depth.
-	_ = result
+	assert.Contains(t, result.Error(), "sudo")
 }
 
 // ── runRemove ─────────────────────────────────────────────────────────────────
@@ -241,6 +258,38 @@ func TestRunRemove_RemovesAllDists(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(dir, "jfrog-repoA-noble.list"))
 	assert.NoFileExists(t, filepath.Join(dir, "jfrog-repoB-jammy.list"))
 	assert.NoFileExists(t, filepath.Join(dir, "jfrog-repoA-noble.pref"))
+}
+
+func TestRunRemove_GlobMetacharDistMatchesNothing(t *testing.T) {
+	// A --dist containing a glob metacharacter must not be expanded as a pattern:
+	// removal filters by literal suffix, so "*" matches no real jfrog-<repo>-<dist>
+	// file and leaves every other dist's config untouched.
+	dir := t.TempDir()
+	origSrc, origPref, origKey := sourcesListDir, preferencesDir, keyringsDir
+	sourcesListDir = dir
+	preferencesDir = dir
+	keyringsDir = dir
+	defer func() {
+		sourcesListDir = origSrc
+		preferencesDir = origPref
+		keyringsDir = origKey
+	}()
+
+	for _, name := range []string{
+		"jfrog-repoA-noble.list",
+		"jfrog-repoB-jammy.list",
+		"jfrog-repoA-noble.pref",
+	} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("x"), 0644))
+	}
+
+	cmd := &AptSetupCommand{dist: "*"}
+	require.NoError(t, cmd.runRemove())
+
+	// Nothing removed — "*" is treated literally, not as a glob.
+	assert.FileExists(t, filepath.Join(dir, "jfrog-repoA-noble.list"))
+	assert.FileExists(t, filepath.Join(dir, "jfrog-repoB-jammy.list"))
+	assert.FileExists(t, filepath.Join(dir, "jfrog-repoA-noble.pref"))
 }
 
 func TestRunRemove_NothingToRemove(t *testing.T) {

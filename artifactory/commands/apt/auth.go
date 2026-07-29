@@ -68,6 +68,13 @@ func WriteTempSourcesList(serverDetails *config.ServerDetails, repoName, dist, c
 // Requires root. The .asc extension tells apt the key is ASCII-armored — no
 // gpg --dearmor step needed (supported since apt 1.4 / Ubuntu 22.04+).
 func FetchAndInstallPublicKey(serverDetails *config.ServerDetails, repoName, dist string) (string, error) {
+	if err := validateSourcesToken("repo", repoName); err != nil {
+		return "", err
+	}
+	if err := validateSourcesToken("dist", dist); err != nil {
+		return "", err
+	}
+
 	sm, err := artutils.CreateServiceManager(serverDetails, 3, 0, false)
 	if err != nil {
 		return "", fmt.Errorf("create service manager: %w", err)
@@ -152,11 +159,17 @@ func buildSourcesLine(serverDetails *config.ServerDetails, repoName, dist, compo
 	return fmt.Sprintf("deb %s%s %s %s", options, parsed.String(), dist, component), nil
 }
 
-// validateSourcesToken rejects values that would corrupt a sources.list line.
-// Newlines, carriage returns or null bytes in any token would inject extra lines.
+// validateSourcesToken rejects values that would corrupt a sources.list line or
+// escape the apt config directories when interpolated into a filesystem path.
+// Newlines, carriage returns or null bytes would inject extra sources lines;
+// path separators or ".." would let a token (repo/dist) write or delete files
+// outside /etc/apt/{sources.list.d,preferences.d,keyrings}.
 func validateSourcesToken(field, value string) error {
 	if value == "" {
 		return fmt.Errorf("--%s must not be empty", field)
+	}
+	if strings.ContainsAny(value, `/\`) || strings.Contains(value, "..") {
+		return fmt.Errorf("invalid character in --%s: path separators are not allowed", field)
 	}
 	for _, r := range value {
 		if r == '\n' || r == '\r' || r == '\000' {

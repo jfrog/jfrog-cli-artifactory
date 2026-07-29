@@ -75,6 +75,14 @@ func TestValidateSourcesToken_Valid(t *testing.T) {
 	assert.NoError(t, validateSourcesToken("component", "main contrib non-free"))
 }
 
+func TestValidateSourcesToken_PathTraversal(t *testing.T) {
+	// path separators / ".." would let a token escape /etc/apt when used in a path
+	assert.Error(t, validateSourcesToken("dist", "../../etc/evil"))
+	assert.Error(t, validateSourcesToken("repo", "foo/bar"))
+	assert.Error(t, validateSourcesToken("dist", `foo\bar`))
+	assert.Error(t, validateSourcesToken("dist", ".."))
+}
+
 // ── WriteTempSourcesList ──────────────────────────────────────────────────────
 
 func TestWriteTempSourcesList_ContainsSourcesLine(t *testing.T) {

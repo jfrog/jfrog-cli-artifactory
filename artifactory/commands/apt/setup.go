@@ -105,6 +105,15 @@ func (c *AptSetupCommand) Run() error {
 	if c.serverDetails == nil {
 		return fmt.Errorf("server details not configured; use --server-id or 'jf config add'")
 	}
+	// Validate before any filesystem path is built from these tokens —
+	// FetchAndInstallPublicKey and the sources/preferences writers interpolate
+	// repo/dist directly, so a "../" value could escape /etc/apt as root.
+	if err := validateSourcesToken("repo", c.repoName); err != nil {
+		return err
+	}
+	if err := validateSourcesToken("dist", c.dist); err != nil {
+		return err
+	}
 
 	signedBy := ""
 	if c.importKey {
@@ -180,26 +189,41 @@ func (c *AptSetupCommand) Run() error {
 // runRemove deletes all jfrog-managed sources.list and preferences files.
 // If --dist is set, only files matching that dist suffix are removed.
 func (c *AptSetupCommand) runRemove() error {
-	suffix := ".list"
-	prefSuffix := ".pref"
-	keyringSuffix := ".asc"
+	var wantedSuffix string
 	if c.dist != "" {
-		suffix = "-" + c.dist + ".list"
-		prefSuffix = "-" + c.dist + ".pref"
-		keyringSuffix = "-" + c.dist + ".asc"
+		// Reject path separators/".." so a crafted --dist cannot make the glob
+		// match and delete files outside the apt config directories.
+		if err := validateSourcesToken("dist", c.dist); err != nil {
+			return err
+		}
+		wantedSuffix = "-" + c.dist
 	}
 
 	removed := 0
-	for _, dir := range []struct{ path, suf string }{
-		{sourcesListDir, suffix},
-		{preferencesDir, prefSuffix},
-		{keyringsDir, keyringSuffix},
+	for _, dir := range []struct{ path, ext string }{
+		{sourcesListDir, ".list"},
+		{preferencesDir, ".pref"},
+		{keyringsDir, ".asc"},
 	} {
-		matches, err := filepath.Glob(filepath.Join(dir.path, "jfrog-*"+dir.suf))
+		// Glob only the fixed jfrog-* prefix, avoiding glob metacharacters in dist.
+		matches, err := filepath.Glob(filepath.Join(dir.path, "jfrog-*"))
 		if err != nil {
 			return fmt.Errorf("glob %s: %w", dir.path, err)
 		}
 		for _, f := range matches {
+			base := filepath.Base(f)
+			// Retain only matches ending with the requested suffix extension.
+			// If wantedSuffix is empty, match files ending with just the extension (any dist).
+			// Otherwise, match files ending with "-<dist><extension>".
+			var suffixMatch bool
+			if wantedSuffix == "" {
+				suffixMatch = strings.HasSuffix(base, dir.ext)
+			} else {
+				suffixMatch = strings.HasSuffix(base, wantedSuffix+dir.ext)
+			}
+			if !suffixMatch {
+				continue
+			}
 			if err := os.Remove(f); err != nil {
 				return wrapPermErr(fmt.Errorf("remove %s: %w", f, err))
 			}
@@ -238,8 +262,13 @@ func sourceHasSignedBy(path string) bool {
 func (c *AptSetupCommand) writeSourcesListIdempotent(targetFile, sourceLine string) (bool, error) {
 	existing, err := os.ReadFile(targetFile)
 	if err == nil {
-		if strings.Contains(string(existing), sourceLine) {
-			return false, nil
+		// Exact whole-line match only — a substring check would treat a narrower
+		// config (e.g. "... noble main") as already present when the file holds a
+		// broader line ("... noble main contrib"), silently keeping stale config.
+		for _, line := range strings.Split(strings.TrimRight(string(existing), "\n"), "\n") {
+			if line == sourceLine {
+				return false, nil
+			}
 		}
 		log.Info("Updating existing apt source configuration.")
 	}
@@ -282,7 +311,10 @@ func wrapPermErr(err error) error {
 	if err == nil {
 		return nil
 	}
-	if os.IsPermission(err) || os.IsPermission(errors.Unwrap(err)) {
+	// errors.Is walks the whole %w chain, unlike os.IsPermission which only
+	// unwraps *PathError/*LinkError/*SyscallError one level — needed because
+	// callers double-wrap (e.g. "import GPG key: %w" over "write public key: %w").
+	if errors.Is(err, os.ErrPermission) {
 		return fmt.Errorf("%w — you may need to run with sudo", err)
 	}
 	return err
