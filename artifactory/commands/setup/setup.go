@@ -94,6 +94,12 @@ var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
 	// pnpm is deliberately left without an override: `pnpm config set` writes to
 	// pnpm's own config directory (auth.ini) and ignores NPM_CONFIG_USERCONFIG, which
 	// it consults only as a fallback when reading credentials.
+	// That file also outranks ~/.npmrc for pnpm, which matters across two setups: a
+	// machine with no pnpm setup inherits npm's ~/.npmrc through the fallback, but
+	// once `jf setup pnpm` has written auth.ini, a later `jf setup npm` moves npm
+	// alone and pnpm keeps resolving from the repository it was given. Both tools are
+	// individually correct, and nothing in either command's output says they now
+	// disagree. Verified against pnpm 11.
 	project.Pnpm: {location: "your user-level pnpm configuration (auth.ini in pnpm's config directory)"},
 	// Yarn Classic writes ~/.yarnrc, and YARN_RC_FILENAME does not redirect it.
 	project.Yarn: {location: "your user-level Yarn configuration (.yarnrc)"},
