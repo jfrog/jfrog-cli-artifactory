@@ -33,74 +33,84 @@ import (
 	"golang.org/x/exp/maps"
 )
 
-// packageManagerToConfigLocation names the configuration each package manager is
-// written to, so the command can say what it changed. Every entry is user-level:
-// the settings live in the user's home directory, not in the current project, so
-// they take effect for every project this user builds. Saying so matters because
-// nothing else in the output reveals that the change is not scoped to the
-// directory the command was run in.
-var packageManagerToConfigLocation = map[project.ProjectType]string{
-	project.Npm:    "your user-level npm configuration (.npmrc)",
-	project.Pnpm:   "your user-level pnpm configuration (.npmrc)",
-	project.Yarn:   "your user-level Yarn configuration (.yarnrc)",
-	project.Pip:    "your user-level pip configuration (pip.conf)",
-	project.Pipenv: "your user-level pip configuration (pip.conf)",
-	project.Poetry: "your user-level Poetry configuration",
-	project.Twine:  "your user-level Twine configuration (.pypirc)",
-	project.UV:     "your user-level uv configuration (uv.toml)",
-	project.Nuget:  "your user-level NuGet configuration (NuGet.Config)",
-	project.Dotnet: "your user-level NuGet configuration (NuGet.Config)",
-	project.Go:     "your Go environment (GOPROXY)",
-	project.Gradle: "a Gradle init script in your Gradle user home",
-	project.Maven:  "your user-level Maven settings (settings.xml)",
-	project.Docker: "your Docker credential store",
-	project.Podman: "your Podman credential store",
-	project.Helm:   "your Helm registry credential store",
+// packageManagerConfig describes the configuration `jf setup` writes for one package
+// manager, so the command can say what it changed and how far the change reaches.
+// Saying so matters because nothing else in the output reveals that the change is not
+// scoped to the directory the command was run in.
+type packageManagerConfig struct {
+	// location names the configuration in the user's terms rather than as an absolute
+	// path: the real path is platform dependent (pip alone has three per-user
+	// locations) and the package manager resolves it itself, so a path spelled out
+	// here would be wrong on some machines.
+	location string
+	// credentialsOnly marks the package managers that only store credentials instead
+	// of redirecting resolution. Their projects do not start resolving through
+	// Artifactory — an unqualified `docker pull alpine` still goes to Docker Hub — so
+	// the note must not claim otherwise.
+	credentialsOnly bool
+	// overrideEnv is the environment variable that moves this configuration off its
+	// user-level default. When it is set the configuration can live anywhere the user
+	// pointed it, including inside the current project, so the note has to describe
+	// that path instead of claiming user-wide scope. Only set where the configure
+	// function or the tool it drives really honors the variable — the per-entry
+	// comments record what was verified.
+	overrideEnv string
 }
 
-// packageManagerConfigOverrideEnv names the environment variable that redirects a
-// package manager's configuration away from its user-level default. When one is set
-// the file can live anywhere the user pointed it, including inside the current
-// project, so the note must describe that path instead of claiming user-wide scope.
-// Only package managers whose configure function actually honors the variable are
-// listed here.
-var packageManagerConfigOverrideEnv = map[project.ProjectType]string{
-	project.Npm:    "NPM_CONFIG_USERCONFIG",
-	project.Pnpm:   "NPM_CONFIG_USERCONFIG",
-	project.Pip:    "PIP_CONFIG_FILE",
-	project.Pipenv: "PIP_CONFIG_FILE",
-	project.Poetry: "POETRY_CONFIG_DIR",
-	project.UV:     "UV_CONFIG_FILE",
-}
-
-// isContainerLogin reports whether the package manager authenticates to the platform
-// instead of redirecting resolution. Their projects do not start resolving through
-// Artifactory — an unqualified `docker pull alpine` still goes to Docker Hub — so the
-// note must not claim otherwise.
-func isContainerLogin(packageManager project.ProjectType) bool {
-	return packageManager == project.Docker || packageManager == project.Podman || packageManager == project.Helm
+// One entry per package manager in packageManagerToRepositoryPackageType; a test
+// asserts the two stay in step.
+var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
+	// npm resolves the file `npm config set` writes through NPM_CONFIG_USERCONFIG.
+	project.Npm: {location: "your user-level npm configuration (.npmrc)", overrideEnv: "NPM_CONFIG_USERCONFIG"},
+	// pnpm is deliberately left without an override: `pnpm config set` writes to
+	// pnpm's own config directory (auth.ini) and ignores NPM_CONFIG_USERCONFIG, which
+	// it consults only as a fallback when reading credentials.
+	project.Pnpm: {location: "your user-level pnpm configuration (auth.ini in pnpm's config directory)"},
+	// Yarn Classic writes ~/.yarnrc, and YARN_RC_FILENAME does not redirect it.
+	project.Yarn: {location: "your user-level Yarn configuration (.yarnrc)"},
+	// configurePip writes the file itself when PIP_CONFIG_FILE is set, because
+	// `pip config set` does not support that variable.
+	project.Pip:    {location: "your user-level pip configuration (pip.conf)", overrideEnv: "PIP_CONFIG_FILE"},
+	project.Pipenv: {location: "your user-level pip configuration (pip.conf)", overrideEnv: "PIP_CONFIG_FILE"},
+	// `poetry config` writes config.toml into POETRY_CONFIG_DIR when it is set.
+	project.Poetry: {location: "your user-level Poetry configuration (config.toml)", overrideEnv: "POETRY_CONFIG_DIR"},
+	// Twine's .pypirc path is chosen per invocation (--config-file), not by the environment.
+	project.Twine: {location: "your user-level Twine configuration (.pypirc)"},
+	// ConfigureUVIndex writes to UV_CONFIG_FILE when it is set.
+	project.UV:     {location: "your user-level uv configuration (uv.toml)", overrideEnv: "UV_CONFIG_FILE"},
+	project.Nuget:  {location: "your user-level NuGet configuration (NuGet.Config)"},
+	project.Dotnet: {location: "your user-level NuGet configuration (NuGet.Config)"},
+	// `go env -w` writes to the file GOENV points at, defaulting to the per-user Go env file.
+	project.Go: {location: "your user-level Go environment (GOPROXY in your Go env file)", overrideEnv: "GOENV"},
+	// gradle.WriteInitScript drops the script under GRADLE_USER_HOME when it is set.
+	project.Gradle: {location: "your user-level Gradle configuration (an init script in your Gradle user home)", overrideEnv: gradle.UserHomeEnv},
+	// Maven picks the settings file per invocation (-s), not from the environment.
+	project.Maven:  {location: "your user-level Maven settings (settings.xml)"},
+	project.Docker: {location: "your Docker credential store", credentialsOnly: true},
+	project.Podman: {location: "your Podman credential store", credentialsOnly: true},
+	project.Helm:   {location: "your Helm registry credential store", credentialsOnly: true},
 }
 
 // configScopeNote describes what the command changed and how widely it applies, or
 // an empty string for a package manager we have nothing accurate to say about.
 func configScopeNote(packageManager project.ProjectType) string {
-	location, ok := packageManagerToConfigLocation[packageManager]
+	packageManagerConfig, ok := packageManagerConfigs[packageManager]
 	if !ok {
 		return ""
 	}
-	if isContainerLogin(packageManager) {
-		return fmt.Sprintf("Credentials were saved to %s for your user account.", location)
+	if packageManagerConfig.credentialsOnly {
+		return fmt.Sprintf("Credentials were saved to %s for your user account.", packageManagerConfig.location)
 	}
 	// A redirected configuration is not user-level, so report where it actually went
 	// rather than promising a scope that may not hold.
-	if envVar, hasOverride := packageManagerConfigOverrideEnv[packageManager]; hasOverride {
-		if overridePath := os.Getenv(envVar); overridePath != "" {
+	if packageManagerConfig.overrideEnv != "" {
+		if overridePath := os.Getenv(packageManagerConfig.overrideEnv); overridePath != "" {
 			return fmt.Sprintf("This updated the %s configuration at %s, because %s is set, so its scope follows that path rather than your user-level configuration.",
-				packageManager.String(), overridePath, envVar)
+				packageManager.String(), overridePath, packageManagerConfig.overrideEnv)
 		}
 	}
 	return fmt.Sprintf("This updated %s, so it applies to every %s project for this user, not only the current directory.",
-		location, packageManager.String())
+		packageManagerConfig.location, packageManager.String())
 }
 
 // packageManagerToRepositoryPackageType maps project types to corresponding Artifactory repository package types.

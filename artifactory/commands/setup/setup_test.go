@@ -941,7 +941,7 @@ func TestConfigScopeNote_CoversEverySupportedPackageManager(t *testing.T) {
 		require.NotEqualf(t, project.ProjectType(-1), packageManager, "%q is not a known project type", name)
 
 		// Clear any override so this asserts the default, user-level wording.
-		if envVar, hasOverride := packageManagerConfigOverrideEnv[packageManager]; hasOverride {
+		if envVar := packageManagerConfigs[packageManager].overrideEnv; envVar != "" {
 			t.Setenv(envVar, "")
 		}
 
@@ -950,7 +950,7 @@ func TestConfigScopeNote_CoversEverySupportedPackageManager(t *testing.T) {
 
 		// Each note must take exactly one of the two valid shapes, and a resolution
 		// note must name the package manager it is talking about.
-		if isContainerLogin(packageManager) {
+		if packageManagerConfigs[packageManager].credentialsOnly {
 			assert.Containsf(t, note, "Credentials were saved", "%q: %s", name, note)
 			assert.NotContainsf(t, note, "applies to every", "%q must not claim resolution: %s", name, note)
 			continue
@@ -964,9 +964,10 @@ func TestConfigScopeNote_CoversEverySupportedPackageManager(t *testing.T) {
 // inside the current project — so the note must report that path instead of promising
 // a scope that does not hold.
 func TestConfigScopeNote_RedirectedConfigDoesNotClaimUserScope(t *testing.T) {
-	require.NotEmpty(t, packageManagerConfigOverrideEnv, "expected package managers with a config override")
+	overrides := packageManagersWithConfigOverride()
+	require.NotEmpty(t, overrides, "expected package managers with a config override")
 
-	for packageManager, envVar := range packageManagerConfigOverrideEnv {
+	for packageManager, envVar := range overrides {
 		overridePath := filepath.Join(t.TempDir(), "redirected-config")
 		t.Setenv(envVar, overridePath)
 
@@ -983,12 +984,56 @@ func TestConfigScopeNote_RedirectedConfigDoesNotClaimUserScope(t *testing.T) {
 // With no override set the default user-level wording applies, so the two branches are
 // covered in both directions.
 func TestConfigScopeNote_WithoutOverrideClaimsUserScope(t *testing.T) {
-	for packageManager, envVar := range packageManagerConfigOverrideEnv {
+	for packageManager, envVar := range packageManagersWithConfigOverride() {
 		t.Setenv(envVar, "")
 		note := configScopeNote(packageManager)
 		assert.Containsf(t, note, "user-level", "%s: %s", packageManager.String(), note)
 		assert.NotContainsf(t, note, envVar, "%s: %s", packageManager.String(), note)
 	}
+}
+
+// Each override was verified against the tool that consumes it, so the set is pinned in
+// both directions: a new entry added without that verification fails here, and dropping
+// one that works silently downgrades the note to a scope claim that may be wrong.
+func TestPackageManagerConfigs_OverridesAreExactlyTheVerifiedSet(t *testing.T) {
+	expected := map[project.ProjectType]string{
+		project.Npm:    "NPM_CONFIG_USERCONFIG",
+		project.Pip:    "PIP_CONFIG_FILE",
+		project.Pipenv: "PIP_CONFIG_FILE",
+		project.Poetry: "POETRY_CONFIG_DIR",
+		project.UV:     "UV_CONFIG_FILE",
+		project.Go:     "GOENV",
+		project.Gradle: "GRADLE_USER_HOME",
+	}
+	assert.Equal(t, expected, packageManagersWithConfigOverride())
+}
+
+// pnpm looks like it should follow npm here, and it does not: `pnpm config set` writes to
+// pnpm's own config directory and ignores NPM_CONFIG_USERCONFIG (verified against pnpm
+// 11 — the file it wrote was auth.ini under the pnpm config directory, both with and
+// without the variable set). Claiming the redirect would send users to a file that
+// `jf setup pnpm` never touched, so the absence is asserted rather than left to chance.
+func TestPackageManagerConfigs_PnpmHasNoConfigOverride(t *testing.T) {
+	assert.Empty(t, packageManagerConfigs[project.Pnpm].overrideEnv,
+		"pnpm config set does not honor an environment override")
+
+	customConfig := filepath.Join(t.TempDir(), "custom.npmrc")
+	t.Setenv("NPM_CONFIG_USERCONFIG", customConfig)
+	note := configScopeNote(project.Pnpm)
+	assert.NotContains(t, note, customConfig, "the note must not point at a file pnpm does not write: "+note)
+	assert.Contains(t, note, "applies to every pnpm project", note)
+}
+
+// packageManagersWithConfigOverride returns only the entries that declare an override
+// variable, so the override tests do not have to skip the rest.
+func packageManagersWithConfigOverride() map[project.ProjectType]string {
+	overrides := map[project.ProjectType]string{}
+	for packageManager, packageManagerConfig := range packageManagerConfigs {
+		if packageManagerConfig.overrideEnv != "" {
+			overrides[packageManager] = packageManagerConfig.overrideEnv
+		}
+	}
+	return overrides
 }
 
 // Container logins authenticate rather than redirect resolution, so their note must
