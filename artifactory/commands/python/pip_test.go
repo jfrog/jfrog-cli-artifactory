@@ -5,9 +5,23 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// assertOwnerOnly verifies Unix owner-only permission bits. Windows has no
+// equivalent: os.Chmod there only toggles the read-only attribute, so the mode
+// always reads back as 0666.
+func assertOwnerOnly(t *testing.T, path string) {
+	t.Helper()
+	if coreutils.IsWindows() {
+		return
+	}
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+}
 
 func TestCreatePipConfigManually(t *testing.T) {
 	// Define the test parameters
@@ -27,9 +41,7 @@ func TestCreatePipConfigManually(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, expectedContent, string(fileContent))
 
-	info, err := os.Stat(customConfigPath)
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	assertOwnerOnly(t, customConfigPath)
 }
 
 func TestResolvePipConfigPath_PIP_CONFIG_FILE(t *testing.T) {
@@ -50,9 +62,7 @@ func TestHardenPipConfigPermissions(t *testing.T) {
 
 	require.NoError(t, HardenPipConfigPermissions())
 
-	info, err := os.Stat(conf)
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	assertOwnerOnly(t, conf)
 }
 
 func TestHardenPipConfigPermissions_MissingFile(t *testing.T) {

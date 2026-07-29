@@ -211,9 +211,13 @@ func testSetupCommandPip(t *testing.T, packageManager project.ProjectType, custo
 			assert.NoError(t, err)
 			pipConfigContent := string(pipConfigContentBytes)
 
-			info, err := os.Stat(pipConfFilePath)
-			require.NoError(t, err)
-			assert.Equal(t, os.FileMode(0600), info.Mode().Perm(), "pip config must be owner-only readable")
+			// Windows has no Unix permission bits: os.Chmod there only toggles
+			// the read-only attribute, so the mode always reads back as 0666.
+			if !coreutils.IsWindows() {
+				info, err := os.Stat(pipConfFilePath)
+				require.NoError(t, err)
+				assert.Equal(t, os.FileMode(0600), info.Mode().Perm(), "pip config must be owner-only readable")
+			}
 
 			switch {
 			case testCase.accessToken != "":
