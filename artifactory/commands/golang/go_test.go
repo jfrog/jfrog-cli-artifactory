@@ -154,6 +154,25 @@ func TestGetArtifactoryApiUrl(t *testing.T) {
 	assert.Equal(t, "https://frog:"+testFakeToken+"@test.com/artifactory/api/go/test-repo", url)
 }
 
+func TestGoProxyUrlParams_AddDirectIsIdempotentForBothSeparators(t *testing.T) {
+	testCases := []struct {
+		name                   string
+		url                    string
+		FallbackOnlyIfNotFound bool
+	}{
+		{name: "Pipe fallback is not appended twice", url: "https://test/api/go/go|direct"},
+		{name: "Comma fallback is not appended twice", url: "https://test/api/go/go,direct", FallbackOnlyIfNotFound: true},
+		{name: "Comma fallback is left alone when a pipe was requested", url: "https://test/api/go/go,direct"},
+		{name: "Pipe fallback is left alone when a comma was requested", url: "https://test/api/go/go|direct", FallbackOnlyIfNotFound: true},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			gdu := &GoProxyUrlParams{Direct: true, FallbackOnlyIfNotFound: testCase.FallbackOnlyIfNotFound}
+			assert.Equal(t, testCase.url, gdu.addDirect(testCase.url))
+		})
+	}
+}
+
 func TestGoProxyUrlParams_BuildUrl(t *testing.T) {
 	testCases := []struct {
 		name                   string
