@@ -196,12 +196,13 @@ func TestGetCapabilities_GroupByRepoPackageType(t *testing.T) {
 	assert.ElementsMatch(t, []string{"docker", "podman"}, byRepoType["docker"])
 	assert.ElementsMatch(t, []string{"nuget", "dotnet"}, byRepoType["nuget"])
 
-	// Gradle is its own Artifactory package type here, NOT part of "maven".
-	// Pinned deliberately: downstream copies of this table disagree — the Fly client
-	// registers gradle under its maven repo name, and the agent hooks map the maven
-	// package type to [maven, gradle]. Anything resolving a gradle repository from
-	// the "maven" type is contradicting this mapping, and `jf setup gradle` will not
-	// offer a maven-type repository when it prompts.
+	// Gradle is its own Artifactory package type, NOT part of "maven" — Artifactory
+	// has real Gradle repositories. Pinned because downstream copies of this table
+	// fold gradle into maven: the Fly client registers it under its maven repo name
+	// (it had no Gradle repositories to point at), and the agent hooks map the maven
+	// package type to [maven, gradle]. Since this map drives
+	// promptUserToSelectRepository, `jf setup gradle` will not offer a maven-type
+	// repository, so those copies have to change rather than this mapping.
 	assert.Equal(t, []string{"maven"}, byRepoType["maven"])
 	assert.Equal(t, []string{"gradle"}, byRepoType["gradle"])
 }
