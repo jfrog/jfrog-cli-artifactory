@@ -55,12 +55,41 @@ type packageManagerConfig struct {
 	// function or the tool it drives really honors the variable — the per-entry
 	// comments record what was verified.
 	overrideEnv string
+	// aliases are the other names a caller may use for this package manager, so
+	// downstream tools do not each keep their own alias table.
+	aliases []string
+	// clientBinaries are the executables to look for on PATH, in preference order.
+	// Defaults to the package manager's own name, so only set it where they differ.
+	clientBinaries []string
+	// versionCmd is the argument list that makes the client print its version.
+	// Defaults to --version; several clients do not accept that flag at all.
+	versionCmd []string
+	// minVersion is the oldest client release `jf setup` can actually configure.
+	// Only set where a specific release introduced the mechanism setup depends on,
+	// and record which one in the entry's comment — this is published to callers
+	// that will refuse to run below it.
+	minVersion string
+	// configOnly marks the package managers whose configure function writes the
+	// configuration file itself and never runs the client. Their setup succeeds on a
+	// machine that has no client installed, which matters for wrapper-only projects
+	// (`./mvnw`, `./gradlew`), so callers must not gate them on a PATH lookup.
+	configOnly bool
+	// publishOnly marks the package managers configured for uploading rather than
+	// resolving. They are not part of install-time routing.
+	publishOnly bool
+	// configGroup names the configuration file this package manager shares with
+	// others. Everything in one group writes the SAME file, so concurrent `jf setup`
+	// runs across a group race each other and callers have to serialize them.
+	configGroup string
 }
 
-// One entry per package manager in packageManagerToRepositoryPackageType; a test
-// asserts the two stay in step.
+// One entry per package manager in packageManagerToRepositoryPackageType.
+// TestGetCapabilities_EveryEntryIsFullyPopulated keeps the two maps in step: a
+// package manager added there without an entry here publishes an empty location
+// and empty client binaries through GetCapabilities, and fails that test.
 var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
 	// npm resolves the file `npm config set` writes through NPM_CONFIG_USERCONFIG.
+	// npm, pnpm and Yarn are NOT one config group: each writes its own file.
 	project.Npm: {location: "your user-level npm configuration (.npmrc)", overrideEnv: "NPM_CONFIG_USERCONFIG"},
 	// pnpm is deliberately left without an override: `pnpm config set` writes to
 	// pnpm's own config directory (auth.ini) and ignores NPM_CONFIG_USERCONFIG, which
@@ -69,26 +98,45 @@ var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
 	// Yarn Classic writes ~/.yarnrc, and YARN_RC_FILENAME does not redirect it.
 	project.Yarn: {location: "your user-level Yarn configuration (.yarnrc)"},
 	// configurePip writes the file itself when PIP_CONFIG_FILE is set, because
-	// `pip config set` does not support that variable.
-	project.Pip:    {location: "your user-level pip configuration (pip.conf)", overrideEnv: "PIP_CONFIG_FILE"},
-	project.Pipenv: {location: "your user-level pip configuration (pip.conf)", overrideEnv: "PIP_CONFIG_FILE"},
+	// `pip config set` does not support that variable. requiresClient stays true:
+	// the default path does shell out, and only the override path does not.
+	// pip and pipenv share pip.conf, so their setups must not run concurrently.
+	project.Pip: {location: "your user-level pip configuration (pip.conf)", overrideEnv: "PIP_CONFIG_FILE",
+		clientBinaries: []string{"pip", "pip3"}, configGroup: ConfigGroupPipConf},
+	project.Pipenv: {location: "your user-level pip configuration (pip.conf)", overrideEnv: "PIP_CONFIG_FILE",
+		configGroup: ConfigGroupPipConf},
 	// `poetry config` writes config.toml into POETRY_CONFIG_DIR when it is set.
 	project.Poetry: {location: "your user-level Poetry configuration (config.toml)", overrideEnv: "POETRY_CONFIG_DIR"},
 	// Twine's .pypirc path is chosen per invocation (--config-file), not by the environment.
-	project.Twine: {location: "your user-level Twine configuration (.pypirc)"},
+	project.Twine: {location: "your user-level Twine configuration (.pypirc)", publishOnly: true},
 	// ConfigureUVIndex writes to UV_CONFIG_FILE when it is set.
-	project.UV:     {location: "your user-level uv configuration (uv.toml)", overrideEnv: "UV_CONFIG_FILE"},
-	project.Nuget:  {location: "your user-level NuGet configuration (NuGet.Config)"},
-	project.Dotnet: {location: "your user-level NuGet configuration (NuGet.Config)"},
+	// minVersion is deliberately unset: configureUV needs `uv auth login`, and the
+	// release that introduced it has not been confirmed. Fly Desktop asserts 0.8.15.
+	project.UV: {location: "your user-level uv configuration (uv.toml)", overrideEnv: "UV_CONFIG_FILE"},
+	// nuget and dotnet both write NuGet.Config, so their setups must not run concurrently.
+	// Neither client accepts --version; both print it through `help`.
+	project.Nuget: {location: "your user-level NuGet configuration (NuGet.Config)",
+		versionCmd: []string{"help"}, configGroup: ConfigGroupNugetConfig},
+	project.Dotnet: {location: "your user-level NuGet configuration (NuGet.Config)",
+		versionCmd: []string{"help"}, configGroup: ConfigGroupNugetConfig},
 	// `go env -w` writes to the file GOENV points at, defaulting to the per-user Go env file.
-	project.Go: {location: "your user-level Go environment (GOPROXY in your Go env file)", overrideEnv: "GOENV"},
+	project.Go: {location: "your user-level Go environment (GOPROXY in your Go env file)", overrideEnv: "GOENV",
+		versionCmd: []string{"version"}},
 	// gradle.WriteInitScript drops the script under GRADLE_USER_HOME when it is set.
-	project.Gradle: {location: "your user-level Gradle configuration (an init script in your Gradle user home)", overrideEnv: gradle.UserHomeEnv},
+	// configOnly: WriteInitScript writes the file directly, so `gradle` need not exist.
+	project.Gradle: {location: "your user-level Gradle configuration (an init script in your Gradle user home)",
+		overrideEnv: gradle.UserHomeEnv, configOnly: true},
 	// Maven picks the settings file per invocation (-s), not from the environment.
-	project.Maven:  {location: "your user-level Maven settings (settings.xml)"},
+	// configOnly: configureMaven goes through NewSettingsXmlManager, so `mvn` need not exist.
+	project.Maven: {location: "your user-level Maven settings (settings.xml)", configOnly: true,
+		aliases: []string{"mvn"}, clientBinaries: []string{"mvn"}},
+	// Docker and Podman keep separate credential stores, so they are not one group.
 	project.Docker: {location: "your Docker credential store", credentialsOnly: true},
 	project.Podman: {location: "your Podman credential store", credentialsOnly: true},
-	project.Helm:   {location: "your Helm registry credential store", credentialsOnly: true},
+	// configureHelm runs `helm registry login` against an OCI registry. OCI support
+	// reached general availability in Helm 3.8.0, so older clients cannot be configured.
+	project.Helm: {location: "your Helm registry credential store", credentialsOnly: true,
+		versionCmd: []string{"version", "--short"}, minVersion: "3.8.0"},
 }
 
 // configScopeNote describes what the command changed and how widely it applies, or
