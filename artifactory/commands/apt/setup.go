@@ -114,6 +114,14 @@ func (c *AptSetupCommand) Run() error {
 		}
 		log.Output(fmt.Sprintf("Installed GPG public key at %s", keyPath))
 		signedBy = keyPath
+	} else if !c.trusted {
+		// No --import-key, but a keyring from a previous import may already exist.
+		// Reuse it so re-running setup keeps signature verification (signed-by)
+		// rather than silently stripping it. Pass --import-key to refresh the key.
+		if existingKey := existingKeyringPath(c.repoName, c.dist); existingKey != "" {
+			log.Info(fmt.Sprintf("Reusing previously imported GPG key at %s (pass --import-key to refresh).", existingKey))
+			signedBy = existingKey
+		}
 	}
 
 	sourceLine, err := buildSourcesLine(c.serverDetails, c.repoName, c.dist, c.component, c.trusted, signedBy)
@@ -122,6 +130,15 @@ func (c *AptSetupCommand) Run() error {
 	}
 
 	targetFile := fmt.Sprintf("%s/jfrog-%s-%s.list", sourcesListDir, c.repoName, c.dist)
+
+	// Downgrade guard: the source previously pinned signing (signed-by=) but no
+	// keyring was reused above (the .asc is gone) and no --trusted was given, so
+	// the rewritten line would silently drop GPG verification. Warn instead.
+	if signedBy == "" && !c.trusted && sourceHasSignedBy(targetFile) {
+		log.Warn("This apt source was previously configured with GPG verification (signed-by), " +
+			"but --import-key was not passed — the updated source will no longer verify signatures. " +
+			"Re-run with --import-key to keep verification, or --trusted if disabling it is intentional.")
+	}
 
 	wrote, err := c.writeSourcesListIdempotent(targetFile, sourceLine)
 	if err != nil {
@@ -195,6 +212,25 @@ func (c *AptSetupCommand) runRemove() error {
 		log.Output("No JFrog apt configuration found to remove.")
 	}
 	return nil
+}
+
+// existingKeyringPath returns the keyring path for repo/dist when a previously
+// imported ASCII-armored key (jfrog-<repo>-<dist>.asc) already exists on disk,
+// else "". Used to preserve signature verification across setup re-runs that
+// omit --import-key.
+func existingKeyringPath(repoName, dist string) string {
+	p := filepath.Join(keyringsDir, fmt.Sprintf("jfrog-%s-%s.asc", repoName, dist))
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	return ""
+}
+
+// sourceHasSignedBy reports whether the sources.list file at path already pins a
+// signing key (signed-by=). A missing/unreadable file reports false.
+func sourceHasSignedBy(path string) bool {
+	b, err := os.ReadFile(path)
+	return err == nil && strings.Contains(string(b), "signed-by=")
 }
 
 // writeSourcesListIdempotent writes sourceLine to targetFile if the content has changed.

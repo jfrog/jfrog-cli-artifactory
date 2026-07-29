@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -98,6 +99,14 @@ func needsUpdate(args []string) bool {
 }
 
 // Run executes the native apt tool.
+// hasPersistentAptConfig reports whether 'jf setup apt' has written a persistent
+// sources.list entry (jfrog-*.list). When present, native apt-get already resolves
+// against Artifactory with embedded credentials, so no temp source is required.
+func hasPersistentAptConfig() bool {
+	matches, err := filepath.Glob(filepath.Join(sourcesListDir, "jfrog-*.list"))
+	return err == nil && len(matches) > 0
+}
+
 func (c *AptCommand) Run() error {
 	if len(c.args) == 0 {
 		return fmt.Errorf("no apt arguments provided")
@@ -141,9 +150,16 @@ func (c *AptCommand) Run() error {
 
 				nativeArgs = append(sourceOpts, nativeArgs...)
 			}
+		} else if hasPersistentAptConfig() {
+			// 'jf setup apt' already wrote a persistent jfrog-*.list with embedded
+			// credentials. Native apt-get resolves against it directly — no temp
+			// source needed, and no missing-auth warning is warranted.
+			log.Info("Using persistent Artifactory apt configuration from " + sourcesListDir +
+				" (written by 'jf setup apt').")
 		} else {
-			log.Warn("--repo and --dist not both specified — running apt-get without auth injection. " +
-				"Pass --repo and --dist for on-the-fly auth, or run 'jf setup apt' for persistent auth.")
+			log.Warn("--repo and --dist not both specified and no persistent 'jf setup apt' " +
+				"configuration found — running apt-get without auth injection. Pass --repo and " +
+				"--dist for on-the-fly auth, or run 'jf setup apt' first for persistent auth.")
 		}
 	}
 

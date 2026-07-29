@@ -70,6 +70,64 @@ func TestWriteSourcesListIdempotent_FilePermissions(t *testing.T) {
 	assert.Equal(t, os.FileMode(0600), info.Mode().Perm(), "sources.list must not be world-readable (contains credentials)")
 }
 
+// ── existingKeyringPath (keyring reuse across re-runs) ────────────────────────
+
+func TestExistingKeyringPath_ReturnsPathWhenPresent(t *testing.T) {
+	dir := t.TempDir()
+	orig := keyringsDir
+	keyringsDir = dir
+	defer func() { keyringsDir = orig }()
+
+	keyFile := filepath.Join(dir, "jfrog-myrepo-noble.asc")
+	require.NoError(t, os.WriteFile(keyFile, []byte("-----BEGIN PGP PUBLIC KEY BLOCK-----"), 0644))
+
+	assert.Equal(t, keyFile, existingKeyringPath("myrepo", "noble"))
+}
+
+func TestExistingKeyringPath_EmptyWhenAbsent(t *testing.T) {
+	dir := t.TempDir()
+	orig := keyringsDir
+	keyringsDir = dir
+	defer func() { keyringsDir = orig }()
+
+	assert.Equal(t, "", existingKeyringPath("myrepo", "noble"))
+}
+
+func TestExistingKeyringPath_ScopedToRepoAndDist(t *testing.T) {
+	dir := t.TempDir()
+	orig := keyringsDir
+	keyringsDir = dir
+	defer func() { keyringsDir = orig }()
+
+	// A key for a different dist must not be treated as this dist's key.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "jfrog-myrepo-jammy.asc"), []byte("x"), 0644))
+	assert.Equal(t, "", existingKeyringPath("myrepo", "noble"))
+}
+
+// ── sourceHasSignedBy (downgrade detection) ───────────────────────────────────
+
+func TestSourceHasSignedBy_TrueWhenPinned(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jfrog-myrepo-noble.list")
+	line := "deb [signed-by=/etc/apt/keyrings/jfrog-myrepo-noble.asc] https://host/repo noble main"
+	require.NoError(t, os.WriteFile(path, []byte(line+"\n"), 0600))
+
+	assert.True(t, sourceHasSignedBy(path))
+}
+
+func TestSourceHasSignedBy_FalseWhenBareLine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jfrog-myrepo-noble.list")
+	require.NoError(t, os.WriteFile(path, []byte("deb https://host/repo noble main\n"), 0600))
+
+	assert.False(t, sourceHasSignedBy(path))
+}
+
+func TestSourceHasSignedBy_FalseWhenFileMissing(t *testing.T) {
+	dir := t.TempDir()
+	assert.False(t, sourceHasSignedBy(filepath.Join(dir, "does-not-exist.list")))
+}
+
 // ── wrapPermErr ───────────────────────────────────────────────────────────────
 
 func TestWrapPermErr_Nil(t *testing.T) {
