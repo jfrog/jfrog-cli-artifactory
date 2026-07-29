@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +21,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/utils/io"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
@@ -1011,4 +1013,28 @@ func TestConfigScopeNote_ContainerLoginsDoNotClaimResolution(t *testing.T) {
 // rather than print a misleading note.
 func TestConfigScopeNote_UnknownPackageManagerIsSilent(t *testing.T) {
 	assert.Empty(t, configScopeNote(project.Cocoapods))
+}
+
+// The note is only useful if the command actually prints it, so assert the wiring
+// rather than just the string builder: removing the log call would otherwise leave
+// every configScopeNote test passing.
+func TestSetupCommand_PrintsConfigScopeNote(t *testing.T) {
+	// Maven writes only settings.xml, so a temporary home keeps the run self-contained.
+	// Both variables are set for cross-platform parity with the other Maven tests.
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
+
+	var output bytes.Buffer
+	previousLogger := log.Logger
+	log.SetLogger(log.NewLogger(log.INFO, &output))
+	defer log.SetLogger(previousLogger)
+
+	setupCmd := createTestSetupCommand(project.Maven)
+	setupCmd.repoName = "test-repo"
+	require.NoError(t, setupCmd.Run())
+
+	assert.Contains(t, output.String(), "Successfully configured", "expected the success message")
+	assert.Contains(t, output.String(), configScopeNote(project.Maven),
+		"the command must print the scope note, not just be able to build it")
 }
