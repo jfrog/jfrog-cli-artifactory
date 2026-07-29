@@ -3,6 +3,7 @@ package setup
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -93,6 +94,14 @@ func testSetupCommandNpmPnpm(t *testing.T, packageManager project.ProjectType) {
 
 			// Set NPM_CONFIG_USERCONFIG to point to the temporary npmrc file path.
 			t.Setenv("NPM_CONFIG_USERCONFIG", npmrcFilePath)
+			// `pnpm config set` ignores NPM_CONFIG_USERCONFIG and writes to its own config
+			// directory instead, so every variable that locates a home or config directory
+			// is redirected into tempDir as well. Without this the pnpm cases write into
+			// the developer's real pnpm configuration and then fail on the missing .npmrc.
+			t.Setenv("HOME", tempDir)
+			t.Setenv("USERPROFILE", tempDir)
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(tempDir, "xdg"))
+			t.Setenv("LOCALAPPDATA", filepath.Join(tempDir, "localappdata"))
 
 			// Set up server details for the current test case's authentication type.
 			loginCmd := createTestSetupCommand(packageManager)
@@ -103,10 +112,7 @@ func testSetupCommandNpmPnpm(t *testing.T, packageManager project.ProjectType) {
 			// Run the login command and ensure no errors occur.
 			require.NoError(t, loginCmd.Run())
 
-			// Read the contents of the temporary npmrc file.
-			npmrcContentBytes, err := os.ReadFile(npmrcFilePath)
-			assert.NoError(t, err)
-			npmrcContent := string(npmrcContentBytes)
+			npmrcContent := readPackageManagerConfigs(t, tempDir)
 
 			// Validate that the registry URL was set correctly in .npmrc.
 			assert.Contains(t, npmrcContent, fmt.Sprintf("%s=%s", cmdutils.NpmConfigRegistryKey, "https://acme.jfrog.io/artifactory/api/npm/test-repo/"))
@@ -120,11 +126,36 @@ func testSetupCommandNpmPnpm(t *testing.T, packageManager project.ProjectType) {
 				expectedBasicAuth := fmt.Sprintf("//acme.jfrog.io/artifactory/api/npm/test-repo/:%s=\"bXlVc2VyOm15UGFzc3dvcmQ=\"", cmdutils.NpmConfigAuthKey)
 				assert.Contains(t, npmrcContent, expectedBasicAuth)
 			}
-
-			// Clean up the temporary npmrc file.
-			assert.NoError(t, os.Remove(npmrcFilePath))
 		})
 	}
+}
+
+// readPackageManagerConfigs returns the contents of every npm-family configuration file
+// written under root. npm writes the file NPM_CONFIG_USERCONFIG names, while pnpm writes
+// auth.ini inside its own config directory, whose path differs per platform, so the files
+// are found by walking rather than assumed. Only known configuration file names are read,
+// to keep caches and log files out of the assertions.
+func readPackageManagerConfigs(t *testing.T, root string) string {
+	configFileNames := []string{".npmrc", "auth.ini", "rc", "config.yaml"}
+	// The walk only collects paths; the files are read afterwards, so no filesystem
+	// operation runs inside the callback.
+	var configPaths []string
+	require.NoError(t, filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || !slices.Contains(configFileNames, entry.Name()) {
+			return err
+		}
+		configPaths = append(configPaths, path)
+		return nil
+	}))
+	require.NotEmptyf(t, configPaths, "no package manager configuration was written under %s", root)
+
+	var contents []string
+	for _, configPath := range configPaths {
+		content, err := os.ReadFile(configPath)
+		require.NoError(t, err)
+		contents = append(contents, string(content))
+	}
+	return strings.Join(contents, "\n")
 }
 
 func TestSetupCommand_Yarn(t *testing.T) {
