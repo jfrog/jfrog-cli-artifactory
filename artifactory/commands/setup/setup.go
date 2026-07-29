@@ -479,6 +479,46 @@ func (sc *SetupCommand) configureYarn() (err error) {
 	return nil
 }
 
+// goProxySeparators are the two characters that delimit GOPROXY entries: a comma
+// falls through only on 404/410, a pipe on any error.
+const goProxySeparators = ",|"
+
+// maskGoProxyCredentials replaces the credentials of every entry in a GOPROXY
+// value, keeping the scheme and host so the message still says which proxy is set.
+//
+// GOPROXY is a separator-delimited list, so masking only up to the first '@'
+// would print every later entry's token verbatim. Within one entry the LAST '@'
+// delimits the credentials, because a password may itself contain '@'.
+func maskGoProxyCredentials(goProxy string) string {
+	var masked strings.Builder
+	entryStart := 0
+	for i, char := range goProxy {
+		if !strings.ContainsRune(goProxySeparators, char) {
+			continue
+		}
+		masked.WriteString(maskGoProxyEntry(goProxy[entryStart:i]))
+		masked.WriteRune(char)
+		entryStart = i + len(string(char))
+	}
+	masked.WriteString(maskGoProxyEntry(goProxy[entryStart:]))
+	return masked.String()
+}
+
+// maskGoProxyEntry masks the credentials of a single GOPROXY entry. Entries
+// without credentials — including the bare `direct` and `off` keywords — are
+// returned unchanged.
+func maskGoProxyEntry(entry string) string {
+	credentialsEnd := strings.LastIndex(entry, "@")
+	if credentialsEnd == -1 {
+		return entry
+	}
+	scheme := ""
+	if schemeEnd := strings.Index(entry, "://"); schemeEnd != -1 && schemeEnd < credentialsEnd {
+		scheme = entry[:schemeEnd+len("://")]
+	}
+	return scheme + "****" + entry[credentialsEnd:]
+}
+
 // configureGo configures Go to use the Artifactory repository for GOPROXY.
 // Runs the following command:
 //
@@ -496,13 +536,9 @@ func (sc *SetupCommand) configureGo() error {
 		if err := os.Unsetenv("GOPROXY"); err != nil {
 			return errorutils.CheckErrorf("failed to unset GOPROXY environment variable: %w", err)
 		}
-		// Mask credentials in the GOPROXY value
-		if i := strings.Index(goProxyVal, "@"); i != -1 {
-			goProxyVal = "****" + goProxyVal[i:]
-		}
 		// Log a warning about the existing GOPROXY environment variable so the user can unset it permanently
 		log.Warn(fmt.Sprintf("A local GOPROXY='%s' is set and will override the global setting.\n"+
-			"Unset it in your shell config (e.g., .zshrc, .bashrc).", goProxyVal))
+			"Unset it in your shell config (e.g., .zshrc, .bashrc).", maskGoProxyCredentials(goProxyVal)))
 	}
 	repoWithCredsUrl, err := golang.GetArtifactoryRemoteRepoUrl(sc.serverDetails, sc.repoName,
 		golang.GoProxyUrlParams{Direct: true, FallbackOnlyIfNotFound: true})

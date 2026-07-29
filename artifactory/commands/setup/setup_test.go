@@ -1114,3 +1114,71 @@ func TestSetupCommand_PrintsConfigScopeNote(t *testing.T) {
 	assert.Contains(t, output.String(), configScopeNote(project.Maven),
 		"the command must print the scope note, not just be able to build it")
 }
+
+// A pre-existing GOPROXY is echoed back to the user, and GOPROXY is a
+// separator-delimited list, so masking has to cover every entry rather than
+// stopping at the first set of credentials.
+func TestMaskGoProxyCredentials(t *testing.T) {
+	const tokenOne = "TOKEN_ONE"
+	const tokenTwo = "TOKEN_TWO"
+	testCases := []struct {
+		name     string
+		goProxy  string
+		expected string
+	}{
+		{
+			name:     "Single entry with direct fallback",
+			goProxy:  "https://u:" + tokenOne + "@art.example.com/artifactory/api/go/repo,direct",
+			expected: "https://****@art.example.com/artifactory/api/go/repo,direct",
+		},
+		{
+			name:     "Comma-separated entries both masked",
+			goProxy:  "https://u:" + tokenOne + "@host1/api/go/r1,https://u:" + tokenTwo + "@host2/api/go/r2",
+			expected: "https://****@host1/api/go/r1,https://****@host2/api/go/r2",
+		},
+		{
+			name:     "Pipe-separated entries both masked",
+			goProxy:  "https://u:" + tokenOne + "@host1/api/go/r1|https://u:" + tokenTwo + "@host2/api/go/r2",
+			expected: "https://****@host1/api/go/r1|https://****@host2/api/go/r2",
+		},
+		{
+			name:     "Mixed separators",
+			goProxy:  "https://u:" + tokenOne + "@host1/r1,https://u:" + tokenTwo + "@host2/r2|direct",
+			expected: "https://****@host1/r1,https://****@host2/r2|direct",
+		},
+		{
+			name:     "Password containing an at sign masks the whole password",
+			goProxy:  "https://user:p@ssw0rd@art.example.com/artifactory/api/go/repo",
+			expected: "https://****@art.example.com/artifactory/api/go/repo",
+		},
+		{
+			name:     "No credentials is left untouched",
+			goProxy:  "https://proxy.golang.org,direct",
+			expected: "https://proxy.golang.org,direct",
+		},
+		{
+			name:     "Keywords are left untouched",
+			goProxy:  "off",
+			expected: "off",
+		},
+		{
+			name:     "Empty value",
+			goProxy:  "",
+			expected: "",
+		},
+		{
+			name:     "Entry without a scheme still loses its credentials",
+			goProxy:  "u:" + tokenOne + "@host/api/go/repo",
+			expected: "****@host/api/go/repo",
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			masked := maskGoProxyCredentials(testCase.goProxy)
+			assert.Equal(t, testCase.expected, masked)
+			assert.NotContains(t, masked, tokenOne, "no entry's credentials may survive masking")
+			assert.NotContains(t, masked, tokenTwo, "no entry's credentials may survive masking")
+			assert.NotContains(t, masked, "ssw0rd", "a password containing '@' must not leak")
+		})
+	}
+}
