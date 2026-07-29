@@ -58,13 +58,27 @@ var packageManagerToConfigLocation = map[project.ProjectType]string{
 	project.Helm:   "your Helm registry credential store",
 }
 
-// containerLoginPackageManagers authenticate to the platform instead of redirecting
-// resolution, so the note must not claim that their projects now resolve through
-// Artifactory: an unqualified `docker pull alpine` still goes to Docker Hub.
-var containerLoginPackageManagers = map[project.ProjectType]bool{
-	project.Docker: true,
-	project.Podman: true,
-	project.Helm:   true,
+// packageManagerConfigOverrideEnv names the environment variable that redirects a
+// package manager's configuration away from its user-level default. When one is set
+// the file can live anywhere the user pointed it, including inside the current
+// project, so the note must describe that path instead of claiming user-wide scope.
+// Only package managers whose configure function actually honors the variable are
+// listed here.
+var packageManagerConfigOverrideEnv = map[project.ProjectType]string{
+	project.Npm:    "NPM_CONFIG_USERCONFIG",
+	project.Pnpm:   "NPM_CONFIG_USERCONFIG",
+	project.Pip:    "PIP_CONFIG_FILE",
+	project.Pipenv: "PIP_CONFIG_FILE",
+	project.Poetry: "POETRY_CONFIG_DIR",
+	project.UV:     "UV_CONFIG_FILE",
+}
+
+// isContainerLogin reports whether the package manager authenticates to the platform
+// instead of redirecting resolution. Their projects do not start resolving through
+// Artifactory — an unqualified `docker pull alpine` still goes to Docker Hub — so the
+// note must not claim otherwise.
+func isContainerLogin(packageManager project.ProjectType) bool {
+	return packageManager == project.Docker || packageManager == project.Podman || packageManager == project.Helm
 }
 
 // configScopeNote describes what the command changed and how widely it applies, or
@@ -74,8 +88,16 @@ func configScopeNote(packageManager project.ProjectType) string {
 	if !ok {
 		return ""
 	}
-	if containerLoginPackageManagers[packageManager] {
+	if isContainerLogin(packageManager) {
 		return fmt.Sprintf("Credentials were saved to %s for your user account.", location)
+	}
+	// A redirected configuration is not user-level, so report where it actually went
+	// rather than promising a scope that may not hold.
+	if envVar, hasOverride := packageManagerConfigOverrideEnv[packageManager]; hasOverride {
+		if overridePath := os.Getenv(envVar); overridePath != "" {
+			return fmt.Sprintf("This updated the %s configuration at %s, because %s is set, so its scope follows that path rather than your user-level configuration.",
+				packageManager.String(), overridePath, envVar)
+		}
 	}
 	return fmt.Sprintf("This updated %s, so it applies to every %s project for this user, not only the current directory.",
 		location, packageManager.String())

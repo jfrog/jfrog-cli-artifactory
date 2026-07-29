@@ -936,9 +936,56 @@ func TestSetupCommand_MavenCorrupted(t *testing.T) {
 func TestConfigScopeNote_CoversEverySupportedPackageManager(t *testing.T) {
 	for _, name := range GetSupportedPackageManagersList() {
 		packageManager := project.FromString(name)
+		require.NotEqualf(t, project.ProjectType(-1), packageManager, "%q is not a known project type", name)
+
+		// Clear any override so this asserts the default, user-level wording.
+		if envVar, hasOverride := packageManagerConfigOverrideEnv[packageManager]; hasOverride {
+			t.Setenv(envVar, "")
+		}
+
 		note := configScopeNote(packageManager)
-		assert.NotEmptyf(t, note, "no scope note for supported package manager %q", name)
-		assert.Containsf(t, note, "your", "scope note for %q should name the configuration it changed: %s", name, note)
+		require.NotEmptyf(t, note, "no scope note for supported package manager %q", name)
+
+		// Each note must take exactly one of the two valid shapes, and a resolution
+		// note must name the package manager it is talking about.
+		if isContainerLogin(packageManager) {
+			assert.Containsf(t, note, "Credentials were saved", "%q: %s", name, note)
+			assert.NotContainsf(t, note, "applies to every", "%q must not claim resolution: %s", name, note)
+			continue
+		}
+		assert.Containsf(t, note, fmt.Sprintf("applies to every %s project", name), "%q: %s", name, note)
+		assert.NotContainsf(t, note, "Credentials were saved", "%q: %s", name, note)
+	}
+}
+
+// A configuration redirected by an environment variable is not user-level — it can sit
+// inside the current project — so the note must report that path instead of promising
+// a scope that does not hold.
+func TestConfigScopeNote_RedirectedConfigDoesNotClaimUserScope(t *testing.T) {
+	require.NotEmpty(t, packageManagerConfigOverrideEnv, "expected package managers with a config override")
+
+	for packageManager, envVar := range packageManagerConfigOverrideEnv {
+		overridePath := filepath.Join(t.TempDir(), "redirected-config")
+		t.Setenv(envVar, overridePath)
+
+		note := configScopeNote(packageManager)
+		assert.Containsf(t, note, overridePath, "%s: note should name the redirected path: %s", packageManager.String(), note)
+		assert.Containsf(t, note, envVar, "%s: note should name the variable that redirected it: %s", packageManager.String(), note)
+		// The scope claim itself is what must not survive a redirect; the note may still
+		// mention user-level configuration to contrast against it.
+		assert.NotContainsf(t, note, "applies to every", "%s must not claim project-wide scope when redirected: %s", packageManager.String(), note)
+		assert.Containsf(t, note, "scope follows that path", "%s should defer scope to the redirected file: %s", packageManager.String(), note)
+	}
+}
+
+// With no override set the default user-level wording applies, so the two branches are
+// covered in both directions.
+func TestConfigScopeNote_WithoutOverrideClaimsUserScope(t *testing.T) {
+	for packageManager, envVar := range packageManagerConfigOverrideEnv {
+		t.Setenv(envVar, "")
+		note := configScopeNote(packageManager)
+		assert.Containsf(t, note, "user-level", "%s: %s", packageManager.String(), note)
+		assert.NotContainsf(t, note, envVar, "%s: %s", packageManager.String(), note)
 	}
 }
 
