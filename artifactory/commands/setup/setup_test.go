@@ -211,6 +211,10 @@ func testSetupCommandPip(t *testing.T, packageManager project.ProjectType, custo
 			assert.NoError(t, err)
 			pipConfigContent := string(pipConfigContentBytes)
 
+			info, err := os.Stat(pipConfFilePath)
+			require.NoError(t, err)
+			assert.Equal(t, os.FileMode(0600), info.Mode().Perm(), "pip config must be owner-only readable")
+
 			switch {
 			case testCase.accessToken != "":
 				// Validate token-based authentication.

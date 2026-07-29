@@ -237,6 +237,11 @@ func (sc *SetupCommand) configurePip() error {
 	if err := python.RunConfigCommand(project.Pip, []string{"set", "global.index-url", repoWithCredsUrl}); err != nil {
 		return fmt.Errorf("failed to configure pip index-url: %w", err)
 	}
+	// pip config set creates the file with umask-derived permissions (often 0644);
+	// harden to 0600 because index-url embeds credentials.
+	if err := python.HardenPipConfigPermissions(); err != nil {
+		return fmt.Errorf("failed to harden pip config permissions: %w", err)
+	}
 	return nil
 }
 
