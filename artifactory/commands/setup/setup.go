@@ -33,6 +33,54 @@ import (
 	"golang.org/x/exp/maps"
 )
 
+// packageManagerToConfigLocation names the configuration each package manager is
+// written to, so the command can say what it changed. Every entry is user-level:
+// the settings live in the user's home directory, not in the current project, so
+// they take effect for every project this user builds. Saying so matters because
+// nothing else in the output reveals that the change is not scoped to the
+// directory the command was run in.
+var packageManagerToConfigLocation = map[project.ProjectType]string{
+	project.Npm:    "your user-level npm configuration (.npmrc)",
+	project.Pnpm:   "your user-level pnpm configuration (.npmrc)",
+	project.Yarn:   "your user-level Yarn configuration (.yarnrc)",
+	project.Pip:    "your user-level pip configuration (pip.conf)",
+	project.Pipenv: "your user-level pip configuration (pip.conf)",
+	project.Poetry: "your user-level Poetry configuration",
+	project.Twine:  "your user-level Twine configuration (.pypirc)",
+	project.UV:     "your user-level uv configuration (uv.toml)",
+	project.Nuget:  "your user-level NuGet configuration (NuGet.Config)",
+	project.Dotnet: "your user-level NuGet configuration (NuGet.Config)",
+	project.Go:     "your Go environment (GOPROXY)",
+	project.Gradle: "a Gradle init script in your Gradle user home",
+	project.Maven:  "your user-level Maven settings (settings.xml)",
+	project.Docker: "your Docker credential store",
+	project.Podman: "your Podman credential store",
+	project.Helm:   "your Helm registry credential store",
+}
+
+// containerLoginPackageManagers authenticate to the platform instead of redirecting
+// resolution, so the note must not claim that their projects now resolve through
+// Artifactory: an unqualified `docker pull alpine` still goes to Docker Hub.
+var containerLoginPackageManagers = map[project.ProjectType]bool{
+	project.Docker: true,
+	project.Podman: true,
+	project.Helm:   true,
+}
+
+// configScopeNote describes what the command changed and how widely it applies, or
+// an empty string for a package manager we have nothing accurate to say about.
+func configScopeNote(packageManager project.ProjectType) string {
+	location, ok := packageManagerToConfigLocation[packageManager]
+	if !ok {
+		return ""
+	}
+	if containerLoginPackageManagers[packageManager] {
+		return fmt.Sprintf("Credentials were saved to %s for your user account.", location)
+	}
+	return fmt.Sprintf("This updated %s, so it applies to every %s project for this user, not only the current directory.",
+		location, packageManager.String())
+}
+
 // packageManagerToRepositoryPackageType maps project types to corresponding Artifactory repository package types.
 var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	// Npm package managers
@@ -195,6 +243,9 @@ func (sc *SetupCommand) Run() (err error) {
 		repoPrefix = coreutils.PrintBoldTitle(fmt.Sprintf(" repository '%s'", sc.repoName))
 	}
 	log.Output(fmt.Sprintf("Successfully configured %s to use JFrog%s.", coreutils.PrintBoldTitle(sc.packageManager.String()), repoPrefix))
+	if note := configScopeNote(sc.packageManager); note != "" {
+		log.Output(note)
+	}
 	return nil
 }
 

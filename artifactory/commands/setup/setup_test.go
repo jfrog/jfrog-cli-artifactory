@@ -929,3 +929,39 @@ func TestSetupCommand_MavenCorrupted(t *testing.T) {
 		assert.NotContains(t, content, testCredential(), "Old token should be replaced")
 	})
 }
+
+// Every supported package manager must describe what it changed: the output is the
+// only place a user learns the configuration is user-level rather than scoped to the
+// directory they ran the command in.
+func TestConfigScopeNote_CoversEverySupportedPackageManager(t *testing.T) {
+	for _, name := range GetSupportedPackageManagersList() {
+		packageManager := project.FromString(name)
+		note := configScopeNote(packageManager)
+		assert.NotEmptyf(t, note, "no scope note for supported package manager %q", name)
+		assert.Containsf(t, note, "your", "scope note for %q should name the configuration it changed: %s", name, note)
+	}
+}
+
+// Container logins authenticate rather than redirect resolution, so their note must
+// not promise that projects now resolve through Artifactory — an unqualified
+// `docker pull alpine` still reaches Docker Hub after `jf setup docker`.
+func TestConfigScopeNote_ContainerLoginsDoNotClaimResolution(t *testing.T) {
+	for _, packageManager := range []project.ProjectType{project.Docker, project.Podman, project.Helm} {
+		note := configScopeNote(packageManager)
+		assert.Contains(t, note, "Credentials were saved", packageManager.String())
+		assert.NotContains(t, note, "applies to every", packageManager.String())
+	}
+
+	// Resolution-changing package managers must state the scope explicitly.
+	for _, packageManager := range []project.ProjectType{project.Npm, project.Maven, project.Go, project.Pip} {
+		note := configScopeNote(packageManager)
+		assert.Contains(t, note, "applies to every", packageManager.String())
+		assert.Contains(t, note, "not only the current directory", packageManager.String())
+	}
+}
+
+// An unsupported package manager has nothing accurate to say, so it must stay silent
+// rather than print a misleading note.
+func TestConfigScopeNote_UnknownPackageManagerIsSilent(t *testing.T) {
+	assert.Empty(t, configScopeNote(project.Cocoapods))
+}
