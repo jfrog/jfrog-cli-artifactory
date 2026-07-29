@@ -2,8 +2,6 @@ module github.com/jfrog/jfrog-cli-artifactory
 
 go 1.26.3
 
-replace github.com/jfrog/build-info-go => /Users/bhanur/go/src/jfws/build-info-go/.worktrees/task-RTECO-1574/task/RTECO-1574/rteco-1574-implementation-of-nuget-support-for-client // task/RTECO-1574 - remove before merge
-
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/c-bata/go-prompt v0.2.6
@@ -205,3 +203,5 @@ require (
 // replace github.com/gfleury/go-bitbucket-v1 => github.com/gfleury/go-bitbucket-v1 v0.0.0-20230825095122-9bc1711434ab
 
 // replace github.com/ktrysmt/go-bitbucket => github.com/ktrysmt/go-bitbucket v0.9.80
+
+replace github.com/jfrog/build-info-go => github.com/bhanurp/build-info-go v1.10.10-0.20260729175019-12ca2bdfff04

@@ -41,4 +41,3 @@ func WriteTempNuGetConfig(serverDetails *config.ServerDetails, repoName string, 
 	}
 	return configPath, cleanup, nil
 }
-
