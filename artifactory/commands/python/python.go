@@ -203,18 +203,25 @@ func getExecutable(buildTool project.ProjectType) (string, error) {
 	}
 }
 
-func RunConfigCommand(buildTool project.ProjectType, args []string) error {
+// RunConfigCommand runs the package manager's `config` command and returns its
+// stdout, which some tools use to report the file they wrote (see
+// python.PipConfigPathFromOutput).
+//
+// The output is deliberately not logged: `args` carries the value being set,
+// which for these callers embeds an access token.
+func RunConfigCommand(buildTool project.ProjectType, args []string) (string, error) {
 	execName, err := getExecutable(buildTool)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	log.Debug("Running", execName, "config command...")
 	configCmd := gofrogcmd.NewCommand(execName, "config", args)
-	if err := gofrogcmd.RunCmd(configCmd); err != nil {
-		return errorutils.CheckErrorf("%s config command failed with: %q", execName, err)
+	output, err := gofrogcmd.RunCmdOutput(configCmd)
+	if err != nil {
+		return "", errorutils.CheckErrorf("%s config command failed with: %q", execName, err)
 	}
-	return nil
+	return output, nil
 }
 
 func (pc *PythonCommand) SetServerDetails(serverDetails *config.ServerDetails) *PythonCommand {

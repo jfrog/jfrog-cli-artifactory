@@ -234,12 +234,14 @@ func (sc *SetupCommand) configurePip() error {
 		}
 		return nil
 	}
-	if err := python.RunConfigCommand(project.Pip, []string{"set", "global.index-url", repoWithCredsUrl}); err != nil {
+	output, err := python.RunConfigCommand(project.Pip, []string{"set", "global.index-url", repoWithCredsUrl})
+	if err != nil {
 		return fmt.Errorf("failed to configure pip index-url: %w", err)
 	}
 	// pip config set creates the file with umask-derived permissions (often 0644);
-	// harden to 0600 because index-url embeds credentials.
-	if err := python.HardenPipConfigPermissions(); err != nil {
+	// harden to 0600 because index-url embeds credentials. pip reports the file it
+	// wrote, which beats re-deriving a path that can disagree with it.
+	if err := python.HardenPipConfigPermissions(python.PipConfigPathFromOutput(output)); err != nil {
 		return fmt.Errorf("failed to harden pip config permissions: %w", err)
 	}
 	return nil
