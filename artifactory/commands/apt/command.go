@@ -120,7 +120,8 @@ func (c *AptCommand) Run() error {
 	}
 
 	if nativeTool == "apt-get" && !c.skipLogin {
-		if c.serverDetails != nil && c.repoName != "" && c.dist != "" {
+		switch {
+		case c.serverDetails != nil && c.repoName != "" && c.dist != "":
 			tmpPath, err := WriteTempSourcesList(c.serverDetails, c.repoName, c.dist, c.component, c.trusted)
 			if err != nil {
 				log.Warn("Failed to create temporary sources.list — proceeding without auth injection: " + err.Error())
@@ -150,13 +151,13 @@ func (c *AptCommand) Run() error {
 
 				nativeArgs = append(sourceOpts, nativeArgs...)
 			}
-		} else if hasPersistentAptConfig() {
+		case hasPersistentAptConfig():
 			// 'jf setup apt' already wrote a persistent jfrog-*.list with embedded
 			// credentials. Native apt-get resolves against it directly — no temp
 			// source needed, and no missing-auth warning is warranted.
 			log.Info("Using persistent Artifactory apt configuration from " + sourcesListDir +
 				" (written by 'jf setup apt').")
-		} else {
+		default:
 			log.Warn("--repo and --dist not both specified and no persistent 'jf setup apt' " +
 				"configuration found — running apt-get without auth injection. Pass --repo and " +
 				"--dist for on-the-fly auth, or run 'jf setup apt' first for persistent auth.")
