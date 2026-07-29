@@ -12,6 +12,7 @@ import (
 
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/python"
 	cmdutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/maven"
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
@@ -239,17 +240,11 @@ func testSetupCommandPip(t *testing.T, packageManager project.ProjectType, custo
 
 // globalGlobalPipConfigPath returns the path to the global pip.conf file and a backup function to restore the original file.
 func globalGlobalPipConfigPath(t *testing.T) (string, func()) {
-	var pipConfFilePath string
-	if coreutils.IsWindows() {
-		// Sanitize path from environment variable to prevent path traversal
-		appData := filepath.Clean(os.Getenv("APPDATA"))
-		pipConfFilePath = filepath.Join(appData, "pip", "pip.ini")
-	} else {
-		// Retrieve the home directory and construct the pip.conf file path.
-		homeDir, err := os.UserHomeDir()
-		assert.NoError(t, err)
-		pipConfFilePath = filepath.Join(homeDir, ".config", "pip", "pip.conf")
-	}
+	// Resolve through the same helper the command uses, so this stays correct on
+	// hosts where pip does not use ~/.config (e.g. macOS with
+	// ~/Library/Application Support/pip present, or a Linux XDG_CONFIG_HOME).
+	pipConfFilePath, err := python.ResolvePipConfigPath()
+	require.NoError(t, err)
 	// Back up the existing .pip.conf file and ensure restoration after the test.
 	restorePipConfFunc, err := ioutils.BackupFile(pipConfFilePath, ".pipconf.backup")
 	assert.NoError(t, err)

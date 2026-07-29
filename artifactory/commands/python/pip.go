@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/build-info-go/utils/pythonutils"
@@ -14,6 +16,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 type PipCommand struct {
@@ -59,39 +62,103 @@ func CreatePipConfigManually(customPipConfigPath, repoWithCredsUrl string) error
 	// Write the configuration to pip.conf with owner-only permissions — the
 	// index-url may embed credentials (user:token@host).
 	configContent := fmt.Sprintf("[global]\nindex-url = %s\n", repoWithCredsUrl)
-	return os.WriteFile(cleanPath, []byte(configContent), 0600)
+	if err := os.WriteFile(cleanPath, []byte(configContent), 0600); err != nil {
+		return errorutils.CheckError(err)
+	}
+	// WriteFile applies the mode only when it creates the file, so a config left
+	// at 0644 by an earlier run would otherwise stay world-readable.
+	return errorutils.CheckError(os.Chmod(cleanPath, 0600))
 }
 
-// ResolvePipConfigPath returns the pip config file path that `jf setup pip`
-// writes. Honors PIP_CONFIG_FILE; otherwise uses the platform default that
-// `pip config set` targets (Windows: %APPDATA%/pip/pip.ini, else ~/.config/pip/pip.conf).
+// pipWritingToPrefix is the prefix `pip config set` prints when it persists a
+// value, e.g. "Writing to /Users/me/.config/pip/pip.conf".
+const pipWritingToPrefix = "Writing to "
+
+// PipConfigPathFromOutput extracts the config file path pip reported writing to,
+// or "" when the output carries no such line. This is authoritative — unlike
+// ResolvePipConfigPath it cannot disagree with the pip that actually ran.
+func PipConfigPathFromOutput(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		reported, found := strings.CutPrefix(strings.TrimSpace(line), pipWritingToPrefix)
+		if !found {
+			continue
+		}
+		if reported = strings.TrimSpace(reported); reported != "" {
+			return filepath.Clean(reported)
+		}
+	}
+	return ""
+}
+
+// ResolvePipConfigPath mirrors pip's own per-user config resolution
+// (https://pip.pypa.io/en/stable/topics/configuration/):
+//
+//	PIP_CONFIG_FILE, when set
+//	Windows: %APPDATA%\pip\pip.ini
+//	macOS:   ~/Library/Application Support/pip/pip.conf when that directory
+//	         exists, else ~/.config/pip/pip.conf (pip does not consult XDG here)
+//	Unix:    $XDG_CONFIG_HOME/pip/pip.conf, defaulting to ~/.config
+//
+// os.UserConfigDir already implements the first three lines of that table
+// verbatim, so only pip's macOS "if the directory exists" twist is added here.
+//
+// Prefer PipConfigPathFromOutput; this is the fallback for when pip's own
+// report is unavailable.
 func ResolvePipConfigPath() (string, error) {
 	if custom := os.Getenv("PIP_CONFIG_FILE"); custom != "" {
 		return filepath.Clean(custom), nil
 	}
-	if coreutils.IsWindows() {
-		appData := filepath.Clean(os.Getenv("APPDATA"))
-		if appData == "" || appData == "." {
-			return "", errorutils.CheckErrorf("APPDATA environment variable not set")
-		}
-		return filepath.Join(appData, "pip", "pip.ini"), nil
-	}
-	homeDir, err := os.UserHomeDir()
+	configDir, err := os.UserConfigDir()
 	if err != nil {
-		return "", errorutils.CheckErrorf("failed to determine home directory: %w", err)
+		return "", errorutils.CheckError(err)
 	}
-	return filepath.Join(homeDir, ".config", "pip", "pip.conf"), nil
+	pipDir := filepath.Join(configDir, "pip")
+	// os.UserConfigDir returns ~/Library/Application Support on macOS, but pip
+	// only writes there when that directory already exists and otherwise falls
+	// back to a literal ~/.config/pip - XDG_CONFIG_HOME is not consulted.
+	if runtime.GOOS == "darwin" {
+		if info, statErr := os.Stat(pipDir); statErr != nil || !info.IsDir() {
+			homeDir, homeErr := os.UserHomeDir()
+			if homeErr != nil {
+				return "", errorutils.CheckError(homeErr)
+			}
+			pipDir = filepath.Join(homeDir, ".config", "pip")
+		}
+	}
+	configName := "pip.conf"
+	if coreutils.IsWindows() {
+		configName = "pip.ini"
+	}
+	return filepath.Join(pipDir, configName), nil
 }
 
-// HardenPipConfigPermissions forces the resolved pip config file to 0600 so a
-// cleartext token in index-url is not left world-readable after `pip config set`.
-func HardenPipConfigPermissions() error {
-	confPath, err := ResolvePipConfigPath()
-	if err != nil {
-		return err
+// HardenPipConfigPermissions forces the pip config file to 0600 so a cleartext
+// token in index-url is not left world-readable after `pip config set`.
+//
+// reportedPath is the path pip printed; pass "" to fall back to
+// ResolvePipConfigPath. A *derived* path that turns out not to exist is only
+// warned about: pip's resolution can legitimately differ from ours, and failing
+// there would break `jf setup pip` on a machine it had just configured
+// correctly. A path pip itself reported must exist, so that stays fail-closed.
+//
+// On Windows os.Chmod only toggles the read-only attribute; the file is instead
+// protected by the per-user ACLs %APPDATA% already carries.
+func HardenPipConfigPermissions(reportedPath string) error {
+	confPath := reportedPath
+	derived := confPath == ""
+	if derived {
+		var err error
+		if confPath, err = ResolvePipConfigPath(); err != nil {
+			return err
+		}
 	}
 	if _, err := os.Stat(confPath); err != nil {
 		if os.IsNotExist(err) {
+			if derived {
+				log.Warn("Could not locate the pip configuration file to restrict its permissions (looked in " + confPath +
+					"). It may hold credentials in cleartext - consider restricting it to owner-only access manually.")
+				return nil
+			}
 			return errorutils.CheckErrorf("pip config file missing after setup: %s", confPath)
 		}
 		return errorutils.CheckError(err)
