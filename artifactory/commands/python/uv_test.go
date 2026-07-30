@@ -321,6 +321,7 @@ func TestWriteUVConfig_HardensExistingFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(configPath, []byte("stale = true\n"), 0644))
 	require.NoError(t, os.Chmod(configPath, 0644))
 
+	// #nosec G101 -- This is a fake test token with no real credentials.
 	indexes := []uvIndexEntry{{Name: "jfrog-pypi", URL: "https://user:token@example.com/simple", Default: true}}
 	require.NoError(t, writeUVConfig(configPath, map[string]any{}, indexes))
 
