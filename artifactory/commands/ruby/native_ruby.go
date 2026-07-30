@@ -379,7 +379,6 @@ func runRubyBinaryCapture(tool string, args, extraEnv []string) (string, error) 
 	return buf.String(), err
 }
 
-
 // isRubyHelpRequest reports whether the invocation is purely a help request.
 func isRubyHelpRequest(subCommand string, args []string) bool {
 	if subCommand == "help" {
@@ -439,22 +438,28 @@ func (rc *RubyCommand) injectAuth(serverDetails *coreConfig.ServerDetails, sourc
 	switch rc.nativeTool {
 	case toolBundle:
 		cred := fmt.Sprintf("%s:%s", user, pass)
-		key := BundleEnvKeyForHost(host)
-		if os.Getenv(key) != "" {
-			log.Info(fmt.Sprintf("Ruby auth [bundle]: %s already set — respecting existing credentials", key))
-		} else {
-			extraEnv = append(extraEnv, key+"="+cred)
-			log.Info(fmt.Sprintf("Ruby auth [bundle]: injecting credentials via %s", key))
+		// Bundler's credential lookup varies by version, and falls back from the
+		// host:port form to the bare hostname, so inject every candidate spelling.
+		candidates := BundleCredentialKeys(host)
+		if hostOnly := strings.Split(host, ":")[0]; hostOnly != host {
+			candidates = append(candidates, BundleCredentialKeys(hostOnly)...)
 		}
-		// Bundler's credential lookup may strip the port from the key (e.g., for
-		// localhost:8081 it may check BUNDLE_LOCALHOST rather than BUNDLE_LOCALHOST_8081).
-		// Inject credentials under the hostname-only key as well to cover all versions.
-		hostOnly := strings.Split(host, ":")[0]
-		if hostOnly != host {
-			keyNoPort := BundleEnvKeyForHost(hostOnly)
-			if os.Getenv(keyNoPort) == "" {
-				extraEnv = append(extraEnv, keyNoPort+"="+cred)
+		seen := map[string]bool{}
+		var injected []string
+		for _, key := range candidates {
+			if seen[key] {
+				continue
 			}
+			seen[key] = true
+			if os.Getenv(key) != "" {
+				log.Info(fmt.Sprintf("Ruby auth [bundle]: %s already set — respecting existing credentials", key))
+				continue
+			}
+			extraEnv = append(extraEnv, key+"="+cred)
+			injected = append(injected, key)
+		}
+		if len(injected) > 0 {
+			log.Info("Ruby auth [bundle]: injecting credentials via " + strings.Join(injected, ", "))
 		}
 	case toolGem:
 		if os.Getenv("GEM_HOST_API_KEY") != "" {
@@ -494,6 +499,23 @@ func rubyHasCredentials(user, pass string) bool {
 // remaining non-alphanumeric character → "_", prefixed with "BUNDLE_".
 //
 //	"mycompany.jfrog.io" → "BUNDLE_MYCOMPANY__JFROG__IO"
+//
+// BundleCredentialKeys returns every key spelling Bundler may look credentials up under
+// for host, valid both as a ~/.bundle/config key and as an environment variable name.
+//
+// Bundler's normalization changed between majors. Bundler 1.x replaces "." with "__" and
+// upcases, leaving dashes and colons intact; Bundler 2.x and later additionally replace
+// "-" with "___", because environment variable names cannot contain dashes. Emitting
+// both spellings authenticates on either, and is why a dashed host or a host carrying a
+// port yields two keys rather than one.
+func BundleCredentialKeys(host string) []string {
+	keys := []string{BundleEnvKeyForHost(host)}
+	if legacy := "BUNDLE_" + strings.ToUpper(strings.ReplaceAll(host, ".", "__")); legacy != keys[0] {
+		keys = append(keys, legacy)
+	}
+	return keys
+}
+
 func BundleEnvKeyForHost(host string) string {
 	key := strings.ToUpper(host)
 	key = strings.ReplaceAll(key, ".", "__")

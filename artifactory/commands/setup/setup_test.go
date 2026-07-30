@@ -933,48 +933,104 @@ func withTempHome(t *testing.T) string {
 	return tmpHome
 }
 
-func TestWriteBundleConfig_EmptyFile(t *testing.T) {
-	tmpHome := withTempHome(t)
-
-	require.NoError(t, writeBundleConfig("my.jfrog.io", "admin", "secret"))
-
-	content, err := os.ReadFile(filepath.Join(tmpHome, ".bundle", "config"))
-	require.NoError(t, err)
-	assert.Contains(t, string(content), "BUNDLE_MY__JFROG__IO: admin:secret")
+// bundlerParseConfig mirrors how Bundler itself reads ~/.bundle/config. Bundler uses a
+// line-based stub serializer rather than a YAML parser: its HASH_REGEX takes the key up
+// to the last colon followed by whitespace or end-of-line, then strips one optional pair
+// of surrounding quotes from the value. Porting that here lets these tests assert that
+// what we write is what Bundler actually reads back, rather than merely that it is valid
+// YAML.
+func bundlerParseConfig(content string) map[string]string {
+	parsed := map[string]string{}
+	for _, line := range strings.Split(content, "\n") {
+		separator := -1
+		for i := 0; i < len(line); i++ {
+			if line[i] != ':' {
+				continue
+			}
+			if i+1 == len(line) || line[i+1] == ' ' || line[i+1] == '\t' {
+				separator = i
+			}
+		}
+		if separator < 0 {
+			continue
+		}
+		key := strings.TrimLeft(line[:separator], " ")
+		value := strings.TrimPrefix(line[separator+1:], " ")
+		if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
+			value = value[1 : len(value)-1]
+		}
+		if key == "" || value == "" {
+			continue
+		}
+		parsed[key] = value
+	}
+	return parsed
 }
 
-func TestWriteBundleConfig_PreservesExistingKeys(t *testing.T) {
+func readBundleConfig(t *testing.T, home string) map[string]string {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(home, ".bundle", "config"))
+	require.NoError(t, err)
+	return bundlerParseConfig(string(content))
+}
+
+// TestBundleMirrorKey pins the mirror key against the value real Bundler computes for
+// "mirror.https://rubygems.org" (verified against Bundler 1.17 and 4.0). If this drifts,
+// Bundler silently stops redirecting to Artifactory.
+func TestBundleMirrorKey(t *testing.T) {
+	assert.Equal(t, "BUNDLE_MIRROR__HTTPS://RUBYGEMS__ORG/", bundleMirrorKey("https://rubygems.org"))
+	assert.Equal(t, "BUNDLE_MIRROR__HTTPS://RUBYGEMS__ORG/", bundleMirrorKey("https://rubygems.org/"))
+}
+
+func TestWriteBundleSettings_EmptyFile(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	require.NoError(t, writeBundleSettings(map[string]string{"BUNDLE_MY__JFROG__IO": "admin:secret"}))
+
+	assert.Equal(t, "admin:secret", readBundleConfig(t, tmpHome)["BUNDLE_MY__JFROG__IO"])
+}
+
+func TestWriteBundleSettings_PreservesExistingKeys(t *testing.T) {
 	tmpHome := withTempHome(t)
 
 	bundleDir := filepath.Join(tmpHome, ".bundle")
 	require.NoError(t, os.MkdirAll(bundleDir, 0755))
-	existing := "BUNDLE_PATH: \"vendor/bundle\"\nBUNDLE_OTHERHOST__COM: other:creds\n"
+	// Written the way Bundler itself writes it, with quoted values.
+	existing := "---\nBUNDLE_PATH: \"vendor/bundle\"\nBUNDLE_OTHERHOST__COM: \"other:creds\"\n"
 	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "config"), []byte(existing), 0600))
 
-	require.NoError(t, writeBundleConfig("my.jfrog.io", "admin", "secret"))
+	require.NoError(t, writeBundleSettings(map[string]string{"BUNDLE_MY__JFROG__IO": "admin:secret"}))
 
-	content, err := os.ReadFile(filepath.Join(bundleDir, "config"))
-	require.NoError(t, err)
-	assert.Contains(t, string(content), "BUNDLE_PATH: vendor/bundle")
-	assert.Contains(t, string(content), "BUNDLE_OTHERHOST__COM: other:creds")
-	assert.Contains(t, string(content), "BUNDLE_MY__JFROG__IO: admin:secret")
+	parsed := readBundleConfig(t, tmpHome)
+	assert.Equal(t, "vendor/bundle", parsed["BUNDLE_PATH"])
+	assert.Equal(t, "other:creds", parsed["BUNDLE_OTHERHOST__COM"])
+	assert.Equal(t, "admin:secret", parsed["BUNDLE_MY__JFROG__IO"])
 }
 
-func TestWriteBundleConfig_OverwritesSameHost(t *testing.T) {
+func TestWriteBundleSettings_OverwritesSameKey(t *testing.T) {
 	tmpHome := withTempHome(t)
 
-	require.NoError(t, writeBundleConfig("my.jfrog.io", "admin", "old-secret"))
-	require.NoError(t, writeBundleConfig("my.jfrog.io", "admin", "new-secret"))
+	require.NoError(t, writeBundleSettings(map[string]string{"BUNDLE_MY__JFROG__IO": "admin:old-secret"}))
+	require.NoError(t, writeBundleSettings(map[string]string{"BUNDLE_MY__JFROG__IO": "admin:new-secret"}))
 
-	configPath := filepath.Join(tmpHome, ".bundle", "config")
-	content, err := os.ReadFile(configPath)
+	content, err := os.ReadFile(filepath.Join(tmpHome, ".bundle", "config"))
 	require.NoError(t, err)
 	assert.Equal(t, 1, strings.Count(string(content), "BUNDLE_MY__JFROG__IO"), "should have exactly one entry for the host")
-	assert.Contains(t, string(content), "BUNDLE_MY__JFROG__IO: admin:new-secret")
 	assert.NotContains(t, string(content), "old-secret")
+	assert.Equal(t, "admin:new-secret", bundlerParseConfig(string(content))["BUNDLE_MY__JFROG__IO"])
 }
 
-func TestWriteBundleConfig_MalformedExistingFileErrors(t *testing.T) {
+func TestWriteBundleSettings_FileIsPrivate(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	require.NoError(t, writeBundleSettings(map[string]string{"BUNDLE_MY__JFROG__IO": "admin:secret"}))
+
+	info, err := os.Stat(filepath.Join(tmpHome, ".bundle", "config"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0600), info.Mode().Perm(), "config holds credentials and must not be world-readable")
+}
+
+func TestWriteBundleSettings_MalformedExistingFileErrors(t *testing.T) {
 	tmpHome := withTempHome(t)
 
 	bundleDir := filepath.Join(tmpHome, ".bundle")
@@ -983,13 +1039,37 @@ func TestWriteBundleConfig_MalformedExistingFileErrors(t *testing.T) {
 	configPath := filepath.Join(bundleDir, "config")
 	require.NoError(t, os.WriteFile(configPath, []byte(malformed), 0600))
 
-	err := writeBundleConfig("my.jfrog.io", "admin", "secret")
+	err := writeBundleSettings(map[string]string{"BUNDLE_MY__JFROG__IO": "admin:secret"})
 	require.Error(t, err)
 
 	// File must not be clobbered.
 	content, readErr := os.ReadFile(configPath)
 	require.NoError(t, readErr)
 	assert.Equal(t, malformed, string(content))
+}
+
+// TestWriteBundleSettings_BundlerReadsMirrorAndCredentials is the end-to-end guarantee:
+// the mirror key contains "://" and a trailing slash, and the mirror value contains
+// embedded credentials with their own colons. Asserting through Bundler's own parsing
+// rules proves none of that confuses the key/value split.
+func TestWriteBundleSettings_BundlerReadsMirrorAndCredentials(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	mirrorKey := bundleMirrorKey(rubygemsDefaultSource)
+	mirrorValue := "https://admin:p%40ss%3Aword@acme.jfrog.io/artifactory/api/gems/gems-remote"
+	require.NoError(t, writeBundleSettings(map[string]string{
+		mirrorKey:                   mirrorValue,
+		"BUNDLE_ACME__JFROG__IO":    "admin:p%40ss%3Aword",
+		"BUNDLE_MY-CO__JFROG__IO":   "admin:secret",
+		"BUNDLE_MY___CO__JFROG__IO": "admin:secret",
+	}))
+
+	parsed := readBundleConfig(t, tmpHome)
+	assert.Equal(t, mirrorValue, parsed[mirrorKey], "Bundler must read the full mirror URL, credentials included")
+	assert.Equal(t, "admin:p%40ss%3Aword", parsed["BUNDLE_ACME__JFROG__IO"])
+	// Both dash spellings must survive, so Bundler 1.x and 2.x+ each find their own.
+	assert.Equal(t, "admin:secret", parsed["BUNDLE_MY-CO__JFROG__IO"])
+	assert.Equal(t, "admin:secret", parsed["BUNDLE_MY___CO__JFROG__IO"])
 }
 
 func TestAddGemrcSource_EmptyFile(t *testing.T) {
@@ -1068,4 +1148,41 @@ func TestAddGemrcSource_MalformedExistingFileErrors(t *testing.T) {
 	content, readErr := os.ReadFile(gemrcPath)
 	require.NoError(t, readErr)
 	assert.Equal(t, malformed, string(content))
+}
+
+// TestAddGemrcSource_CredentialRotationReplacesEntry guards the case that would otherwise
+// leave `gem install` retrying a dead credential: re-running setup after a token rotation
+// must replace the existing entry for that repository, not accumulate a stale one.
+func TestAddGemrcSource_CredentialRotationReplacesEntry(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	base := "https://acme.jfrog.io/artifactory/api/gems/gems-virtual"
+	require.NoError(t, addGemrcSource("https://admin:old-token@acme.jfrog.io/artifactory/api/gems/gems-virtual"))
+	require.NoError(t, addGemrcSource("https://admin:new-token@acme.jfrog.io/artifactory/api/gems/gems-virtual"))
+
+	content, err := os.ReadFile(filepath.Join(tmpHome, ".gemrc"))
+	require.NoError(t, err)
+	var parsed map[string]interface{}
+	require.NoError(t, yaml.Unmarshal(content, &parsed))
+	sources, ok := parsed[":sources"].([]interface{})
+	require.True(t, ok)
+
+	assert.Equal(t, []interface{}{
+		"https://rubygems.org",
+		"https://admin:new-token@acme.jfrog.io/artifactory/api/gems/gems-virtual",
+	}, sources, "the rotated credential must replace the old entry for the same repository")
+	assert.NotContains(t, string(content), "old-token")
+	assert.Equal(t, base, gemSourceIdentity("https://admin:new-token@acme.jfrog.io/artifactory/api/gems/gems-virtual/"))
+}
+
+// TestAddGemrcSource_FileIsPrivate: the source URL embeds credentials, because RubyGems
+// has no other way to authenticate an install, so the file must not be world-readable.
+func TestAddGemrcSource_FileIsPrivate(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	require.NoError(t, addGemrcSource("https://admin:tok@acme.jfrog.io/artifactory/api/gems/gems-virtual"))
+
+	info, err := os.Stat(filepath.Join(tmpHome, ".gemrc"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
 }

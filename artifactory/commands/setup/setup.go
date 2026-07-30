@@ -1,12 +1,14 @@
 package setup
 
 import (
+	"bytes"
 	_ "embed"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -576,60 +578,90 @@ func (sc *SetupCommand) configureUV() error {
 	return nil
 }
 
-// rubygemsDefaultSource is the default source RubyGems ships with; when present in
-// ~/.gemrc's :sources: list, it is always kept first.
+// rubygemsDefaultSource is the public source that RubyGems and Bundler use by default.
+// It stays first in ~/.gemrc's :sources: list, and is the source mirrored to Artifactory
+// so that unmodified Gemfiles resolve through Artifactory.
 const rubygemsDefaultSource = "https://rubygems.org"
 
-// configureRuby configures RubyGems and Bundler to use Artifactory as a gem source.
-// It performs:
-//  1. Writes per-host Bundler credentials directly to ~/.bundle/config
-//  2. Adds the Artifactory source to ~/.gemrc, or prints guidance for Gemfile
+// configureRuby points RubyGems and Bundler at Artifactory, so that plain `gem` and
+// `bundle` commands resolve and authenticate through it with no edit to the Gemfile.
 //
-// Both gem and bundle tools will then authenticate to the Artifactory gems repository.
+// Everything is written by editing the config files directly, never by shelling out to
+// `gem`/`bundle`, because their CLI syntax differs across versions (notably
+// `bundle config set`, which does not exist before Bundler 2.0):
+//
+//  1. ~/.bundle/config — a mirror redirecting https://rubygems.org to the Artifactory
+//     repository, plus per-host credentials.
+//  2. ~/.gemrc — the Artifactory repository added to :sources:, for bare `gem install`.
 func (sc *SetupCommand) configureRuby() error {
 	repoUrl, username, password, err := ruby.GetRubyGemsRepoUrlWithCredentials(sc.serverDetails, sc.repoName)
 	if err != nil {
 		return fmt.Errorf("failed to get RubyGems repository URL with credentials: %w", err)
 	}
 
-	// If no credentials are provided, just print guidance.
-	if username == "" && password == "" {
-		log.Output(fmt.Sprintf("Add this source to your Gemfile:\n  source \"%s\"\n", repoUrl.String()))
-		return nil
-	}
-
-	host := repoUrl.Hostname()
-	if repoUrl.Port() != "" {
-		host += ":" + repoUrl.Port()
-	}
-
-	if bundleErr := writeBundleConfig(host, username, password); bundleErr != nil {
-		return fmt.Errorf("failed to configure Bundler credentials: %w", bundleErr)
-	}
-	log.Info(fmt.Sprintf("Bundler configured: credentials set for host '%s'", host))
-
-	// Configure gem: add source to ~/.gemrc.
+	// sourceURL stays credential-free: it is what gets printed for the user to paste into
+	// a shared Gemfile. authenticatedURL is the same repository with credentials embedded,
+	// which is what the local config files need.
 	sourceURL := repoUrl.String()
-	if gemrcErr := addGemrcSource(sourceURL); gemrcErr != nil {
+	authenticatedURL := sourceURL
+	if password != "" {
+		withCredentials := *repoUrl
+		withCredentials.User = url.UserPassword(username, password)
+		authenticatedURL = withCredentials.String()
+	}
+	settings := map[string]string{}
+
+	// Mirror the public RubyGems source to Artifactory, so a Gemfile that says
+	// `source "https://rubygems.org"` resolves through Artifactory unchanged. Credentials
+	// are embedded in the mirror value: Bundler keeps a mirror URI's own userinfo instead
+	// of looking credentials up separately, which behaves identically on every version.
+	settings[bundleMirrorKey(rubygemsDefaultSource)] = authenticatedURL
+
+	// Per-host credentials, for Gemfiles that name the Artifactory source explicitly.
+	if password != "" {
+		credential := username + ":" + password
+		for _, key := range ruby.BundleCredentialKeys(repoUrl.Hostname()) {
+			settings[key] = credential
+		}
+	}
+
+	if bundleErr := writeBundleSettings(settings); bundleErr != nil {
+		return fmt.Errorf("failed to configure Bundler: %w", bundleErr)
+	}
+	log.Info(fmt.Sprintf("Bundler configured: %s is mirrored to %s", rubygemsDefaultSource, sourceURL))
+
+	if gemrcErr := addGemrcSource(authenticatedURL); gemrcErr != nil {
 		return fmt.Errorf("failed to update ~/.gemrc: %w", gemrcErr)
 	}
+	log.Info("RubyGems configured: source added to ~/.gemrc")
 
-	log.Output(fmt.Sprintf("\nAdd this source to your Gemfile:\n  source \"%s\"\n", sourceURL))
+	log.Output(fmt.Sprintf(
+		"\nBundler and RubyGems now resolve through Artifactory.\n"+
+			"  A Gemfile using `source \"%s\"` needs no change.\n"+
+			"  To depend on this repository explicitly, use:\n      source \"%s\"\n",
+		rubygemsDefaultSource, sourceURL))
 	return nil
 }
 
-// writeBundleConfig writes per-host Bundler credentials directly to ~/.bundle/config,
-// bypassing the `bundle config` CLI entirely (its `set` subcommand doesn't exist on
-// Bundler 1.x). The config key is derived via ruby.BundleEnvKeyForHost, the same
-// normalization `jf ruby bundle install` uses at runtime, so setup-time and
-// runtime-injection key formats can never drift apart.
-func writeBundleConfig(host, user, password string) error {
+// bundleMirrorKey returns the ~/.bundle/config key Bundler reads a mirror from for the
+// given upstream source. Bundler builds it from "mirror.<uri>" by normalizing the URI to
+// a trailing slash, replacing "." with "__", and upcasing:
+//
+//	https://rubygems.org → BUNDLE_MIRROR__HTTPS://RUBYGEMS__ORG/
+func bundleMirrorKey(sourceURL string) string {
+	normalized := strings.TrimSuffix(sourceURL, "/") + "/"
+	return "BUNDLE_" + strings.ToUpper(strings.ReplaceAll("mirror."+normalized, ".", "__"))
+}
+
+// writeBundleSettings merges entries into ~/.bundle/config, preserving every setting
+// already present. The file holds credentials, so it is written 0600.
+func writeBundleSettings(entries map[string]string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
 	}
-	bundleDir := home + "/.bundle"
-	configPath := bundleDir + "/config"
+	bundleDir := filepath.Join(home, ".bundle")
+	configPath := filepath.Join(bundleDir, "config")
 
 	existing, readErr := os.ReadFile(configPath)
 	if readErr != nil && !os.IsNotExist(readErr) {
@@ -642,10 +674,11 @@ func writeBundleConfig(host, user, password string) error {
 			return fmt.Errorf("parse existing %s: %w", configPath, unmarshalErr)
 		}
 	}
+	for key, value := range entries {
+		config[key] = value
+	}
 
-	config[ruby.BundleEnvKeyForHost(host)] = user + ":" + password
-
-	out, marshalErr := yaml.Marshal(config)
+	out, marshalErr := marshalBundleConfig(config)
 	if marshalErr != nil {
 		return marshalErr
 	}
@@ -655,16 +688,37 @@ func writeBundleConfig(host, user, password string) error {
 	return os.WriteFile(configPath, out, 0600)
 }
 
-// addGemrcSource adds sourceURL to ~/.gemrc's :sources: list. An exact-match existing
-// entry is moved to the front (behind rubygemsDefaultSource, if present) rather than
-// duplicated; a new entry is prepended. Different repos configured across multiple runs
-// are meant to coexist here, since gem install natively searches every listed source.
+// marshalBundleConfig renders Bundler's config as YAML that Bundler's own parser accepts.
+// Bundler reads this file with a line-based stub serializer rather than a real YAML
+// parser: it needs each setting on a single line, and it measures nesting depth in
+// two-space units.
+func marshalBundleConfig(config map[string]interface{}) ([]byte, error) {
+	var buf bytes.Buffer
+	encoder := yaml.NewEncoder(&buf)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(config); err != nil {
+		return nil, err
+	}
+	if err := encoder.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// addGemrcSource adds sourceURL to ~/.gemrc's :sources: list, moving it to the front
+// (behind rubygemsDefaultSource, if present) so `gem install` tries it first. Different
+// repositories configured across separate runs are meant to coexist here, because
+// `gem install` natively searches every listed source.
+//
+// sourceURL embeds credentials when the server has them: unlike Bundler, RubyGems has no
+// separate credential store for installing, so the source URL is the only way a plain
+// `gem install` can authenticate. That is why the file is written 0600.
 func addGemrcSource(sourceURL string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
 	}
-	gemrcPath := home + "/.gemrc"
+	gemrcPath := filepath.Join(home, ".gemrc")
 
 	existing, readErr := os.ReadFile(gemrcPath)
 	if readErr != nil && !os.IsNotExist(readErr) {
@@ -697,13 +751,31 @@ func addGemrcSource(sourceURL string) error {
 	if marshalErr != nil {
 		return marshalErr
 	}
-	return os.WriteFile(gemrcPath, out, 0644)
+	// The source URL may embed credentials, so this file must not be world-readable.
+	return os.WriteFile(gemrcPath, out, 0600)
 }
 
-// reorderGemrcSources returns sources with sourceURL moved to the front (deduplicated if
-// already present), keeping rubygemsDefaultSource first when it's in the list.
+// gemSourceIdentity strips embedded credentials and any trailing slash from a gem source
+// URL, so that two entries pointing at the same repository compare equal even when their
+// credentials differ. Without this, re-running setup after a token rotation would leave
+// the stale entry behind and `gem install` would keep trying the old credentials.
+func gemSourceIdentity(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return strings.TrimSuffix(rawURL, "/")
+	}
+	parsed.User = nil
+	return strings.TrimSuffix(parsed.String(), "/")
+}
+
+// reorderGemrcSources returns sources with sourceURL moved to the front, replacing any
+// existing entry for the same repository, and keeping rubygemsDefaultSource first when
+// it is in the list.
 func reorderGemrcSources(sources []string, sourceURL string) []string {
-	hasDefault := slices.Contains(sources, rubygemsDefaultSource)
+	target := gemSourceIdentity(sourceURL)
+	hasDefault := slices.ContainsFunc(sources, func(s string) bool {
+		return gemSourceIdentity(s) == rubygemsDefaultSource
+	})
 
 	result := make([]string, 0, len(sources)+1)
 	if hasDefault {
@@ -712,7 +784,8 @@ func reorderGemrcSources(sources []string, sourceURL string) []string {
 	result = append(result, sourceURL)
 
 	for _, s := range sources {
-		if s == rubygemsDefaultSource || s == sourceURL {
+		identity := gemSourceIdentity(s)
+		if identity == rubygemsDefaultSource || identity == target {
 			continue
 		}
 		result = append(result, s)

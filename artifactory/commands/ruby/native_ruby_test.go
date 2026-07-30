@@ -32,7 +32,7 @@ func TestRubyExtractRepoKeyFromURL(t *testing.T) {
 	}{
 		{"https://my.jfrog.io/artifactory/api/gems/gems-local/", "gems-local"},
 		{"https://my.jfrog.io/api/gems/gems-remote", "gems-remote"},
-		{"gems-local", "gems-local"}, // bare key passthrough
+		{"gems-local", "gems-local"},  // bare key passthrough
 		{"https://rubygems.org/", ""}, // no /api/gems/ segment
 		{"", ""},
 	}
@@ -327,7 +327,6 @@ func TestExtractGemNamesFromArgs(t *testing.T) {
 	assert.Empty(t, names)
 }
 
-
 func TestRubyEmbedCredsInHostArg(t *testing.T) {
 	server := &coreConfig.ServerDetails{
 		User:           "myuser",
@@ -612,4 +611,23 @@ func TestRubyEnrichDepsChecksums_NeverTrustsLocalCache(t *testing.T) {
 	assert.Empty(t, deps[0].Sha1, "checksum must not be populated without a verified Artifactory lookup")
 	assert.Empty(t, deps[0].Sha256, "checksum must not be populated without a verified Artifactory lookup")
 	assert.Empty(t, deps[0].Md5, "checksum must not be populated without a verified Artifactory lookup")
+}
+
+// TestBundleCredentialKeys pins the key spellings against what real Bundler computes.
+// Verified against Bundler 1.17.2 and 4.0.16: 1.x leaves dashes and colons intact, while
+// 2.x+ turns dashes into "___". Both spellings must be emitted or one major silently
+// fails to authenticate.
+func TestBundleCredentialKeys(t *testing.T) {
+	// Plain host: a single spelling, identical on every Bundler version.
+	assert.Equal(t, []string{"BUNDLE_ACME__JFROG__IO"}, BundleCredentialKeys("acme.jfrog.io"))
+
+	// Dashed host: Bundler 2.x+ wants "___", Bundler 1.x wants the dash preserved.
+	assert.Equal(t,
+		[]string{"BUNDLE_MY___COMPANY__JFROG__IO", "BUNDLE_MY-COMPANY__JFROG__IO"},
+		BundleCredentialKeys("my-company.jfrog.io"))
+
+	// Ported host: Bundler preserves the colon, which the env-var spelling cannot.
+	assert.Equal(t,
+		[]string{"BUNDLE_LOCALHOST_8081", "BUNDLE_LOCALHOST:8081"},
+		BundleCredentialKeys("localhost:8081"))
 }
