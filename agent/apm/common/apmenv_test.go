@@ -91,7 +91,9 @@ func TestResolveRepoNameFromRegistry(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			home := t.TempDir()
+			// Set HOME for Unix and USERPROFILE for Windows (os.UserHomeDir reads USERPROFILE on Windows)
 			t.Setenv("HOME", home)
+			t.Setenv("USERPROFILE", home)
 			if tt.configJSON != "" {
 				apmDir := filepath.Join(home, ".apm")
 				require.NoError(t, os.MkdirAll(apmDir, 0o755))
