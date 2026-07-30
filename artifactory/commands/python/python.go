@@ -224,6 +224,23 @@ func RunConfigCommand(buildTool project.ProjectType, args []string) (string, err
 	return output, nil
 }
 
+// chmodOwnerOnly restricts path to owner-only access (0600), for config files
+// that hold credentials.
+//
+// It is a no-op on Windows: os.Chmod there only toggles
+// FILE_ATTRIBUTE_READONLY and cannot express an owner-only DACL, so the file
+// keeps the ACLs it inherited from its directory. Those are per-user on a
+// default profile but not on a redirected or shared one, so a nil return on
+// Windows means "not tightened", not "protected".
+func chmodOwnerOnly(path string) error {
+	if coreutils.IsWindows() {
+		log.Debug("Not restricting permissions of", path,
+			"- chmod cannot set Windows ACLs, so the file keeps the ones inherited from its directory")
+		return nil
+	}
+	return errorutils.CheckError(os.Chmod(path, 0600))
+}
+
 func (pc *PythonCommand) SetServerDetails(serverDetails *config.ServerDetails) *PythonCommand {
 	pc.serverDetails = serverDetails
 	return pc

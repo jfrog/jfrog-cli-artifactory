@@ -238,3 +238,18 @@ func TestHardenPipConfigPermissions_DerivedMissingWarnsOnly(t *testing.T) {
 
 	assert.NoError(t, HardenPipConfigPermissions(""))
 }
+
+// A stat failure that is not "file missing" is never benign - it must surface
+// even for a derived path, which the IsNotExist branch alone would swallow.
+// A path under a regular file yields ENOTDIR, which os.IsNotExist rejects.
+func TestHardenPipConfigPermissions_StatErrorFails(t *testing.T) {
+	if coreutils.IsWindows() {
+		t.Skip("Windows reports a missing path here rather than ENOTDIR")
+	}
+	notADir := filepath.Join(t.TempDir(), "regular-file")
+	require.NoError(t, os.WriteFile(notADir, []byte("x"), 0600))
+
+	err := HardenPipConfigPermissions(filepath.Join(notADir, "pip.conf"))
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "missing after setup")
+}

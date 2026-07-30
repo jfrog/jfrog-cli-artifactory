@@ -321,6 +321,12 @@ func writeUVConfig(path string, fullCfg map[string]any, indexes []uvIndexEntry) 
 	if err := os.WriteFile(path, []byte(b.String()), 0600); err != nil {
 		return errorutils.CheckErrorf("failed to write uv config at %s: %w", path, err)
 	}
+	// WriteFile applies its mode only when it creates the file, so a config left
+	// at 0644 by an earlier run would stay world-readable - the index URL embeds
+	// credentials.
+	if err := chmodOwnerOnly(path); err != nil {
+		return err
+	}
 
 	log.Debug("Wrote uv configuration to", path)
 	return nil

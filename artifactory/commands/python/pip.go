@@ -67,7 +67,7 @@ func CreatePipConfigManually(customPipConfigPath, repoWithCredsUrl string) error
 	}
 	// WriteFile applies the mode only when it creates the file, so a config left
 	// at 0644 by an earlier run would otherwise stay world-readable.
-	return errorutils.CheckError(os.Chmod(cleanPath, 0600))
+	return chmodOwnerOnly(cleanPath)
 }
 
 // pipWritingToPrefix is the prefix `pip config set` prints when it persists a
@@ -101,6 +101,12 @@ func PipConfigPathFromOutput(output string) string {
 //
 // os.UserConfigDir already implements the first three lines of that table
 // verbatim, so only pip's macOS "if the directory exists" twist is added here.
+//
+// pip's legacy ~/.pip/pip.conf is deliberately not derived: its user-config
+// list is [legacy, new] and `pip config set` edits the last entry, so it always
+// writes the new location. Verified on pip 26.1.2 - with a legacy file present
+// it still reports "Writing to ~/.config/pip/pip.conf". Preferring legacy here
+// would tighten a file that holds no token and miss the one that does.
 //
 // Prefer PipConfigPathFromOutput; this is the fallback for when pip's own
 // report is unavailable.
@@ -141,8 +147,9 @@ func ResolvePipConfigPath() (string, error) {
 // there would break `jf setup pip` on a machine it had just configured
 // correctly. A path pip itself reported must exist, so that stays fail-closed.
 //
-// On Windows os.Chmod only toggles the read-only attribute; the file is instead
-// protected by the per-user ACLs %APPDATA% already carries.
+// Unix only - see chmodOwnerOnly: on Windows the mode cannot be tightened, so
+// pip.ini keeps the ACLs of its parent directory and this function reports
+// success without having protected anything.
 func HardenPipConfigPermissions(reportedPath string) error {
 	confPath := reportedPath
 	derived := confPath == ""
@@ -151,6 +158,7 @@ func HardenPipConfigPermissions(reportedPath string) error {
 		if confPath, err = ResolvePipConfigPath(); err != nil {
 			return err
 		}
+		log.Debug("pip did not report the configuration file it wrote; falling back to the derived path", confPath)
 	}
 	if _, err := os.Stat(confPath); err != nil {
 		if os.IsNotExist(err) {
@@ -163,7 +171,7 @@ func HardenPipConfigPermissions(reportedPath string) error {
 		}
 		return errorutils.CheckError(err)
 	}
-	return errorutils.CheckError(os.Chmod(confPath, 0600))
+	return chmodOwnerOnly(confPath)
 }
 
 func (pc *PipCommand) CommandName() string {
