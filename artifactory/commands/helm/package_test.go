@@ -43,9 +43,15 @@ func TestHandlePackageCommand(t *testing.T) {
 			},
 		},
 		{
-			name: "chart path with destination flag",
+			name: "chart path with destination flag - long form",
 			args: func(chartPath, destination string) []string {
 				return []string{chartPath, "--destination", destination}
+			},
+		},
+		{
+			name: "chart path with destination flag - short form",
+			args: func(chartPath, destination string) []string {
+				return []string{chartPath, "-d", destination}
 			},
 		},
 	}
@@ -65,6 +71,90 @@ func TestHandlePackageCommand(t *testing.T) {
 			)
 			require.NoError(t, err)
 			requireBuildInfoDetails(t, buildInfo)
+		})
+	}
+}
+
+func TestHandlePackageCommand_NoChartDir(t *testing.T) {
+	t.Setenv("JFROG_CLI_HOME_DIR", t.TempDir())
+	tests := []struct {
+		name string
+		args func(chartPath, destination string) []string
+	}{
+		{
+			name: "Destination exists but no Chart.yaml",
+			args: func(chartPath, destination string) []string {
+				return []string{chartPath, "-d", destination}
+			},
+		},
+		{
+			name: "No chart among paths",
+			args: func(chartPath, _ string) []string {
+				return []string{chartPath}
+			},
+		},
+		{
+			name: "No paths",
+			args: func(_, _ string) []string {
+				return []string{}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			notAChartDir := t.TempDir()
+			destination := t.TempDir()
+			buildInfo := entities.New()
+			err := handlePackageCommand(
+				buildInfo,
+				tt.args(notAChartDir, destination),
+				&mockPackageServicesManager{},
+				"helm-package-test",
+				"1",
+				"",
+			)
+			require.ErrorIs(t, err, ErrNoChartDirFound, "Expected error when no valid chart directory is specified")
+			require.Empty(t, buildInfo.Modules, "Expected no modules in build info when no chart directory is found")
+		})
+	}
+}
+
+func TestIsChartDir(t *testing.T) {
+	tests := []struct {
+		name     string
+		dir      string
+		expected bool
+	}{
+		{
+			name:     "Chart directory exists and contains Chart.yaml",
+			dir:      createHelmChartWithDependencies(t),
+			expected: true,
+		},
+		{
+			name:     "Chart directory exists but does not contain Chart.yaml",
+			dir:      t.TempDir(),
+			expected: false,
+		},
+		{
+			name:     "Chart directory does not exist",
+			dir:      filepath.Join(t.TempDir(), "nonexistent"),
+			expected: false,
+		},
+		{
+			name: "Chart directory exists but permission denied",
+			dir: func() string {
+				chartPath := t.TempDir()
+				_ = os.Chmod(chartPath, 0o000) // Remove all permissions
+				return chartPath
+			}(),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, isChartDir(tt.dir))
 		})
 	}
 }

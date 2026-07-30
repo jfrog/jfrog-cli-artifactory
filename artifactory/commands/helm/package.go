@@ -11,10 +11,12 @@ import (
 	"github.com/jfrog/jfrog-client-go/artifactory"
 )
 
+var ErrNoChartDirFound = errors.New("no valid Helm chart directory found in the provided paths")
+
 func isChartDir(dir string) bool {
 	chartPath := filepath.Join(dir, flexpack.ChartYaml)
 	_, err := os.Stat(chartPath)
-	return !errors.Is(err, os.ErrNotExist)
+	return err == nil
 }
 
 func handlePackageCommand(buildInfoOld *entities.BuildInfo, args []string, serviceManager artifactory.ArtifactoryServicesManager, buildName, buildNumber, project string) error {
@@ -33,7 +35,7 @@ func handlePackageCommand(buildInfoOld *entities.BuildInfo, args []string, servi
 		}
 	}
 	if chartPath == "" {
-		return fmt.Errorf("no valid Helm chart directory found in the provided paths")
+		return ErrNoChartDirFound
 	}
 	buildInfo, err := collectBuildInfoWithFlexPack(chartPath, buildName, buildNumber)
 	if err != nil {
@@ -49,7 +51,7 @@ func handlePackageCommand(buildInfoOld *entities.BuildInfo, args []string, servi
 	removeDuplicateDependencies(buildInfoOld)
 	err = saveBuildInfo(buildInfoOld, buildName, buildNumber, project)
 	if err != nil {
-		return fmt.Errorf("failed to save build info")
+		return fmt.Errorf("failed to save build info: %w", err)
 	}
 	return nil
 }
