@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -922,4 +923,149 @@ func TestSetupCommand_MavenCorrupted(t *testing.T) {
 		assert.Contains(t, content, "<password>test-password</password>")
 		assert.NotContains(t, content, testCredential(), "Old token should be replaced")
 	})
+}
+
+func withTempHome(t *testing.T) string {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	t.Cleanup(func() { os.Setenv("HOME", origHome) })
+	return tmpHome
+}
+
+func TestWriteBundleConfig_EmptyFile(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	require.NoError(t, writeBundleConfig("my.jfrog.io", "admin", "secret"))
+
+	content, err := os.ReadFile(filepath.Join(tmpHome, ".bundle", "config"))
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "BUNDLE_MY__JFROG__IO: admin:secret")
+}
+
+func TestWriteBundleConfig_PreservesExistingKeys(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	bundleDir := filepath.Join(tmpHome, ".bundle")
+	require.NoError(t, os.MkdirAll(bundleDir, 0755))
+	existing := "BUNDLE_PATH: \"vendor/bundle\"\nBUNDLE_OTHERHOST__COM: other:creds\n"
+	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "config"), []byte(existing), 0600))
+
+	require.NoError(t, writeBundleConfig("my.jfrog.io", "admin", "secret"))
+
+	content, err := os.ReadFile(filepath.Join(bundleDir, "config"))
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "BUNDLE_PATH: vendor/bundle")
+	assert.Contains(t, string(content), "BUNDLE_OTHERHOST__COM: other:creds")
+	assert.Contains(t, string(content), "BUNDLE_MY__JFROG__IO: admin:secret")
+}
+
+func TestWriteBundleConfig_OverwritesSameHost(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	require.NoError(t, writeBundleConfig("my.jfrog.io", "admin", "old-secret"))
+	require.NoError(t, writeBundleConfig("my.jfrog.io", "admin", "new-secret"))
+
+	configPath := filepath.Join(tmpHome, ".bundle", "config")
+	content, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, 1, strings.Count(string(content), "BUNDLE_MY__JFROG__IO"), "should have exactly one entry for the host")
+	assert.Contains(t, string(content), "BUNDLE_MY__JFROG__IO: admin:new-secret")
+	assert.NotContains(t, string(content), "old-secret")
+}
+
+func TestWriteBundleConfig_MalformedExistingFileErrors(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	bundleDir := filepath.Join(tmpHome, ".bundle")
+	require.NoError(t, os.MkdirAll(bundleDir, 0755))
+	malformed := "not: valid: yaml: [unterminated"
+	configPath := filepath.Join(bundleDir, "config")
+	require.NoError(t, os.WriteFile(configPath, []byte(malformed), 0600))
+
+	err := writeBundleConfig("my.jfrog.io", "admin", "secret")
+	require.Error(t, err)
+
+	// File must not be clobbered.
+	content, readErr := os.ReadFile(configPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, malformed, string(content))
+}
+
+func TestAddGemrcSource_EmptyFile(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	require.NoError(t, addGemrcSource("https://my.jfrog.io/artifactory/api/gems/gems-local"))
+
+	content, err := os.ReadFile(filepath.Join(tmpHome, ".gemrc"))
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	require.NoError(t, yaml.Unmarshal(content, &parsed))
+	sources, ok := parsed[":sources"].([]interface{})
+	require.True(t, ok)
+	assert.Equal(t, []interface{}{"https://rubygems.org", "https://my.jfrog.io/artifactory/api/gems/gems-local"}, sources)
+}
+
+func TestAddGemrcSource_PreservesUnrelatedKeys(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	existing := ":ssl_ca_cert: /etc/ssl/certs/ca.pem\n:sources:\n- https://rubygems.org\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpHome, ".gemrc"), []byte(existing), 0644))
+
+	require.NoError(t, addGemrcSource("https://my.jfrog.io/artifactory/api/gems/gems-local"))
+
+	content, err := os.ReadFile(filepath.Join(tmpHome, ".gemrc"))
+	require.NoError(t, err)
+	assert.Contains(t, string(content), ":ssl_ca_cert: /etc/ssl/certs/ca.pem")
+}
+
+func TestAddGemrcSource_ReAddSameSourceMovesToFrontNoDuplicate(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	sourceURL := "https://my.jfrog.io/artifactory/api/gems/gems-local"
+	require.NoError(t, addGemrcSource(sourceURL))
+	require.NoError(t, addGemrcSource(sourceURL))
+
+	content, err := os.ReadFile(filepath.Join(tmpHome, ".gemrc"))
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	require.NoError(t, yaml.Unmarshal(content, &parsed))
+	sources, ok := parsed[":sources"].([]interface{})
+	require.True(t, ok)
+	assert.Equal(t, []interface{}{"https://rubygems.org", sourceURL}, sources, "no duplicate entry")
+}
+
+func TestAddGemrcSource_SecondDifferentRepoKeepsBothMostRecentFirst(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	firstURL := "https://my.jfrog.io/artifactory/api/gems/gems-local"
+	secondURL := "https://my.jfrog.io/artifactory/api/gems/gems-local-2"
+	require.NoError(t, addGemrcSource(firstURL))
+	require.NoError(t, addGemrcSource(secondURL))
+
+	content, err := os.ReadFile(filepath.Join(tmpHome, ".gemrc"))
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	require.NoError(t, yaml.Unmarshal(content, &parsed))
+	sources, ok := parsed[":sources"].([]interface{})
+	require.True(t, ok)
+	assert.Equal(t, []interface{}{"https://rubygems.org", secondURL, firstURL}, sources, "most recently configured source should be first")
+}
+
+func TestAddGemrcSource_MalformedExistingFileErrors(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	malformed := "not: valid: yaml: [unterminated"
+	gemrcPath := filepath.Join(tmpHome, ".gemrc")
+	require.NoError(t, os.WriteFile(gemrcPath, []byte(malformed), 0644))
+
+	err := addGemrcSource("https://my.jfrog.io/artifactory/api/gems/gems-local")
+	require.Error(t, err)
+
+	content, readErr := os.ReadFile(gemrcPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, malformed, string(content))
 }

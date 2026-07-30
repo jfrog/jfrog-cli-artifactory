@@ -21,7 +21,7 @@ func TestBundleEnvKeyForHost(t *testing.T) {
 		{"artifactory", "BUNDLE_ARTIFACTORY"},
 	}
 	for _, c := range cases {
-		assert.Equal(t, c.want, bundleEnvKeyForHost(c.host), "host %q", c.host)
+		assert.Equal(t, c.want, BundleEnvKeyForHost(c.host), "host %q", c.host)
 	}
 }
 

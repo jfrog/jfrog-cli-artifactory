@@ -439,7 +439,7 @@ func (rc *RubyCommand) injectAuth(serverDetails *coreConfig.ServerDetails, sourc
 	switch rc.nativeTool {
 	case toolBundle:
 		cred := fmt.Sprintf("%s:%s", user, pass)
-		key := bundleEnvKeyForHost(host)
+		key := BundleEnvKeyForHost(host)
 		if os.Getenv(key) != "" {
 			log.Info(fmt.Sprintf("Ruby auth [bundle]: %s already set — respecting existing credentials", key))
 		} else {
@@ -451,7 +451,7 @@ func (rc *RubyCommand) injectAuth(serverDetails *coreConfig.ServerDetails, sourc
 		// Inject credentials under the hostname-only key as well to cover all versions.
 		hostOnly := strings.Split(host, ":")[0]
 		if hostOnly != host {
-			keyNoPort := bundleEnvKeyForHost(hostOnly)
+			keyNoPort := BundleEnvKeyForHost(hostOnly)
 			if os.Getenv(keyNoPort) == "" {
 				extraEnv = append(extraEnv, keyNoPort+"="+cred)
 			}
@@ -489,12 +489,12 @@ func rubyHasCredentials(user, pass string) bool {
 	return pass != ""
 }
 
-// bundleEnvKeyForHost converts a host into Bundler's per-host credential env var name,
+// BundleEnvKeyForHost converts a host into Bundler's per-host credential env var name,
 // following Bundler's key normalization: uppercase, "." → "__", "-" → "___", and any
 // remaining non-alphanumeric character → "_", prefixed with "BUNDLE_".
 //
 //	"mycompany.jfrog.io" → "BUNDLE_MYCOMPANY__JFROG__IO"
-func bundleEnvKeyForHost(host string) string {
+func BundleEnvKeyForHost(host string) string {
 	key := strings.ToUpper(host)
 	key = strings.ReplaceAll(key, ".", "__")
 	key = strings.ReplaceAll(key, "-", "___")

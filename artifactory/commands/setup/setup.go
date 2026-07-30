@@ -32,6 +32,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"golang.org/x/exp/maps"
+	"gopkg.in/yaml.v3"
 )
 
 // packageManagerToRepositoryPackageType maps project types to corresponding Artifactory repository package types.
@@ -575,10 +576,14 @@ func (sc *SetupCommand) configureUV() error {
 	return nil
 }
 
+// rubygemsDefaultSource is the default source RubyGems ships with; when present in
+// ~/.gemrc's :sources: list, it is always kept first.
+const rubygemsDefaultSource = "https://rubygems.org"
+
 // configureRuby configures RubyGems and Bundler to use Artifactory as a gem source.
 // It performs:
-//  1. `bundle config set <host> <user>:<token>` (Bundler per-host credentials)
-//  2. Adds the Artifactory source to `~/.gemrc` or prints guidance for Gemfile
+//  1. Writes per-host Bundler credentials directly to ~/.bundle/config
+//  2. Adds the Artifactory source to ~/.gemrc, or prints guidance for Gemfile
 //
 // Both gem and bundle tools will then authenticate to the Artifactory gems repository.
 func (sc *SetupCommand) configureRuby() error {
@@ -598,51 +603,121 @@ func (sc *SetupCommand) configureRuby() error {
 		host += ":" + repoUrl.Port()
 	}
 
-	// Configure Bundler: `bundle config set <host> <user>:<password>`
-	bundleCmd := exec.Command("bundle", "config", "set", host, username+":"+password)
-	bundleCmd.Stdout = io.Discard
-	bundleCmd.Stderr = os.Stderr
-	if bundleErr := bundleCmd.Run(); bundleErr != nil {
-		log.Warn("Failed to configure Bundler credentials (bundle may not be installed): " + bundleErr.Error())
-	} else {
-		log.Info(fmt.Sprintf("Bundler configured: credentials set for host '%s'", host))
+	if bundleErr := writeBundleConfig(host, username, password); bundleErr != nil {
+		return fmt.Errorf("failed to configure Bundler credentials: %w", bundleErr)
 	}
+	log.Info(fmt.Sprintf("Bundler configured: credentials set for host '%s'", host))
 
-	// Configure gem: add source to ~/.gemrc if not already present.
+	// Configure gem: add source to ~/.gemrc.
 	sourceURL := repoUrl.String()
-	if gemrcErr := rubyAddSourceToGemrc(sourceURL); gemrcErr != nil {
-		log.Debug("Could not update ~/.gemrc: " + gemrcErr.Error())
+	if gemrcErr := addGemrcSource(sourceURL); gemrcErr != nil {
+		return fmt.Errorf("failed to update ~/.gemrc: %w", gemrcErr)
 	}
 
 	log.Output(fmt.Sprintf("\nAdd this source to your Gemfile:\n  source \"%s\"\n", sourceURL))
 	return nil
 }
 
-// rubyAddSourceToGemrc adds the Artifactory gems URL to ~/.gemrc :sources if not present.
-func rubyAddSourceToGemrc(sourceURL string) error {
+// writeBundleConfig writes per-host Bundler credentials directly to ~/.bundle/config,
+// bypassing the `bundle config` CLI entirely (its `set` subcommand doesn't exist on
+// Bundler 1.x). The config key is derived via ruby.BundleEnvKeyForHost, the same
+// normalization `jf ruby bundle install` uses at runtime, so setup-time and
+// runtime-injection key formats can never drift apart.
+func writeBundleConfig(host, user, password string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	bundleDir := home + "/.bundle"
+	configPath := bundleDir + "/config"
+
+	existing, readErr := os.ReadFile(configPath)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return readErr
+	}
+
+	config := map[string]interface{}{}
+	if len(existing) > 0 {
+		if unmarshalErr := yaml.Unmarshal(existing, &config); unmarshalErr != nil {
+			return fmt.Errorf("parse existing %s: %w", configPath, unmarshalErr)
+		}
+	}
+
+	config[ruby.BundleEnvKeyForHost(host)] = user + ":" + password
+
+	out, marshalErr := yaml.Marshal(config)
+	if marshalErr != nil {
+		return marshalErr
+	}
+	if mkdirErr := os.MkdirAll(bundleDir, 0755); mkdirErr != nil {
+		return mkdirErr
+	}
+	return os.WriteFile(configPath, out, 0600)
+}
+
+// addGemrcSource adds sourceURL to ~/.gemrc's :sources: list. An exact-match existing
+// entry is moved to the front (behind rubygemsDefaultSource, if present) rather than
+// duplicated; a new entry is prepended. Different repos configured across multiple runs
+// are meant to coexist here, since gem install natively searches every listed source.
+func addGemrcSource(sourceURL string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
 	}
 	gemrcPath := home + "/.gemrc"
 
-	// Read existing content.
-	existing, _ := os.ReadFile(gemrcPath)
-	content := string(existing)
-
-	// If the source is already there, skip.
-	if strings.Contains(content, sourceURL) {
-		return nil
+	existing, readErr := os.ReadFile(gemrcPath)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return readErr
 	}
 
-	// Append a :sources entry. gemrc is YAML-like but simple enough to append.
-	if !strings.Contains(content, ":sources:") {
-		content += "\n:sources:\n- https://rubygems.org\n- " + sourceURL + "\n"
+	config := map[string]interface{}{}
+	if len(existing) > 0 {
+		if unmarshalErr := yaml.Unmarshal(existing, &config); unmarshalErr != nil {
+			return fmt.Errorf("parse existing %s: %w", gemrcPath, unmarshalErr)
+		}
+	}
+
+	var currentSources []string
+	if raw, ok := config[":sources"]; ok {
+		if rawList, ok := raw.([]interface{}); ok {
+			for _, item := range rawList {
+				if s, ok := item.(string); ok {
+					currentSources = append(currentSources, s)
+				}
+			}
+		}
 	} else {
-		content += "- " + sourceURL + "\n"
+		currentSources = []string{rubygemsDefaultSource}
 	}
 
-	return os.WriteFile(gemrcPath, []byte(content), 0644)
+	config[":sources"] = reorderGemrcSources(currentSources, sourceURL)
+
+	out, marshalErr := yaml.Marshal(config)
+	if marshalErr != nil {
+		return marshalErr
+	}
+	return os.WriteFile(gemrcPath, out, 0644)
+}
+
+// reorderGemrcSources returns sources with sourceURL moved to the front (deduplicated if
+// already present), keeping rubygemsDefaultSource first when it's in the list.
+func reorderGemrcSources(sources []string, sourceURL string) []string {
+	hasDefault := slices.Contains(sources, rubygemsDefaultSource)
+
+	result := make([]string, 0, len(sources)+1)
+	if hasDefault {
+		result = append(result, rubygemsDefaultSource)
+	}
+	result = append(result, sourceURL)
+
+	for _, s := range sources {
+		if s == rubygemsDefaultSource || s == sourceURL {
+			continue
+		}
+		result = append(result, s)
+	}
+	return result
 }
 
 // configureHelm configures Helm to use Artifactory as an OCI registry.
