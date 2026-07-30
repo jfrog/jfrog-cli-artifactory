@@ -397,7 +397,7 @@ func RunInstall(c *components.Context) error {
 		return err
 	}
 
-	flags, err := agentcommon.ValidateInstallFlags(c, plugincommon.Agents, agentcommon.PluginsAgentsKey, plugincommon.RegistryHelp, agentcommon.InstallFlagsOptions{DefaultGlobalScope: true})
+	flags, err := agentcommon.ValidateInstallFlags(c, plugincommon.Agents, agentcommon.PluginsAgentsKey, plugincommon.RegistryHelp, agentcommon.InstallFlagsOptions{DefaultGlobalScope: false})
 	if err != nil {
 		return err
 	}
