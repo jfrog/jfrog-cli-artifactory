@@ -291,6 +291,7 @@ func requireBuildInfoDetails(t *testing.T, buildInfo *entities.BuildInfo) {
 		depIds[dep.Id] = true
 		require.NotEmpty(t, dep.Sha256)
 	}
+	require.Len(t, depIds, len(module.Dependencies), "Expected unique dependency IDs in build info")
 	require.True(t, depIds["subchart-a:0.1.0"])
 	require.True(t, depIds["subchart-b:0.2.0"])
 }
