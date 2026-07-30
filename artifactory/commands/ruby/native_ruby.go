@@ -71,18 +71,45 @@ func (rc *RubyCommand) Run() error {
 	// Discover the Artifactory gem source the project points at, then inject auth.
 	sourceURL, repoKey := rc.resolveRepo(workingDir, serverDetails)
 
-	// When --repo constructed the URL and no --source/--host was provided in args,
-	// inject the source/host arg into the native command so the tool knows where to point.
-	if rc.repository != "" && sourceURL != "" && rubySourceFromArgs(rc.args) == "" {
+	// Point the native command at the discovered Artifactory source when the user did not
+	// name one explicitly. For `gem push` this is a correctness requirement rather than a
+	// convenience: with no --host, RubyGems falls back to its default host
+	// (https://rubygems.org), so both the gem and the credential would go there instead.
+	if sourceURL != "" && rubySourceFromArgs(rc.args) == "" &&
+		(rc.repository != "" || (rc.nativeTool == toolGem && subCommand == "push")) {
 		rc.args = rubyInjectSourceArg(rc.nativeTool, subCommand, rc.args, sourceURL)
+	}
+
+	// authTarget is the URL credentials would actually reach. For `gem push` an explicit
+	// --host in the args beats the discovered source, so authorization and the credential
+	// key must both follow the host the native tool will really contact — otherwise
+	// `--repo artifactory --host third-party` would authorize against one host and send
+	// the credential to another.
+	authTarget := sourceURL
+	if rc.nativeTool == toolGem && subCommand == "push" {
+		if explicitHost := rubySourceFromArgs(rc.args); explicitHost != "" {
+			authTarget = explicitHost
+		}
 	}
 
 	var extraEnv []string
 	var credCleanup func()
+	switch {
 	// gem build is a pure local operation — skip auth injection entirely.
-	if rc.nativeTool == toolGem && subCommand == "build" {
+	case rc.nativeTool == toolGem && subCommand == "build":
 		log.Debug("Ruby auth: skipping credential injection for gem build (local-only operation)")
-	} else if serverDetails != nil && sourceURL != "" {
+	case serverDetails == nil || sourceURL == "":
+		log.Debug("Ruby auth: no Artifactory gem source discovered in args/Gemfile/gem-sources — skipping credential injection")
+	// Every credential path below is gated on this one check, not just the environment
+	// variables: embedding a credential in argv or writing it to ~/.gem/credentials leaks
+	// it just as effectively, so an unrelated registry must never reach any of them.
+	case !rc.authorizedForSource(serverDetails, authTarget):
+		log.Warn(fmt.Sprintf(
+			"Ruby auth: target host (%s) differs from jf server config host (%s) — "+
+				"skipping credential injection. Use --server-id to authenticate explicitly, "+
+				"or configure credentials with `bundle config` / ~/.gem/credentials.",
+			rubyHostOf(authTarget), rubyHostOf(serverDetails.ArtifactoryUrl)))
+	default:
 		extraEnv = rc.injectAuth(serverDetails, sourceURL)
 		if rc.nativeTool == toolGem {
 			switch subCommand {
@@ -98,7 +125,7 @@ func (rc *RubyCommand) Run() error {
 				// Write temporary ~/.gem/credentials for the target host.
 				// CRITICAL: the credentials key MUST exactly match the --host value that
 				// gets passed to the native command (no trailing slash).
-				pushHost := strings.TrimRight(sourceURL, "/")
+				pushHost := strings.TrimRight(authTarget, "/")
 				cleanup, credErr := rubyWriteTempGemCredentials(pushHost, serverDetails)
 				if credErr != nil {
 					log.Warn("Ruby auth [gem push]: failed to write temporary credentials: " + credErr.Error())
@@ -108,8 +135,6 @@ func (rc *RubyCommand) Run() error {
 				}
 			}
 		}
-	} else if serverDetails != nil && sourceURL == "" {
-		log.Debug("Ruby auth: no Artifactory gem source discovered in args/Gemfile/gem-sources — skipping credential injection")
 	}
 	defer func() {
 		if credCleanup != nil {
@@ -403,6 +428,18 @@ func rubyResolveServerDetails(serverID string) (*coreConfig.ServerDetails, error
 
 // ── Authentication ───────────────────────────────────────────────────────────
 
+// authorizedForSource reports whether Artifactory credentials may be sent to targetURL.
+//
+// Without an explicit --server-id, credentials only ever go to the host the jf server
+// config points at, so that a Gemfile, a --source, or a --host naming an unrelated
+// registry can never receive them. Passing --server-id is the explicit opt-in.
+func (rc *RubyCommand) authorizedForSource(serverDetails *coreConfig.ServerDetails, targetURL string) bool {
+	if rc.serverID != "" || targetURL == "" {
+		return true
+	}
+	return rubyHostMatchesServer(targetURL, serverDetails.ArtifactoryUrl)
+}
+
 // injectAuth returns the additional environment variables required to authenticate
 // the native tool against Artifactory. It is non-destructive: a credential is only
 // injected when the user has not already configured one natively (env var, embedded
@@ -423,14 +460,10 @@ func (rc *RubyCommand) injectAuth(serverDetails *coreConfig.ServerDetails, sourc
 	if host == "" {
 		host = rubyHostOf(serverDetails.ArtifactoryUrl)
 	}
-	// Without --server-id, only inject when the source host matches the jf server
-	// host to avoid leaking credentials to an unrelated registry.
-	if rc.serverID == "" && sourceURL != "" && !rubyHostMatchesServer(sourceURL, serverDetails.ArtifactoryUrl) {
-		log.Warn(fmt.Sprintf(
-			"Ruby auth: gem source host (%s) differs from jf server config host (%s) — "+
-				"skipping credential injection. Use --server-id to authenticate explicitly, "+
-				"or configure credentials with `bundle config set` / ~/.gem/credentials.",
-			host, rubyHostOf(serverDetails.ArtifactoryUrl)))
+	// Defence in depth: Run() already gates every credential path on this same check, but
+	// injectAuth must never hand out credentials for an unrelated host on its own either.
+	if !rc.authorizedForSource(serverDetails, sourceURL) {
+		log.Debug(fmt.Sprintf("Ruby auth: refusing to inject credentials for unrelated host %s", host))
 		return nil
 	}
 
@@ -950,15 +983,28 @@ func extractVersionFromArgs(args []string) string {
 	for i, a := range args {
 		switch {
 		case (a == "-v" || a == "--version") && i+1 < len(args):
-			return strings.TrimSpace(args[i+1])
+			return exactGemVersion(args[i+1])
 		case strings.HasPrefix(a, "--version="):
-			return strings.TrimSpace(strings.TrimPrefix(a, "--version="))
+			return exactGemVersion(strings.TrimPrefix(a, "--version="))
 		case strings.HasPrefix(a, "-v") && len(a) > 2 && a[2] != '-':
 			// -v1.0.0 form (unusual but valid)
-			return strings.TrimSpace(a[2:])
+			return exactGemVersion(a[2:])
 		}
 	}
 	return ""
+}
+
+// exactGemVersion returns value only when it is a concrete version. RubyGems equally
+// accepts a requirement here ("~> 13.0", ">= 1.2"), which cannot stand in for a version:
+// it would produce a build-info dependency ID such as "rake:~> 13.0" that matches no
+// artifact in Artifactory. Returning empty instead makes the caller fall back to querying
+// the version actually installed.
+func exactGemVersion(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.ContainsAny(value, "~><=,*| ") {
+		return ""
+	}
+	return value
 }
 
 // queryInstalledGemVersion queries the installed version of a gem via `gem list --exact <name>`.
@@ -1375,29 +1421,51 @@ func rubyEnrichDepsViaAQL(deps []buildinfo.Dependency, entries []rubyDepEntry, r
 		return
 	}
 
+	// Resolve one AQL result per dependency, then take the checksums and the path from that
+	// single result. The name pattern is deliberately loose enough to match a
+	// platform-specific build ("nokogiri-1.16.0-arm64-darwin.gem") as well as the plain
+	// gem, so a dependency can match several results — the exact "<name>-<version>.gem"
+	// always wins. Reading the checksum from one result and the path from another would
+	// publish build-info claiming a checksum for a file it does not point at.
 	enriched := 0
-	for _, r := range aqlResult.Results {
-		if r.ActualSha1 == "" {
+	for _, e := range entries {
+		if deps[e.idx].Sha1 != "" {
 			continue
 		}
-		for _, e := range entries {
-			if r.Name == e.prefix+".gem" || strings.HasPrefix(r.Name, e.prefix+"-") {
-				if deps[e.idx].Sha1 == "" {
-					deps[e.idx].Sha1 = r.ActualSha1
-					deps[e.idx].Md5 = r.ActualMd5
-					if r.Sha256 != "" && deps[e.idx].Sha256 == "" {
-						deps[e.idx].Sha256 = r.Sha256
-					}
-				}
-				if r.Path != "" && r.Path != "." {
-					deps[e.idx].Repository = searchRepo + "/" + r.Path + "/" + r.Name
-				} else {
-					deps[e.idx].Repository = searchRepo + "/" + r.Name
-				}
-				enriched++
+		var match *struct {
+			Name       string `json:"name"`
+			Path       string `json:"path"`
+			ActualSha1 string `json:"actual_sha1"`
+			ActualMd5  string `json:"actual_md5"`
+			Sha256     string `json:"sha256"`
+		}
+		for i := range aqlResult.Results {
+			candidate := &aqlResult.Results[i]
+			if candidate.ActualSha1 == "" {
+				continue
+			}
+			if candidate.Name == e.prefix+".gem" {
+				match = candidate
 				break
 			}
+			if match == nil && strings.HasPrefix(candidate.Name, e.prefix+"-") {
+				match = candidate
+			}
 		}
+		if match == nil {
+			continue
+		}
+		deps[e.idx].Sha1 = match.ActualSha1
+		deps[e.idx].Md5 = match.ActualMd5
+		if match.Sha256 != "" {
+			deps[e.idx].Sha256 = match.Sha256
+		}
+		if match.Path != "" && match.Path != "." {
+			deps[e.idx].Repository = searchRepo + "/" + match.Path + "/" + match.Name
+		} else {
+			deps[e.idx].Repository = searchRepo + "/" + match.Name
+		}
+		enriched++
 	}
 
 	if enriched > 0 {

@@ -631,3 +631,17 @@ func TestBundleCredentialKeys(t *testing.T) {
 		[]string{"BUNDLE_LOCALHOST_8081", "BUNDLE_LOCALHOST:8081"},
 		BundleCredentialKeys("localhost:8081"))
 }
+
+// TestExtractVersionFromArgs_RejectsRequirements guards against recording a version
+// requirement as if it were a version, which produced dependency IDs like "rake:~> 13.0"
+// that match no artifact in Artifactory.
+func TestExtractVersionFromArgs_RejectsRequirements(t *testing.T) {
+	for _, requirement := range []string{"~> 13.0", ">= 1.2", "< 2", "= 1.0", ">1.0", "1.0, 2.0", "13.*"} {
+		assert.Empty(t, extractVersionFromArgs([]string{"install", "rake", "-v", requirement}),
+			"requirement %q must not be treated as a concrete version", requirement)
+	}
+	// Concrete versions still resolve, including prereleases.
+	assert.Equal(t, "13.0.6", extractVersionFromArgs([]string{"install", "rake", "-v", "13.0.6"}))
+	assert.Equal(t, "7.1.0.beta1", extractVersionFromArgs([]string{"install", "rails", "--version=7.1.0.beta1"}))
+	assert.Equal(t, "1.0.0", extractVersionFromArgs([]string{"install", "gem", "-v1.0.0"}))
+}
