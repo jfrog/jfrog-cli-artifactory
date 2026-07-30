@@ -23,6 +23,7 @@ func GetSubCommands() []components.Command {
 			// RunInstall extracts jf's own flags manually via ExtractApmSubcommandOptions.
 			SkipFlagParsing: true,
 			Description:     "Install APM packages with JFrog Artifactory authentication.",
+			AIDescription:   install.GetAIDescription(),
 			Action:          install.RunInstall,
 		},
 		{
@@ -30,6 +31,7 @@ func GetSubCommands() []components.Command {
 			Flags:           flagkit.GetCommandFlags(flagkit.AgentApm),
 			SkipFlagParsing: true,
 			Description:     "Publish an APM package to JFrog Artifactory.",
+			AIDescription:   publish.GetAIDescription(),
 			Action:          publish.RunPublish,
 		},
 		{
@@ -37,6 +39,7 @@ func GetSubCommands() []components.Command {
 			Flags:           flagkit.GetCommandFlags(flagkit.AgentApm),
 			SkipFlagParsing: true,
 			Description:     "Refresh APM dependencies to their latest matching refs, with build-info collection.",
+			AIDescription:   update.GetAIDescription(),
 			Action:          update.RunUpdate,
 		},
 	}
