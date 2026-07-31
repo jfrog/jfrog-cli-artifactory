@@ -11,9 +11,21 @@ import (
 	"testing"
 	"time"
 
+	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func zipSkillFolder(skillDir string) (zipPath, tmpDir, hash string, err error) {
+	return agentcommon.ZipPublishBundle(agentcommon.ZipPublishOptions{
+		SourceDir:      skillDir,
+		Slug:           "test",
+		Version:        "1.0.0",
+		TempDirPrefix:  "skill-publish-",
+		ContentLabel:   "skill",
+		HashWhileWrite: true,
+	})
+}
 
 func TestParseSkillMeta(t *testing.T) {
 	dir := t.TempDir()
@@ -296,9 +308,9 @@ func TestZipSkillFolder(t *testing.T) {
 	// Create excludable files
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "test.pyc"), []byte("compiled"), 0644))
 
-	zipPath, err := zipSkillFolder(dir, "test", "1.0.0")
+	zipPath, tmpDir, _, err := zipSkillFolder(dir)
 	require.NoError(t, err)
-	defer func() { _ = os.Remove(zipPath) }()
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	info, err := os.Stat(zipPath)
 	require.NoError(t, err)
@@ -312,6 +324,70 @@ func TestZipSkillFolder(t *testing.T) {
 	}
 }
 
+func TestResolveZipBuildsBundle(t *testing.T) {
+	dir := createSkillDir(t)
+	pc := NewPublishCommand().SetSkillDir(dir)
+
+	zipPath, zipTmpDir, sha256Hex, err := pc.resolveZip("test", "1.0.0")
+	require.NoError(t, err)
+	// Guards against a leak if an assertion below fails before the explicit cleanup.
+	defer func() { _ = os.RemoveAll(zipTmpDir) }()
+
+	assert.Regexp(t, "^[0-9a-f]{64}$", sha256Hex, "third return value must be the SHA256 digest")
+
+	require.NotEmpty(t, zipTmpDir)
+	assert.Equal(t, zipTmpDir, filepath.Dir(zipPath), "second return value must be the temp dir holding the zip")
+
+	onDisk, err := agentcommon.ComputeSHA256(zipPath)
+	require.NoError(t, err)
+	assert.Equal(t, onDisk, sha256Hex)
+
+	require.NoError(t, os.RemoveAll(zipTmpDir))
+	_, err = os.Stat(zipPath)
+	assert.True(t, os.IsNotExist(err), "removing the returned temp dir must delete the zip")
+}
+
+func TestResolveZipReturnsTempDirOnWriteFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating symlinks on Windows requires elevated privileges")
+	}
+
+	dir := createSkillDir(t)
+	// A dangling symlink is collected as a regular entry but fails to open during
+	// the write, after the temp dir has already been created.
+	require.NoError(t, os.Symlink(filepath.Join(dir, "missing.py"), filepath.Join(dir, "broken.py")))
+
+	pc := NewPublishCommand().SetSkillDir(dir)
+
+	_, zipTmpDir, _, err := pc.resolveZip("test", "1.0.0")
+	require.Error(t, err)
+	require.NotEmpty(t, zipTmpDir, "temp dir must be returned on failure so the caller can remove it")
+	defer func() { _ = os.RemoveAll(zipTmpDir) }()
+
+	_, statErr := os.Stat(zipTmpDir)
+	assert.NoError(t, statErr, "temp dir is left on disk and would leak without caller cleanup")
+}
+
+func TestResolveZipUsesPrebuiltWhenPresent(t *testing.T) {
+	dir := createSkillDir(t)
+	zipDir := filepath.Join(dir, "zip")
+	require.NoError(t, os.MkdirAll(zipDir, 0755))
+	prebuilt := filepath.Join(zipDir, "test_1.0.0.zip")
+	require.NoError(t, os.WriteFile(prebuilt, []byte("prebuilt-content"), 0644))
+
+	pc := NewPublishCommand().SetSkillDir(dir)
+
+	zipPath, zipTmpDir, sha256Hex, err := pc.resolveZip("test", "1.0.0")
+	require.NoError(t, err)
+	assert.Equal(t, prebuilt, zipPath)
+	assert.Empty(t, sha256Hex, "prebuilt zips are hashed by the caller")
+	assert.Empty(t, zipTmpDir, "prebuilt zips have no temp dir to clean up")
+
+	// The flat upload keeps this base name, so evidence and the Xray gate must use
+	// it rather than assuming the generated "{slug}-{version}.zip" form.
+	assert.Equal(t, "test_1.0.0.zip", filepath.Base(zipPath))
+}
+
 func TestZipSkillFolderUsesForwardSlashPaths(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: test\n---"), 0644))
@@ -319,9 +395,9 @@ func TestZipSkillFolderUsesForwardSlashPaths(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "scripts", "run.py"), []byte("print(1)"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "scripts", "helpers", "util.py"), []byte("pass"), 0644))
 
-	zipPath, err := zipSkillFolder(dir, "test", "1.0.0")
+	zipPath, tmpDir, _, err := zipSkillFolder(dir)
 	require.NoError(t, err)
-	defer func() { _ = os.RemoveAll(filepath.Dir(zipPath)) }()
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	r, err := zip.OpenReader(zipPath)
 	require.NoError(t, err)
@@ -343,7 +419,7 @@ func TestComputeSHA256(t *testing.T) {
 	testFile := filepath.Join(dir, "test.txt")
 	require.NoError(t, os.WriteFile(testFile, []byte("hello world"), 0644))
 
-	hash, err := computeSHA256(testFile)
+	hash, err := agentcommon.ComputeSHA256(testFile)
 	require.NoError(t, err)
 	assert.Len(t, hash, 64)
 	// SHA256 of "hello world"
@@ -369,7 +445,7 @@ func TestShouldExclude(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			info := fakeFileInfo{name: filepath.Base(tt.relPath), dir: tt.isDir}
-			assert.Equal(t, tt.exclude, shouldExclude(tt.relPath, info))
+			assert.Equal(t, tt.exclude, agentcommon.ShouldExcludePublishPath(tt.relPath, info))
 		})
 	}
 }
@@ -401,12 +477,10 @@ func createSkillDir(t *testing.T) string {
 
 func zipAndHash(t *testing.T, dir string) string {
 	t.Helper()
-	zipPath, err := zipSkillFolder(dir, "test", "1.0.0")
+	_, tmpDir, hash, err := zipSkillFolder(dir)
 	require.NoError(t, err)
-	// Clean up both the zip file and its parent temp directory.
-	defer func() { _ = os.RemoveAll(filepath.Dir(zipPath)) }()
-	hash, err := computeSHA256(zipPath)
-	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+	require.NotEmpty(t, hash)
 	return hash
 }
 
@@ -438,9 +512,9 @@ func TestZipDeterministic_AllEntriesShareMaxMtime(t *testing.T) {
 	require.NoError(t, os.Chtimes(filepath.Join(dir, "main.py"), newest, newest))
 	require.NoError(t, os.Chtimes(filepath.Join(dir, "utils", "helper.py"), past, past))
 
-	zipPath, err := zipSkillFolder(dir, "test", "1.0.0")
+	zipPath, tmpDir, _, err := zipSkillFolder(dir)
 	require.NoError(t, err)
-	defer func() { _ = os.Remove(zipPath) }()
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	r, err := zip.OpenReader(zipPath)
 	require.NoError(t, err)
@@ -458,12 +532,12 @@ func TestZipDeterministic_ExtraFieldConsistent(t *testing.T) {
 	// Zip twice and verify the Extra fields are identical across runs.
 	// Go's zip writer adds a UT (Unix Timestamp) extra field via CreateHeader;
 	// since our timestamps are uniform (max mtime), the extra bytes are deterministic.
-	zipPath1, err := zipSkillFolder(dir, "test", "1.0.0")
+	zipPath1, tmpDir1, _, err := zipSkillFolder(dir)
 	require.NoError(t, err)
-	defer func() { _ = os.Remove(zipPath1) }()
-	zipPath2, err := zipSkillFolder(dir, "test", "1.0.0")
+	defer func() { _ = os.RemoveAll(tmpDir1) }()
+	zipPath2, tmpDir2, _, err := zipSkillFolder(dir)
 	require.NoError(t, err)
-	defer func() { _ = os.Remove(zipPath2) }()
+	defer func() { _ = os.RemoveAll(tmpDir2) }()
 
 	r1, err := zip.OpenReader(zipPath1)
 	require.NoError(t, err)
@@ -484,9 +558,9 @@ func TestZipDeterministic_PermissionsPreserved(t *testing.T) {
 
 	if runtime.GOOS == "windows" {
 		// Windows normalizes all files to 0644 since it doesn't support Unix permissions.
-		zipPath, err := zipSkillFolder(dir, "test", "1.0.0")
+		zipPath, tmpDir, _, err := zipSkillFolder(dir)
 		require.NoError(t, err)
-		defer func() { _ = os.Remove(zipPath) }()
+		defer func() { _ = os.RemoveAll(tmpDir) }()
 		r, err := zip.OpenReader(zipPath)
 		require.NoError(t, err)
 		defer func() { _ = r.Close() }()
@@ -500,9 +574,9 @@ func TestZipDeterministic_PermissionsPreserved(t *testing.T) {
 	}
 
 	require.NoError(t, os.Chmod(filepath.Join(dir, "main.py"), 0755))
-	zipPath, err := zipSkillFolder(dir, "test", "1.0.0")
+	zipPath, tmpDir, _, err := zipSkillFolder(dir)
 	require.NoError(t, err)
-	defer func() { _ = os.Remove(zipPath) }()
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 	r, err := zip.OpenReader(zipPath)
 	require.NoError(t, err)
 	defer func() { _ = r.Close() }()
@@ -538,9 +612,9 @@ func TestZipDeterministic_FilesSorted(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "zzz.py"), []byte("last"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "aaa.py"), []byte("first"), 0644))
 
-	zipPath, err := zipSkillFolder(dir, "test", "1.0.0")
+	zipPath, tmpDir, _, err := zipSkillFolder(dir)
 	require.NoError(t, err)
-	defer func() { _ = os.Remove(zipPath) }()
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	r, err := zip.OpenReader(zipPath)
 	require.NoError(t, err)
@@ -563,16 +637,16 @@ func TestCollectFiles_ExcludesCorrectly(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".jfrog"), 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".jfrog", "skill-info.json"), []byte("{}"), 0644))
 
-	files, _, err := collectFiles(dir)
+	files, _, err := agentcommon.CollectPublishFiles(dir)
 	require.NoError(t, err)
 
 	var names []string
 	for _, f := range files {
-		names = append(names, f.relPath)
-		assert.NotContains(t, f.relPath, ".pyc", "should exclude .pyc files")
-		assert.NotContains(t, f.relPath, ".DS_Store", "should exclude .DS_Store")
-		assert.NotContains(t, f.relPath, "__pycache__", "should exclude __pycache__")
-		assert.NotContains(t, f.relPath, ".jfrog", "should exclude .jfrog")
+		names = append(names, f.RelPath)
+		assert.NotContains(t, f.RelPath, ".pyc", "should exclude .pyc files")
+		assert.NotContains(t, f.RelPath, ".DS_Store", "should exclude .DS_Store")
+		assert.NotContains(t, f.RelPath, "__pycache__", "should exclude __pycache__")
+		assert.NotContains(t, f.RelPath, ".jfrog", "should exclude .jfrog")
 	}
 	assert.Contains(t, names, "SKILL.md")
 	assert.Contains(t, names, "main.py")
@@ -583,10 +657,10 @@ func TestCollectFiles_Sorted(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "zzz.py"), []byte("z"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "aaa.py"), []byte("a"), 0644))
 
-	files, _, err := collectFiles(dir)
+	files, _, err := agentcommon.CollectPublishFiles(dir)
 	require.NoError(t, err)
 	for i := 1; i < len(files); i++ {
-		assert.True(t, files[i-1].relPath < files[i].relPath,
-			"files should be sorted: %s should come before %s", files[i-1].relPath, files[i].relPath)
+		assert.True(t, filepath.ToSlash(files[i-1].RelPath) < filepath.ToSlash(files[i].RelPath),
+			"files should be sorted: %s should come before %s", files[i-1].RelPath, files[i].RelPath)
 	}
 }
