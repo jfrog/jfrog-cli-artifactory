@@ -747,7 +747,16 @@ func (rc *RubyCommand) collectBuildInfo(workingDir, subCommand, repoKey string, 
 	case rc.collectsDependencies(subCommand):
 		return rc.collectDependencyBuildInfo(workingDir, subCommand, repoKey, serverDetails, capturedOutput)
 	default:
-		log.Debug(fmt.Sprintf("Ruby build-info: no collection for '%s %s'", rc.nativeTool, subCommand))
+		// Reaching here means the user asked for build-info with --build-name, so say why
+		// none was recorded instead of leaving the flags looking silently accepted.
+		if rc.nativeTool == toolGem && subCommand == "build" {
+			log.Info("Ruby build-info: 'gem build' is a local-only operation, so no artifact is " +
+				"recorded yet — run 'jf ruby gem push' with the same --build-name and " +
+				"--build-number to record the built gem.")
+		} else {
+			log.Info(fmt.Sprintf("Ruby build-info: '%s %s' records no build-info; only dependency "+
+				"resolution and 'gem push' do.", rc.nativeTool, subCommand))
+		}
 		return nil
 	}
 }
@@ -1471,7 +1480,15 @@ func rubyEnrichDepsViaAQL(deps []buildinfo.Dependency, entries []rubyDepEntry, r
 	if enriched > 0 {
 		log.Info(fmt.Sprintf("Enriched %d/%d dependencies via AQL (repo: %s)", enriched, len(entries), searchRepo))
 	} else {
-		log.Debug(fmt.Sprintf("No dependencies enriched via AQL from repo %s — gems may not be cached yet", searchRepo))
+		// Warn rather than debug: publishing dependencies with no checksum looks like a
+		// successful build, so a silent failure here is indistinguishable from success.
+		// A virtual repository is the usual cause — AQL cannot search one.
+		log.Warn(fmt.Sprintf(
+			"Ruby build-info: none of the %d dependencies could be resolved in repo '%s', so they "+
+				"will be published without checksums. AQL cannot search a virtual repository — pass "+
+				"--repo with a local or remote repository, and make sure the gems were downloaded "+
+				"through Artifactory rather than served from a local gem cache.",
+			len(entries), searchRepo))
 	}
 }
 
@@ -1506,7 +1523,8 @@ func rubySetBuildProperties(serverDetails *coreConfig.ServerDetails, repoKey, bu
 	if len(bi.Modules) == 0 || len(bi.Modules[0].Artifacts) == 0 {
 		return nil
 	}
-	for _, artifact := range bi.Modules[0].Artifacts {
+	for i := range bi.Modules[0].Artifacts {
+		artifact := &bi.Modules[0].Artifacts[i]
 		searchParams := services.SearchParams{
 			CommonParams: &specutils.CommonParams{
 				Aql: specutils.Aql{
@@ -1519,6 +1537,24 @@ func rubySetBuildProperties(serverDetails *coreConfig.ServerDetails, repoKey, bu
 			log.Warn(fmt.Sprintf("Failed to find artifact %s: %v", artifact.Name, searchErr))
 			continue
 		}
+		// Record where the artifact actually landed, taken from the same search that sets
+		// the build properties. Artifactory stores an artifact's path (unlike a
+		// dependency's, which it drops on ingest), so leaving this as the bare file name
+		// reports a location the gem was never published to. RubyGems repositories nest
+		// gems under "gems/", so the bare name is always wrong there.
+		item := new(specutils.ResultItem)
+		for searchReader.NextRecord(item) == nil {
+			if item.Name == artifact.Name {
+				if item.Path != "" && item.Path != "." {
+					artifact.Path = item.Path + "/" + item.Name
+				}
+				artifact.OriginalDeploymentRepo = item.Repo
+				break
+			}
+			item = new(specutils.ResultItem)
+		}
+		searchReader.Reset()
+
 		_, setErr := servicesManager.SetProps(services.PropsParams{Reader: searchReader, Props: buildProps})
 		if closeErr := searchReader.Close(); closeErr != nil {
 			log.Warn("Failed to close search reader:", closeErr)
