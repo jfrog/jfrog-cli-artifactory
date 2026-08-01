@@ -42,6 +42,14 @@ func TestWriteFileOwnerOnly(t *testing.T) {
 	})
 }
 
+// A write into a directory that does not exist surfaces the error:
+// WriteFileOwnerOnly does not create parent dirs, and our own write is not
+// best-effort.
+func TestWriteFileOwnerOnly_WriteError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "no-such-dir", "creds")
+	assert.Error(t, WriteFileOwnerOnly(path, []byte("secret")))
+}
+
 // RestrictExisting tightens a world-readable credential file to 0600 in place.
 func TestRestrictExisting(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "creds")

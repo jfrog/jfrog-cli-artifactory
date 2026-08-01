@@ -46,15 +46,13 @@ func assertOwnerOnly(t *testing.T, path string) {
 	assert.Equal(t, os.FileMode(0600), info.Mode().Perm(), "%s must be owner-only readable", path)
 }
 
-// findConfigFileContaining returns the path of the package-manager config file
-// under root whose contents include substr. pnpm chooses its own config directory
-// and credential file name per version (auth.ini, rc, config.yaml, ...), so the
-// file holding the token is located by content rather than by an assumed name.
-func findConfigFileContaining(t *testing.T, root, substr string) string {
+// collectConfigPaths walks root and returns the paths of known npm-family config
+// files. The walk only collects paths; callers read them afterwards, so no
+// filesystem operation runs inside the callback (avoids the WalkDir TOCTOU gosec
+// flags).
+func collectConfigPaths(t *testing.T, root string) []string {
 	t.Helper()
 	configFileNames := []string{".npmrc", "auth.ini", "rc", "config.yaml"}
-	// The walk only collects paths; the files are read afterwards, so no filesystem
-	// operation runs inside the callback (avoids the WalkDir TOCTOU gosec flags).
 	var configPaths []string
 	require.NoError(t, filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() || !slices.Contains(configFileNames, entry.Name()) {
@@ -63,7 +61,16 @@ func findConfigFileContaining(t *testing.T, root, substr string) string {
 		configPaths = append(configPaths, path)
 		return nil
 	}))
-	for _, path := range configPaths {
+	return configPaths
+}
+
+// findConfigFileContaining returns the path of the package-manager config file
+// under root whose contents include substr. pnpm chooses its own config directory
+// and credential file name per version (auth.ini, rc, config.yaml, ...), so the
+// file holding the token is located by content rather than by an assumed name.
+func findConfigFileContaining(t *testing.T, root, substr string) string {
+	t.Helper()
+	for _, path := range collectConfigPaths(t, root) {
 		content, err := os.ReadFile(path)
 		require.NoError(t, err)
 		if strings.Contains(string(content), substr) {
@@ -188,17 +195,7 @@ func testSetupCommandNpmPnpm(t *testing.T, packageManager project.ProjectType) {
 // are found by walking rather than assumed. Only known configuration file names are read,
 // to keep caches and log files out of the assertions.
 func readPackageManagerConfigs(t *testing.T, root string) string {
-	configFileNames := []string{".npmrc", "auth.ini", "rc", "config.yaml"}
-	// The walk only collects paths; the files are read afterwards, so no filesystem
-	// operation runs inside the callback.
-	var configPaths []string
-	require.NoError(t, filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil || entry.IsDir() || !slices.Contains(configFileNames, entry.Name()) {
-			return err
-		}
-		configPaths = append(configPaths, path)
-		return nil
-	}))
+	configPaths := collectConfigPaths(t, root)
 	require.NotEmptyf(t, configPaths, "no package manager configuration was written under %s", root)
 
 	var contents []string
@@ -208,6 +205,14 @@ func readPackageManagerConfigs(t *testing.T, root string) string {
 		contents = append(contents, string(content))
 	}
 	return strings.Join(contents, "\n")
+}
+
+// pnpmCredentialFiles is best-effort: when pnpm cannot be executed it returns no
+// paths (and warns) rather than erroring, so a missing pnpm never breaks setup.
+func TestPnpmCredentialFiles_PnpmMissing(t *testing.T) {
+	// An empty PATH makes `pnpm` unresolvable on every OS.
+	t.Setenv("PATH", t.TempDir())
+	assert.Nil(t, pnpmCredentialFiles())
 }
 
 func TestSetupCommand_Yarn(t *testing.T) {

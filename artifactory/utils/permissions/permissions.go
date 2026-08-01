@@ -27,13 +27,24 @@ func chmodOwnerOnly(path string) error {
 	return errorutils.CheckError(os.Chmod(path, 0600))
 }
 
-// WriteFileOwnerOnly writes data to path with owner-only permissions (0600). Use
-// it for files this process creates itself with embedded credentials (pip.conf,
-// uv.toml). It also re-applies the mode to a pre-existing file, because
-// os.WriteFile only sets the mode when it creates the file - a config left at
-// 0644 by an earlier run would otherwise stay world-readable. The error is
-// returned to the caller: this is our own write, so a failure is not best-effort.
+// WriteFileOwnerOnly writes data to path with owner-only permissions (0600), for
+// files this process creates itself with embedded credentials (pip.conf, uv.toml).
+//
+// A pre-existing file is tightened to 0600 *before* the write, because
+// os.WriteFile applies its mode only when it creates the file: writing first
+// would briefly leave the new credentials in a file an earlier run left at 0644.
+// The trailing chmod then also covers the (pathological) case of a umask that
+// would strip the owner bits from a freshly created file.
+//
+// Unlike RestrictExisting this is not best-effort - the error is returned,
+// because a file we are actively writing credentials into must not be left
+// unprotected.
 func WriteFileOwnerOnly(path string, data []byte) error {
+	if _, err := os.Stat(path); err == nil {
+		if err := chmodOwnerOnly(path); err != nil {
+			return err
+		}
+	}
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		return errorutils.CheckError(err)
 	}

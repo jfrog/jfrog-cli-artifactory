@@ -589,12 +589,15 @@ func (sc *SetupCommand) configureGo() error {
 	log.Info("GOPROXY falls back to the module's source only for modules the repository does not serve (404/410). " +
 		"Any other error, including a Curation block or an unreachable Artifactory, now fails the command instead of " +
 		"resolving from the public internet.")
-	// GOPROXY embeds user:token@ in cleartext in the Go env file; restrict it to owner-only.
-	goEnvPath, err := goEnvFilePath()
-	if err != nil {
-		return err
+	// GOPROXY embeds user:token@ in cleartext in the Go env file; restrict it to
+	// owner-only. Best-effort: `go env -w` already succeeded, so a failure to
+	// resolve or tighten the file must not fail an otherwise-configured setup.
+	if goEnvPath, err := goEnvFilePath(); err != nil {
+		log.Warn("Could not resolve the Go environment file to restrict its permissions: " + err.Error() +
+			". If it holds credentials, restrict it to owner-only access manually.")
+	} else {
+		permissions.RestrictExisting(goEnvPath)
 	}
-	permissions.RestrictExisting(goEnvPath)
 	return nil
 }
 
