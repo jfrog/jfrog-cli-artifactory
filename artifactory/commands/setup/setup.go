@@ -97,6 +97,10 @@ var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
 	project.Docker: {location: "your Docker credential store", credentialsOnly: true},
 	project.Podman: {location: "your Podman credential store", credentialsOnly: true},
 	project.Helm:   {location: "your Helm registry credential store", credentialsOnly: true},
+	// ConfigureApmRegistryPersistent (via `apm config set`) always writes to
+	// ~/.apm/config.json and sets the registry as apm's default, so this redirects
+	// resolution the same way npm/pip/go do; apm has no override env for the file.
+	project.AgentApm: {location: "your user-level apm configuration (~/.apm/config.json)"},
 }
 
 // configScopeNote describes what the command changed and how widely it applies, or
