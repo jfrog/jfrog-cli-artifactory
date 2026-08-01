@@ -33,6 +33,93 @@ import (
 	"golang.org/x/exp/maps"
 )
 
+// packageManagerConfig describes the configuration `jf setup` writes for one package
+// manager, so the command can say what it changed and how far the change reaches.
+// Saying so matters because nothing else in the output reveals that the change is not
+// scoped to the directory the command was run in.
+type packageManagerConfig struct {
+	// location names the configuration in the user's terms rather than as an absolute
+	// path: the real path is platform dependent (pip alone has three per-user
+	// locations) and the package manager resolves it itself, so a path spelled out
+	// here would be wrong on some machines.
+	location string
+	// credentialsOnly marks the package managers that only store credentials instead
+	// of redirecting resolution. Their projects do not start resolving through
+	// Artifactory — an unqualified `docker pull alpine` still goes to Docker Hub — so
+	// the note must not claim otherwise.
+	credentialsOnly bool
+	// overrideEnv is the environment variable that moves this configuration off its
+	// user-level default. When it is set the configuration can live anywhere the user
+	// pointed it, including inside the current project, so the note has to describe
+	// that path instead of claiming user-wide scope. Only set where the configure
+	// function or the tool it drives really honors the variable — the per-entry
+	// comments record what was verified.
+	overrideEnv string
+}
+
+// One entry per package manager in packageManagerToRepositoryPackageType;
+// TestPackageManagerConfigs_CoversEverySupportedPackageManager asserts the two
+// stay in step.
+var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
+	// npm resolves the file `npm config set` writes through NPM_CONFIG_USERCONFIG.
+	project.Npm: {location: "your user-level npm configuration (.npmrc)", overrideEnv: "NPM_CONFIG_USERCONFIG"},
+	// pnpm is deliberately left without an override: `pnpm config set` writes to
+	// pnpm's own config directory (auth.ini) and ignores NPM_CONFIG_USERCONFIG, which
+	// it consults only as a fallback when reading credentials.
+	// That file also outranks ~/.npmrc for pnpm, which matters across two setups: a
+	// machine with no pnpm setup inherits npm's ~/.npmrc through the fallback, but
+	// once `jf setup pnpm` has written auth.ini, a later `jf setup npm` moves npm
+	// alone and pnpm keeps resolving from the repository it was given. Both tools are
+	// individually correct, and nothing in either command's output says they now
+	// disagree. Verified against pnpm 11.
+	project.Pnpm: {location: "your user-level pnpm configuration (auth.ini in pnpm's config directory)"},
+	// Yarn Classic writes ~/.yarnrc, and YARN_RC_FILENAME does not redirect it.
+	project.Yarn: {location: "your user-level Yarn configuration (.yarnrc)"},
+	// configurePip writes the file itself when PIP_CONFIG_FILE is set, because
+	// `pip config set` does not support that variable.
+	project.Pip:    {location: "your user-level pip configuration (pip.conf)", overrideEnv: "PIP_CONFIG_FILE"},
+	project.Pipenv: {location: "your user-level pip configuration (pip.conf)", overrideEnv: "PIP_CONFIG_FILE"},
+	// `poetry config` writes config.toml into POETRY_CONFIG_DIR when it is set.
+	project.Poetry: {location: "your user-level Poetry configuration (config.toml)", overrideEnv: "POETRY_CONFIG_DIR"},
+	// Twine's .pypirc path is chosen per invocation (--config-file), not by the environment.
+	project.Twine: {location: "your user-level Twine configuration (.pypirc)"},
+	// ConfigureUVIndex writes to UV_CONFIG_FILE when it is set.
+	project.UV:     {location: "your user-level uv configuration (uv.toml)", overrideEnv: "UV_CONFIG_FILE"},
+	project.Nuget:  {location: "your user-level NuGet configuration (NuGet.Config)"},
+	project.Dotnet: {location: "your user-level NuGet configuration (NuGet.Config)"},
+	// `go env -w` writes to the file GOENV points at, defaulting to the per-user Go env file.
+	project.Go: {location: "your user-level Go environment (GOPROXY in your Go env file)", overrideEnv: "GOENV"},
+	// gradle.WriteInitScript drops the script under GRADLE_USER_HOME when it is set.
+	project.Gradle: {location: "your user-level Gradle configuration (an init script in your Gradle user home)", overrideEnv: gradle.UserHomeEnv},
+	// Maven picks the settings file per invocation (-s), not from the environment.
+	project.Maven:  {location: "your user-level Maven settings (settings.xml)"},
+	project.Docker: {location: "your Docker credential store", credentialsOnly: true},
+	project.Podman: {location: "your Podman credential store", credentialsOnly: true},
+	project.Helm:   {location: "your Helm registry credential store", credentialsOnly: true},
+}
+
+// configScopeNote describes what the command changed and how widely it applies, or
+// an empty string for a package manager we have nothing accurate to say about.
+func configScopeNote(packageManager project.ProjectType) string {
+	packageManagerConfig, ok := packageManagerConfigs[packageManager]
+	if !ok {
+		return ""
+	}
+	if packageManagerConfig.credentialsOnly {
+		return fmt.Sprintf("Credentials were saved to %s for your user account.", packageManagerConfig.location)
+	}
+	// A redirected configuration is not user-level, so report where it actually went
+	// rather than promising a scope that may not hold.
+	if packageManagerConfig.overrideEnv != "" {
+		if overridePath := os.Getenv(packageManagerConfig.overrideEnv); overridePath != "" {
+			return fmt.Sprintf("This updated the %s configuration at %s, because %s is set, so its scope follows that path rather than your user-level configuration.",
+				packageManager.String(), overridePath, packageManagerConfig.overrideEnv)
+		}
+	}
+	return fmt.Sprintf("This updated %s, so it applies to every %s project for this user, not only the current directory.",
+		packageManagerConfig.location, packageManager.String())
+}
+
 // packageManagerToRepositoryPackageType maps project types to corresponding Artifactory repository package types.
 var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	// Npm package managers
@@ -195,6 +282,9 @@ func (sc *SetupCommand) Run() (err error) {
 		repoPrefix = coreutils.PrintBoldTitle(fmt.Sprintf(" repository '%s'", sc.repoName))
 	}
 	log.Output(fmt.Sprintf("Successfully configured %s to use JFrog%s.", coreutils.PrintBoldTitle(sc.packageManager.String()), repoPrefix))
+	if note := configScopeNote(sc.packageManager); note != "" {
+		log.Output(note)
+	}
 	return nil
 }
 
@@ -355,31 +445,81 @@ func (sc *SetupCommand) configureYarn() (err error) {
 	return nil
 }
 
+// goProxySeparators are the two characters that delimit GOPROXY entries: a comma
+// falls through only on 404/410, a pipe on any error.
+const goProxySeparators = ",|"
+
+// maskGoProxyCredentials replaces the credentials of every entry in a GOPROXY
+// value, keeping the scheme and host so the message still says which proxy is set.
+//
+// GOPROXY is a separator-delimited list, so masking only up to the first '@'
+// would print every later entry's token verbatim. Within one entry the LAST '@'
+// delimits the credentials, because a password may itself contain '@'.
+func maskGoProxyCredentials(goProxy string) string {
+	var masked strings.Builder
+	entryStart := 0
+	for i, char := range goProxy {
+		if !strings.ContainsRune(goProxySeparators, char) {
+			continue
+		}
+		masked.WriteString(maskGoProxyEntry(goProxy[entryStart:i]))
+		masked.WriteRune(char)
+		entryStart = i + len(string(char))
+	}
+	masked.WriteString(maskGoProxyEntry(goProxy[entryStart:]))
+	return masked.String()
+}
+
+// maskGoProxyEntry masks the credentials of a single GOPROXY entry. Entries
+// without credentials — including the bare `direct` and `off` keywords — are
+// returned unchanged.
+func maskGoProxyEntry(entry string) string {
+	credentialsEnd := strings.LastIndex(entry, "@")
+	if credentialsEnd == -1 {
+		return entry
+	}
+	scheme := ""
+	if schemeEnd := strings.Index(entry, "://"); schemeEnd != -1 && schemeEnd < credentialsEnd {
+		scheme = entry[:schemeEnd+len("://")]
+	}
+	return scheme + "****" + entry[credentialsEnd:]
+}
+
 // configureGo configures Go to use the Artifactory repository for GOPROXY.
 // Runs the following command:
 //
 //	go env -w GOPROXY=https://<user>:<token>@<your-artifactory-url>/artifactory/go/<repo-name>,direct
+//
+// The comma is deliberate. Unlike `jf go`, which resolves through the CLI for a
+// single invocation and exposes --no-fallback, this writes a persistent global
+// GOPROXY consumed by the native go command with no opt-out. A comma limits the
+// fallback to 404/410 (module not proxied); a pipe would fall through on ANY
+// error, so a 403 from Artifactory Curation would be silently satisfied from the
+// module's public source.
 func (sc *SetupCommand) configureGo() error {
 	if goProxyVal := os.Getenv("GOPROXY"); goProxyVal != "" {
 		// Remove the variable so it won't override the newly configured proxy (temporarily).
 		if err := os.Unsetenv("GOPROXY"); err != nil {
 			return errorutils.CheckErrorf("failed to unset GOPROXY environment variable: %w", err)
 		}
-		// Mask credentials in the GOPROXY value
-		if i := strings.Index(goProxyVal, "@"); i != -1 {
-			goProxyVal = "****" + goProxyVal[i:]
-		}
 		// Log a warning about the existing GOPROXY environment variable so the user can unset it permanently
 		log.Warn(fmt.Sprintf("A local GOPROXY='%s' is set and will override the global setting.\n"+
-			"Unset it in your shell config (e.g., .zshrc, .bashrc).", goProxyVal))
+			"Unset it in your shell config (e.g., .zshrc, .bashrc).", maskGoProxyCredentials(goProxyVal)))
 	}
-	repoWithCredsUrl, err := golang.GetArtifactoryRemoteRepoUrl(sc.serverDetails, sc.repoName, golang.GoProxyUrlParams{Direct: true})
+	repoWithCredsUrl, err := golang.GetArtifactoryRemoteRepoUrl(sc.serverDetails, sc.repoName,
+		golang.GoProxyUrlParams{Direct: true, FallbackOnlyIfNotFound: true})
 	if err != nil {
 		return fmt.Errorf("failed to get Go repository URL: %w", err)
 	}
 	if err := biutils.RunGo([]string{"env", "-w", "GOPROXY=" + repoWithCredsUrl}, ""); err != nil {
 		return fmt.Errorf("failed to set GOPROXY environment variable: %w", err)
 	}
+	// This is a behavior change worth surfacing: previously any proxy error fell
+	// back to the module's public source, so an unreachable Artifactory still
+	// produced a working build.
+	log.Info("GOPROXY falls back to the module's source only for modules the repository does not serve (404/410). " +
+		"Any other error, including a Curation block or an unreachable Artifactory, now fails the command instead of " +
+		"resolving from the public internet.")
 	return nil
 }
 

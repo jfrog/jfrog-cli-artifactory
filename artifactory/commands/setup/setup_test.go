@@ -1,7 +1,9 @@
 package setup
 
 import (
+	"bytes"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +23,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/utils/io"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
@@ -92,6 +95,14 @@ func testSetupCommandNpmPnpm(t *testing.T, packageManager project.ProjectType) {
 
 			// Set NPM_CONFIG_USERCONFIG to point to the temporary npmrc file path.
 			t.Setenv("NPM_CONFIG_USERCONFIG", npmrcFilePath)
+			// `pnpm config set` ignores NPM_CONFIG_USERCONFIG and writes to its own config
+			// directory instead, so every variable that locates a home or config directory
+			// is redirected into tempDir as well. Without this the pnpm cases write into
+			// the developer's real pnpm configuration and then fail on the missing .npmrc.
+			t.Setenv("HOME", tempDir)
+			t.Setenv("USERPROFILE", tempDir)
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(tempDir, "xdg"))
+			t.Setenv("LOCALAPPDATA", filepath.Join(tempDir, "localappdata"))
 
 			// Set up server details for the current test case's authentication type.
 			loginCmd := createTestSetupCommand(packageManager)
@@ -102,10 +113,7 @@ func testSetupCommandNpmPnpm(t *testing.T, packageManager project.ProjectType) {
 			// Run the login command and ensure no errors occur.
 			require.NoError(t, loginCmd.Run())
 
-			// Read the contents of the temporary npmrc file.
-			npmrcContentBytes, err := os.ReadFile(npmrcFilePath)
-			assert.NoError(t, err)
-			npmrcContent := string(npmrcContentBytes)
+			npmrcContent := readPackageManagerConfigs(t, tempDir)
 
 			// Validate that the registry URL was set correctly in .npmrc.
 			assert.Contains(t, npmrcContent, fmt.Sprintf("%s=%s", cmdutils.NpmConfigRegistryKey, "https://acme.jfrog.io/artifactory/api/npm/test-repo/"))
@@ -119,11 +127,36 @@ func testSetupCommandNpmPnpm(t *testing.T, packageManager project.ProjectType) {
 				expectedBasicAuth := fmt.Sprintf("//acme.jfrog.io/artifactory/api/npm/test-repo/:%s=\"bXlVc2VyOm15UGFzc3dvcmQ=\"", cmdutils.NpmConfigAuthKey)
 				assert.Contains(t, npmrcContent, expectedBasicAuth)
 			}
-
-			// Clean up the temporary npmrc file.
-			assert.NoError(t, os.Remove(npmrcFilePath))
 		})
 	}
+}
+
+// readPackageManagerConfigs returns the contents of every npm-family configuration file
+// written under root. npm writes the file NPM_CONFIG_USERCONFIG names, while pnpm writes
+// auth.ini inside its own config directory, whose path differs per platform, so the files
+// are found by walking rather than assumed. Only known configuration file names are read,
+// to keep caches and log files out of the assertions.
+func readPackageManagerConfigs(t *testing.T, root string) string {
+	configFileNames := []string{".npmrc", "auth.ini", "rc", "config.yaml"}
+	// The walk only collects paths; the files are read afterwards, so no filesystem
+	// operation runs inside the callback.
+	var configPaths []string
+	require.NoError(t, filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || !slices.Contains(configFileNames, entry.Name()) {
+			return err
+		}
+		configPaths = append(configPaths, path)
+		return nil
+	}))
+	require.NotEmptyf(t, configPaths, "no package manager configuration was written under %s", root)
+
+	var contents []string
+	for _, configPath := range configPaths {
+		content, err := os.ReadFile(configPath)
+		require.NoError(t, err)
+		contents = append(contents, string(content))
+	}
+	return strings.Join(contents, "\n")
 }
 
 func TestSetupCommand_Yarn(t *testing.T) {
@@ -360,6 +393,12 @@ func TestSetupCommand_Go(t *testing.T) {
 				// Validate anonymous access.
 				assert.Contains(t, goProxy, "https://acme.jfrog.io/artifactory/api/go/test-repo")
 			}
+
+			// The fallback must be comma-separated. A pipe would make the go command
+			// fall through to the module's public source on ANY error, including a 403
+			// from Artifactory Curation, silently defeating the block.
+			assert.Contains(t, goProxy, ",direct", "jf setup must limit the direct fallback to 404/410")
+			assert.NotContains(t, goProxy, "|direct", "a pipe separator would fall back on any error, including a Curation 403")
 
 			// Clean up the global GOPROXY setting after each test case
 			err = exec.Command("go", "env", "-u", goProxyEnv).Run()
@@ -925,4 +964,237 @@ func TestSetupCommand_MavenCorrupted(t *testing.T) {
 		assert.Contains(t, content, "<password>test-password</password>")
 		assert.NotContains(t, content, testCredential(), "Old token should be replaced")
 	})
+}
+
+// Every supported package manager must describe what it changed: the output is the
+// only place a user learns the configuration is user-level rather than scoped to the
+// directory they ran the command in.
+func TestConfigScopeNote_CoversEverySupportedPackageManager(t *testing.T) {
+	for _, name := range GetSupportedPackageManagersList() {
+		packageManager := project.FromString(name)
+		require.NotEqualf(t, project.ProjectType(-1), packageManager, "%q is not a known project type", name)
+
+		// Clear any override so this asserts the default, user-level wording.
+		if envVar := packageManagerConfigs[packageManager].overrideEnv; envVar != "" {
+			t.Setenv(envVar, "")
+		}
+
+		note := configScopeNote(packageManager)
+		require.NotEmptyf(t, note, "no scope note for supported package manager %q", name)
+
+		// Each note must take exactly one of the two valid shapes, and a resolution
+		// note must name the package manager it is talking about.
+		if packageManagerConfigs[packageManager].credentialsOnly {
+			assert.Containsf(t, note, "Credentials were saved", "%q: %s", name, note)
+			assert.NotContainsf(t, note, "applies to every", "%q must not claim resolution: %s", name, note)
+			continue
+		}
+		assert.Containsf(t, note, fmt.Sprintf("applies to every %s project", name), "%q: %s", name, note)
+		assert.NotContainsf(t, note, "Credentials were saved", "%q: %s", name, note)
+	}
+}
+
+// A configuration redirected by an environment variable is not user-level — it can sit
+// inside the current project — so the note must report that path instead of promising
+// a scope that does not hold.
+func TestConfigScopeNote_RedirectedConfigDoesNotClaimUserScope(t *testing.T) {
+	overrides := packageManagersWithConfigOverride()
+	require.NotEmpty(t, overrides, "expected package managers with a config override")
+
+	for packageManager, envVar := range overrides {
+		overridePath := filepath.Join(t.TempDir(), "redirected-config")
+		t.Setenv(envVar, overridePath)
+
+		note := configScopeNote(packageManager)
+		assert.Containsf(t, note, overridePath, "%s: note should name the redirected path: %s", packageManager.String(), note)
+		assert.Containsf(t, note, envVar, "%s: note should name the variable that redirected it: %s", packageManager.String(), note)
+		// The scope claim itself is what must not survive a redirect; the note may still
+		// mention user-level configuration to contrast against it.
+		assert.NotContainsf(t, note, "applies to every", "%s must not claim project-wide scope when redirected: %s", packageManager.String(), note)
+		assert.Containsf(t, note, "scope follows that path", "%s should defer scope to the redirected file: %s", packageManager.String(), note)
+	}
+}
+
+// With no override set the default user-level wording applies, so the two branches are
+// covered in both directions.
+func TestConfigScopeNote_WithoutOverrideClaimsUserScope(t *testing.T) {
+	for packageManager, envVar := range packageManagersWithConfigOverride() {
+		t.Setenv(envVar, "")
+		note := configScopeNote(packageManager)
+		assert.Containsf(t, note, "user-level", "%s: %s", packageManager.String(), note)
+		assert.NotContainsf(t, note, envVar, "%s: %s", packageManager.String(), note)
+	}
+}
+
+// Each override was verified against the tool that consumes it, so the set is pinned in
+// both directions: a new entry added without that verification fails here, and dropping
+// one that works silently downgrades the note to a scope claim that may be wrong.
+func TestPackageManagerConfigs_OverridesAreExactlyTheVerifiedSet(t *testing.T) {
+	expected := map[project.ProjectType]string{
+		project.Npm:    "NPM_CONFIG_USERCONFIG",
+		project.Pip:    "PIP_CONFIG_FILE",
+		project.Pipenv: "PIP_CONFIG_FILE",
+		project.Poetry: "POETRY_CONFIG_DIR",
+		project.UV:     "UV_CONFIG_FILE",
+		project.Go:     "GOENV",
+		project.Gradle: "GRADLE_USER_HOME",
+	}
+	assert.Equal(t, expected, packageManagersWithConfigOverride())
+}
+
+// pnpm looks like it should follow npm here, and it does not: `pnpm config set` writes to
+// pnpm's own config directory and ignores NPM_CONFIG_USERCONFIG (verified against pnpm
+// 11 — the file it wrote was auth.ini under the pnpm config directory, both with and
+// without the variable set). Claiming the redirect would send users to a file that
+// `jf setup pnpm` never touched, so the absence is asserted rather than left to chance.
+func TestPackageManagerConfigs_PnpmHasNoConfigOverride(t *testing.T) {
+	assert.Empty(t, packageManagerConfigs[project.Pnpm].overrideEnv,
+		"pnpm config set does not honor an environment override")
+
+	customConfig := filepath.Join(t.TempDir(), "custom.npmrc")
+	t.Setenv("NPM_CONFIG_USERCONFIG", customConfig)
+	note := configScopeNote(project.Pnpm)
+	assert.NotContains(t, note, customConfig, "the note must not point at a file pnpm does not write: "+note)
+	assert.Contains(t, note, "applies to every pnpm project", note)
+}
+
+// packageManagersWithConfigOverride returns only the entries that declare an override
+// variable, so the override tests do not have to skip the rest.
+func packageManagersWithConfigOverride() map[project.ProjectType]string {
+	overrides := map[project.ProjectType]string{}
+	for packageManager, packageManagerConfig := range packageManagerConfigs {
+		if packageManagerConfig.overrideEnv != "" {
+			overrides[packageManager] = packageManagerConfig.overrideEnv
+		}
+	}
+	return overrides
+}
+
+// Container logins authenticate rather than redirect resolution, so their note must
+// not promise that projects now resolve through Artifactory — an unqualified
+// `docker pull alpine` still reaches Docker Hub after `jf setup docker`.
+func TestConfigScopeNote_ContainerLoginsDoNotClaimResolution(t *testing.T) {
+	for _, packageManager := range []project.ProjectType{project.Docker, project.Podman, project.Helm} {
+		note := configScopeNote(packageManager)
+		assert.Contains(t, note, "Credentials were saved", packageManager.String())
+		assert.NotContains(t, note, "applies to every", packageManager.String())
+	}
+
+	// Resolution-changing package managers must state the scope explicitly.
+	for _, packageManager := range []project.ProjectType{project.Npm, project.Maven, project.Go, project.Pip} {
+		note := configScopeNote(packageManager)
+		assert.Contains(t, note, "applies to every", packageManager.String())
+		assert.Contains(t, note, "not only the current directory", packageManager.String())
+	}
+}
+
+// An unsupported package manager has nothing accurate to say, so it must stay silent
+// rather than print a misleading note.
+func TestConfigScopeNote_UnknownPackageManagerIsSilent(t *testing.T) {
+	assert.Empty(t, configScopeNote(project.Cocoapods))
+}
+
+// The note is only useful if the command actually prints it, so assert the wiring
+// rather than just the string builder: removing the log call would otherwise leave
+// every configScopeNote test passing.
+func TestSetupCommand_PrintsConfigScopeNote(t *testing.T) {
+	// Maven writes only settings.xml, so a temporary home keeps the run self-contained.
+	// Both variables are set for cross-platform parity with the other Maven tests.
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
+
+	var output bytes.Buffer
+	previousLogger := log.Logger
+	log.SetLogger(log.NewLogger(log.INFO, &output))
+	defer log.SetLogger(previousLogger)
+
+	setupCmd := createTestSetupCommand(project.Maven)
+	setupCmd.repoName = "test-repo"
+	require.NoError(t, setupCmd.Run())
+
+	assert.Contains(t, output.String(), "Successfully configured", "expected the success message")
+	assert.Contains(t, output.String(), configScopeNote(project.Maven),
+		"the command must print the scope note, not just be able to build it")
+}
+
+// A pre-existing GOPROXY is echoed back to the user, and GOPROXY is a
+// separator-delimited list, so masking has to cover every entry rather than
+// stopping at the first set of credentials.
+func TestMaskGoProxyCredentials(t *testing.T) {
+	const tokenOne = "TOKEN_ONE"
+	const tokenTwo = "TOKEN_TWO"
+	testCases := []struct {
+		name     string
+		goProxy  string
+		expected string
+	}{
+		{
+			name:     "Single entry with direct fallback",
+			goProxy:  "https://u:" + tokenOne + "@art.example.com/artifactory/api/go/repo,direct",
+			expected: "https://****@art.example.com/artifactory/api/go/repo,direct",
+		},
+		{
+			name:     "Comma-separated entries both masked",
+			goProxy:  "https://u:" + tokenOne + "@host1/api/go/r1,https://u:" + tokenTwo + "@host2/api/go/r2",
+			expected: "https://****@host1/api/go/r1,https://****@host2/api/go/r2",
+		},
+		{
+			name:     "Pipe-separated entries both masked",
+			goProxy:  "https://u:" + tokenOne + "@host1/api/go/r1|https://u:" + tokenTwo + "@host2/api/go/r2",
+			expected: "https://****@host1/api/go/r1|https://****@host2/api/go/r2",
+		},
+		{
+			name:     "Mixed separators",
+			goProxy:  "https://u:" + tokenOne + "@host1/r1,https://u:" + tokenTwo + "@host2/r2|direct",
+			expected: "https://****@host1/r1,https://****@host2/r2|direct",
+		},
+		{
+			name:     "Password containing an at sign masks the whole password",
+			goProxy:  "https://user:p@ssw0rd@art.example.com/artifactory/api/go/repo",
+			expected: "https://****@art.example.com/artifactory/api/go/repo",
+		},
+		{
+			name:     "No credentials is left untouched",
+			goProxy:  "https://proxy.golang.org,direct",
+			expected: "https://proxy.golang.org,direct",
+		},
+		{
+			name:     "Keywords are left untouched",
+			goProxy:  "off",
+			expected: "off",
+		},
+		{
+			name:     "Empty value",
+			goProxy:  "",
+			expected: "",
+		},
+		{
+			name:     "Entry without a scheme still loses its credentials",
+			goProxy:  "u:" + tokenOne + "@host/api/go/repo",
+			expected: "****@host/api/go/repo",
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			masked := maskGoProxyCredentials(testCase.goProxy)
+			assert.Equal(t, testCase.expected, masked)
+			assert.NotContains(t, masked, tokenOne, "no entry's credentials may survive masking")
+			assert.NotContains(t, masked, tokenTwo, "no entry's credentials may survive masking")
+			assert.NotContains(t, masked, "ssw0rd", "a password containing '@' must not leak")
+		})
+	}
+}
+
+// packageManagerConfigs drives the note printed after every successful setup, so a
+// package manager added to packageManagerToRepositoryPackageType without an entry
+// here would silently print nothing. The map comment promises these stay in step.
+func TestPackageManagerConfigs_CoversEverySupportedPackageManager(t *testing.T) {
+	assert.Len(t, packageManagerConfigs, len(packageManagerToRepositoryPackageType))
+	for packageManager := range packageManagerToRepositoryPackageType {
+		config, ok := packageManagerConfigs[packageManager]
+		if assert.True(t, ok, "%s is supported by jf setup but has no packageManagerConfigs entry", packageManager) {
+			assert.NotEmpty(t, config.location, "%s has an entry with no location", packageManager)
+		}
+	}
 }
