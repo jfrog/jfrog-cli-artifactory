@@ -772,11 +772,10 @@ func (sc *SetupCommand) configureGradle() error {
 		return fmt.Errorf("failed to generate Gradle init script: %w", err)
 	}
 
+	// WriteInitScript writes the token-bearing init script owner-only (0600) itself.
 	if err := gradle.WriteInitScript(initScript); err != nil {
 		return fmt.Errorf("failed to write Gradle init script: %w", err)
 	}
-	// The init script embeds the access token in cleartext; restrict it to owner-only.
-	permissions.RestrictExisting(gradle.GetInitScriptPath())
 	return nil
 }
 

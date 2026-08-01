@@ -14,6 +14,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
 	artifactoryutils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/permissions"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -388,7 +389,10 @@ func WriteInitScript(initScript string) error {
 	if err := os.MkdirAll(initScriptsDir, 0755); err != nil { // #nosec G703 -- path sanitized with filepath.Clean
 		return fmt.Errorf("failed to create Gradle init.d directory: %w", err)
 	}
-	if err := os.WriteFile(jfrogInitScriptPath, []byte(initScript), 0644); err != nil { // #nosec G703 -- path sanitized with filepath.Clean
+	// The init script embeds the Artifactory access token, so write it owner-only
+	// up front rather than writing 0644 and hardening afterwards, which would leave
+	// the token briefly world-readable.
+	if err := permissions.WriteFileOwnerOnly(jfrogInitScriptPath, []byte(initScript)); err != nil {
 		return fmt.Errorf("failed to write Gradle init script to %s: %w", jfrogInitScriptPath, err)
 	}
 	return nil
