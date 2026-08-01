@@ -12,6 +12,7 @@ import (
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/build-info-go/utils/pythonutils"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/python/dependencies"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/permissions"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
@@ -67,7 +68,7 @@ func CreatePipConfigManually(customPipConfigPath, repoWithCredsUrl string) error
 	}
 	// WriteFile applies the mode only when it creates the file, so a config left
 	// at 0644 by an earlier run would otherwise stay world-readable.
-	return chmodOwnerOnly(cleanPath)
+	return permissions.ChmodOwnerOnly(cleanPath)
 }
 
 // pipWritingToPrefix is the prefix `pip config set` prints when it persists a
@@ -171,7 +172,7 @@ func HardenPipConfigPermissions(reportedPath string) error {
 		}
 		return errorutils.CheckError(err)
 	}
-	return chmodOwnerOnly(confPath)
+	return permissions.ChmodOwnerOnly(confPath)
 }
 
 func (pc *PipCommand) CommandName() string {
