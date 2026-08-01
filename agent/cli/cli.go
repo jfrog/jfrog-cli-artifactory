@@ -23,10 +23,11 @@ func GetCommands() []components.Command {
 			Subcommands: skillscli.GetSubCommands(),
 		},
 		{
-			Name:        "apm",
-			Description: "Agent Package Manager (APM) commands with JFrog Artifactory authentication.",
-			Subcommands: apmcli.GetSubCommands(),
-			Action:      passthrough.RunApmPassthroughDefault,
+			Name:          "apm",
+			Description:   apmcli.GetDescription(),
+			AIDescription: apmcli.GetAIDescription(),
+			Subcommands:   apmcli.GetSubCommands(),
+			Action:        passthrough.RunApmPassthroughDefault,
 		},
 	}
 }

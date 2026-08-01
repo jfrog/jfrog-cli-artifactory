@@ -62,6 +62,12 @@ func RunApmPassthroughDefault(c *components.Context) error {
 	if apmcommon.IsHelpRequest([]string{subcmd}) {
 		return apmcommon.RunApmCommand(nil, "--help", nil)
 	}
+	// e.g. "jf agent apm deps --help" - show apm's own help for that subcommand rather than
+	// falling through to ExecWithPackageManager, which would resolve server details and inject
+	// auth env for a command that never actually needs them.
+	if apmcommon.IsHelpRequest(c.Arguments[1:]) {
+		return apmcommon.RunApmCommand(nil, subcmd, []string{"--help"})
+	}
 
 	serverDetails, err := agentcommon.GetServerDetails(c)
 	if err != nil {
