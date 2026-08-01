@@ -429,31 +429,41 @@ func (sc *SetupCommand) configureNpmPnpm() error {
 }
 
 // hardenPnpmAuthConfig restricts pnpm's auth.ini - which holds the _authToken in
-// cleartext at 0644 - to owner-only. pnpm keeps auth.ini next to the file it
-// reports as `globalconfig`, and there is no first-party Go resolver for that
-// directory, so the path is taken from pnpm itself. This is best-effort: if pnpm
-// cannot be queried or the file was not written (e.g. anonymous access), it warns
-// or returns rather than failing an otherwise-successful setup.
+// cleartext at 0644 - to owner-only.
 func hardenPnpmAuthConfig() error {
-	out, err := exec.Command("pnpm", "config", "get", "globalconfig").Output()
-	if err != nil {
-		log.Warn("Could not resolve pnpm's config directory to restrict auth.ini permissions. " +
-			"If it holds an access token, restrict it to owner-only access manually.")
-		return nil
-	}
-	globalConfig := strings.TrimSpace(string(out))
-	if globalConfig == "" {
-		return nil
-	}
-	authIniPath := filepath.Join(filepath.Dir(globalConfig), "auth.ini")
-	if _, err := os.Stat(authIniPath); err != nil {
-		// No auth.ini (e.g. anonymous access) means there is no token to protect.
+	authIniPath, ok := pnpmAuthIniPath()
+	if !ok {
 		return nil
 	}
 	if err := permissions.ChmodOwnerOnly(authIniPath); err != nil {
 		return fmt.Errorf("failed to harden pnpm auth.ini permissions: %w", err)
 	}
 	return nil
+}
+
+// pnpmAuthIniPath returns pnpm's auth.ini path and whether it exists and should be
+// hardened. pnpm keeps auth.ini next to the file it reports as `globalconfig`, and
+// there is no first-party Go resolver for that directory, so the path is taken from
+// pnpm itself. This is best-effort: it reports ok=false (rather than surfacing an
+// error) when pnpm cannot be queried or no auth.ini was written (e.g. anonymous
+// access), so a resolution miss never fails an otherwise-successful setup.
+func pnpmAuthIniPath() (string, bool) {
+	out, err := exec.Command("pnpm", "config", "get", "globalconfig").Output()
+	if err != nil {
+		log.Warn("Could not resolve pnpm's config directory to restrict auth.ini permissions. " +
+			"If it holds an access token, restrict it to owner-only access manually.")
+		return "", false
+	}
+	globalConfig := strings.TrimSpace(string(out))
+	if globalConfig == "" {
+		return "", false
+	}
+	authIniPath := filepath.Join(filepath.Dir(globalConfig), "auth.ini")
+	if _, err := os.Stat(authIniPath); err != nil {
+		// No auth.ini (e.g. anonymous access) means there is no token to protect.
+		return "", false
+	}
+	return authIniPath, true
 }
 
 // configureYarn configures Yarn to use the specified Artifactory repository and sets authentication.
