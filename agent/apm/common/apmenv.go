@@ -16,6 +16,18 @@ import (
 
 const agentPackagesAPIPrefix = "/api/agentpackages/"
 
+// ApmBinaryName is the apm executable RunApmCommand always shells out to.
+const ApmBinaryName = "apm"
+
+// HelpFlag is the help flag this package constructs when forwarding to apm.
+const HelpFlag = "--help"
+
+// apmConfigDirName and apmConfigFileName make up ~/.apm/config.json.
+const (
+	apmConfigDirName  = ".apm"
+	apmConfigFileName = "config.json"
+)
+
 // AgentPackagesBaseURL returns the Artifactory agentpackages base URL for a repo.
 func AgentPackagesBaseURL(serverDetails *config.ServerDetails, repoName string) string {
 	base := strings.TrimSuffix(serverDetails.ArtifactoryUrl, "/")
@@ -40,10 +52,8 @@ func BuildRegistryEntry(serverDetails *config.ServerDetails, repoName string) (r
 	return base, ""
 }
 
-// apmConfigJSON models ~/.apm/config.json. Real-world files carry other top-level keys
-// too (e.g. "default_client", "install_target") that belong entirely to the apm CLI and
-// aren't understood here — Extra preserves them byte-for-byte across the read-merge-write
-// cycle so this code never silently destroys settings it doesn't know about.
+// apmConfigJSON models ~/.apm/config.json. Extra preserves top-level keys this code doesn't
+// understand (e.g. "default_client") byte-for-byte across the read-merge-write cycle.
 type apmConfigJSON struct {
 	Experimental experimentalConfig        `json:"-"`
 	Registries   map[string]registryConfig `json:"-"`
@@ -140,8 +150,7 @@ func discoverMatchingRegistries(existing *apmConfigJSON, manifestPath string, se
 }
 
 // sanitizeApmEnvName converts a registry name into apm's env-var-safe form: uppercased,
-// with "-" and "." mapped to "_" — confirmed against apm's own docs, which give
-// "corp-main"/"corp.main"/"Corp-Main" as an explicit example of names that collide.
+// with "-" and "." mapped to "_" (apm's own docs note these collide, e.g. "corp-main"/"corp.main").
 func sanitizeApmEnvName(name string) string {
 	return strings.NewReplacer("-", "_", ".", "_").Replace(strings.ToUpper(name))
 }
@@ -187,13 +196,9 @@ func injectRegistryCredentialEnv(env []string, name string, serverDetails *confi
 	return env
 }
 
-// ensureExperimentalFlagEnabled sets experimental.registries=true in the real
-// ~/.apm/config.json if it isn't already set. This is the one non-secret, monotonic
-// exception to "only jf setup agent-apm writes to the real home": apm has no env-var
-// equivalent for this flag (confirmed against apm's own docs), and unlike a registry
-// URL it can't collide across projects — it's a single global switch, not project-scoped
-// state, so enabling it as a side effect of ordinary usage carries none of the
-// cross-project collision risk a persisted registry entry would.
+// ensureExperimentalFlagEnabled sets experimental.registries=true in ~/.apm/config.json if
+// unset. Safe as a side effect of ordinary usage: it's a global, non-secret switch with no
+// per-project collision risk, unlike a registry entry.
 func ensureExperimentalFlagEnabled(realHome string, existing *apmConfigJSON) error {
 	if existing.Experimental.Registries {
 		return nil
@@ -250,7 +255,7 @@ func loadExistingApmConfig() (realHome string, existing *apmConfigJSON, err erro
 	if err != nil {
 		return "", nil, fmt.Errorf("get user home dir: %w", err)
 	}
-	existing, readErr := readApmConfig(filepath.Join(realHome, ".apm", "config.json"))
+	existing, readErr := readApmConfig(filepath.Join(realHome, apmConfigDirName, apmConfigFileName))
 	if readErr != nil {
 		log.Debug("Could not read existing APM config, starting fresh:", readErr.Error())
 		existing = &apmConfigJSON{}
@@ -273,12 +278,10 @@ func readApmConfig(path string) (*apmConfigJSON, error) {
 	return &cfg, nil
 }
 
-// writeApmConfig writes cfg via a temp-file-plus-rename so a crash mid-write, or two `jf agent
-// apm` invocations racing on the same home directory (e.g. parallel CI jobs on a shared runner),
-// can never truncate or corrupt the user's real, persistent APM config - os.Rename is atomic on
-// the same filesystem, so readers always see either the old file or the fully-written new one.
+// writeApmConfig writes cfg via temp-file-plus-rename, so a crash mid-write or two racing
+// invocations can never truncate or corrupt the user's real, persistent APM config.
 func writeApmConfig(tmpHome string, cfg *apmConfigJSON) error {
-	apmDir := filepath.Join(tmpHome, ".apm")
+	apmDir := filepath.Join(tmpHome, apmConfigDirName)
 	if err := os.MkdirAll(apmDir, 0700); err != nil {
 		return fmt.Errorf("create .apm dir: %w", err)
 	}
@@ -292,9 +295,7 @@ func writeApmConfig(tmpHome string, cfg *apmConfigJSON) error {
 		return fmt.Errorf("create temp APM config: %w", err)
 	}
 	tmpPath := tmpFile.Name()
-	// Best-effort teardown: a no-op once the rename below succeeds (nothing left to remove); on
-	// any earlier failure it clears the leftover temp file, and even if that removal itself
-	// fails, the result is just a harmless stray file under .apm/, not a correctness issue.
+	// No-op once the rename below succeeds; otherwise clears the leftover temp file (best-effort).
 	defer func() { _ = os.Remove(tmpPath) }()
 
 	if _, err = tmpFile.Write(data); err != nil {
@@ -304,7 +305,7 @@ func writeApmConfig(tmpHome string, cfg *apmConfigJSON) error {
 	if err = tmpFile.Close(); err != nil {
 		return fmt.Errorf("close temp APM config: %w", err)
 	}
-	if err = os.Rename(tmpPath, filepath.Join(apmDir, "config.json")); err != nil {
+	if err = os.Rename(tmpPath, filepath.Join(apmDir, apmConfigFileName)); err != nil {
 		return fmt.Errorf("rename temp APM config into place: %w", err)
 	}
 	return nil
@@ -317,18 +318,13 @@ func SanitizeLogValue(value string) string {
 	return strings.NewReplacer("\n", "", "\r", "").Replace(value)
 }
 
-// RunApmCommand runs "apm <subcmd> <args...>" with the provided environment.
-// If env is nil, the current process environment is used.
-// Deliberately logs only the subcommand name, never args: args frequently carry secrets here
-// (ConfigureApmRegistryPersistent passes a raw registry token, and BuildRegistryEntry can embed
-// basic-auth credentials in a URL argument) - logging the full joined argument list at Debug
-// level would write plaintext credentials into log output that CI systems/log aggregators may
-// capture and retain far more durably than "never written to a file" (the runtime auth path's
-// own goal) accounts for.
+// RunApmCommand runs "apm <subcmd> <args...>" with the provided environment (current process
+// environment if nil). Logs only the subcommand name, never args, since args can carry secrets
+// (registry tokens, basic-auth URLs).
 func RunApmCommand(env []string, subcmd string, args []string) error {
 	log.Debug(fmt.Sprintf("Running: apm %s", SanitizeLogValue(subcmd)))
 	allArgs := append([]string{subcmd}, args...)
-	cmd := exec.Command("apm", allArgs...) // #nosec G204 -- args are this same invocation's own CLI arguments, forwarded verbatim by design (this is the passthrough wrapper); no shell is invoked and no privilege boundary is crossed
+	cmd := exec.Command(ApmBinaryName, allArgs...) // #nosec G204 -- args are this same invocation's own CLI arguments, forwarded verbatim by design (this is the passthrough wrapper); no shell is invoked and no privilege boundary is crossed
 	if env != nil {
 		cmd.Env = env
 	}
@@ -341,17 +337,10 @@ func RunApmCommand(env []string, subcmd string, args []string) error {
 	return nil
 }
 
-// ConfigureApmRegistryPersistent configures the user's real ~/.apm/config.json using apm's own
-// `apm experimental enable registries` and `apm config set` commands — never by writing the
-// file directly. This is the one allowed persistent write of registry credentials/URLs — called
-// only by `jf setup agent-apm` (a separate, narrower exception exists for the non-secret
-// experimental.registries flag — see ensureExperimentalFlagEnabled above).
-// repoName is always resolved by the shared `jf setup <tool>` interactive repo picker before
-// this is called, so it's never empty here. Every other registry already in the file, and any
-// other top-level key (e.g. default_client), is left alone automatically — apm's own config-set
-// only ever touches the one key it's told to, and switching a registry's default clears any
-// previous default on its own (confirmed live: setting a second registry's default un-defaults
-// the first, with no separate unset step needed).
+// ConfigureApmRegistryPersistent configures ~/.apm/config.json via apm's own `apm experimental
+// enable registries` and `apm config set` commands, never by writing the file directly. Called
+// only by `jf setup agent-apm`; repoName is always non-empty, resolved by the interactive repo
+// picker beforehand.
 func ConfigureApmRegistryPersistent(serverDetails *config.ServerDetails, repoName string) error {
 	if serverDetails == nil {
 		return fmt.Errorf("server details are required for APM registry configuration")
@@ -374,11 +363,9 @@ func ConfigureApmRegistryPersistent(serverDetails *config.ServerDetails, repoNam
 }
 
 // ResolveRepoNameFromRegistry returns the Artifactory repo name for serverDetails, derived from
-// whichever already-declared registry (config.json or apm.yml) matches serverDetails.ArtifactoryUrl.
-// jf setup agent-apm always names a registry after the repo it points to, so the registry name
-// doubles as the repo name. Returns "" if no registry matches or more than one does (ambiguous) -
-// callers treat this the same as an unknown repo, not an error, since it only affects build-info
-// enrichment (OriginalDeploymentRepo / checksum lookup), never publish itself.
+// whichever declared registry (config.json or apm.yml) matches its host - a registry is always
+// named after its repo. Returns "" if none or more than one matches (treated as unknown, not an
+// error - it only affects build-info enrichment, never publish itself).
 func ResolveRepoNameFromRegistry(serverDetails *config.ServerDetails, manifestPath string) string {
 	if serverDetails == nil {
 		return ""
@@ -415,7 +402,7 @@ func RunApmSubcommandWithAuth(subcmd string, args []string, serverDetails *confi
 // IsHelpRequest returns true if the args include --help, -h, or "help".
 func IsHelpRequest(args []string) bool {
 	for _, arg := range args {
-		if arg == "--help" || arg == "-h" || arg == "help" {
+		if arg == HelpFlag || arg == "-h" || arg == "help" {
 			return true
 		}
 	}

@@ -36,7 +36,7 @@ func (c *ApmPassthroughCommand) SetServerDetails(serverDetails *config.ServerDet
 }
 
 func (c *ApmPassthroughCommand) CommandName() string {
-	return "rt_agent_apm_" + c.subcmd
+	return apmcommon.CommandNamePrefix + c.subcmd
 }
 
 func (c *ApmPassthroughCommand) ServerDetails() (*config.ServerDetails, error) {
@@ -48,25 +48,20 @@ func (c *ApmPassthroughCommand) Run() error {
 	return apmcommon.RunApmSubcommandWithAuth(c.subcmd, c.args, c.serverDetails)
 }
 
-// RunApmPassthroughDefault handles any `jf agent apm <subcmd>` where <subcmd> is not one of the
-// registered subcommands (install/publish/update). The subcmd is the first element of
-// c.Arguments; every remaining element is forwarded to apm untouched. Auth always comes from
-// the default configured JFrog server - passthrough takes no flags of its own at all, so there's
-// nothing to extract from c.Arguments.
+// RunApmPassthroughDefault handles any `jf agent apm <subcmd>` not among install/publish/update.
+// Auth always comes from the default configured JFrog server; passthrough takes no flags of its
+// own, so nothing is extracted from c.Arguments beyond the subcommand.
 func RunApmPassthroughDefault(c *components.Context) error {
 	if len(c.Arguments) == 0 {
-		return apmcommon.RunApmCommand(nil, "--help", nil)
+		return apmcommon.RunApmCommand(nil, apmcommon.HelpFlag, nil)
 	}
 
 	subcmd := c.Arguments[0]
 	if apmcommon.IsHelpRequest([]string{subcmd}) {
-		return apmcommon.RunApmCommand(nil, "--help", nil)
+		return apmcommon.RunApmCommand(nil, apmcommon.HelpFlag, nil)
 	}
-	// e.g. "jf agent apm deps why --help" - show apm's own help for that (sub)subcommand rather
-	// than falling through to ExecWithPackageManager, which would resolve server details and
-	// inject auth env for a command that never actually needs them. Forward the full remaining
-	// arg tail (not just a bare "--help") so nested commands like "deps why" keep their own
-	// subcommand and apm shows help for the right level, not just "apm deps --help".
+	// Show help without resolving server/auth, which a help request never needs. Forward the
+	// full remaining arg tail so nested commands like "deps why" get their own help, not "deps"'s.
 	if apmcommon.IsHelpRequest(c.Arguments[1:]) {
 		return apmcommon.RunApmCommand(nil, subcmd, c.Arguments[1:])
 	}
@@ -81,5 +76,5 @@ func RunApmPassthroughDefault(c *components.Context) error {
 		SetArgs(c.Arguments[1:]).
 		SetServerDetails(serverDetails)
 
-	return commands.ExecWithPackageManager(cmd, "agent-apm")
+	return commands.ExecWithPackageManager(cmd, apmcommon.PackageManagerID)
 }

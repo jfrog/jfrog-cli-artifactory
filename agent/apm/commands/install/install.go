@@ -14,14 +14,12 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+// apmSubcommand is the apm subcommand this package always drives.
+const apmSubcommand = "install"
+
 // ApmInstallCommand runs `apm install` with JFrog Artifactory authentication and collects
-// build-info from the resulting apm.lock.yaml.
-//
-// Unlike passthrough commands, install never accepts --repo: no other package-manager
-// integration in this CLI supports declaring a new repository at run time either - they all
-// require the one-time `jf setup <tool>` step first (§3, "jf setup agent-apm"). A registry
-// must already be declared (via jf setup agent-apm or apm.yml's own registries: block) before
-// install can authenticate against it.
+// build-info from the resulting apm.lock.yaml. Never accepts --repo; a registry must already be
+// declared via jf setup agent-apm or apm.yml's own registries: block.
 type ApmInstallCommand struct {
 	args               []string
 	serverDetails      *config.ServerDetails
@@ -48,7 +46,7 @@ func (c *ApmInstallCommand) SetBuildConfiguration(buildConfiguration *buildUtils
 }
 
 func (c *ApmInstallCommand) CommandName() string {
-	return "rt_agent_apm_install"
+	return apmcommon.CommandNamePrefix + apmSubcommand
 }
 
 func (c *ApmInstallCommand) ServerDetails() (*config.ServerDetails, error) {
@@ -58,7 +56,7 @@ func (c *ApmInstallCommand) ServerDetails() (*config.ServerDetails, error) {
 func (c *ApmInstallCommand) Run() error {
 	log.Info("Running apm install...")
 
-	if err := apmcommon.RunApmSubcommandWithAuth("install", c.args, c.serverDetails); err != nil {
+	if err := apmcommon.RunApmSubcommandWithAuth(apmSubcommand, c.args, c.serverDetails); err != nil {
 		return fmt.Errorf("run apm install: %w", err)
 	}
 
@@ -80,7 +78,7 @@ func (c *ApmInstallCommand) Run() error {
 // RunInstall is the CLI action handler for `jf agent apm install`.
 func RunInstall(c *components.Context) error {
 	if apmcommon.IsHelpRequest(c.Arguments) {
-		return apmcommon.RunApmCommand(nil, "install", []string{"--help"})
+		return apmcommon.RunApmCommand(nil, apmSubcommand, []string{apmcommon.HelpFlag})
 	}
 
 	opts, err := apmcommon.ExtractApmSubcommandOptions(c.Arguments)
@@ -97,5 +95,5 @@ func RunInstall(c *components.Context) error {
 		SetServerDetails(serverDetails).
 		SetBuildConfiguration(opts.BuildConfig)
 
-	return commands.ExecWithPackageManager(cmd, "agent-apm")
+	return commands.ExecWithPackageManager(cmd, apmcommon.PackageManagerID)
 }

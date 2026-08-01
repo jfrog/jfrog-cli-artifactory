@@ -8,11 +8,8 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 )
 
-// GetSubCommands returns the leaf commands for `jf agent apm`.
-// Commands not listed here fall through to the passthrough handler set on the parent.
-// "lock" is deliberately not listed here — it doesn't deploy anything, so there's nothing
-// a build actually consumed to report; it's served by the generic passthrough like every
-// other read/resolve-only apm command.
+// GetSubCommands returns the leaf commands for `jf agent apm`. Commands not listed here (e.g.
+// "lock", which resolves but deploys nothing) fall through to the parent's passthrough handler.
 func GetSubCommands() []components.Command {
 	return []components.Command{
 		{

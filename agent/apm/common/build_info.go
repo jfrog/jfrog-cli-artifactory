@@ -13,6 +13,19 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+// apmModuleType is the build-info module type for every apm-produced module (dependencies and
+// published artifacts alike).
+const apmModuleType = "apm"
+
+// apmPackageFileExtension is the file type apm dependencies and published artifacts are stored
+// as in Artifactory ({repo}/{owner}/{name}/{name}-{version}.zip), shared with
+// dependency_resolver.go's ToEntitiesDependency.
+const apmPackageFileExtension = "zip"
+
+// errBuildInfoNotEnabled is returned by both saveInstallBuildInfo and SavePublishBuildInfo when
+// buildUtils.PrepareBuildPrerequisites reports build-info collection isn't enabled.
+const errBuildInfoNotEnabled = "build info collection is not enabled"
+
 // CollectAndSaveInstallBuildInfo reads the lockfile, resolves checksums, and saves build-info.
 // Runs only when build info collection is enabled.
 func CollectAndSaveInstallBuildInfo(lockfilePath, manifestPath string, serverDetails *config.ServerDetails, buildConfig *buildUtils.BuildConfiguration) error {
@@ -28,9 +41,8 @@ func CollectAndSaveInstallBuildInfo(lockfilePath, manifestPath string, serverDet
 	deps, err := ResolveDependencies(lockfilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// apm doesn't write apm.lock.yaml at all when a project has zero dependencies
-			// ("No changes -- install state already up to date") - this is the expected,
-			// common case, not a failure.
+			// apm skips writing apm.lock.yaml when a project has zero dependencies - expected,
+			// not a failure.
 			log.Info("No apm.lock.yaml found (project has no dependencies). Skipping build info.")
 			return nil
 		}
@@ -64,7 +76,7 @@ func saveInstallBuildInfo(deps []ResolvedDep, checksumMap map[string]entities.Ch
 		return err
 	}
 	if apmBuild == nil {
-		return errorutils.CheckErrorf("build info collection is not enabled")
+		return errorutils.CheckErrorf(errBuildInfoNotEnabled)
 	}
 
 	moduleID := buildConfig.GetModule()
@@ -80,7 +92,7 @@ func saveInstallBuildInfo(deps []ResolvedDep, checksumMap map[string]entities.Ch
 
 	partial := &entities.Partial{
 		ModuleId:     moduleID,
-		ModuleType:   "apm",
+		ModuleType:   apmModuleType,
 		Dependencies: entityDeps,
 	}
 	if err = apmBuild.SavePartialBuildInfo(partial); err != nil {
@@ -91,9 +103,8 @@ func saveInstallBuildInfo(deps []ResolvedDep, checksumMap map[string]entities.Ch
 	return nil
 }
 
-// SavePublishBuildInfo saves build artifact info for a published APM package.
-// Path/Name match Artifactory's real agentpackages storage layout, confirmed live:
-// {repo}/{owner}/{name}/{name}-{version}.zip
+// SavePublishBuildInfo saves build artifact info for a published APM package. Path/Name match
+// Artifactory's agentpackages storage layout: {repo}/{owner}/{name}/{name}-{version}.zip
 func SavePublishBuildInfo(owner, name, version string, checksum entities.Checksum, repoName string, buildConfig *buildUtils.BuildConfiguration) error {
 	buildName, err := buildConfig.GetBuildName()
 	if err != nil {
@@ -109,7 +120,7 @@ func SavePublishBuildInfo(owner, name, version string, checksum entities.Checksu
 		return err
 	}
 	if apmBuild == nil {
-		return errorutils.CheckErrorf("build info collection is not enabled")
+		return errorutils.CheckErrorf(errBuildInfoNotEnabled)
 	}
 
 	moduleID := buildConfig.GetModule()
@@ -117,7 +128,7 @@ func SavePublishBuildInfo(owner, name, version string, checksum entities.Checksu
 		moduleID = name + ":" + version
 	}
 
-	fileName := name + "-" + version + ".zip"
+	fileName := name + "-" + version + "." + apmPackageFileExtension
 	artifactPath := fileName
 	if owner != "" {
 		artifactPath = owner + "/" + name + "/" + fileName
@@ -125,13 +136,13 @@ func SavePublishBuildInfo(owner, name, version string, checksum entities.Checksu
 
 	artifact := entities.Artifact{
 		Name:                   fileName,
-		Type:                   "zip",
+		Type:                   apmPackageFileExtension,
 		Path:                   artifactPath,
 		OriginalDeploymentRepo: repoName,
 		Checksum:               checksum,
 	}
 
-	if err = apmBuild.AddArtifacts(moduleID, "apm", artifact); err != nil {
+	if err = apmBuild.AddArtifacts(moduleID, apmModuleType, artifact); err != nil {
 		return err
 	}
 
@@ -164,11 +175,9 @@ func CollectAndSavePublishBuildInfo(manifestPath, owner, repoName string, server
 }
 
 // lookupPublishedArtifactChecksum issues an HTTP HEAD against the just-published artifact's own
-// download URL and reads its checksum straight from Artifactory's X-Checksum-* response headers —
-// the same mechanism ResolveChecksums (checksums.go) already uses for dependency checksums, and the
-// same download-URL shape apm.lock.yaml's resolved_url entries use.
-// Returns an empty Checksum (not an error) if the repo/owner are unknown or the lookup fails,
-// since a missing checksum shouldn't fail an already-successful publish.
+// download URL and reads its checksum from Artifactory's X-Checksum-* response headers. Returns
+// an empty Checksum (not an error) if the repo/owner are unknown or the lookup fails, since a
+// missing checksum shouldn't fail an already-successful publish.
 func lookupPublishedArtifactChecksum(owner, name, version, repoName string, serverDetails *config.ServerDetails) entities.Checksum {
 	if owner == "" || repoName == "" || serverDetails == nil {
 		return entities.Checksum{}

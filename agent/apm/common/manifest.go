@@ -11,27 +11,21 @@ import (
 
 const ApmManifestName = "apm.yml"
 
-// ApmManifest represents apm.yml. Dependencies are intentionally not modeled here:
-// the real schema is a nested map (dependencies: {apm: [...], mcp: [...]}), and nothing
-// in this package currently needs the declared-dependency list — only name/version/registries.
+// ApmManifest represents apm.yml. Dependencies are intentionally not modeled here: the real
+// schema is a nested map (dependencies: {apm: [...], mcp: [...]}), and nothing in this package
+// needs the declared-dependency list, only name/version/registries.
 //
-// Registries is a map keyed by registry name (confirmed live against a real apm.yml) —
-// not a list. An earlier version of this struct modeled it as []ManifestRegistry, which
-// made LoadManifest fail on every real apm.yml that declares any registries at all.
+// Registries is a map keyed by registry name, not a list.
 type ApmManifest struct {
 	Name       string             `yaml:"name"`
 	Version    string             `yaml:"version"`
 	Registries ManifestRegistries `yaml:"registries"`
 }
 
-// ManifestRegistries models apm.yml's registries: block: a map of registry name to entry,
-// plus an optional sibling "default: <name>" key (confirmed against the real schema at
-// https://microsoft.github.io/apm/reference/manifest-schema/ - a registries: block without a
-// default has no effect on plain owner/repo dependency resolution at all). "default" lives at
-// the same YAML level as the registry names themselves, not nested under one, so it can't be
-// modeled as a plain map[string]ManifestRegistry - yaml.Unmarshal would try to decode the
-// "default" value (a string) as a ManifestRegistry (a struct) and fail, silently discarding
-// every registry in the block along with it (see UnmarshalYAML).
+// ManifestRegistries models apm.yml's registries: block: a map of registry name to entry, plus
+// an optional sibling "default: <name>" key at the same YAML level as the registry names
+// themselves - not nested under one - so it can't be a plain map[string]ManifestRegistry (see
+// UnmarshalYAML).
 type ManifestRegistries struct {
 	Entries map[string]ManifestRegistry
 	Default string

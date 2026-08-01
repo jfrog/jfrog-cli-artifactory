@@ -19,12 +19,8 @@ type ApmSubcommandOptions struct {
 
 // ExtractApmSubcommandOptions extracts install/publish/update's own flags (--build-name,
 // --build-number, --module, --project) from args and resolves them into a BuildConfiguration.
-//
-// This exists because install/publish/update set SkipFlagParsing (so apm-native flags that
-// aren't in jf's own declared flag set - --package, --registry, --zip, --dry-run - don't get
-// rejected by urfave/cli before ever reaching apm). SkipFlagParsing means urfave/cli parses
-// NONE of the flags itself, jf's own included, so every one of them has to be pulled out by
-// hand.
+// Needed because those commands set SkipFlagParsing (so apm-native flags reach apm unrejected),
+// which means urfave/cli parses none of jf's own flags either - they must be pulled out by hand.
 func ExtractApmSubcommandOptions(args []string) (*ApmSubcommandOptions, error) {
 	rest := args
 	var buildName, buildNumber, module, project string

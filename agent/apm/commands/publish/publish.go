@@ -15,15 +15,13 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+// apmSubcommand is the apm subcommand this package always drives.
+const apmSubcommand = "publish"
+
 // ApmPublishCommand runs `apm publish` with JFrog Artifactory authentication and records the
-// published package in build-info.
-//
-// Unlike passthrough commands, publish never accepts --repo: no other package-manager
-// integration in this CLI supports declaring a new repository at run time either - they all
-// require the one-time `jf setup <tool>` step first. A registry must already be declared
-// (via jf setup agent-apm or apm.yml's own registries: block) before publish can authenticate
-// against it; the repo name used for build-info enrichment is derived from that same
-// declaration (see ResolveRepoNameFromRegistry).
+// published package in build-info. Never accepts --repo; a registry must already be declared
+// via jf setup agent-apm or apm.yml's own registries: block, which also supplies the repo name
+// for build-info enrichment (see ResolveRepoNameFromRegistry).
 type ApmPublishCommand struct {
 	args               []string
 	serverDetails      *config.ServerDetails
@@ -50,20 +48,16 @@ func (c *ApmPublishCommand) SetBuildConfiguration(buildConfiguration *buildUtils
 }
 
 func (c *ApmPublishCommand) CommandName() string {
-	return "rt_agent_apm_publish"
+	return apmcommon.CommandNamePrefix + apmSubcommand
 }
 
 func (c *ApmPublishCommand) ServerDetails() (*config.ServerDetails, error) {
 	return c.serverDetails, nil
 }
 
-// requirePackageFlag returns a clear, jf-level error if --package isn't present in args.
-// A prior version auto-promoted a bare positional spec (e.g. "jfrog/proj3") into --package, but
-// that heuristic could mistake a value-taking apm flag's value for the package - e.g. in
-// "--zip foo.zip acme/pkg", it would grab "foo.zip" (--zip's value) instead of "acme/pkg". Rather
-// than track every apm flag that might take a value (and risk the same class of bug again the
-// next time apm adds one), --package is required explicitly - removing the ambiguity entirely
-// instead of working around it.
+// requirePackageFlag returns a clear, jf-level error if --package isn't present in args. It must
+// be passed explicitly (not inferred from a bare positional argument), since a positional value
+// could be mistaken for a value-taking apm flag's argument (e.g. "--zip foo.zip acme/pkg").
 func requirePackageFlag(args []string) error {
 	for _, arg := range args {
 		if arg == "--package" || strings.HasPrefix(arg, "--package=") {
@@ -79,7 +73,7 @@ func (c *ApmPublishCommand) Run() error {
 	if err := requirePackageFlag(c.args); err != nil {
 		return err
 	}
-	if err := apmcommon.RunApmSubcommandWithAuth("publish", c.args, c.serverDetails); err != nil {
+	if err := apmcommon.RunApmSubcommandWithAuth(apmSubcommand, c.args, c.serverDetails); err != nil {
 		return fmt.Errorf("run apm publish: %w", err)
 	}
 
@@ -122,7 +116,7 @@ func ownerFromArgs(args []string) string {
 // RunPublish is the CLI action handler for `jf agent apm publish`.
 func RunPublish(c *components.Context) error {
 	if apmcommon.IsHelpRequest(c.Arguments) {
-		return apmcommon.RunApmCommand(nil, "publish", []string{"--help"})
+		return apmcommon.RunApmCommand(nil, apmSubcommand, []string{apmcommon.HelpFlag})
 	}
 
 	opts, err := apmcommon.ExtractApmSubcommandOptions(c.Arguments)
@@ -139,5 +133,5 @@ func RunPublish(c *components.Context) error {
 		SetServerDetails(serverDetails).
 		SetBuildConfiguration(opts.BuildConfig)
 
-	return commands.ExecWithPackageManager(cmd, "agent-apm")
+	return commands.ExecWithPackageManager(cmd, apmcommon.PackageManagerID)
 }

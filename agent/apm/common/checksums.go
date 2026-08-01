@@ -18,10 +18,8 @@ const headWorkerCount = 15
 // ResolveChecksums resolves full checksums for registry dependencies.
 // Strategy:
 //  1. Previous build cache (SHA-1, MD5, SHA-256 from last build).
-//  2. HTTP HEAD against each dependency's resolved_url (already the exact download URL — no
-//     repo/path reconstruction or query needed), reading Artifactory's X-Checksum-* response
-//     headers directly. Confirmed live to match AQL results exactly, and the same mechanism
-//     ocicontainer/docker already uses for artifacts it can't resolve via AQL.
+//  2. HTTP HEAD against each dependency's resolved_url, reading Artifactory's X-Checksum-*
+//     response headers directly.
 //  3. Fallback: use lockfile SHA-256 only when the HEAD request finds no match.
 func ResolveChecksums(deps []ResolvedDep, serverDetails *config.ServerDetails, buildConfig *buildUtils.BuildConfiguration) (map[string]entities.Checksum, error) {
 	servicesManager, err := coreArtUtils.CreateServiceManager(serverDetails, -1, 0, false)
@@ -55,9 +53,7 @@ func ResolveChecksums(deps []ResolvedDep, serverDetails *config.ServerDetails, b
 }
 
 // selectCachedAndUncached is the tier-1-vs-tier-2 decision: which dependencies already have a
-// checksum from the previous build's cache, and which still need a HEAD lookup. Pulled out on
-// its own, taking plain maps/slices rather than a live ArtifactoryServicesManager, so this
-// selection rule is unit-testable without a real Artifactory connection.
+// checksum from the previous build's cache, and which still need a HEAD lookup.
 func selectCachedAndUncached(deps []ResolvedDep, cachedChecksums map[string]entities.Checksum) (cached map[string]entities.Checksum, uncached []ResolvedDep) {
 	cached = make(map[string]entities.Checksum)
 	for _, dep := range deps {
@@ -71,13 +67,10 @@ func selectCachedAndUncached(deps []ResolvedDep, cachedChecksums map[string]enti
 }
 
 // applyHeadResultsOrLockfileFallback is the tier-2-vs-tier-3 decision: for every dependency that
-// missed the build cache, use its HEAD-request checksum if one came back with an actual checksum
-// value, else fall back to the lockfile's own SHA-256 (dependencies with neither are simply
-// omitted - no checksum recorded). A HEAD request can succeed (no error, entry present in
-// headResults) while still returning an empty Checksum{} - e.g. Artifactory responding without
-// any X-Checksum-* headers - and that must not block the lockfile fallback the same way a real
-// miss wouldn't. Pulled out on its own, taking a plain results map rather than making the HTTP
-// calls itself, so this selection rule is unit-testable without a real HTTP client.
+// missed the build cache, use its HEAD-request checksum if it actually has one, else fall back
+// to the lockfile's own SHA-256 (dependencies with neither are simply omitted). A HEAD request
+// can succeed with an empty Checksum{} (no X-Checksum-* headers at all), which must not block
+// the lockfile fallback the same way a real miss wouldn't.
 func applyHeadResultsOrLockfileFallback(uncached []ResolvedDep, headResults map[string]entities.Checksum) map[string]entities.Checksum {
 	resolved := make(map[string]entities.Checksum, len(uncached))
 	for _, dep := range uncached {

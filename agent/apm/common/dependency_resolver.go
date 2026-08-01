@@ -14,19 +14,13 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-// depsWhyWorkerCount bounds how many `apm deps why` subprocesses run concurrently - mirrors
-// headWorkerCount in checksums.go, the same bounded-concurrency budget for a similar
-// per-dependency subprocess/request fan-out.
+// depsWhyWorkerCount bounds concurrent `apm deps why` subprocesses (mirrors headWorkerCount).
 const depsWhyWorkerCount = 15
 
-// depsWhyTimeout bounds a single `apm deps why` subprocess. Without it, a hang (not a failure)
-// would block forever and the "best-effort, falls back to prod scope" guarantee below would
-// never actually trigger.
+// depsWhyTimeout bounds a single `apm deps why` subprocess, so a hang can't block forever.
 const depsWhyTimeout = 30 * time.Second
 
-// Dependency scope names. "prod" matches the direct-dependency label the newer sibling
-// FlexPack integrations (Alpine's AlpineScopeProd, Cargo's "prod") converged on, rather than
-// "runtime" (the older, now-minority convention nix alone still uses).
+// Dependency scope names, matching the "prod"/"transitive" convention Alpine and Cargo use.
 const (
 	apmScopeProd       = "prod"
 	apmScopeTransitive = "transitive"
@@ -43,9 +37,7 @@ type ResolvedDep struct {
 }
 
 // ResolveDependencies reads the lockfile and returns only registry-sourced dependencies.
-// Resolves each dependency's scope/requestedBy concurrently (bounded by depsWhyWorkerCount),
-// since each one spawns its own `apm deps why` subprocess and a large lockfile would otherwise
-// pay subprocess-startup + I/O cost sequentially, one dependency at a time.
+// Resolves each dependency's scope/requestedBy concurrently (bounded by depsWhyWorkerCount).
 func ResolveDependencies(lockfilePath string) ([]ResolvedDep, error) {
 	lockfile, err := LoadLockFile(lockfilePath)
 	if err != nil {
@@ -80,27 +72,21 @@ func ResolveDependencies(lockfilePath string) ([]ResolvedDep, error) {
 }
 
 // ToEntitiesDependency converts a ResolvedDep to entities.Dependency with resolved checksums.
-// Type is "zip" — confirmed live against Artifactory's real agentpackages storage layout.
 func (dep ResolvedDep) ToEntitiesDependency(checksum entities.Checksum) entities.Dependency {
 	return entities.Dependency{
 		Id:          dep.ID,
-		Type:        "zip",
+		Type:        apmPackageFileExtension,
 		Scopes:      dep.Scopes,
 		RequestedBy: dep.RequestedBy,
 		Checksum:    checksum,
 	}
 }
 
-// requestedByMaxPaths caps how many distinct requestedBy paths are reported per dependency,
-// mirroring entities.RequestedByMaxLength - the same limit golang.go/yarn.go/uv_flexpack.go
-// apply to len(dependency.RequestedBy) to bound fan-in from widely-shared packages (the
-// common runaway case; a diamond dependency is exactly this: many packages sharing one base).
+// requestedByMaxPaths caps requestedBy paths per dependency, bounding fan-in from widely-shared
+// packages (e.g. a diamond dependency's base), mirroring entities.RequestedByMaxLength.
 const requestedByMaxPaths = entities.RequestedByMaxLength
 
-// apmDepsWhyResult is the `apm deps why <repo_url> --json` response. Preferred over the
-// lockfile's own depth/resolved_by fields, which aren't part of any documented schema (and
-// aren't modeled in ApmLockedPackage) - this is a stable, documented command surface built
-// specifically to answer "is this direct, and who pulled it in".
+// apmDepsWhyResult is the `apm deps why <repo_url> --json` response.
 type apmDepsWhyResult struct {
 	Package struct {
 		IsDirect bool `json:"is_direct"`
@@ -114,19 +100,11 @@ type apmDepsWhyResult struct {
 
 // resolveScopeAndRequestedBy shells out to `apm deps why <repoURL> --json` in workingDir to
 // determine whether a dependency is direct or transitive, and - for transitive ones - which
-// package(s) requested it. Preferred over the lockfile's own depth/resolved_by fields: `deps
-// why` is a documented, stable command built for exactly this question, and naturally handles
-// a dependency reachable through more than one parent (each returned path becomes one
-// RequestedBy chain), which a single resolved_by string in the lockfile can't represent.
-//
-// Best-effort: if apm isn't on PATH or the command fails for any reason, this falls back to
-// prod scope with no requestedBy rather than failing the whole build-info collection - the
-// dependency's id/checksum are still correct either way.
+// package(s) requested it. Best-effort: any failure falls back to prod scope with no
+// requestedBy rather than failing the whole build-info collection.
 func resolveScopeAndRequestedBy(workingDir, repoURL string) (scopes []string, requestedBy [][]string) {
-	// repoURL comes from apm.lock.yaml, not a trusted CLI arg - a tampered lockfile could set
-	// it to something starting with "-" to smuggle an extra flag into the apm invocation
-	// below. Real repo_url values are always "owner/repo"; reject anything flag-shaped instead
-	// of passing it through.
+	// repoURL comes from apm.lock.yaml, not a trusted CLI arg - reject flag-shaped values so a
+	// tampered lockfile can't smuggle an extra flag into the apm invocation below.
 	if strings.HasPrefix(repoURL, "-") {
 		log.Debug(fmt.Sprintf("Refusing to run apm deps why for suspicious repo_url %q, defaulting to prod scope", repoURL))
 		return []string{apmScopeProd}, nil
@@ -134,7 +112,7 @@ func resolveScopeAndRequestedBy(workingDir, repoURL string) (scopes []string, re
 
 	ctx, cancel := context.WithTimeout(context.Background(), depsWhyTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "apm", "deps", "why", repoURL, "--json") // #nosec G204 -- repoURL is validated above to reject flag-shaped values; exec.Command never invokes a shell, so no injection vector remains
+	cmd := exec.CommandContext(ctx, ApmBinaryName, "deps", "why", repoURL, "--json") // #nosec G204 -- repoURL is validated above to reject flag-shaped values; exec.Command never invokes a shell, so no injection vector remains
 	cmd.Dir = workingDir
 	out, err := cmd.Output()
 	if err != nil {

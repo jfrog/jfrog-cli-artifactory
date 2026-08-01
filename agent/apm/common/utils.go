@@ -29,7 +29,7 @@ func ValidateApmPrerequisites() error {
 // GetApmVersion runs "apm --version" and parses the dotted version number out of its
 // descriptive output.
 func GetApmVersion() (*version.Version, error) {
-	out, err := exec.Command("apm", "--version").Output()
+	out, err := exec.Command(ApmBinaryName, "--version").Output()
 	if err != nil {
 		return nil, errorutils.CheckErrorf("failed to determine apm version. Ensure apm is installed: %s", err.Error())
 	}
