@@ -68,50 +68,6 @@ func TestCreatePipConfigManually_HardensExistingFile(t *testing.T) {
 	assertOwnerOnly(t, customConfigPath)
 }
 
-func TestPipConfigPathFromOutput(t *testing.T) {
-	testCases := []struct {
-		name     string
-		output   string
-		expected string
-	}{
-		{
-			name:     "Unix path",
-			output:   "Writing to /home/me/.config/pip/pip.conf\n",
-			expected: filepath.Clean("/home/me/.config/pip/pip.conf"),
-		},
-		{
-			name:     "Path containing spaces",
-			output:   "Writing to /Users/me/Library/Application Support/pip/pip.conf\n",
-			expected: filepath.Clean("/Users/me/Library/Application Support/pip/pip.conf"),
-		},
-		{
-			name:     "Line surrounded by other output",
-			output:   "some preamble\n  Writing to /home/me/.config/pip/pip.conf  \ntrailing\n",
-			expected: filepath.Clean("/home/me/.config/pip/pip.conf"),
-		},
-		{
-			name:     "No reported path",
-			output:   "nothing to see here\n",
-			expected: "",
-		},
-		{
-			name:     "Empty output",
-			output:   "",
-			expected: "",
-		},
-		{
-			name:     "Prefix with no path",
-			output:   "Writing to \n",
-			expected: "",
-		},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			assert.Equal(t, testCase.expected, PipConfigPathFromOutput(testCase.output))
-		})
-	}
-}
-
 // pip prefers ~/Library/Application Support/pip when that directory exists, so
 // the derived path must follow it there rather than assuming ~/.config.
 func TestResolvePipConfigPath_MacOSApplicationSupport(t *testing.T) {
@@ -187,6 +143,8 @@ func TestResolvePipConfigPath_WindowsAppData(t *testing.T) {
 	assert.Contains(t, strings.ToLower(err.Error()), "appdata")
 }
 
+// HardenPipConfigPermissions tightens the user-level pip config the derived path
+// resolves to (PIP_CONFIG_FILE here) from 0644 to owner-only.
 func TestHardenPipConfigPermissions(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "pip")
 	require.NoError(t, os.MkdirAll(dir, 0700))
@@ -194,62 +152,16 @@ func TestHardenPipConfigPermissions(t *testing.T) {
 	require.NoError(t, os.WriteFile(conf, []byte("[global]\nindex-url = https://x\n"), 0644))
 	t.Setenv("PIP_CONFIG_FILE", conf)
 
-	require.NoError(t, HardenPipConfigPermissions(""))
+	HardenPipConfigPermissions()
 
 	assertOwnerOnly(t, conf)
 }
 
-// A path pip itself reported takes precedence over the derived one.
-func TestHardenPipConfigPermissions_UsesReportedPath(t *testing.T) {
-	dir := t.TempDir()
-	reported := filepath.Join(dir, "reported.conf")
-	require.NoError(t, os.WriteFile(reported, []byte("[global]\n"), 0644))
-	require.NoError(t, os.Chmod(reported, 0644))
-	// A derived path that exists but is NOT the one pip wrote must be left alone.
-	derived := filepath.Join(dir, "derived.conf")
-	require.NoError(t, os.WriteFile(derived, []byte("[global]\n"), 0644))
-	require.NoError(t, os.Chmod(derived, 0644))
-	t.Setenv("PIP_CONFIG_FILE", derived)
+// Best-effort: a config file the derived path cannot locate is warned about, not
+// fatal - our derivation can disagree with pip, and failing would break
+// `jf setup pip` on a machine it just configured correctly.
+func TestHardenPipConfigPermissions_MissingFileDoesNotPanic(t *testing.T) {
+	t.Setenv("PIP_CONFIG_FILE", filepath.Join(t.TempDir(), "does-not-exist.conf"))
 
-	require.NoError(t, HardenPipConfigPermissions(reported))
-
-	assertOwnerOnly(t, reported)
-	if !coreutils.IsWindows() {
-		info, err := os.Stat(derived)
-		require.NoError(t, err)
-		assert.Equal(t, os.FileMode(0644), info.Mode().Perm(), "the derived path must not be touched")
-	}
-}
-
-// Fail closed when pip named the file: it said it wrote there, so a miss is real.
-func TestHardenPipConfigPermissions_ReportedMissingFails(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), "does-not-exist.conf")
-
-	err := HardenPipConfigPermissions(missing)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "missing")
-}
-
-// But a *derived* miss only warns: our derivation can disagree with pip, and
-// failing would break `jf setup pip` on a machine it just configured correctly.
-func TestHardenPipConfigPermissions_DerivedMissingWarnsOnly(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), "does-not-exist.conf")
-	t.Setenv("PIP_CONFIG_FILE", missing)
-
-	assert.NoError(t, HardenPipConfigPermissions(""))
-}
-
-// A stat failure that is not "file missing" is never benign - it must surface
-// even for a derived path, which the IsNotExist branch alone would swallow.
-// A path under a regular file yields ENOTDIR, which os.IsNotExist rejects.
-func TestHardenPipConfigPermissions_StatErrorFails(t *testing.T) {
-	if coreutils.IsWindows() {
-		t.Skip("Windows reports a missing path here rather than ENOTDIR")
-	}
-	notADir := filepath.Join(t.TempDir(), "regular-file")
-	require.NoError(t, os.WriteFile(notADir, []byte("x"), 0600))
-
-	err := HardenPipConfigPermissions(filepath.Join(notADir, "pip.conf"))
-	require.Error(t, err)
-	assert.NotContains(t, err.Error(), "missing after setup")
+	assert.NotPanics(t, HardenPipConfigPermissions)
 }

@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/build-info-go/utils/pythonutils"
@@ -63,32 +62,7 @@ func CreatePipConfigManually(customPipConfigPath, repoWithCredsUrl string) error
 	// Write the configuration to pip.conf with owner-only permissions — the
 	// index-url may embed credentials (user:token@host).
 	configContent := fmt.Sprintf("[global]\nindex-url = %s\n", repoWithCredsUrl)
-	if err := os.WriteFile(cleanPath, []byte(configContent), 0600); err != nil {
-		return errorutils.CheckError(err)
-	}
-	// WriteFile applies the mode only when it creates the file, so a config left
-	// at 0644 by an earlier run would otherwise stay world-readable.
-	return permissions.ChmodOwnerOnly(cleanPath)
-}
-
-// pipWritingToPrefix is the prefix `pip config set` prints when it persists a
-// value, e.g. "Writing to /Users/me/.config/pip/pip.conf".
-const pipWritingToPrefix = "Writing to "
-
-// PipConfigPathFromOutput extracts the config file path pip reported writing to,
-// or "" when the output carries no such line. This is authoritative — unlike
-// ResolvePipConfigPath it cannot disagree with the pip that actually ran.
-func PipConfigPathFromOutput(output string) string {
-	for _, line := range strings.Split(output, "\n") {
-		reported, found := strings.CutPrefix(strings.TrimSpace(line), pipWritingToPrefix)
-		if !found {
-			continue
-		}
-		if reported = strings.TrimSpace(reported); reported != "" {
-			return filepath.Clean(reported)
-		}
-	}
-	return ""
+	return permissions.WriteFileOwnerOnly(cleanPath, []byte(configContent))
 }
 
 // ResolvePipConfigPath mirrors pip's own per-user config resolution
@@ -106,11 +80,11 @@ func PipConfigPathFromOutput(output string) string {
 // pip's legacy ~/.pip/pip.conf is deliberately not derived: its user-config
 // list is [legacy, new] and `pip config set` edits the last entry, so it always
 // writes the new location. Verified on pip 26.1.2 - with a legacy file present
-// it still reports "Writing to ~/.config/pip/pip.conf". Preferring legacy here
-// would tighten a file that holds no token and miss the one that does.
+// it still writes ~/.config/pip/pip.conf. Preferring legacy here would tighten a
+// file that holds no token and miss the one that does.
 //
-// Prefer PipConfigPathFromOutput; this is the fallback for when pip's own
-// report is unavailable.
+// `pip config set` defaults to the user-level file, so this resolution matches
+// the file it just wrote without having to parse pip's human-readable output.
 func ResolvePipConfigPath() (string, error) {
 	if custom := os.Getenv("PIP_CONFIG_FILE"); custom != "" {
 		return filepath.Clean(custom), nil
@@ -139,40 +113,22 @@ func ResolvePipConfigPath() (string, error) {
 	return filepath.Join(pipDir, configName), nil
 }
 
-// HardenPipConfigPermissions forces the pip config file to 0600 so a cleartext
-// token in index-url is not left world-readable after `pip config set`.
+// HardenPipConfigPermissions best-effort restricts the pip config file
+// `pip config set` wrote to owner-only, so a cleartext token in index-url is not
+// left world-readable. It is best-effort by design: pip is already configured, so
+// a path we cannot resolve or tighten is warned about rather than failing the
+// setup command (see permissions.RestrictExisting).
 //
-// reportedPath is the path pip printed; pass "" to fall back to
-// ResolvePipConfigPath. A *derived* path that turns out not to exist is only
-// warned about: pip's resolution can legitimately differ from ours, and failing
-// there would break `jf setup pip` on a machine it had just configured
-// correctly. A path pip itself reported must exist, so that stays fail-closed.
-//
-// Unix only - see chmodOwnerOnly: on Windows the mode cannot be tightened, so
-// pip.ini keeps the ACLs of its parent directory and this function reports
-// success without having protected anything.
-func HardenPipConfigPermissions(reportedPath string) error {
-	confPath := reportedPath
-	derived := confPath == ""
-	if derived {
-		var err error
-		if confPath, err = ResolvePipConfigPath(); err != nil {
-			return err
-		}
-		log.Debug("pip did not report the configuration file it wrote; falling back to the derived path", confPath)
+// Unix only - see permissions.chmodOwnerOnly: on Windows the mode cannot be
+// tightened, so pip.ini keeps the ACLs of its parent directory.
+func HardenPipConfigPermissions() {
+	confPath, err := ResolvePipConfigPath()
+	if err != nil {
+		log.Warn("Could not resolve the pip configuration file to restrict its permissions: " + err.Error() +
+			". If it holds credentials, restrict it to owner-only access manually.")
+		return
 	}
-	if _, err := os.Stat(confPath); err != nil {
-		if os.IsNotExist(err) {
-			if derived {
-				log.Warn("Could not locate the pip configuration file to restrict its permissions (looked in " + confPath +
-					"). It may hold credentials in cleartext - consider restricting it to owner-only access manually.")
-				return nil
-			}
-			return errorutils.CheckErrorf("pip config file missing after setup: %s", confPath)
-		}
-		return errorutils.CheckError(err)
-	}
-	return permissions.ChmodOwnerOnly(confPath)
+	permissions.RestrictExisting(confPath)
 }
 
 func (pc *PipCommand) CommandName() string {

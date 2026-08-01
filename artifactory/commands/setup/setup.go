@@ -326,16 +326,13 @@ func (sc *SetupCommand) configurePip() error {
 		}
 		return nil
 	}
-	output, err := python.RunConfigCommand(project.Pip, []string{"set", "global.index-url", repoWithCredsUrl})
-	if err != nil {
+	if err := python.RunConfigCommand(project.Pip, []string{"set", "global.index-url", repoWithCredsUrl}); err != nil {
 		return fmt.Errorf("failed to configure pip index-url: %w", err)
 	}
-	// pip config set creates the file with umask-derived permissions (often 0644);
-	// harden to 0600 because index-url embeds credentials. pip reports the file it
-	// wrote, which beats re-deriving a path that can disagree with it.
-	if err := python.HardenPipConfigPermissions(python.PipConfigPathFromOutput(output)); err != nil {
-		return fmt.Errorf("failed to harden pip config permissions: %w", err)
-	}
+	// pip config set creates the file at 0644; harden to 0600 because index-url
+	// embeds credentials. `pip config set` writes the user-level file, so the
+	// derived path matches it without parsing pip's human-readable output.
+	python.HardenPipConfigPermissions()
 	return nil
 }
 
@@ -423,7 +420,7 @@ func (sc *SetupCommand) configureNpmPnpm() error {
 	// npm writes ~/.npmrc at 0600 already, so only pnpm needs hardening here: it
 	// stores the _authToken in auth.ini at 0644.
 	if sc.packageManager == project.Pnpm {
-		return hardenPnpmAuthConfig()
+		hardenPnpmAuthConfig()
 	}
 	return nil
 }
@@ -433,15 +430,12 @@ func (sc *SetupCommand) configureNpmPnpm() error {
 // rc/config file it reports as `globalconfig`), so all known names are hardened.
 var pnpmConfigFileNames = []string{"auth.ini", "rc", "config.yaml", ".npmrc"}
 
-// hardenPnpmAuthConfig restricts the pnpm config files that may hold the
-// _authToken in cleartext at 0644 to owner-only.
-func hardenPnpmAuthConfig() error {
+// hardenPnpmAuthConfig best-effort restricts the pnpm config files that may hold
+// the _authToken in cleartext at 0644 to owner-only.
+func hardenPnpmAuthConfig() {
 	for _, path := range pnpmCredentialFiles() {
-		if err := permissions.ChmodOwnerOnly(path); err != nil {
-			return fmt.Errorf("failed to harden pnpm configuration permissions: %w", err)
-		}
+		permissions.RestrictExisting(path)
 	}
-	return nil
 }
 
 // pnpmCredentialFiles returns the existing pnpm config files (see
@@ -473,6 +467,17 @@ func pnpmCredentialFiles() []string {
 	return existing
 }
 
+// userFile joins parts onto the current user's home directory. jf setup uses it
+// to locate the credential files other modules write there (~/.m2/settings.xml,
+// ~/.yarnrc) so it can harden them afterwards.
+func userFile(parts ...string) (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to determine home directory: %w", err)
+	}
+	return filepath.Join(append([]string{homeDir}, parts...)...), nil
+}
+
 // configureYarn configures Yarn to use the specified Artifactory repository and sets authentication.
 // Supports Yarn Classic (v1.x),  Yarn Berry (v2+) is project-specific
 // Runs the following commands:
@@ -499,14 +504,13 @@ func (sc *SetupCommand) configureYarn() (err error) {
 		}
 	}
 	// Yarn Classic writes ~/.yarnrc (YARN_RC_FILENAME does not redirect it) with the
-	// auth token in cleartext; restrict it to owner-only.
-	homeDir, err := os.UserHomeDir()
+	// auth token in cleartext; restrict it to owner-only. Yarn Berry does not use
+	// ~/.yarnrc, so RestrictExisting warns and moves on there.
+	yarnrc, err := userFile(".yarnrc")
 	if err != nil {
-		return fmt.Errorf("failed to determine home directory for Yarn configuration: %w", err)
+		return err
 	}
-	if err = permissions.ChmodOwnerOnly(filepath.Join(homeDir, ".yarnrc")); err != nil {
-		return fmt.Errorf("failed to harden Yarn configuration permissions: %w", err)
-	}
+	permissions.RestrictExisting(yarnrc)
 	return nil
 }
 
@@ -590,9 +594,7 @@ func (sc *SetupCommand) configureGo() error {
 	if err != nil {
 		return err
 	}
-	if err := permissions.ChmodOwnerOnly(goEnvPath); err != nil {
-		return fmt.Errorf("failed to harden Go environment file permissions: %w", err)
-	}
+	permissions.RestrictExisting(goEnvPath)
 	return nil
 }
 
@@ -733,11 +735,10 @@ func (sc *SetupCommand) configureMaven() error {
 	// NewSettingsXmlManager resolves this same ~/.m2/settings.xml path internally;
 	// resolving it here too lets us harden the file afterwards, since settings.xml
 	// stores the password/access token in cleartext.
-	homeDir, err := os.UserHomeDir()
+	settingsXmlPath, err := userFile(".m2", "settings.xml")
 	if err != nil {
-		return fmt.Errorf("failed to determine home directory for Maven settings.xml: %w", err)
+		return err
 	}
-	settingsXmlPath := filepath.Join(homeDir, ".m2", "settings.xml")
 	settingsXml, err := maven.NewSettingsXmlManagerWithPath(settingsXmlPath)
 	if err != nil {
 		return fmt.Errorf("failed to create a new Maven settings.xml manager: %w", err)
@@ -745,9 +746,7 @@ func (sc *SetupCommand) configureMaven() error {
 	if err = settingsXml.ConfigureArtifactoryRepository(sc.serverDetails.GetArtifactoryUrl(), sc.repoName, username, password); err != nil {
 		return fmt.Errorf("failed to update Artifactory mirror in Maven settings.xml: %w", err)
 	}
-	if err = permissions.ChmodOwnerOnly(settingsXmlPath); err != nil {
-		return fmt.Errorf("failed to harden Maven settings.xml permissions: %w", err)
-	}
+	permissions.RestrictExisting(settingsXmlPath)
 	return nil
 }
 
@@ -774,9 +773,7 @@ func (sc *SetupCommand) configureGradle() error {
 		return fmt.Errorf("failed to write Gradle init script: %w", err)
 	}
 	// The init script embeds the access token in cleartext; restrict it to owner-only.
-	if err := permissions.ChmodOwnerOnly(gradle.GetInitScriptPath()); err != nil {
-		return fmt.Errorf("failed to harden Gradle init script permissions: %w", err)
-	}
+	permissions.RestrictExisting(gradle.GetInitScriptPath())
 	return nil
 }
 
