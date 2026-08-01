@@ -53,22 +53,25 @@ func assertOwnerOnly(t *testing.T, path string) {
 func findConfigFileContaining(t *testing.T, root, substr string) string {
 	t.Helper()
 	configFileNames := []string{".npmrc", "auth.ini", "rc", "config.yaml"}
-	var found string
+	// The walk only collects paths; the files are read afterwards, so no filesystem
+	// operation runs inside the callback (avoids the WalkDir TOCTOU gosec flags).
+	var configPaths []string
 	require.NoError(t, filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() || !slices.Contains(configFileNames, entry.Name()) {
 			return err
 		}
-		content, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return readErr
-		}
-		if strings.Contains(string(content), substr) {
-			found = path
-		}
+		configPaths = append(configPaths, path)
 		return nil
 	}))
-	require.NotEmptyf(t, found, "no config file under %s contains %q", root, substr)
-	return found
+	for _, path := range configPaths {
+		content, err := os.ReadFile(path)
+		require.NoError(t, err)
+		if strings.Contains(string(content), substr) {
+			return path
+		}
+	}
+	require.FailNowf(t, "config file not found", "no config file under %s contains %q", root, substr)
+	return ""
 }
 
 // testCredential returns a fake JWT-like string for testing. NOT a real credential.
