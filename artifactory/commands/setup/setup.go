@@ -230,10 +230,34 @@ func (sc *SetupCommand) SetProjectKey(projectKey string) *SetupCommand {
 	return sc
 }
 
+// validateRepoExistsFn is overridable so tests can stub out the network call.
+var validateRepoExistsFn = validateRepoExists
+
+// validateRepoExists checks that the repository explicitly requested via --repo exists in Artifactory,
+// so that a bad repo name fails fast with a clear error instead of surfacing later as a confusing
+// package-manager-specific failure.
+func validateRepoExists(sc *SetupCommand) error {
+	serviceDetails, err := sc.serverDetails.CreateArtAuthConfig()
+	if err != nil {
+		return err
+	}
+	return utils.ValidateRepoExists(sc.repoName, serviceDetails)
+}
+
 // Run executes the configuration method corresponding to the package manager specified for the command.
 func (sc *SetupCommand) Run() (err error) {
 	if !IsSupportedPackageManager(sc.packageManager) {
 		return errorutils.CheckErrorf("unsupported package manager: %s", sc.packageManager)
+	}
+
+	// Validate the explicitly provided repository up front. This runs inside Run() (rather than in the
+	// CLI layer before Run() is invoked) so that every return path from here on is covered by the single
+	// usage-report call site in commands.Exec/ExecWithPackageManager - no separate reporting is needed
+	// for this failure.
+	if sc.repoName != "" {
+		if err = validateRepoExistsFn(sc); err != nil {
+			return err
+		}
 	}
 
 	// If the repository name is not provided, and the package manager is not Docker or Podman, prompt the user to select a repository.

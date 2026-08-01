@@ -21,6 +21,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
 	"github.com/jfrog/jfrog-client-go/auth"
+	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
@@ -31,6 +32,18 @@ import (
 const (
 	goProxyEnv = "GOPROXY"
 )
+
+// TestMain stubs out validateRepoExistsFn for every test in this package, since
+// createTestSetupCommand points serverDetails at a fake host (acme.jfrog.io)
+// that can't answer a real repo-existence check. Tests that specifically want
+// to exercise validateRepoExists restore the real function for their own scope.
+func TestMain(m *testing.M) {
+	realValidateRepoExistsFn := validateRepoExistsFn
+	validateRepoExistsFn = func(*SetupCommand) error { return nil }
+	code := m.Run()
+	validateRepoExistsFn = realValidateRepoExistsFn
+	os.Exit(code)
+}
 
 // testCredential returns a fake JWT-like string for testing. NOT a real credential.
 func testCredential() string {
@@ -68,6 +81,21 @@ func createTestSetupCommand(packageManager project.ProjectType) *SetupCommand {
 	cmd.serverDetails = &config.ServerDetails{Url: dummyUrl, ArtifactoryUrl: dummyUrl + "/artifactory"}
 
 	return cmd
+}
+
+// TestSetupCommand_RepoValidationFailure verifies that Run() returns the repo-validation
+// error immediately, before attempting any package-manager-specific configuration.
+func TestSetupCommand_RepoValidationFailure(t *testing.T) {
+	realValidateRepoExistsFn := validateRepoExistsFn
+	defer func() { validateRepoExistsFn = realValidateRepoExistsFn }()
+
+	expectedErr := errorutils.CheckErrorf("the repository 'test-repo' does not exist")
+	validateRepoExistsFn = func(*SetupCommand) error { return expectedErr }
+
+	cmd := createTestSetupCommand(project.Npm)
+	err := cmd.Run()
+	require.Error(t, err)
+	assert.Equal(t, expectedErr, err)
 }
 
 func TestSetupCommand_NotSupported(t *testing.T) {
