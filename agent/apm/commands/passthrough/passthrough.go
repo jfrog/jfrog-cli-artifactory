@@ -44,7 +44,7 @@ func (c *ApmPassthroughCommand) ServerDetails() (*config.ServerDetails, error) {
 }
 
 func (c *ApmPassthroughCommand) Run() error {
-	log.Info("Running apm " + c.subcmd + "...")
+	log.Info("Running apm " + apmcommon.SanitizeLogValue(c.subcmd) + "...")
 	return apmcommon.RunApmSubcommandWithAuth(c.subcmd, c.args, c.serverDetails)
 }
 

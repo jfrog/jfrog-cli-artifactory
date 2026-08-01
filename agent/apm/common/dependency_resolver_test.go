@@ -9,7 +9,7 @@ import (
 
 func TestResolveScopeAndRequestedBy_RejectsFlagShapedRepoURL(t *testing.T) {
 	scopes, requestedBy := resolveScopeAndRequestedBy(t.TempDir(), "--global")
-	assert.Equal(t, []string{"runtime"}, scopes)
+	assert.Equal(t, []string{apmScopeProd}, scopes)
 	assert.Empty(t, requestedBy)
 }
 
@@ -19,7 +19,7 @@ func TestParseDepsWhyOutput_DirectDependency(t *testing.T) {
 		"paths": [{"chain": [{"is_direct": true, "repo_url": "uday/pkg-consumer"}]}]
 	}`)
 	scopes, requestedBy := parseDepsWhyOutput(out, "uday/pkg-consumer")
-	assert.Equal(t, []string{"runtime"}, scopes)
+	assert.Equal(t, []string{apmScopeProd}, scopes)
 	assert.Empty(t, requestedBy)
 }
 
@@ -49,10 +49,20 @@ func TestParseDepsWhyOutput_MultipleParentPaths(t *testing.T) {
 	assert.Equal(t, [][]string{{"a/pkg"}, {"b/pkg"}}, requestedBy)
 }
 
-func TestParseDepsWhyOutput_MalformedJSONFallsBackToRuntime(t *testing.T) {
+func TestParseDepsWhyOutput_MalformedJSONFallsBackToProd(t *testing.T) {
 	scopes, requestedBy := parseDepsWhyOutput([]byte("not json"), "uday/pkg-base")
-	assert.Equal(t, []string{"runtime"}, scopes)
+	assert.Equal(t, []string{apmScopeProd}, scopes)
 	assert.Empty(t, requestedBy)
+}
+
+// TestApmScopeConstantsAreStable guards the literal scope strings against accidental drift -
+// they're part of the public build-info contract (consumed by Xray, the UI, etc.), and matching
+// the naming the newer sibling FlexPack integrations converged on (Alpine's own
+// TestAlpineScopeConstantsAreStable checks the identical pair) is the reason "prod" was chosen
+// over the older, now-minority "runtime" convention.
+func TestApmScopeConstantsAreStable(t *testing.T) {
+	assert.Equal(t, "prod", apmScopeProd)
+	assert.Equal(t, "transitive", apmScopeTransitive)
 }
 
 // TestParseDepsWhyOutput_PathCountCappedAtMax verifies the fan-in cap: a widely-shared

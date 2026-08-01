@@ -57,30 +57,29 @@ func (c *ApmPublishCommand) ServerDetails() (*config.ServerDetails, error) {
 	return c.serverDetails, nil
 }
 
-// withPackageFlag promotes a bare positional package spec (e.g. "jfrog/proj3") into the
-// --package flag apm publish requires. If --package is already present, args are left untouched.
-func withPackageFlag(args []string) []string {
+// requirePackageFlag returns a clear, jf-level error if --package isn't present in args.
+// A prior version auto-promoted a bare positional spec (e.g. "jfrog/proj3") into --package, but
+// that heuristic could mistake a value-taking apm flag's value for the package - e.g. in
+// "--zip foo.zip acme/pkg", it would grab "foo.zip" (--zip's value) instead of "acme/pkg". Rather
+// than track every apm flag that might take a value (and risk the same class of bug again the
+// next time apm adds one), --package is required explicitly - removing the ambiguity entirely
+// instead of working around it.
+func requirePackageFlag(args []string) error {
 	for _, arg := range args {
 		if arg == "--package" || strings.HasPrefix(arg, "--package=") {
-			return args
+			return nil
 		}
 	}
-	for i, arg := range args {
-		if !strings.HasPrefix(arg, "-") {
-			rest := make([]string, 0, len(args)-1)
-			rest = append(rest, args[:i]...)
-			rest = append(rest, args[i+1:]...)
-			return append([]string{"--package", arg}, rest...)
-		}
-	}
-	return args
+	return fmt.Errorf("jf agent apm publish requires --package <owner>/<name>, e.g. --package acme/my-skill")
 }
 
 func (c *ApmPublishCommand) Run() error {
 	log.Info("Running apm publish...")
 
-	args := withPackageFlag(c.args)
-	if err := apmcommon.RunApmSubcommandWithAuth("publish", args, c.serverDetails); err != nil {
+	if err := requirePackageFlag(c.args); err != nil {
+		return err
+	}
+	if err := apmcommon.RunApmSubcommandWithAuth("publish", c.args, c.serverDetails); err != nil {
 		return fmt.Errorf("run apm publish: %w", err)
 	}
 
@@ -89,7 +88,7 @@ func (c *ApmPublishCommand) Run() error {
 		log.Warn("apm publish completed, but could not determine working directory for build info:", err.Error())
 	} else {
 		manifestPath := filepath.Join(workingDir, apmcommon.ApmManifestName)
-		owner := ownerFromArgs(args)
+		owner := ownerFromArgs(c.args)
 		repoName := apmcommon.ResolveRepoNameFromRegistry(c.serverDetails, manifestPath)
 		if biErr := apmcommon.CollectAndSavePublishBuildInfo(manifestPath, owner, repoName, c.serverDetails, c.buildConfiguration); biErr != nil {
 			log.Warn("apm publish completed, but build info recording failed:", biErr.Error())

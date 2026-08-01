@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/jfrog/build-info-go/entities"
-	artUtils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	artCoreUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -141,7 +140,7 @@ func SavePublishBuildInfo(owner, name, version string, checksum entities.Checksu
 }
 
 // CollectAndSavePublishBuildInfo reads the package name/version from apm.yml, looks up the
-// real checksum of the just-published artifact via AQL, and records it in build-info.
+// real checksum of the just-published artifact via an HTTP HEAD, and records it in build-info.
 // Runs only when build info collection is enabled.
 func CollectAndSavePublishBuildInfo(manifestPath, owner, repoName string, serverDetails *config.ServerDetails, buildConfig *buildUtils.BuildConfiguration) error {
 	collectBuildInfo, err := buildConfig.IsCollectBuildInfo()
@@ -164,8 +163,10 @@ func CollectAndSavePublishBuildInfo(manifestPath, owner, repoName string, server
 	return SavePublishBuildInfo(owner, manifest.Name, manifest.Version, checksum, repoName, buildConfig)
 }
 
-// lookupPublishedArtifactChecksum queries AQL for the artifact apm publish just uploaded, by its
-// known repo-relative path — confirmed live that AQL indexes agentpackages repos correctly.
+// lookupPublishedArtifactChecksum issues an HTTP HEAD against the just-published artifact's own
+// download URL and reads its checksum straight from Artifactory's X-Checksum-* response headers —
+// the same mechanism ResolveChecksums (checksums.go) already uses for dependency checksums, and the
+// same download-URL shape apm.lock.yaml's resolved_url entries use.
 // Returns an empty Checksum (not an error) if the repo/owner are unknown or the lookup fails,
 // since a missing checksum shouldn't fail an already-successful publish.
 func lookupPublishedArtifactChecksum(owner, name, version, repoName string, serverDetails *config.ServerDetails) entities.Checksum {
@@ -178,22 +179,14 @@ func lookupPublishedArtifactChecksum(owner, name, version, repoName string, serv
 		return entities.Checksum{}
 	}
 
-	dirPath := owner + "/" + name
-	fileName := name + "-" + version + ".zip"
-	query := fmt.Sprintf(
-		`items.find({"repo":"%s","path":"%s","name":"%s"}).include("actual_sha1","sha256","actual_md5")`,
-		repoName, dirPath, fileName)
-
-	results, err := artUtils.ExecuteAqlQuery(servicesManager, query)
+	downloadURL := AgentPackagesBaseURL(serverDetails, repoName) + "v1/packages/" + owner + "/" + name + "/versions/" + version + "/download"
+	clientDetails := servicesManager.GetConfig().GetServiceDetails().CreateHttpClientDetails()
+	fileDetails, _, err := servicesManager.Client().GetRemoteFileDetails(downloadURL, &clientDetails)
 	if err != nil {
-		log.Debug("apm publish: checksum AQL lookup failed:", err.Error())
+		log.Debug(fmt.Sprintf("apm publish: checksum HEAD lookup failed for %s: %s", downloadURL, err.Error()))
 		return entities.Checksum{}
 	}
-	if len(results) == 0 {
-		log.Debug(fmt.Sprintf("apm publish: no AQL result for %s/%s — checksum will be empty", dirPath, fileName))
-		return entities.Checksum{}
-	}
-	return entities.Checksum{Sha1: results[0].Actual_Sha1, Sha256: results[0].Sha256, Md5: results[0].Actual_Md5}
+	return fileDetails.Checksum
 }
 
 func derivedModuleID(manifestPath string) string {

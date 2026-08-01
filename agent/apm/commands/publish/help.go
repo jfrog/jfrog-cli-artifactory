@@ -19,9 +19,13 @@ Prerequisites:
 - Registry configured via jf setup agent-apm or apm.yml's registries: block.
 
 Common patterns:
-  $ jf agent apm publish my-org/my-package
-  $ jf agent apm publish my-org/my-package --build-name=my-build --build-number=1
-  $ jf agent apm publish my-org/my-package --build-name=my-build --build-number=1 --module=my-module
+  $ jf agent apm publish --package my-org/my-package
+  $ jf agent apm publish --package my-org/my-package --build-name=my-build --build-number=1
+  $ jf agent apm publish --package my-org/my-package --build-name=my-build --build-number=1 --module=my-module
+
+Note:
+- --package is required and must be passed explicitly (owner/name); it is not inferred from a
+  bare positional argument.
 
 Package format:
 - Directory with apm.yml declaring name, version, and description.

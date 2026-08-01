@@ -6,46 +6,36 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestWithPackageFlag(t *testing.T) {
+func TestRequirePackageFlag(t *testing.T) {
 	tests := []struct {
-		name string
-		args []string
-		want []string
+		name    string
+		args    []string
+		wantErr bool
 	}{
+		{name: "--package with space form present", args: []string{"--package", "jfrog/proj3"}, wantErr: false},
+		{name: "--package= form present", args: []string{"--package=jfrog/proj3"}, wantErr: false},
+		{name: "--package present alongside other flags", args: []string{"--dry-run", "--package", "jfrog/proj3"}, wantErr: false},
+		{name: "missing --package entirely", args: []string{"--dry-run"}, wantErr: true},
+		{name: "empty args", args: []string{}, wantErr: true},
 		{
-			name: "bare positional package spec gets promoted",
-			args: []string{"jfrog/proj3"},
-			want: []string{"--package", "jfrog/proj3"},
+			name:    "bare positional package spec is no longer auto-promoted - requires an explicit error",
+			args:    []string{"jfrog/proj3"},
+			wantErr: true,
 		},
 		{
-			name: "positional spec mixed with flags",
-			args: []string{"--dry-run", "jfrog/proj3"},
-			want: []string{"--package", "jfrog/proj3", "--dry-run"},
-		},
-		{
-			name: "already has --package flag - untouched",
-			args: []string{"--package", "jfrog/proj3"},
-			want: []string{"--package", "jfrog/proj3"},
-		},
-		{
-			name: "already has --package= form - untouched",
-			args: []string{"--package=jfrog/proj3"},
-			want: []string{"--package=jfrog/proj3"},
-		},
-		{
-			name: "no positional args - untouched",
-			args: []string{"--dry-run"},
-			want: []string{"--dry-run"},
-		},
-		{
-			name: "empty args",
-			args: []string{},
-			want: []string{},
+			name:    "a value-taking flag's value is never mistaken for --package - still requires it explicitly",
+			args:    []string{"--zip", "foo.zip", "jfrog/proj3"},
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, withPackageFlag(tt.args))
+			err := requirePackageFlag(tt.args)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
 		})
 	}
 }

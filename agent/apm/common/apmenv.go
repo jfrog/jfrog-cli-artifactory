@@ -208,6 +208,10 @@ func ensureExperimentalFlagEnabled(realHome string, existing *apmConfigJSON) err
 // entry, written by 'jf setup agent-apm', or apm.yml's own registries: block); if none matches
 // serverDetails's host, this returns an error rather than silently running apm unauthenticated.
 func BuildApmEnv(serverDetails *config.ServerDetails, manifestPath string) ([]string, error) {
+	if serverDetails == nil {
+		return nil, fmt.Errorf("server details are required to build the APM environment")
+	}
+
 	realHome, existing, err := loadExistingApmConfig()
 	if err != nil {
 		return nil, err
@@ -269,6 +273,10 @@ func readApmConfig(path string) (*apmConfigJSON, error) {
 	return &cfg, nil
 }
 
+// writeApmConfig writes cfg via a temp-file-plus-rename so a crash mid-write, or two `jf agent
+// apm` invocations racing on the same home directory (e.g. parallel CI jobs on a shared runner),
+// can never truncate or corrupt the user's real, persistent APM config - os.Rename is atomic on
+// the same filesystem, so readers always see either the old file or the fully-written new one.
 func writeApmConfig(tmpHome string, cfg *apmConfigJSON) error {
 	apmDir := filepath.Join(tmpHome, ".apm")
 	if err := os.MkdirAll(apmDir, 0700); err != nil {
@@ -278,14 +286,48 @@ func writeApmConfig(tmpHome string, cfg *apmConfigJSON) error {
 	if err != nil {
 		return fmt.Errorf("marshal APM config: %w", err)
 	}
-	return os.WriteFile(filepath.Join(apmDir, "config.json"), data, 0600)
+
+	tmpFile, err := os.CreateTemp(apmDir, "config-*.json.tmp") // 0600 by default
+	if err != nil {
+		return fmt.Errorf("create temp APM config: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	// Best-effort teardown: a no-op once the rename below succeeds (nothing left to remove); on
+	// any earlier failure it clears the leftover temp file, and even if that removal itself
+	// fails, the result is just a harmless stray file under .apm/, not a correctness issue.
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	if _, err = tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close() // close-on-error: the write error above already explains the failure
+		return fmt.Errorf("write temp APM config: %w", err)
+	}
+	if err = tmpFile.Close(); err != nil {
+		return fmt.Errorf("close temp APM config: %w", err)
+	}
+	if err = os.Rename(tmpPath, filepath.Join(apmDir, "config.json")); err != nil {
+		return fmt.Errorf("rename temp APM config into place: %w", err)
+	}
+	return nil
+}
+
+// SanitizeLogValue strips newline/carriage-return characters from a value before it's
+// concatenated into a log message, so CLI-controlled input (e.g. a subcommand name) can't forge
+// fake log lines (CWE-117) by embedding its own line breaks.
+func SanitizeLogValue(value string) string {
+	return strings.NewReplacer("\n", "", "\r", "").Replace(value)
 }
 
 // RunApmCommand runs "apm <subcmd> <args...>" with the provided environment.
 // If env is nil, the current process environment is used.
+// Deliberately logs only the subcommand name, never args: args frequently carry secrets here
+// (ConfigureApmRegistryPersistent passes a raw registry token, and BuildRegistryEntry can embed
+// basic-auth credentials in a URL argument) - logging the full joined argument list at Debug
+// level would write plaintext credentials into log output that CI systems/log aggregators may
+// capture and retain far more durably than "never written to a file" (the runtime auth path's
+// own goal) accounts for.
 func RunApmCommand(env []string, subcmd string, args []string) error {
+	log.Debug(fmt.Sprintf("Running: apm %s", SanitizeLogValue(subcmd)))
 	allArgs := append([]string{subcmd}, args...)
-	log.Debug(fmt.Sprintf("Running: apm %s", strings.Join(allArgs, " ")))
 	cmd := exec.Command("apm", allArgs...) // #nosec G204 -- args are this same invocation's own CLI arguments, forwarded verbatim by design (this is the passthrough wrapper); no shell is invoked and no privilege boundary is crossed
 	if env != nil {
 		cmd.Env = env
@@ -301,7 +343,9 @@ func RunApmCommand(env []string, subcmd string, args []string) error {
 
 // ConfigureApmRegistryPersistent configures the user's real ~/.apm/config.json using apm's own
 // `apm experimental enable registries` and `apm config set` commands — never by writing the
-// file directly. This is the one allowed persistent write — called only by `jf setup agent-apm`.
+// file directly. This is the one allowed persistent write of registry credentials/URLs — called
+// only by `jf setup agent-apm` (a separate, narrower exception exists for the non-secret
+// experimental.registries flag — see ensureExperimentalFlagEnabled above).
 // repoName is always resolved by the shared `jf setup <tool>` interactive repo picker before
 // this is called, so it's never empty here. Every other registry already in the file, and any
 // other top-level key (e.g. default_client), is left alone automatically — apm's own config-set

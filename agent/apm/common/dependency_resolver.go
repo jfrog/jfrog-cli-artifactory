@@ -1,14 +1,35 @@
 package apmcommon
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-client-go/utils/log"
+)
+
+// depsWhyWorkerCount bounds how many `apm deps why` subprocesses run concurrently - mirrors
+// headWorkerCount in checksums.go, the same bounded-concurrency budget for a similar
+// per-dependency subprocess/request fan-out.
+const depsWhyWorkerCount = 15
+
+// depsWhyTimeout bounds a single `apm deps why` subprocess. Without it, a hang (not a failure)
+// would block forever and the "best-effort, falls back to prod scope" guarantee below would
+// never actually trigger.
+const depsWhyTimeout = 30 * time.Second
+
+// Dependency scope names. "prod" matches the direct-dependency label the newer sibling
+// FlexPack integrations (Alpine's AlpineScopeProd, Cargo's "prod") converged on, rather than
+// "runtime" (the older, now-minority convention nix alone still uses).
+const (
+	apmScopeProd       = "prod"
+	apmScopeTransitive = "transitive"
 )
 
 // ResolvedDep holds a single APM registry dependency ready for build-info.
@@ -22,6 +43,9 @@ type ResolvedDep struct {
 }
 
 // ResolveDependencies reads the lockfile and returns only registry-sourced dependencies.
+// Resolves each dependency's scope/requestedBy concurrently (bounded by depsWhyWorkerCount),
+// since each one spawns its own `apm deps why` subprocess and a large lockfile would otherwise
+// pay subprocess-startup + I/O cost sequentially, one dependency at a time.
 func ResolveDependencies(lockfilePath string) ([]ResolvedDep, error) {
 	lockfile, err := LoadLockFile(lockfilePath)
 	if err != nil {
@@ -29,19 +53,29 @@ func ResolveDependencies(lockfilePath string) ([]ResolvedDep, error) {
 	}
 
 	workingDir := filepath.Dir(lockfilePath)
+	packages := lockfile.RegistryPackages()
+	deps := make([]ResolvedDep, len(packages))
 
-	var deps []ResolvedDep
-	for _, pkg := range lockfile.RegistryPackages() {
-		scopes, requestedBy := resolveScopeAndRequestedBy(workingDir, pkg.RepoURL)
-		deps = append(deps, ResolvedDep{
-			ID:          pkg.DepID(),
-			RepoURL:     pkg.RepoURL,
-			SHA256:      SHA256Hex(pkg.ResolvedHash),
-			ResolvedURL: pkg.ResolvedURL,
-			Scopes:      scopes,
-			RequestedBy: requestedBy,
-		})
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, depsWhyWorkerCount)
+	for i, pkg := range packages {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, pkg ApmLockedPackage) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			scopes, requestedBy := resolveScopeAndRequestedBy(workingDir, pkg.RepoURL)
+			deps[i] = ResolvedDep{
+				ID:          pkg.DepID(),
+				RepoURL:     pkg.RepoURL,
+				SHA256:      SHA256Hex(pkg.ResolvedHash),
+				ResolvedURL: pkg.ResolvedURL,
+				Scopes:      scopes,
+				RequestedBy: requestedBy,
+			}
+		}(i, pkg)
 	}
+	wg.Wait()
 	return deps, nil
 }
 
@@ -86,7 +120,7 @@ type apmDepsWhyResult struct {
 // RequestedBy chain), which a single resolved_by string in the lockfile can't represent.
 //
 // Best-effort: if apm isn't on PATH or the command fails for any reason, this falls back to
-// runtime scope with no requestedBy rather than failing the whole build-info collection - the
+// prod scope with no requestedBy rather than failing the whole build-info collection - the
 // dependency's id/checksum are still correct either way.
 func resolveScopeAndRequestedBy(workingDir, repoURL string) (scopes []string, requestedBy [][]string) {
 	// repoURL comes from apm.lock.yaml, not a trusted CLI arg - a tampered lockfile could set
@@ -94,16 +128,18 @@ func resolveScopeAndRequestedBy(workingDir, repoURL string) (scopes []string, re
 	// below. Real repo_url values are always "owner/repo"; reject anything flag-shaped instead
 	// of passing it through.
 	if strings.HasPrefix(repoURL, "-") {
-		log.Debug(fmt.Sprintf("Refusing to run apm deps why for suspicious repo_url %q, defaulting to runtime scope", repoURL))
-		return []string{"runtime"}, nil
+		log.Debug(fmt.Sprintf("Refusing to run apm deps why for suspicious repo_url %q, defaulting to prod scope", repoURL))
+		return []string{apmScopeProd}, nil
 	}
 
-	cmd := exec.Command("apm", "deps", "why", repoURL, "--json") // #nosec G204 -- repoURL is validated above to reject flag-shaped values; exec.Command never invokes a shell, so no injection vector remains
+	ctx, cancel := context.WithTimeout(context.Background(), depsWhyTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "apm", "deps", "why", repoURL, "--json") // #nosec G204 -- repoURL is validated above to reject flag-shaped values; exec.Command never invokes a shell, so no injection vector remains
 	cmd.Dir = workingDir
 	out, err := cmd.Output()
 	if err != nil {
-		log.Debug(fmt.Sprintf("apm deps why %s failed, defaulting to runtime scope: %s", repoURL, err))
-		return []string{"runtime"}, nil
+		log.Debug(fmt.Sprintf("apm deps why %s failed, defaulting to prod scope: %s", repoURL, err))
+		return []string{apmScopeProd}, nil
 	}
 	return parseDepsWhyOutput(out, repoURL)
 }
@@ -114,12 +150,12 @@ func resolveScopeAndRequestedBy(workingDir, repoURL string) (scopes []string, re
 func parseDepsWhyOutput(out []byte, repoURL string) (scopes []string, requestedBy [][]string) {
 	var result apmDepsWhyResult
 	if err := json.Unmarshal(out, &result); err != nil {
-		log.Debug(fmt.Sprintf("could not parse apm deps why %s output, defaulting to runtime scope: %s", repoURL, err))
-		return []string{"runtime"}, nil
+		log.Debug(fmt.Sprintf("could not parse apm deps why %s output, defaulting to prod scope: %s", repoURL, err))
+		return []string{apmScopeProd}, nil
 	}
 
 	if result.Package.IsDirect {
-		return []string{"runtime"}, nil
+		return []string{apmScopeProd}, nil
 	}
 
 	for _, path := range result.Paths {
@@ -136,5 +172,5 @@ func parseDepsWhyOutput(out []byte, repoURL string) (scopes []string, requestedB
 		}
 		requestedBy = append(requestedBy, chain)
 	}
-	return []string{"transitive"}, requestedBy
+	return []string{apmScopeTransitive}, requestedBy
 }

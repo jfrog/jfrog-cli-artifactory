@@ -24,8 +24,6 @@ const headWorkerCount = 15
 //     ocicontainer/docker already uses for artifacts it can't resolve via AQL.
 //  3. Fallback: use lockfile SHA-256 only when the HEAD request finds no match.
 func ResolveChecksums(deps []ResolvedDep, serverDetails *config.ServerDetails, buildConfig *buildUtils.BuildConfiguration) (map[string]entities.Checksum, error) {
-	checksumMap := make(map[string]entities.Checksum)
-
 	servicesManager, err := coreArtUtils.CreateServiceManager(serverDetails, -1, 0, false)
 	if err != nil {
 		return nil, err
@@ -41,14 +39,7 @@ func ResolveChecksums(deps []ResolvedDep, serverDetails *config.ServerDetails, b
 	}
 	cachedChecksums := artUtils.DependenciesToChecksumMap(prevDeps)
 
-	var uncached []ResolvedDep
-	for _, dep := range deps {
-		if checksum, ok := cachedChecksums[dep.ID]; ok {
-			checksumMap[dep.ID] = checksum
-		} else {
-			uncached = append(uncached, dep)
-		}
-	}
+	checksumMap, uncached := selectCachedAndUncached(deps, cachedChecksums)
 
 	log.Info(fmt.Sprintf("Checksum resolution: %d cached, resolving %d from Artifactory.", len(deps)-len(uncached), len(uncached)))
 
@@ -57,14 +48,43 @@ func ResolveChecksums(deps []ResolvedDep, serverDetails *config.ServerDetails, b
 	}
 
 	headResults := resolveChecksumsByHead(uncached, servicesManager)
-	for _, dep := range uncached {
-		if checksum, ok := headResults[dep.ID]; ok {
-			checksumMap[dep.ID] = checksum
-		} else if dep.SHA256 != "" {
-			checksumMap[dep.ID] = entities.Checksum{Sha256: dep.SHA256}
-		}
+	for id, checksum := range applyHeadResultsOrLockfileFallback(uncached, headResults) {
+		checksumMap[id] = checksum
 	}
 	return checksumMap, nil
+}
+
+// selectCachedAndUncached is the tier-1-vs-tier-2 decision: which dependencies already have a
+// checksum from the previous build's cache, and which still need a HEAD lookup. Pulled out on
+// its own, taking plain maps/slices rather than a live ArtifactoryServicesManager, so this
+// selection rule is unit-testable without a real Artifactory connection.
+func selectCachedAndUncached(deps []ResolvedDep, cachedChecksums map[string]entities.Checksum) (cached map[string]entities.Checksum, uncached []ResolvedDep) {
+	cached = make(map[string]entities.Checksum)
+	for _, dep := range deps {
+		if checksum, ok := cachedChecksums[dep.ID]; ok {
+			cached[dep.ID] = checksum
+		} else {
+			uncached = append(uncached, dep)
+		}
+	}
+	return cached, uncached
+}
+
+// applyHeadResultsOrLockfileFallback is the tier-2-vs-tier-3 decision: for every dependency that
+// missed the build cache, use its HEAD-request checksum if one came back, else fall back to the
+// lockfile's own SHA-256 (dependencies with neither are simply omitted - no checksum recorded).
+// Pulled out on its own, taking a plain results map rather than making the HTTP calls itself, so
+// this selection rule is unit-testable without a real HTTP client.
+func applyHeadResultsOrLockfileFallback(uncached []ResolvedDep, headResults map[string]entities.Checksum) map[string]entities.Checksum {
+	resolved := make(map[string]entities.Checksum, len(uncached))
+	for _, dep := range uncached {
+		if checksum, ok := headResults[dep.ID]; ok {
+			resolved[dep.ID] = checksum
+		} else if dep.SHA256 != "" {
+			resolved[dep.ID] = entities.Checksum{Sha256: dep.SHA256}
+		}
+	}
+	return resolved
 }
 
 // resolveChecksumsByHead issues one HTTP HEAD per dependency against its resolved_url and reads
