@@ -62,11 +62,13 @@ func RunApmPassthroughDefault(c *components.Context) error {
 	if apmcommon.IsHelpRequest([]string{subcmd}) {
 		return apmcommon.RunApmCommand(nil, "--help", nil)
 	}
-	// e.g. "jf agent apm deps --help" - show apm's own help for that subcommand rather than
-	// falling through to ExecWithPackageManager, which would resolve server details and inject
-	// auth env for a command that never actually needs them.
+	// e.g. "jf agent apm deps why --help" - show apm's own help for that (sub)subcommand rather
+	// than falling through to ExecWithPackageManager, which would resolve server details and
+	// inject auth env for a command that never actually needs them. Forward the full remaining
+	// arg tail (not just a bare "--help") so nested commands like "deps why" keep their own
+	// subcommand and apm shows help for the right level, not just "apm deps --help".
 	if apmcommon.IsHelpRequest(c.Arguments[1:]) {
-		return apmcommon.RunApmCommand(nil, subcmd, []string{"--help"})
+		return apmcommon.RunApmCommand(nil, subcmd, c.Arguments[1:])
 	}
 
 	serverDetails, err := agentcommon.GetServerDetails(c)

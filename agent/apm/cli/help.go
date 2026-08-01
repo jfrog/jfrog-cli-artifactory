@@ -33,7 +33,7 @@ Prerequisites:
 
 Environment:
 - Credentials injected via APM_REGISTRY_TOKEN_<NAME>, APM_REGISTRY_USER_<NAME>, APM_REGISTRY_PASS_<NAME>.
-- Registry configuration sourced from ~/.apm/config.json (set by jf setup agent-apm).
+- Registry configuration sourced from apm.yml's registries: block or ~/.apm/config.json (set by jf setup agent-apm).
 
 Related: jf setup agent-apm`
 }

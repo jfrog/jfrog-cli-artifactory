@@ -66,6 +66,19 @@ func TestApplyHeadResultsOrLockfileFallback_FallsBackToLockfileSHA256(t *testing
 	assert.Equal(t, entities.Checksum{Sha256: "lockfile-sha256"}, resolved["a/b:1.0.0"])
 }
 
+func TestApplyHeadResultsOrLockfileFallback_HeadHitWithEmptyChecksum_FallsBackToLockfile(t *testing.T) {
+	uncached := []ResolvedDep{{ID: "a/b:1.0.0", SHA256: "lockfile-sha256"}}
+	headResults := map[string]entities.Checksum{
+		"a/b:1.0.0": {}, // HEAD succeeded but Artifactory returned no X-Checksum-* headers at all
+	}
+
+	resolved := applyHeadResultsOrLockfileFallback(uncached, headResults)
+
+	// A present-but-empty HEAD result must not block the lockfile fallback the same way a real
+	// miss wouldn't.
+	assert.Equal(t, entities.Checksum{Sha256: "lockfile-sha256"}, resolved["a/b:1.0.0"])
+}
+
 func TestApplyHeadResultsOrLockfileFallback_NoChecksumAtAll(t *testing.T) {
 	uncached := []ResolvedDep{{ID: "a/b:1.0.0"}} // no SHA256 from the lockfile either
 

@@ -71,20 +71,27 @@ func selectCachedAndUncached(deps []ResolvedDep, cachedChecksums map[string]enti
 }
 
 // applyHeadResultsOrLockfileFallback is the tier-2-vs-tier-3 decision: for every dependency that
-// missed the build cache, use its HEAD-request checksum if one came back, else fall back to the
-// lockfile's own SHA-256 (dependencies with neither are simply omitted - no checksum recorded).
-// Pulled out on its own, taking a plain results map rather than making the HTTP calls itself, so
-// this selection rule is unit-testable without a real HTTP client.
+// missed the build cache, use its HEAD-request checksum if one came back with an actual checksum
+// value, else fall back to the lockfile's own SHA-256 (dependencies with neither are simply
+// omitted - no checksum recorded). A HEAD request can succeed (no error, entry present in
+// headResults) while still returning an empty Checksum{} - e.g. Artifactory responding without
+// any X-Checksum-* headers - and that must not block the lockfile fallback the same way a real
+// miss wouldn't. Pulled out on its own, taking a plain results map rather than making the HTTP
+// calls itself, so this selection rule is unit-testable without a real HTTP client.
 func applyHeadResultsOrLockfileFallback(uncached []ResolvedDep, headResults map[string]entities.Checksum) map[string]entities.Checksum {
 	resolved := make(map[string]entities.Checksum, len(uncached))
 	for _, dep := range uncached {
-		if checksum, ok := headResults[dep.ID]; ok {
+		if checksum, ok := headResults[dep.ID]; ok && hasAnyChecksum(checksum) {
 			resolved[dep.ID] = checksum
 		} else if dep.SHA256 != "" {
 			resolved[dep.ID] = entities.Checksum{Sha256: dep.SHA256}
 		}
 	}
 	return resolved
+}
+
+func hasAnyChecksum(checksum entities.Checksum) bool {
+	return checksum.Sha1 != "" || checksum.Sha256 != "" || checksum.Md5 != ""
 }
 
 // resolveChecksumsByHead issues one HTTP HEAD per dependency against its resolved_url and reads
