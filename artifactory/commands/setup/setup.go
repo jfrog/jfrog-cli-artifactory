@@ -428,42 +428,49 @@ func (sc *SetupCommand) configureNpmPnpm() error {
 	return nil
 }
 
-// hardenPnpmAuthConfig restricts pnpm's auth.ini - which holds the _authToken in
-// cleartext at 0644 - to owner-only.
+// pnpmConfigFileNames are the files pnpm may write credentials into. pnpm stores
+// the _authToken differently across versions (auth.ini in v9+, otherwise the
+// rc/config file it reports as `globalconfig`), so all known names are hardened.
+var pnpmConfigFileNames = []string{"auth.ini", "rc", "config.yaml", ".npmrc"}
+
+// hardenPnpmAuthConfig restricts the pnpm config files that may hold the
+// _authToken in cleartext at 0644 to owner-only.
 func hardenPnpmAuthConfig() error {
-	authIniPath, ok := pnpmAuthIniPath()
-	if !ok {
-		return nil
-	}
-	if err := permissions.ChmodOwnerOnly(authIniPath); err != nil {
-		return fmt.Errorf("failed to harden pnpm auth.ini permissions: %w", err)
+	for _, path := range pnpmCredentialFiles() {
+		if err := permissions.ChmodOwnerOnly(path); err != nil {
+			return fmt.Errorf("failed to harden pnpm configuration permissions: %w", err)
+		}
 	}
 	return nil
 }
 
-// pnpmAuthIniPath returns pnpm's auth.ini path and whether it exists and should be
-// hardened. pnpm keeps auth.ini next to the file it reports as `globalconfig`, and
-// there is no first-party Go resolver for that directory, so the path is taken from
-// pnpm itself. This is best-effort: it reports ok=false (rather than surfacing an
-// error) when pnpm cannot be queried or no auth.ini was written (e.g. anonymous
+// pnpmCredentialFiles returns the existing pnpm config files (see
+// pnpmConfigFileNames) in pnpm's own config directory. There is no first-party Go
+// resolver for that directory, so it is derived from the file pnpm reports as
+// `globalconfig`. This is best-effort: it returns nil (rather than surfacing an
+// error) when pnpm cannot be queried or nothing was written (e.g. anonymous
 // access), so a resolution miss never fails an otherwise-successful setup.
-func pnpmAuthIniPath() (string, bool) {
+// Restricting a file without secrets is a harmless no-op.
+func pnpmCredentialFiles() []string {
 	out, err := exec.Command("pnpm", "config", "get", "globalconfig").Output()
 	if err != nil {
-		log.Warn("Could not resolve pnpm's config directory to restrict auth.ini permissions. " +
+		log.Warn("Could not resolve pnpm's config directory to restrict its permissions. " +
 			"If it holds an access token, restrict it to owner-only access manually.")
-		return "", false
+		return nil
 	}
 	globalConfig := strings.TrimSpace(string(out))
 	if globalConfig == "" {
-		return "", false
+		return nil
 	}
-	authIniPath := filepath.Join(filepath.Dir(globalConfig), "auth.ini")
-	if _, err := os.Stat(authIniPath); err != nil {
-		// No auth.ini (e.g. anonymous access) means there is no token to protect.
-		return "", false
+	configDir := filepath.Dir(globalConfig)
+	var existing []string
+	for _, name := range pnpmConfigFileNames {
+		path := filepath.Join(configDir, name)
+		if _, err := os.Stat(path); err == nil {
+			existing = append(existing, path)
+		}
 	}
-	return authIniPath, true
+	return existing
 }
 
 // configureYarn configures Yarn to use the specified Artifactory repository and sets authentication.

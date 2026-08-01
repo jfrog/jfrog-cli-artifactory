@@ -46,22 +46,28 @@ func assertOwnerOnly(t *testing.T, path string) {
 	assert.Equal(t, os.FileMode(0600), info.Mode().Perm(), "%s must be owner-only readable", path)
 }
 
-// findConfigFile returns the single path named name found anywhere under root.
-// pnpm chooses its own config directory per platform, so the credential file it
-// writes (auth.ini) is located by walking rather than assumed.
-func findConfigFile(t *testing.T, root, name string) string {
+// findConfigFileContaining returns the path of the package-manager config file
+// under root whose contents include substr. pnpm chooses its own config directory
+// and credential file name per version (auth.ini, rc, config.yaml, ...), so the
+// file holding the token is located by content rather than by an assumed name.
+func findConfigFileContaining(t *testing.T, root, substr string) string {
 	t.Helper()
+	configFileNames := []string{".npmrc", "auth.ini", "rc", "config.yaml"}
 	var found string
 	require.NoError(t, filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
+		if err != nil || entry.IsDir() || !slices.Contains(configFileNames, entry.Name()) {
 			return err
 		}
-		if !entry.IsDir() && entry.Name() == name {
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		if strings.Contains(string(content), substr) {
 			found = path
 		}
 		return nil
 	}))
-	require.NotEmptyf(t, found, "%s was not written under %s", name, root)
+	require.NotEmptyf(t, found, "no config file under %s contains %q", root, substr)
 	return found
 }
 
@@ -147,13 +153,14 @@ func testSetupCommandNpmPnpm(t *testing.T, packageManager project.ProjectType) {
 
 			npmrcContent := readPackageManagerConfigs(t, tempDir)
 
-			// pnpm stores the _authToken in auth.ini at 0644, and jf setup restricts it
-			// to owner-only. auth.ini is only written when there is a credential to
-			// store. npm is not asserted here: it writes ~/.npmrc at 0600 itself, so
-			// jf setup adds no hardening and there is no behavior of ours to test.
+			// pnpm writes the _authToken at 0644, and jf setup restricts it to
+			// owner-only. The file it lands in varies by pnpm version, so assert on
+			// whichever config file actually holds the auth entry. Only written when
+			// there is a credential to store. npm is not asserted here: it writes
+			// ~/.npmrc at 0600 itself, so jf setup adds no hardening of ours to test.
 			hasCredentials := testCase.accessToken != "" || (testCase.user != "" && testCase.password != "")
 			if packageManager == project.Pnpm && hasCredentials {
-				assertOwnerOnly(t, findConfigFile(t, tempDir, "auth.ini"))
+				assertOwnerOnly(t, findConfigFileContaining(t, tempDir, ":_auth"))
 			}
 
 			// Validate that the registry URL was set correctly in .npmrc.
