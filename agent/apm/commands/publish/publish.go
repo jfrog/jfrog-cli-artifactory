@@ -83,7 +83,7 @@ func (c *ApmPublishCommand) Run() error {
 	} else {
 		manifestPath := filepath.Join(workingDir, apmcommon.ApmManifestName)
 		owner := ownerFromArgs(c.args)
-		repoName := apmcommon.ResolveRepoNameFromRegistry(c.serverDetails, manifestPath)
+		repoName := apmcommon.ResolveRepoNameFromRegistry(c.serverDetails, manifestPath, c.args)
 		if biErr := apmcommon.CollectAndSavePublishBuildInfo(manifestPath, owner, repoName, c.serverDetails, c.buildConfiguration); biErr != nil {
 			log.Warn("apm publish completed, but build info recording failed:", biErr.Error())
 		}

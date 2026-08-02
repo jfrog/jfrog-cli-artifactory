@@ -101,13 +101,80 @@ func TestResolveRepoNameFromRegistry(t *testing.T) {
 			}
 
 			sd := &config.ServerDetails{ArtifactoryUrl: "https://acme.jfrog.io/artifactory/"}
-			assert.Equal(t, tt.want, ResolveRepoNameFromRegistry(sd, ""))
+			assert.Equal(t, tt.want, ResolveRepoNameFromRegistry(sd, "", nil))
 		})
 	}
 }
 
 func TestResolveRepoNameFromRegistry_NilServerDetails(t *testing.T) {
-	assert.Empty(t, ResolveRepoNameFromRegistry(nil, ""))
+	assert.Empty(t, ResolveRepoNameFromRegistry(nil, "", nil))
+}
+
+func TestResolveRepoNameFromRegistry_ExplicitRegistryFlag(t *testing.T) {
+	// Two registries share the same host (would be ambiguous for the old host-matching
+	// heuristic), but an explicit --registry picks one unambiguously.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	apmDir := filepath.Join(home, ".apm")
+	require.NoError(t, os.MkdirAll(apmDir, 0o755))
+	configJSON := `{"registries":{
+		"a":{"url":"https://acme.jfrog.io/artifactory/api/agentpackages/a-repo/"},
+		"b":{"url":"https://acme.jfrog.io/artifactory/api/agentpackages/b-repo/","default":true}
+	}}`
+	require.NoError(t, os.WriteFile(filepath.Join(apmDir, "config.json"), []byte(configJSON), 0o644))
+
+	sd := &config.ServerDetails{ArtifactoryUrl: "https://acme.jfrog.io/artifactory/"}
+
+	// --registry a wins over b's "default": true.
+	assert.Equal(t, "a-repo", ResolveRepoNameFromRegistry(sd, "", []string{"--package", "acme/pkg", "--registry", "a"}))
+	// --registry=b (equals form) also works.
+	assert.Equal(t, "b-repo", ResolveRepoNameFromRegistry(sd, "", []string{"--registry=b"}))
+	// Unknown --registry name falls back to host-matching, which is ambiguous here (2 matches).
+	assert.Equal(t, "", ResolveRepoNameFromRegistry(sd, "", []string{"--registry", "unknown"}))
+}
+
+func TestResolveRepoNameFromRegistry_DefaultRegistryNoFlag(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	apmDir := filepath.Join(home, ".apm")
+	require.NoError(t, os.MkdirAll(apmDir, 0o755))
+	configJSON := `{"registries":{
+		"a":{"url":"https://acme.jfrog.io/artifactory/api/agentpackages/a-repo/"},
+		"b":{"url":"https://acme.jfrog.io/artifactory/api/agentpackages/b-repo/","default":true}
+	}}`
+	require.NoError(t, os.WriteFile(filepath.Join(apmDir, "config.json"), []byte(configJSON), 0o644))
+
+	sd := &config.ServerDetails{ArtifactoryUrl: "https://acme.jfrog.io/artifactory/"}
+
+	// No --registry flag: falls back to whichever registry has "default": true.
+	assert.Equal(t, "b-repo", ResolveRepoNameFromRegistry(sd, "", []string{"--package", "acme/pkg"}))
+}
+
+func TestRepoKeyFromRegistryURL(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{name: "trailing slash", url: "https://acme.jfrog.io/artifactory/api/agentpackages/my-repo/", want: "my-repo"},
+		{name: "no trailing slash", url: "https://acme.jfrog.io/artifactory/api/agentpackages/my-repo", want: "my-repo"},
+		{name: "virtual package sub-path ignored", url: "https://acme.jfrog.io/artifactory/api/agentpackages/my-repo/some/subpath", want: "my-repo"},
+		{name: "missing prefix", url: "https://acme.jfrog.io/artifactory/api/other/my-repo/", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, repoKeyFromRegistryURL(tt.url))
+		})
+	}
+}
+
+func TestRegistryNameFromArgs(t *testing.T) {
+	assert.Equal(t, "corp-main", registryNameFromArgs([]string{"--package", "acme/pkg", "--registry", "corp-main"}))
+	assert.Equal(t, "corp-main", registryNameFromArgs([]string{"--registry=corp-main"}))
+	assert.Equal(t, "", registryNameFromArgs([]string{"--package", "acme/pkg"}))
+	assert.Equal(t, "", registryNameFromArgs(nil))
 }
 
 func TestBuildRegistryEntry(t *testing.T) {

@@ -446,11 +446,51 @@ func ConfigureApmRegistryPersistent(serverDetails *config.ServerDetails, repoNam
 	return RunApmCommand(nil, "config", []string{"set", fmt.Sprintf("registry.%s.default", repoName), "true"})
 }
 
-// ResolveRepoNameFromRegistry returns the Artifactory repo name for serverDetails, derived from
-// whichever declared registry (config.json or apm.yml) matches its host - a registry is always
-// named after its repo. Returns "" if none or more than one matches (treated as unknown, not an
-// error - it only affects build-info enrichment, never publish itself).
-func ResolveRepoNameFromRegistry(serverDetails *config.ServerDetails, manifestPath string) string {
+// registryNameFromArgs extracts the value of an explicit --registry flag from apm subcommand
+// args, e.g. ["--package", "acme/pkg", "--registry", "corp-main"] -> "corp-main", or
+// ["--registry=corp-main"] -> "corp-main". Returns "" if --registry isn't present.
+func registryNameFromArgs(args []string) string {
+	for i, arg := range args {
+		if arg == "--registry" && i+1 < len(args) {
+			return args[i+1]
+		}
+		if cut, ok := strings.CutPrefix(arg, "--registry="); ok {
+			return cut
+		}
+	}
+	return ""
+}
+
+// repoKeyFromRegistryURL extracts the Artifactory repo key from an APM registry URL of the form
+// ".../api/agentpackages/<repoKey>/" (trailing slash and any further sub-path are ignored, e.g.
+// for a virtual-package path suffix). Returns "" if the URL doesn't contain that prefix.
+func repoKeyFromRegistryURL(registryURL string) string {
+	_, after, found := strings.Cut(registryURL, agentPackagesAPIPrefix)
+	if !found {
+		return ""
+	}
+	rest := strings.Trim(after, "/")
+	if rest == "" {
+		return ""
+	}
+	if before, _, ok := strings.Cut(rest, "/"); ok {
+		rest = before
+	}
+	return rest
+}
+
+// ResolveRepoNameFromRegistry returns the Artifactory repo name that an apm publish/install
+// actually targeted, for build-info enrichment. Priority:
+//  1. An explicit --registry <name> in args - looked up by name in apm.yml, then
+//     ~/.apm/config.json, and its repo key derived from the registry URL.
+//  2. No --registry passed - the registry marked default: apm.yml's registries.default first,
+//     then whichever ~/.apm/config.json entry has "default": true.
+//  3. Neither resolves - falls back to the old host-matching heuristic (only definitive when
+//     exactly one configured registry matches serverDetails' host).
+//
+// Returns "" if nothing resolves (treated as unknown, not an error - it only affects build-info
+// enrichment, never publish itself).
+func ResolveRepoNameFromRegistry(serverDetails *config.ServerDetails, manifestPath string, args []string) string {
 	if serverDetails == nil {
 		return ""
 	}
@@ -458,6 +498,61 @@ func ResolveRepoNameFromRegistry(serverDetails *config.ServerDetails, manifestPa
 	if err != nil {
 		return ""
 	}
+	var manifest *ApmManifest
+	if manifestPath != "" {
+		if m, loadErr := LoadManifest(manifestPath); loadErr == nil {
+			manifest = m
+		} else {
+			log.Debug("apm.yml parsing failed while resolving registry repo name:", loadErr.Error())
+		}
+	}
+
+	lookupURL := func(name string) (string, bool) {
+		if manifest != nil {
+			if entry, ok := manifest.Registries.Entries[name]; ok {
+				return entry.URL, true
+			}
+		}
+		if entry, ok := existing.Registries[name]; ok {
+			return entry.URL, true
+		}
+		return "", false
+	}
+
+	resolveName := func(name string) string {
+		if name == "" {
+			return ""
+		}
+		url, ok := lookupURL(name)
+		if !ok {
+			return ""
+		}
+		return repoKeyFromRegistryURL(url)
+	}
+
+	if explicit := registryNameFromArgs(args); explicit != "" {
+		if repo := resolveName(explicit); repo != "" {
+			return repo
+		}
+		log.Debug("apm publish: --registry " + explicit + " not found in apm.yml or ~/.apm/config.json; falling back to host-matching")
+	} else {
+		defaultName := ""
+		if manifest != nil {
+			defaultName = manifest.Registries.Default
+		}
+		if defaultName == "" {
+			for name, entry := range existing.Registries {
+				if entry.Default {
+					defaultName = name
+					break
+				}
+			}
+		}
+		if repo := resolveName(defaultName); repo != "" {
+			return repo
+		}
+	}
+
 	discovered := discoverMatchingRegistries(existing, manifestPath, serverDetails)
 	if len(discovered) != 1 {
 		return ""
