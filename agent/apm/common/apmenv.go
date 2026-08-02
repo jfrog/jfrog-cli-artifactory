@@ -389,7 +389,8 @@ func SanitizeLogValue(value string) string {
 }
 
 // RunApmCommand runs "apm <subcmd> <args...>" with the provided environment (current process
-// environment if nil). Logs only the subcommand name, never args, since args can carry secrets
+// environment if nil). Captures output to detect validation failures that APM may report but
+// exit with code 0 on. Logs only the subcommand name, never args, since args can carry secrets
 // (registry tokens, basic-auth URLs).
 func RunApmCommand(env []string, subcmd string, args []string) error {
 	log.Debug(fmt.Sprintf("Running: apm %s", SanitizeLogValue(subcmd)))
@@ -398,10 +399,23 @@ func RunApmCommand(env []string, subcmd string, args []string) error {
 	if env != nil {
 		cmd.Env = env
 	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
+	// Capture both stdout and stderr to detect validation failures
+	var outBuf, errBuf strings.Builder
+	cmd.Stdout = io.MultiWriter(os.Stdout, &outBuf)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &errBuf)
 	cmd.Stdin = os.Stdin
-	if err := cmd.Run(); err != nil {
+
+	err := cmd.Run()
+	output := outBuf.String() + errBuf.String()
+
+	// Check for APM validation failures: "[x]" marker or "All packages failed validation"
+	// APM sometimes exits with code 0 even when validation failed
+	if strings.Contains(output, "[x]") || strings.Contains(output, "All packages failed validation") {
+		return fmt.Errorf("apm %s failed: validation errors detected in output", subcmd)
+	}
+
+	if err != nil {
 		return fmt.Errorf("apm %s failed: %w", subcmd, err)
 	}
 	return nil
