@@ -262,8 +262,18 @@ func lookupPublishedArtifactChecksum(owner, name, version, repoName string, serv
 	return fileDetails.Checksum
 }
 
+// derivedModuleID returns the default module ID for the install-side build-info module: manifest
+// name:version, matching how npm and yarn derive their module ID (packageInfo.BuildInfoModuleId(),
+// always "name:version") for every module they create, install or publish alike. Falls back to
+// the project directory name if apm.yml can't be read or its name/version are empty, so a project
+// that's mid-authoring (no name/version yet) still gets a stable, non-empty module ID.
 func derivedModuleID(manifestPath string) string {
-	// Use directory name as module ID
+	manifest, err := LoadManifest(manifestPath)
+	if err != nil {
+		log.Debug("apm.yml parsing failed while deriving install module ID:", err.Error())
+	} else if manifest.Name != "" && manifest.Version != "" {
+		return manifest.Name + ":" + manifest.Version
+	}
 	dir := filepath.Dir(manifestPath)
 	base := filepath.Base(dir)
 	if base == "." || base == "" {
