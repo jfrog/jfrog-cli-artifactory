@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,21 +34,74 @@ func AgentPackagesBaseURL(serverDetails *config.ServerDetails, repoName string) 
 }
 
 // BuildRegistryEntry returns (registryURL, token) for APM config.
-// AccessToken set → Bearer auth via token field.
-// User+Password only → Basic auth via URL-embedded credentials.
+// Strategy: Check for AccessToken first, else generate token from User+Password.
+// Never embed plaintext credentials in URL - always use token field.
+// AccessToken set → use it.
+// User+Password set → generate token via Artifactory API.
+// Neither → return URL only (caller must handle auth separately).
 func BuildRegistryEntry(serverDetails *config.ServerDetails, repoName string) (registryURL, token string) {
 	base := AgentPackagesBaseURL(serverDetails, repoName)
+
+	// Priority 1: Use existing access token
 	if serverDetails.AccessToken != "" {
 		return base, serverDetails.AccessToken
 	}
+
+	// Priority 2: Generate token from username/password (secure - no plaintext in config)
 	if serverDetails.User != "" && serverDetails.Password != "" {
-		parsedURL, err := url.Parse(base)
-		if err == nil {
-			parsedURL.User = url.UserPassword(serverDetails.User, serverDetails.Password)
-			return parsedURL.String(), ""
+		generatedToken := generateAccessToken(serverDetails)
+		if generatedToken != "" {
+			return base, generatedToken
 		}
+		// Fallback: if token generation fails, fall through to no-token case
+		// (APM CLI may handle auth differently or skip this registry)
 	}
+
+	// No token available - return URL only
 	return base, ""
+}
+
+// generateAccessToken calls Artifactory's token generation API to create an access token
+// from username/password. Returns empty string if generation fails.
+func generateAccessToken(serverDetails *config.ServerDetails) string {
+	if serverDetails.User == "" || serverDetails.Password == "" {
+		return ""
+	}
+
+	// Build token request body
+	tokenRequest := `{"username":"` + serverDetails.User + `","scope":"applied-permissions/user","expires_in":0}`
+
+	// POST to /artifactory/api/security/tokens with Basic auth
+	tokenURL := strings.TrimSuffix(serverDetails.ArtifactoryUrl, "/") + "/api/security/tokens"
+
+	cmd := exec.Command("curl", "-s",
+		"-u", serverDetails.User+":"+serverDetails.Password,
+		"-X", "POST",
+		"-H", "Content-Type: application/json",
+		"-d", tokenRequest,
+		tokenURL)
+
+	output, err := cmd.Output()
+	if err != nil {
+		log.Debug("Failed to generate access token:", err.Error())
+		return ""
+	}
+
+	// Extract token from response: {"token":"<token>", ...}
+	var response map[string]string
+	if err := json.Unmarshal(output, &response); err != nil {
+		log.Debug("Failed to parse token response:", err.Error())
+		return ""
+	}
+
+	token, ok := response["token"]
+	if !ok || token == "" {
+		log.Debug("No token in API response")
+		return ""
+	}
+
+	log.Debug("Access token generated for APM registry")
+	return token
 }
 
 // apmConfigJSON models ~/.apm/config.json. Extra preserves top-level keys this code doesn't

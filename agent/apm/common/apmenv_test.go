@@ -109,3 +109,99 @@ func TestResolveRepoNameFromRegistry(t *testing.T) {
 func TestResolveRepoNameFromRegistry_NilServerDetails(t *testing.T) {
 	assert.Empty(t, ResolveRepoNameFromRegistry(nil, ""))
 }
+
+func TestBuildRegistryEntry(t *testing.T) {
+	tests := []struct {
+		name          string
+		serverDetails *config.ServerDetails
+		repoName      string
+		expectURL     string
+		expectToken   string
+	}{
+		{
+			name: "access token takes priority",
+			serverDetails: &config.ServerDetails{
+				ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
+				AccessToken:    "my-existing-token",
+				User:           "admin",
+				Password:       "password",
+			},
+			repoName:    "apm-local",
+			expectURL:   "https://acme.jfrog.io/artifactory/api/agentpackages/apm-local/",
+			expectToken: "my-existing-token",
+		},
+		{
+			name: "no auth returns URL only",
+			serverDetails: &config.ServerDetails{
+				ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
+			},
+			repoName:    "apm-local",
+			expectURL:   "https://acme.jfrog.io/artifactory/api/agentpackages/apm-local/",
+			expectToken: "",
+		},
+		{
+			name: "user without password returns URL only",
+			serverDetails: &config.ServerDetails{
+				ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
+				User:           "admin",
+			},
+			repoName:    "apm-local",
+			expectURL:   "https://acme.jfrog.io/artifactory/api/agentpackages/apm-local/",
+			expectToken: "",
+		},
+		{
+			name: "trailing slash handling",
+			serverDetails: &config.ServerDetails{
+				ArtifactoryUrl: "https://acme.jfrog.io/artifactory",
+				AccessToken:    "token",
+			},
+			repoName:    "apm-local",
+			expectURL:   "https://acme.jfrog.io/artifactory/api/agentpackages/apm-local/",
+			expectToken: "token",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			url, token := BuildRegistryEntry(tt.serverDetails, tt.repoName)
+			assert.Equal(t, tt.expectURL, url)
+			assert.Equal(t, tt.expectToken, token)
+		})
+	}
+}
+
+func TestGenerateAccessToken_NoAuth(t *testing.T) {
+	tests := []struct {
+		name          string
+		serverDetails *config.ServerDetails
+		expectToken   string
+	}{
+		{
+			name:          "empty user and password",
+			serverDetails: &config.ServerDetails{},
+			expectToken:   "",
+		},
+		{
+			name: "user without password",
+			serverDetails: &config.ServerDetails{
+				User: "admin",
+			},
+			expectToken: "",
+		},
+		{
+			name: "password without user",
+			serverDetails: &config.ServerDetails{
+				Password: "secret",
+			},
+			expectToken: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			token := generateAccessToken(tt.serverDetails)
+			assert.Equal(t, tt.expectToken, token, "generateAccessToken should return empty for incomplete credentials")
+		})
+	}
+}
+
