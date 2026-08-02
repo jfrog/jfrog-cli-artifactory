@@ -68,12 +68,16 @@ func (c *CargoCommand) buildNameNumber() (string, string) {
 	return name, number
 }
 
-// newCollector creates a Cargo FlexPack build-info collector for the working dir.
+// newCollector creates a Cargo FlexPack build-info collector for the working dir. Passes the
+// user's -p/--package selectors through so build-info modules are limited to workspace members
+// this invocation actually compiles (fix for the ripgrep/grep-index bug where sibling members
+// showed up even though `cargo build -p X --features Y` never built them).
 func (c *CargoCommand) newCollector() (*cargoflex.CargoFlexPack, error) {
 	return cargoflex.NewCargoFlexPack(cargoflex.CargoConfig{
 		WorkingDirectory:       c.workingDir,
 		IncludeDevDependencies: false,
 		MetadataArgs:           metadataFlagsFromArgs(c.args),
+		SelectedPackages:       packageNamesFromArgs(c.args),
 	})
 }
 
@@ -116,12 +120,12 @@ func (c *CargoCommand) collectArtifacts() error {
 	if err != nil {
 		return err
 	}
-	c.enrichChecksums(bi)
 
 	// A dry-run publish uploads nothing, so there is no artifact to scan for and no repo item to
 	// stamp build properties on. Record the dependency build-info only (skip artifact collection to
 	// avoid spurious "not found"/set-properties errors).
 	if isDryRunPublish(c.args) {
+		c.enrichChecksums(bi)
 		log.Info("cargo: publish --dry-run — nothing uploaded; recording dependencies only")
 		return c.saveBuildInfo(bi)
 	}
@@ -134,9 +138,17 @@ func (c *CargoCommand) collectArtifacts() error {
 	if err != nil {
 		return err
 	}
+	// Prepare the published-crate filename up front so we can fold its checksum lookup into the
+	// same AQL batch as the dep-checksum enrichment (Naveen: avoid the extra AQL query). When
+	// scanCrateArtifacts already found the local .crate (checksums computed from the file), the
+	// artifact list is complete and only dep enrichment is needed.
+	publishedFileName := ""
 	if len(arts) == 0 && repo != "" {
-		// Local .crate is gone (cargo publish removed it after upload) — read it back from the repo.
-		if art, ok := c.resolvePublishedArtifact(bi, repo); ok {
+		publishedFileName = publishedCrateFileName(bi, c.args)
+	}
+	byName := c.enrichChecksumsAndFetch(bi, repo, publishedFileName)
+	if publishedFileName != "" {
+		if art, ok := c.assemblePublishedArtifact(publishedFileName, repo, byName); ok {
 			arts = append(arts, art)
 		}
 	}
@@ -156,34 +168,22 @@ func (c *CargoCommand) collectArtifacts() error {
 	return c.saveBuildInfo(bi)
 }
 
-// resolvePublishedArtifact builds the artifact entry for the just-published crate. After
-// `cargo publish` the local .crate is gone, but the crate is in the target repo, so a single AQL
-// call fetches its checksums. The repo path is constructed via crateRepoPath (crates/ layout).
-func (c *CargoCommand) resolvePublishedArtifact(bi *entities.BuildInfo, repo string) (entities.Artifact, bool) {
-	fileName := publishedCrateFileName(bi, c.args)
+// assemblePublishedArtifact builds the entities.Artifact for the just-published crate using the
+// checksum map already returned by enrichChecksumsAndFetch — no extra AQL round-trip. When the
+// map does not include the file (e.g. no server details, no repo, or the index has not yet caught
+// up with the upload), the artifact is returned without checksums; callers still record it so the
+// build-info reflects what was published.
+func (c *CargoCommand) assemblePublishedArtifact(fileName, repo string, byName map[string]entities.Checksum) (entities.Artifact, bool) {
 	if fileName == "" {
 		log.Debug("cargo: could not derive published crate name from build-info")
 		return entities.Artifact{}, false
 	}
 	repoPath, _, _ := crateRepoPath(fileName)
 	art := entities.Artifact{Name: fileName, Path: repoPath, Type: "crate", OriginalDeploymentRepo: repo}
-	if c.serverDetails == nil {
-		return art, true
-	}
-	sm, err := artutils.CreateServiceManager(c.serverDetails, -1, 0, false)
-	if err != nil {
-		log.Debug("cargo: could not create service manager for artifact lookup: " + err.Error())
-		return art, true
-	}
-	byName, err := queryChecksums(sm, repo, []string{fileName})
-	if err != nil {
-		log.Warn("cargo: could not fetch published crate checksums from Artifactory: " + err.Error())
-		return art, true
-	}
 	if cs, ok := byName[fileName]; ok {
 		art.Checksum = cs
-		log.Debug("cargo: resolved published artifact " + fileName + " checksums from Artifactory (AQL)")
-	} else {
+		log.Debug("cargo: resolved published artifact " + fileName + " checksums from Artifactory (batched AQL)")
+	} else if c.serverDetails != nil && repo != "" {
 		log.Warn("cargo: published crate " + fileName + " not found in repo " + repo + " yet; checksums omitted")
 	}
 	return art, true
@@ -221,19 +221,35 @@ func isDryRunPublish(args []string) bool {
 }
 
 // packageNameFromArgs extracts the value of cargo's -p/--package selector (space or = form).
+// Returns the first occurrence; use packageNamesFromArgs when cargo commands may specify -p
+// multiple times to select several workspace members at once.
 func packageNameFromArgs(args []string) string {
-	for i, a := range args {
-		if (a == "-p" || a == "--package") && i+1 < len(args) {
-			return args[i+1]
-		}
-		if strings.HasPrefix(a, "--package=") {
-			return strings.TrimPrefix(a, "--package=")
-		}
-		if strings.HasPrefix(a, "-p=") {
-			return strings.TrimPrefix(a, "-p=")
+	names := packageNamesFromArgs(args)
+	if len(names) == 0 {
+		return ""
+	}
+	return names[0]
+}
+
+// packageNamesFromArgs collects all -p/--package selectors on the cargo command line, in order.
+// Cargo permits repeated -p to narrow a build to several workspace members (e.g. `cargo build
+// -p a -p b`); build-info collection needs the full list so it emits one module per selected
+// member — not just the first one and not all workspace members.
+func packageNamesFromArgs(args []string) []string {
+	var names []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case (a == "-p" || a == "--package") && i+1 < len(args):
+			names = append(names, args[i+1])
+			i++
+		case strings.HasPrefix(a, "--package="):
+			names = append(names, strings.TrimPrefix(a, "--package="))
+		case strings.HasPrefix(a, "-p="):
+			names = append(names, strings.TrimPrefix(a, "-p="))
 		}
 	}
-	return ""
+	return names
 }
 
 // publishedCrateFileName derives the "<name>-<version>.crate" of the crate a publish uploaded.
@@ -347,22 +363,45 @@ func (c *CargoCommand) setBuildProperties(arts []entities.Artifact, repo, name, 
 // enrichChecksums fills any dependency checksums missing after local-cache resolution
 // by querying Artifactory. Best-effort: logs and continues on any error.
 func (c *CargoCommand) enrichChecksums(bi *entities.BuildInfo) {
+	c.enrichChecksumsAndFetch(bi, "", "")
+}
+
+// enrichChecksumsAndFetch is the publish-flow variant: same batched Artifactory query that
+// enrichChecksums performs, plus the just-published crate's file name folded into the same AQL
+// so its checksums arrive in the same round-trip. When repo is "" the target repo is resolved
+// via c.targetRepo(); pass it explicitly (already resolved) to avoid re-computing. Returns the
+// checksum map so the caller can pick out the extra names; safe to ignore when there are none.
+func (c *CargoCommand) enrichChecksumsAndFetch(bi *entities.BuildInfo, resolvedRepo, extraName string) map[string]entities.Checksum {
 	if c.serverDetails == nil {
-		return
+		return nil
 	}
-	repo, err := c.targetRepo()
-	if err != nil || repo == "" {
+	repo := resolvedRepo
+	if repo == "" {
+		r, err := c.targetRepo()
+		if err != nil {
+			log.Debug("cargo: no target repo for checksum enrichment; skipping")
+			return nil
+		}
+		repo = r
+	}
+	if repo == "" {
 		log.Debug("cargo: no target repo for checksum enrichment; skipping")
-		return
+		return nil
 	}
 	sm, err := artutils.CreateServiceManager(c.serverDetails, -1, 0, false)
 	if err != nil {
 		log.Debug("cargo: could not create service manager for checksum enrichment: " + err.Error())
-		return
+		return nil
 	}
-	if err := enrichMissingChecksums(bi, repo, sm); err != nil {
+	var extras []string
+	if extraName != "" {
+		extras = []string{extraName}
+	}
+	byName, err := enrichAndLookup(bi, repo, sm, extras)
+	if err != nil {
 		log.Warn("cargo: checksum enrichment failed: " + err.Error())
 	}
+	return byName
 }
 
 // moduleOverrideIndex selects which module a --module override should rename: the module of the

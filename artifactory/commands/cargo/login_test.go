@@ -136,12 +136,15 @@ index = "sparse+https://acme.jfrog.io/artifactory/api/cargo/proj-only/index/"
 }
 
 func TestCommandBucket(t *testing.T) {
-	// Only install and publish collect build-info; every other cargo command is a pass-through.
+	// install, build, and publish collect build-info. build shares the "deps" bucket with
+	// install because both resolve + compile the same dep set; publish additionally records
+	// the uploaded .crate artifact. Every other cargo command is a pass-through.
 	cases := map[string]string{
 		"install": "deps",
+		"build":   "deps",
 		"publish": "publish",
 		// pass-through — collect nothing:
-		"build": "none", "package": "none", "update": "none", "add": "none", "fetch": "none",
+		"package": "none", "update": "none", "add": "none", "fetch": "none",
 		"generate-lockfile": "none", "run": "none", "test": "none", "check": "none",
 		"metadata": "none", "tree": "none", "search": "none", "--version": "none",
 	}
@@ -153,13 +156,15 @@ func TestCommandBucket(t *testing.T) {
 }
 
 func TestNeedsRemoteAccess(t *testing.T) {
-	// Only the collecting commands get auth injection; the rest are pass-throughs.
-	for _, cmd := range []string{"install", "publish"} {
+	// Only the collecting commands get auth injection; the rest are pass-throughs. build joined
+	// install/publish once build-info collection was added for it — cargo build resolves crates
+	// (needs the authenticated registry) before compiling.
+	for _, cmd := range []string{"install", "build", "publish"} {
 		if !needsRemoteAccess(cmd) {
 			t.Errorf("needsRemoteAccess(%q) = false, want true", cmd)
 		}
 	}
-	for _, cmd := range []string{"build", "package", "fetch", "update", "add", "check", "test", "run", "metadata"} {
+	for _, cmd := range []string{"package", "fetch", "update", "add", "check", "test", "run", "metadata"} {
 		if needsRemoteAccess(cmd) {
 			t.Errorf("needsRemoteAccess(%q) = true, want false (pass-through)", cmd)
 		}

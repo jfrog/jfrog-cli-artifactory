@@ -44,17 +44,21 @@ func cargoCredential(sd *config.ServerDetails) string {
 }
 
 // commandBucket returns the build-info collection bucket for a cargo sub-command.
-// Only two cargo commands collect build-info:
+// Three cargo commands collect build-info:
 //   - "install" -> "deps"    (records the resolved dependency graph)
+//   - "build"   -> "deps"    (same shape — cargo build resolves + compiles, so the dep set is
+//     exactly what was linked into the produced binaries; requested by users
+//     because it is the everyday command, unlike install/publish which are
+//     narrower flows)
 //   - "publish" -> "publish" (records deps + the uploaded .crate artifact)
 //
-// Every other cargo command (build, fetch, update, add, check, test, run, package, metadata, …) is
-// a pure pass-through: it bucket-maps to "none" and collects nothing. Authentication for those is
+// Every other cargo command (fetch, update, add, check, test, run, package, metadata, …) is a
+// pure pass-through: it bucket-maps to "none" and collects nothing. Authentication for those is
 // expected to come from the user's own cargo credentials (e.g. written by `jf setup cargo`), not
 // from per-run token injection.
 func commandBucket(cmd string) string {
 	switch cmd {
-	case "install":
+	case "install", "build":
 		return "deps"
 	case "publish":
 		return "publish"

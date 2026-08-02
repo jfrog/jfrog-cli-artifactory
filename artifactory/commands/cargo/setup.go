@@ -102,6 +102,12 @@ func ConfigureNativeRegistry(serverDetails *config.ServerDetails, resolveRepo, d
 	// 1. config.toml — resolution registry + full crates.io redirect + credential provider, plus an
 	// optional deploy registry. The cargo:token provider is required for cargo to send the token from
 	// credentials.toml; without it cargo errors "authenticated registries require a credential-provider".
+	//
+	// Re-running setup must produce a config that reflects only this invocation: if the user
+	// previously configured a project-scoped jfrog-local registry (e.g. `jf setup cargo --project=X`)
+	// and now re-runs with a --repo-only, no-deploy setup, the previously-written jfrog-local entry
+	// must be deleted rather than left behind pointing at the old project's local repo. Uday's report:
+	// "jfrog-local still project-scoped" after switching flows was exactly this stale-entry case.
 	configPath := filepath.Join(home, "config.toml")
 	if err = mergeTomlFile(configPath, func(m map[string]interface{}) {
 		setNested(m, []string{"registry", "default"}, jfrogRegistryName)
@@ -110,6 +116,9 @@ func ConfigureNativeRegistry(serverDetails *config.ServerDetails, resolveRepo, d
 		setNested(m, []string{"source", "crates-io", "replace-with"}, jfrogRegistryName)
 		if deployIndex != "" {
 			setNested(m, []string{"registries", jfrogDeployRegistryName, "index"}, deployIndex)
+		} else {
+			// No deploy repo this run — clear any stale jfrog-local from a prior setup.
+			deleteNested(m, []string{"registries", jfrogDeployRegistryName})
 		}
 	}); err != nil {
 		return fmt.Errorf("failed to write cargo config %q: %w", configPath, err)
@@ -130,6 +139,12 @@ func ConfigureNativeRegistry(serverDetails *config.ServerDetails, resolveRepo, d
 	if err = mergeTomlFile(credsPath, func(m map[string]interface{}) {
 		for _, reg := range registries {
 			setNested(m, []string{"registries", reg, "token"}, credential)
+		}
+		if deployRepo == "" {
+			// Mirror the config.toml cleanup: drop any stale jfrog-local credentials so the two
+			// files stay in sync (a leftover token here would otherwise reference a registry
+			// that no longer exists in config.toml).
+			deleteNested(m, []string{"registries", jfrogDeployRegistryName})
 		}
 	}); err != nil {
 		return fmt.Errorf("failed to write cargo credentials %q: %w", credsPath, err)
@@ -188,4 +203,25 @@ func setNested(m map[string]interface{}, keys []string, value interface{}) {
 		cur = next
 	}
 	cur[keys[len(keys)-1]] = value
+}
+
+// deleteNested removes m[keys[0]][keys[1]]... if it exists. Intermediate tables that become
+// empty as a result are also removed, so a stale [registries.jfrog-local] entry does not leave
+// behind an empty [registries] block that toml would still emit. Missing keys are a no-op.
+func deleteNested(m map[string]interface{}, keys []string) {
+	if len(keys) == 0 {
+		return
+	}
+	if len(keys) == 1 {
+		delete(m, keys[0])
+		return
+	}
+	next, ok := m[keys[0]].(map[string]interface{})
+	if !ok {
+		return
+	}
+	deleteNested(next, keys[1:])
+	if len(next) == 0 {
+		delete(m, keys[0])
+	}
 }

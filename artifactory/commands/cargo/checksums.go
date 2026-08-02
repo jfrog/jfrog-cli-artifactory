@@ -147,28 +147,67 @@ func applyChecksums(bi *entities.BuildInfo, byName map[string]entities.Checksum)
 // cargo cache did not provide, and fills them in. It logs a reconciliation of how many
 // were resolved locally vs from Artifactory. Missing repo or executor is a no-op.
 func enrichMissingChecksums(bi *entities.BuildInfo, repo string, exec aqlExecutor) error {
+	_, err := enrichAndLookup(bi, repo, exec, nil)
+	return err
+}
+
+// enrichAndLookup runs a single batched AQL that satisfies both purposes at once: filling in
+// missing dependency checksums AND returning checksums for any additional artifact names
+// (e.g. the just-published crate). Publish previously issued two AQLs — one via
+// enrichMissingChecksums and a second inside resolvePublishedArtifact — for the same repo,
+// which Naveen flagged as avoidable. Merging them into one round-trip halves the AQL cost
+// per publish.
+//
+// Returns the merged name -> checksum map for the caller-supplied extraNames (dependency
+// enrichment is done in-place on bi). A nil / empty extraNames list keeps the behavior
+// identical to the old enrichMissingChecksums.
+func enrichAndLookup(bi *entities.BuildInfo, repo string, exec aqlExecutor, extraNames []string) (map[string]entities.Checksum, error) {
 	if bi == nil || repo == "" || exec == nil {
-		return nil
+		return nil, nil
 	}
 	missing := missingChecksumNames(bi)
-	if len(missing) == 0 {
+	toQuery := mergeUniqueNames(missing, extraNames)
+	if len(toQuery) == 0 {
 		log.Debug("cargo: all dependency checksums resolved from local cache; skipping AQL")
-		return nil
+		return map[string]entities.Checksum{}, nil
 	}
-	log.Debug(fmt.Sprintf("cargo: %d dependencies missing checksums; querying Artifactory repo %q via AQL", len(missing), repo))
+	log.Debug(fmt.Sprintf("cargo: %d dependency + %d artifact names missing checksums; querying Artifactory repo %q via a single AQL batch",
+		len(missing), len(extraNames), repo))
 	// queryChecksums returns whatever it accumulated even on a mid-batch error, so apply
 	// those partial results before surfacing the error (enrichment is best-effort).
-	byName, err := queryChecksums(exec, repo, missing)
+	byName, err := queryChecksums(exec, repo, toQuery)
 	filled := applyChecksums(bi, byName)
 	// Recompute remaining from the build-info so the count reflects unique crates still
 	// missing (never negative, even when a crate appears in multiple modules).
 	remaining := len(missingChecksumNames(bi))
 	log.Debug(fmt.Sprintf("cargo: checksum enrichment — filled %d dependency entries from Artifactory, %d crates still missing", filled, remaining))
 	if err != nil {
-		return fmt.Errorf("checksum enrichment incomplete (filled %d before error): %w", filled, err)
+		return byName, fmt.Errorf("checksum enrichment incomplete (filled %d before error): %w", filled, err)
 	}
 	if remaining > 0 {
 		log.Warn(fmt.Sprintf("cargo: %d dependencies still missing checksums after AQL enrichment", remaining))
 	}
-	return nil
+	return byName, nil
+}
+
+// mergeUniqueNames appends extras to base, skipping empties and dupes, preserving order.
+func mergeUniqueNames(base, extras []string) []string {
+	if len(extras) == 0 {
+		return base
+	}
+	seen := make(map[string]bool, len(base)+len(extras))
+	out := make([]string, 0, len(base)+len(extras))
+	for _, n := range base {
+		if n != "" && !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	for _, n := range extras {
+		if n != "" && !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	return out
 }
