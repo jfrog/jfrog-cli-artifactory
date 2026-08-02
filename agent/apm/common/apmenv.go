@@ -3,7 +3,10 @@ package apmcommon
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"maps"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,42 +64,57 @@ func BuildRegistryEntry(serverDetails *config.ServerDetails, repoName string) (r
 	return base, ""
 }
 
-// generateAccessToken calls Artifactory's token generation API to create an access token
-// from username/password. Returns empty string if generation fails.
+// generateAccessToken calls Artifactory's deprecated token generation API
+// (POST /artifactory/api/security/token, form-urlencoded - the JSON, plural
+// "/tokens" endpoint returns 405) to create an access token from username/
+// password. Returns empty string if generation fails.
 func generateAccessToken(serverDetails *config.ServerDetails) string {
 	if serverDetails.User == "" || serverDetails.Password == "" {
 		return ""
 	}
 
-	// Build token request body
-	tokenRequest := `{"username":"` + serverDetails.User + `","scope":"applied-permissions/user","expires_in":0}`
+	tokenURL := strings.TrimSuffix(serverDetails.ArtifactoryUrl, "/") + "/api/security/token"
 
-	// POST to /artifactory/api/security/tokens with Basic auth
-	tokenURL := strings.TrimSuffix(serverDetails.ArtifactoryUrl, "/") + "/api/security/tokens"
+	form := url.Values{}
+	form.Set("username", serverDetails.User)
+	form.Set("scope", "applied-permissions/user")
+	form.Set("expires_in", "0")
 
-	cmd := exec.Command("curl", "-s",
-		"-u", serverDetails.User+":"+serverDetails.Password,
-		"-X", "POST",
-		"-H", "Content-Type: application/json",
-		"-d", tokenRequest,
-		tokenURL)
+	req, err := http.NewRequest(http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		log.Debug("Failed to build access token request:", err.Error())
+		return ""
+	}
+	req.SetBasicAuth(serverDetails.User, serverDetails.Password)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	output, err := cmd.Output()
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Debug("Failed to generate access token:", err.Error())
 		return ""
 	}
+	defer resp.Body.Close()
 
-	// Extract token from response: {"token":"<token>", ...}
-	var response map[string]string
-	if err := json.Unmarshal(output, &response); err != nil {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Debug("Failed to read access token response:", err.Error())
+		return ""
+	}
+	if resp.StatusCode != http.StatusOK {
+		log.Debug(fmt.Sprintf("Access token generation returned status %d: %s", resp.StatusCode, string(body)))
+		return ""
+	}
+
+	// Response field is "access_token", not "token".
+	var response map[string]any
+	if err := json.Unmarshal(body, &response); err != nil {
 		log.Debug("Failed to parse token response:", err.Error())
 		return ""
 	}
 
-	token, ok := response["token"]
+	token, ok := response["access_token"].(string)
 	if !ok || token == "" {
-		log.Debug("No token in API response")
+		log.Debug("No access_token in API response")
 		return ""
 	}
 
