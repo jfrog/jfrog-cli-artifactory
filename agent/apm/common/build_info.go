@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/gofrog/crypto"
 	artCliUtils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	artCoreUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -214,9 +215,16 @@ func tagPublishedArtifactProperties(serverDetails *config.ServerDetails, repoNam
 	log.Debug("apm publish: build properties set on published artifact.")
 }
 
-// CollectAndSavePublishBuildInfo reads the package name/version from apm.yml, looks up the
-// real checksum of the just-published artifact via an HTTP HEAD, and records it in build-info.
-// Runs only when build info collection is enabled.
+// CollectAndSavePublishBuildInfo reads the package name/version from apm.yml, resolves the
+// just-published artifact's checksum, and records it in build-info. Runs only when build info
+// collection is enabled.
+//
+// Checksum resolution has two tiers, same shape as install's cache-then-HEAD-then-lockfile chain:
+//  1. HTTP HEAD against the artifact's own download URL (unchanged - still the primary source).
+//  2. Fallback: hash the local zip apm just packed in the working directory. cargo and ruby both
+//     use exactly this as their primary source for a published artifact's checksum
+//     (crypto.GetFileDetails on the local .crate/.gem file) - apm previously had no fallback tier
+//     at all here, unlike its own install-side resolution.
 func CollectAndSavePublishBuildInfo(manifestPath, owner, repoName string, serverDetails *config.ServerDetails, buildConfig *buildUtils.BuildConfiguration) error {
 	collectBuildInfo, err := buildConfig.IsCollectBuildInfo()
 	if err != nil {
@@ -235,20 +243,32 @@ func CollectAndSavePublishBuildInfo(manifestPath, owner, repoName string, server
 	}
 
 	checksum := lookupPublishedArtifactChecksum(owner, manifest.Name, manifest.Version, repoName, serverDetails)
+	if !hasAnyChecksum(checksum) {
+		workingDir := filepath.Dir(manifestPath)
+		if localChecksum, localErr := localPackedArtifactChecksum(workingDir, manifest.Name, manifest.Version); localErr == nil {
+			log.Debug("apm publish: HEAD lookup returned no checksum; using the local packed zip's own hash instead.")
+			checksum = localChecksum
+		} else {
+			log.Warn(fmt.Sprintf(
+				"apm publish: could not resolve a checksum for %s@%s from Artifactory or the local packed zip (%s); "+
+					"build-info will record this artifact with no checksum.",
+				manifest.Name, manifest.Version, localErr.Error()))
+		}
+	}
 	return SavePublishBuildInfo(owner, manifest.Name, manifest.Version, checksum, repoName, serverDetails, buildConfig)
 }
 
 // lookupPublishedArtifactChecksum issues an HTTP HEAD against the just-published artifact's own
 // download URL and reads its checksum from Artifactory's X-Checksum-* response headers. Returns
-// an empty Checksum (not an error) if the repo/owner are unknown or the lookup fails, since a
-// missing checksum shouldn't fail an already-successful publish.
+// an empty Checksum (not an error) if the repo/owner are unknown or the lookup fails - the caller
+// falls back to hashing the local packed zip, so a missing checksum here isn't yet the final word.
 func lookupPublishedArtifactChecksum(owner, name, version, repoName string, serverDetails *config.ServerDetails) entities.Checksum {
 	if owner == "" || repoName == "" || serverDetails == nil {
 		return entities.Checksum{}
 	}
 	servicesManager, err := artCoreUtils.CreateServiceManager(serverDetails, -1, 0, false)
 	if err != nil {
-		log.Debug("apm publish: could not create service manager for checksum lookup:", err.Error())
+		log.Warn("apm publish: could not create service manager for checksum lookup:", err.Error())
 		return entities.Checksum{}
 	}
 
@@ -256,10 +276,28 @@ func lookupPublishedArtifactChecksum(owner, name, version, repoName string, serv
 	clientDetails := servicesManager.GetConfig().GetServiceDetails().CreateHttpClientDetails()
 	fileDetails, _, err := servicesManager.Client().GetRemoteFileDetails(downloadURL, &clientDetails)
 	if err != nil {
-		log.Debug(fmt.Sprintf("apm publish: checksum HEAD lookup failed for %s: %s", downloadURL, err.Error()))
+		log.Warn(fmt.Sprintf("apm publish: checksum HEAD lookup failed for %s: %s", downloadURL, err.Error()))
 		return entities.Checksum{}
 	}
 	return fileDetails.Checksum
+}
+
+// localPackedArtifactChecksum hashes the zip apm packed for this publish, still sitting in the
+// working directory under apm's own deterministic naming ({name}-{version}.zip - the same
+// convention SavePublishBuildInfo uses for the Artifactory path). Mirrors cargo's and ruby's
+// pattern of hashing the local artifact file directly (gofrog/crypto.GetFileDetails) rather than
+// only ever trusting a network round-trip for a file this process just produced itself.
+func localPackedArtifactChecksum(workingDir, name, version string) (entities.Checksum, error) {
+	zipPath := filepath.Join(workingDir, name+"-"+version+"."+apmPackageFileExtension)
+	fileDetails, err := crypto.GetFileDetails(zipPath, true)
+	if err != nil {
+		return entities.Checksum{}, fmt.Errorf("hash local packed zip %s: %w", zipPath, err)
+	}
+	return entities.Checksum{
+		Sha1:   fileDetails.Checksum.Sha1,
+		Sha256: fileDetails.Checksum.Sha256,
+		Md5:    fileDetails.Checksum.Md5,
+	}, nil
 }
 
 // derivedModuleID returns the default module ID for the install-side build-info module: manifest
