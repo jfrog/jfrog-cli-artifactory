@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -120,9 +121,14 @@ func TestZipPublishBundleUsesForwardSlashPaths(t *testing.T) {
 		}
 	}
 
+	gotNames := make([]string, 0, len(zr.File))
 	names := make(map[string]bool, len(zr.File))
 	for _, file := range zr.File {
+		gotNames = append(gotNames, file.Name)
 		names[file.Name] = true
+	}
+	if !sort.StringsAreSorted(gotNames) {
+		t.Fatalf("ZIP entries must be sorted ascending by forward-slash path, got %v", gotNames)
 	}
 
 	wantNames := []string{"plugin.json", "skills/greeting/SKILL.md", "skills/math/SKILL.md"}
