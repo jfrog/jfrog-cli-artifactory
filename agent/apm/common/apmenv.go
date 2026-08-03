@@ -93,7 +93,7 @@ func generateAccessToken(serverDetails *config.ServerDetails) string {
 		log.Debug("Failed to generate access token:", err.Error())
 		return ""
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // read-side close on an already fully-read response
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

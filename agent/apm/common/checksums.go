@@ -108,7 +108,15 @@ func resolveChecksumsByHead(deps []ResolvedDep, servicesManager artifactory.Arti
 		go func(dep ResolvedDep) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			fileDetails, _, err := servicesManager.Client().GetRemoteFileDetails(dep.ResolvedURL, &clientDetails)
+			// Each goroutine needs its own HttpClientDetails: request interceptors mutate
+			// its Headers map in place, so concurrent goroutines sharing one instance (or
+			// even one pointer to a value each holds by value but derived from a shared
+			// map) race on that map - Go maps are not safe for concurrent read/write, and
+			// the corruption isn't limited to headers; it can misattribute which response
+			// body/headers a goroutine ends up reading, producing checksums that belong to
+			// neither dependency.
+			depClientDetails := clientDetails.Clone()
+			fileDetails, _, err := servicesManager.Client().GetRemoteFileDetails(dep.ResolvedURL, depClientDetails)
 			if err != nil {
 				log.Debug(fmt.Sprintf("HEAD checksum lookup failed for %s: %s", dep.ID, err.Error()))
 				return
