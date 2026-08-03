@@ -1,7 +1,6 @@
 package flexpack
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -279,18 +278,16 @@ func extractRepoKeyFromUrl(repoUrl string) (string, error) {
 // content stored elsewhere from being matched, without assuming any repository path layout.
 func checksumAql(repo string, sha256s []string) string {
 	var b strings.Builder
-	b.WriteString(`{"repo":`)
-	repoJSON, _ := json.Marshal(repo)
-	b.Write(repoJSON)
-	b.WriteString(`,"$or":[`)
+	b.WriteString(`{"repo":"`)
+	b.WriteString(repo)
+	b.WriteString(`","$or":[`)
 	for i, sha256 := range sha256s {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		b.WriteString(`{"sha256":`)
-		sha256JSON, _ := json.Marshal(sha256)
-		b.Write(sha256JSON)
-		b.WriteByte('}')
+		b.WriteString(`{"sha256":"`)
+		b.WriteString(sha256)
+		b.WriteString(`"}`)
 	}
 	b.WriteString("]}")
 	return b.String()
