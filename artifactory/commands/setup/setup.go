@@ -741,8 +741,6 @@ func addGemrcSource(sourceURL string) error {
 				}
 			}
 		}
-	} else {
-		currentSources = []string{rubygemsDefaultSource}
 	}
 
 	config[":sources"] = reorderGemrcSources(currentSources, sourceURL)
@@ -768,19 +766,21 @@ func gemSourceIdentity(rawURL string) string {
 	return strings.TrimSuffix(parsed.String(), "/")
 }
 
-// reorderGemrcSources returns sources with sourceURL moved to the front, replacing any
-// existing entry for the same repository, and keeping rubygemsDefaultSource first when
-// it is in the list.
+// reorderGemrcSources puts sourceURL first, replaces any existing entry for the same
+// repository, and removes the public RubyGems source.
+//
+// Removing https://rubygems.org is deliberate. RubyGems queries sources in list order, so
+// leaving the public source in front means `gem install` reaches rubygems.org before
+// Artifactory and setup has no practical effect. Dropping it matches what the Bundler
+// mirror already does, and what `jf setup` does for npm and cargo, which replace the
+// public registry outright rather than racing it. The configured repository is expected
+// to be virtual or remote-backed so it can still serve public gems.
+//
+// Artifactory repositories configured across separate runs still coexist, most recently
+// configured first, because `gem install` genuinely does search several sources.
 func reorderGemrcSources(sources []string, sourceURL string) []string {
 	target := gemSourceIdentity(sourceURL)
-	hasDefault := slices.ContainsFunc(sources, func(s string) bool {
-		return gemSourceIdentity(s) == rubygemsDefaultSource
-	})
-
 	result := make([]string, 0, len(sources)+1)
-	if hasDefault {
-		result = append(result, rubygemsDefaultSource)
-	}
 	result = append(result, sourceURL)
 
 	for _, s := range sources {

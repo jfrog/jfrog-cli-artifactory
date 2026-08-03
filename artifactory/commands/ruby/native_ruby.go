@@ -485,22 +485,22 @@ func (rc *RubyCommand) injectAuth(serverDetails *coreConfig.ServerDetails, sourc
 			}
 			seen[key] = true
 			if os.Getenv(key) != "" {
-				log.Info(fmt.Sprintf("Ruby auth [bundle]: %s already set — respecting existing credentials", key))
+				log.Debug(fmt.Sprintf("Ruby auth [bundle]: %s already set — respecting existing credentials", key))
 				continue
 			}
 			extraEnv = append(extraEnv, key+"="+cred)
 			injected = append(injected, key)
 		}
 		if len(injected) > 0 {
-			log.Info("Ruby auth [bundle]: injecting credentials via " + strings.Join(injected, ", "))
+			log.Debug("Ruby auth [bundle]: injecting credentials via " + strings.Join(injected, ", "))
 		}
 	case toolGem:
 		if os.Getenv("GEM_HOST_API_KEY") != "" {
-			log.Info("Ruby auth [gem]: GEM_HOST_API_KEY already set — respecting existing credentials")
+			log.Debug("Ruby auth [gem]: GEM_HOST_API_KEY already set — respecting existing credentials")
 		} else {
 			basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
 			extraEnv = append(extraEnv, fmt.Sprintf("GEM_HOST_API_KEY=%s", basicAuth))
-			log.Info("Ruby auth [gem]: injecting GEM_HOST_API_KEY (used by gem push on RubyGems >= 3.1; URL-embedded credentials used as primary auth for install/fetch/push)")
+			log.Debug("Ruby auth [gem]: injecting GEM_HOST_API_KEY")
 		}
 	}
 	return extraEnv

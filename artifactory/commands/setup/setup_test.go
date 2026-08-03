@@ -1084,7 +1084,9 @@ func TestAddGemrcSource_EmptyFile(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal(content, &parsed))
 	sources, ok := parsed[":sources"].([]interface{})
 	require.True(t, ok)
-	assert.Equal(t, []interface{}{"https://rubygems.org", "https://my.jfrog.io/artifactory/api/gems/gems-local"}, sources)
+	// The public source must be gone: RubyGems searches in order, so leaving it in front
+	// would let `gem install` reach rubygems.org before Artifactory.
+	assert.Equal(t, []interface{}{"https://my.jfrog.io/artifactory/api/gems/gems-local"}, sources)
 }
 
 func TestAddGemrcSource_PreservesUnrelatedKeys(t *testing.T) {
@@ -1114,7 +1116,7 @@ func TestAddGemrcSource_ReAddSameSourceMovesToFrontNoDuplicate(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal(content, &parsed))
 	sources, ok := parsed[":sources"].([]interface{})
 	require.True(t, ok)
-	assert.Equal(t, []interface{}{"https://rubygems.org", sourceURL}, sources, "no duplicate entry")
+	assert.Equal(t, []interface{}{sourceURL}, sources, "no duplicate entry, and no public source")
 }
 
 func TestAddGemrcSource_SecondDifferentRepoKeepsBothMostRecentFirst(t *testing.T) {
@@ -1132,7 +1134,7 @@ func TestAddGemrcSource_SecondDifferentRepoKeepsBothMostRecentFirst(t *testing.T
 	require.NoError(t, yaml.Unmarshal(content, &parsed))
 	sources, ok := parsed[":sources"].([]interface{})
 	require.True(t, ok)
-	assert.Equal(t, []interface{}{"https://rubygems.org", secondURL, firstURL}, sources, "most recently configured source should be first")
+	assert.Equal(t, []interface{}{secondURL, firstURL}, sources, "most recently configured source first, public source removed")
 }
 
 func TestAddGemrcSource_MalformedExistingFileErrors(t *testing.T) {
@@ -1168,7 +1170,6 @@ func TestAddGemrcSource_CredentialRotationReplacesEntry(t *testing.T) {
 	require.True(t, ok)
 
 	assert.Equal(t, []interface{}{
-		"https://rubygems.org",
 		"https://admin:new-token@acme.jfrog.io/artifactory/api/gems/gems-virtual",
 	}, sources, "the rotated credential must replace the old entry for the same repository")
 	assert.NotContains(t, string(content), "old-token")
