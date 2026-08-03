@@ -14,6 +14,7 @@ import (
 
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/python"
 	cmdutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/maven"
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
@@ -31,6 +32,54 @@ import (
 const (
 	goProxyEnv = "GOPROXY"
 )
+
+// assertOwnerOnly verifies path is restricted to 0600, the mode jf setup applies
+// to credential-bearing config files. It skips Windows, where os.Chmod only
+// toggles the read-only attribute and the mode always reads back as 0666.
+func assertOwnerOnly(t *testing.T, path string) {
+	t.Helper()
+	if coreutils.IsWindows() {
+		return
+	}
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0600), info.Mode().Perm(), "%s must be owner-only readable", path)
+}
+
+// collectConfigPaths walks root and returns the paths of known npm-family config
+// files. The walk only collects paths; callers read them afterwards, so no
+// filesystem operation runs inside the callback (avoids the WalkDir TOCTOU gosec
+// flags).
+func collectConfigPaths(t *testing.T, root string) []string {
+	t.Helper()
+	configFileNames := []string{".npmrc", "auth.ini", "rc", "config.yaml"}
+	var configPaths []string
+	require.NoError(t, filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || !slices.Contains(configFileNames, entry.Name()) {
+			return err
+		}
+		configPaths = append(configPaths, path)
+		return nil
+	}))
+	return configPaths
+}
+
+// findConfigFileContaining returns the path of the package-manager config file
+// under root whose contents include substr. pnpm chooses its own config directory
+// and credential file name per version (auth.ini, rc, config.yaml, ...), so the
+// file holding the token is located by content rather than by an assumed name.
+func findConfigFileContaining(t *testing.T, root, substr string) string {
+	t.Helper()
+	for _, path := range collectConfigPaths(t, root) {
+		content, err := os.ReadFile(path)
+		require.NoError(t, err)
+		if strings.Contains(string(content), substr) {
+			return path
+		}
+	}
+	require.FailNowf(t, "config file not found", "no config file under %s contains %q", root, substr)
+	return ""
+}
 
 // testCredential returns a fake JWT-like string for testing. NOT a real credential.
 func testCredential() string {
@@ -114,6 +163,16 @@ func testSetupCommandNpmPnpm(t *testing.T, packageManager project.ProjectType) {
 
 			npmrcContent := readPackageManagerConfigs(t, tempDir)
 
+			// pnpm writes the _authToken at 0644, and jf setup restricts it to
+			// owner-only. The file it lands in varies by pnpm version, so assert on
+			// whichever config file actually holds the auth entry. Only written when
+			// there is a credential to store. npm is not asserted here: it writes
+			// ~/.npmrc at 0600 itself, so jf setup adds no hardening of ours to test.
+			hasCredentials := testCase.accessToken != "" || (testCase.user != "" && testCase.password != "")
+			if packageManager == project.Pnpm && hasCredentials {
+				assertOwnerOnly(t, findConfigFileContaining(t, tempDir, ":_auth"))
+			}
+
 			// Validate that the registry URL was set correctly in .npmrc.
 			assert.Contains(t, npmrcContent, fmt.Sprintf("%s=%s", cmdutils.NpmConfigRegistryKey, "https://acme.jfrog.io/artifactory/api/npm/test-repo/"))
 
@@ -136,17 +195,7 @@ func testSetupCommandNpmPnpm(t *testing.T, packageManager project.ProjectType) {
 // are found by walking rather than assumed. Only known configuration file names are read,
 // to keep caches and log files out of the assertions.
 func readPackageManagerConfigs(t *testing.T, root string) string {
-	configFileNames := []string{".npmrc", "auth.ini", "rc", "config.yaml"}
-	// The walk only collects paths; the files are read afterwards, so no filesystem
-	// operation runs inside the callback.
-	var configPaths []string
-	require.NoError(t, filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil || entry.IsDir() || !slices.Contains(configFileNames, entry.Name()) {
-			return err
-		}
-		configPaths = append(configPaths, path)
-		return nil
-	}))
+	configPaths := collectConfigPaths(t, root)
 	require.NotEmptyf(t, configPaths, "no package manager configuration was written under %s", root)
 
 	var contents []string
@@ -156,6 +205,14 @@ func readPackageManagerConfigs(t *testing.T, root string) string {
 		contents = append(contents, string(content))
 	}
 	return strings.Join(contents, "\n")
+}
+
+// pnpmCredentialFiles is best-effort: when pnpm cannot be executed it returns no
+// paths (and warns) rather than erroring, so a missing pnpm never breaks setup.
+func TestPnpmCredentialFiles_PnpmMissing(t *testing.T) {
+	// An empty PATH makes `pnpm` unresolvable on every OS.
+	t.Setenv("PATH", t.TempDir())
+	assert.Nil(t, pnpmCredentialFiles())
 }
 
 func TestSetupCommand_Yarn(t *testing.T) {
@@ -187,6 +244,9 @@ func TestSetupCommand_Yarn(t *testing.T) {
 			yarnrcContentBytes, err := os.ReadFile(yarnrcFilePath)
 			assert.NoError(t, err)
 			yarnrcContent := string(yarnrcContentBytes)
+
+			// ~/.yarnrc stores the auth token in cleartext, so it must be owner-only.
+			assertOwnerOnly(t, yarnrcFilePath)
 
 			// Check that the registry URL is correctly set in .yarnrc.
 			assert.Contains(t, yarnrcContent, fmt.Sprintf("%s \"%s\"", cmdutils.NpmConfigRegistryKey, "https://acme.jfrog.io/artifactory/api/npm/test-repo"))
@@ -244,6 +304,14 @@ func testSetupCommandPip(t *testing.T, packageManager project.ProjectType, custo
 			assert.NoError(t, err)
 			pipConfigContent := string(pipConfigContentBytes)
 
+			// Windows has no Unix permission bits: os.Chmod there only toggles
+			// the read-only attribute, so the mode always reads back as 0666.
+			if !coreutils.IsWindows() {
+				info, err := os.Stat(pipConfFilePath)
+				require.NoError(t, err)
+				assert.Equal(t, os.FileMode(0600), info.Mode().Perm(), "pip config must be owner-only readable")
+			}
+
 			switch {
 			case testCase.accessToken != "":
 				// Validate token-based authentication.
@@ -264,17 +332,11 @@ func testSetupCommandPip(t *testing.T, packageManager project.ProjectType, custo
 
 // globalGlobalPipConfigPath returns the path to the global pip.conf file and a backup function to restore the original file.
 func globalGlobalPipConfigPath(t *testing.T) (string, func()) {
-	var pipConfFilePath string
-	if coreutils.IsWindows() {
-		// Sanitize path from environment variable to prevent path traversal
-		appData := filepath.Clean(os.Getenv("APPDATA"))
-		pipConfFilePath = filepath.Join(appData, "pip", "pip.ini")
-	} else {
-		// Retrieve the home directory and construct the pip.conf file path.
-		homeDir, err := os.UserHomeDir()
-		assert.NoError(t, err)
-		pipConfFilePath = filepath.Join(homeDir, ".config", "pip", "pip.conf")
-	}
+	// Resolve through the same helper the command uses, so this stays correct on
+	// hosts where pip does not use ~/.config (e.g. macOS with
+	// ~/Library/Application Support/pip present, or a Linux XDG_CONFIG_HOME).
+	pipConfFilePath, err := python.ResolvePipConfigPath()
+	require.NoError(t, err)
 	// Back up the existing .pip.conf file and ensure restoration after the test.
 	restorePipConfFunc, err := ioutils.BackupFile(pipConfFilePath, ".pipconf.backup")
 	assert.NoError(t, err)
@@ -354,6 +416,11 @@ func setupGoProxyCleanup(t *testing.T, goProxyEnv string) func() {
 }
 
 func TestSetupCommand_Go(t *testing.T) {
+	// Isolate the Go env file so the test asserts (and hardens) a temporary file
+	// rather than mutating the developer's real ~/.../go/env permissions.
+	goEnvPath := filepath.Join(t.TempDir(), "go-env")
+	t.Setenv("GOENV", goEnvPath)
+
 	// Capture original GOPROXY state immediately, defer only the cleanup
 	cleanup := setupGoProxyCleanup(t, goProxyEnv)
 	defer cleanup()
@@ -373,6 +440,9 @@ func TestSetupCommand_Go(t *testing.T) {
 
 			// Run the login command and ensure no errors occur.
 			require.NoError(t, goLoginCmd.Run())
+
+			// The Go env file embeds user:token@ in GOPROXY, so it must be owner-only.
+			assertOwnerOnly(t, goEnvPath)
 
 			// Get the value of the GOPROXY environment variable.
 			outputBytes, err := exec.Command("go", "env", goProxyEnv).Output()
@@ -406,6 +476,9 @@ func TestSetupCommand_Go(t *testing.T) {
 
 // Test that configureGo unsets any existing GOPROXY env var before configuring.
 func TestConfigureGo_UnsetEnv(t *testing.T) {
+	// Isolate the Go env file (configureGo now hardens it) to a temporary path.
+	t.Setenv("GOENV", filepath.Join(t.TempDir(), "go-env"))
+
 	// Capture original GOPROXY state immediately, defer only the cleanup
 	cleanup := setupGoProxyCleanup(t, goProxyEnv)
 	defer cleanup()
@@ -424,6 +497,9 @@ func TestConfigureGo_UnsetEnv(t *testing.T) {
 
 // Test that configureGo unsets any existing multi-entry GOPROXY env var before configuring.
 func TestConfigureGo_UnsetEnv_MultiEntry(t *testing.T) {
+	// Isolate the Go env file (configureGo now hardens it) to a temporary path.
+	t.Setenv("GOENV", filepath.Join(t.TempDir(), "go-env"))
+
 	// Capture original GOPROXY state immediately, defer only the cleanup
 	cleanup := setupGoProxyCleanup(t, goProxyEnv)
 	defer cleanup()
@@ -460,6 +536,9 @@ func TestSetupCommand_Gradle(t *testing.T) {
 			contentBytes, err := os.ReadFile(expectedInitScriptPath)
 			require.NoError(t, err)
 			content := string(contentBytes)
+
+			// The init script embeds the access token in cleartext, so it must be owner-only.
+			assertOwnerOnly(t, expectedInitScriptPath)
 
 			assert.Contains(t, content, "artifactoryUrl = 'https://acme.jfrog.io/artifactory'")
 			if testCase.accessToken != "" {
@@ -609,6 +688,9 @@ func TestSetupCommand_Maven(t *testing.T) {
 
 			// Check that the Artifactory URL is correctly set in settings.xml.
 			assert.Contains(t, settingsXmlContent, fmt.Sprintf("<url>%s</url>", mavenLoginCmd.serverDetails.ArtifactoryUrl+"/"+mavenLoginCmd.repoName))
+
+			// settings.xml stores the password/token in cleartext, so it must be owner-only.
+			assertOwnerOnly(t, settingsXmlPath)
 
 			// Validate the mirror ID and name are set correctly.
 			assert.Contains(t, settingsXmlContent, fmt.Sprintf("<id>%s</id>", maven.ArtifactoryMirrorID))
@@ -1059,9 +1141,9 @@ func TestPackageManagerConfigs_PnpmHasNoConfigOverride(t *testing.T) {
 // variable, so the override tests do not have to skip the rest.
 func packageManagersWithConfigOverride() map[project.ProjectType]string {
 	overrides := map[project.ProjectType]string{}
-	for packageManager, packageManagerConfig := range packageManagerConfigs {
-		if packageManagerConfig.overrideEnv != "" {
-			overrides[packageManager] = packageManagerConfig.overrideEnv
+	for packageManager, cfg := range packageManagerConfigs {
+		if cfg.overrideEnv != "" {
+			overrides[packageManager] = cfg.overrideEnv
 		}
 	}
 	return overrides
