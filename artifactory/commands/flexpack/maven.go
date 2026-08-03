@@ -1,15 +1,13 @@
 package flexpack
 
 import (
-	"encoding/xml"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/entities"
@@ -19,60 +17,22 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	specutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-// PomProject represents the Maven POM XML structure for parsing
-type PomProject struct {
-	XMLName                xml.Name               `xml:"project"`
-	GroupId                string                 `xml:"groupId"`
-	ArtifactId             string                 `xml:"artifactId"`
-	Version                string                 `xml:"version"`
-	Packaging              string                 `xml:"packaging"`
-	Parent                 PomParent              `xml:"parent"`
-	DistributionManagement DistributionManagement `xml:"distributionManagement"`
-}
-
-type PomParent struct {
-	GroupId    string `xml:"groupId"`
-	ArtifactId string `xml:"artifactId"`
-	Version    string `xml:"version"`
-}
-
-type DistributionManagement struct {
-	Repository         Repository `xml:"repository"`
-	SnapshotRepository Repository `xml:"snapshotRepository"`
-}
-
-type Repository struct {
-	Id  string `xml:"id"`
-	URL string `xml:"url"`
-}
-
-// SettingsXml represents Maven settings.xml structure
-type SettingsXml struct {
-	XMLName        xml.Name          `xml:"settings"`
-	ActiveProfiles []string          `xml:"activeProfiles>activeProfile"`
-	Profiles       []SettingsProfile `xml:"profiles>profile"`
-}
-
-type SettingsProfile struct {
-	Id                              string       `xml:"id"`
-	AltDeploymentRepository         string       `xml:"properties>altDeploymentRepository"`
-	AltReleaseDeploymentRepository  string       `xml:"properties>altReleaseDeploymentRepository"`
-	AltSnapshotDeploymentRepository string       `xml:"properties>altSnapshotDeploymentRepository"`
-	Repositories                    []Repository `xml:"repositories>repository"`
-}
-
-// CollectMavenBuildInfoWithFlexPack collects Maven build info using FlexPack
-// This follows the same pattern as Poetry FlexPack in poetry.go
-func CollectMavenBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, buildConfiguration *buildUtils.BuildConfiguration) error {
+// CollectMavenBuildInfoWithFlexPack collects Maven build info using FlexPack.
+// userArgs is the goal/flag list the user invoked Maven with; its resolution flags (-P/-s/-D) are
+// forwarded to FlexPack so dependency resolution matches the build. This follows the same pattern as
+// Poetry FlexPack in poetry.go.
+func CollectMavenBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, buildConfiguration *buildUtils.BuildConfiguration, userArgs []string, serverDetails *config.ServerDetails) error {
 	// Create Maven FlexPack configuration (following Poetry pattern)
 	config := flexpack.MavenConfig{
 		WorkingDirectory:        workingDir,
 		IncludeTestDependencies: true,
+		ExtraArgs:               extractResolutionArgs(userArgs),
 	}
 
 	// Create Maven FlexPack instance
@@ -87,11 +47,28 @@ func CollectMavenBuildInfoWithFlexPack(workingDir, buildName, buildNumber string
 		return fmt.Errorf("failed to collect build info with FlexPack: %w", err)
 	}
 
-	// Add deployed artifacts to build info if this was a deploy command
-	if wasDeployCommand() {
-		err = addDeployedArtifactsToBuildInfo(buildInfo, workingDir)
-		if err != nil {
-			log.Warn("Failed to add deployed artifacts to build info: " + err.Error())
+	// For a deploy command, attach each module's deployed artifacts, then finalize them: record their
+	// real deployment repository (OriginalDeploymentRepo) and tag them with build properties. This runs
+	// BEFORE the build info is saved so OriginalDeploymentRepo is persisted for `rt bp`. It is
+	// best-effort - artifact bookkeeping must not fail the build.
+	if wasDeployCommand(userArgs) {
+		addDeployedArtifactsToBuildInfo(buildInfo, mavenFlex.GetModuleLocations())
+		// Resolve the deployment repositories from Maven's effective model (effective-pom/settings), so
+		// they are correct under interpolation, inheritance and active profiles. moduleDeployURLs maps
+		// each module to its own repo (reactors may deploy modules to different repos); overrideURL, when
+		// set (-DaltDeploymentRepository / settings), applies to all modules.
+		moduleDeployURLs, overrideURL, repoErr := mavenFlex.GetDeploymentRepositories()
+		if repoErr != nil {
+			log.Warn("Failed to resolve Maven deployment repository: " + repoErr.Error())
+		}
+		// Ensure the build's general details (start timestamp) exist before finalizing, so build.timestamp
+		// resolves to the build's real timestamp. finalize runs before the build info is saved, so the
+		// save's own GetOrCreateBuild has not recorded the timestamp yet.
+		if _, buildErr := build.NewBuildInfoService().GetOrCreateBuildWithProject(buildName, buildNumber, buildConfiguration.GetProject()); buildErr != nil {
+			log.Warn("Failed to initialize build details for timestamp: " + buildErr.Error())
+		}
+		if err := finalizeDeployedArtifacts(workingDir, buildInfo, moduleDeployURLs, overrideURL, buildName, buildNumber, buildConfiguration, serverDetails); err != nil {
+			log.Warn("Failed to finalize deployed artifacts: " + err.Error())
 		}
 	}
 
@@ -101,15 +78,6 @@ func CollectMavenBuildInfoWithFlexPack(workingDir, buildName, buildNumber string
 		log.Warn("Failed to save build info for jfrog-cli compatibility: " + err.Error())
 	} else {
 		log.Info("Build info saved locally. Use 'jf rt bp " + buildName + " " + buildNumber + "' to publish it to Artifactory.")
-	}
-
-	// Set build properties on deployed artifacts if this was a deploy command
-	if wasDeployCommand() {
-		err = setMavenBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, buildConfiguration)
-		if err != nil {
-			log.Warn("Failed to set build properties on deployed artifacts: " + err.Error())
-			// Don't fail the entire operation for property setting issues
-		}
 	}
 
 	return nil
@@ -131,10 +99,11 @@ func saveMavenFlexPackBuildInfo(buildInfo *entities.BuildInfo) error {
 	return buildInstance.SaveBuildInfo(buildInfo)
 }
 
-// wasDeployCommand checks if the current command was a Maven deploy command
-func wasDeployCommand() bool {
-	args := os.Args
-	for _, arg := range args {
+// wasDeployCommand reports whether the Maven goals include a deploy goal. It inspects the parsed
+// invocation passed in (the same userArgs forwarded for resolution-flag extraction) rather than the
+// process-global os.Args, so the decision is testable and consistent with the rest of the flow.
+func wasDeployCommand(userArgs []string) bool {
+	for _, arg := range userArgs {
 		// Match standalone "deploy" goal or any deploy plugin goal
 		// Examples: deploy, deploy:deploy, deploy:deploy-file, maven-deploy-plugin:deploy
 		if arg == "deploy" || strings.HasPrefix(arg, "deploy:") || strings.HasSuffix(arg, ":deploy") {
@@ -144,372 +113,201 @@ func wasDeployCommand() bool {
 	return false
 }
 
-// setMavenBuildPropertiesOnArtifacts sets build properties on deployed Maven artifacts
-// Following the pattern from twine.go
-func setMavenBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber string, buildArgs *buildUtils.BuildConfiguration) error {
-	// Get server details from configuration
-	serverDetails, err := config.GetDefaultServerConf()
-	if err != nil {
-		return fmt.Errorf("failed to get server details: %w", err)
-	}
-
-	if serverDetails == nil {
-		log.Debug("No server details configured, skipping build properties setting")
+// finalizeDeployedArtifacts records each deployed artifact's real deployment repository on the build
+// info (OriginalDeploymentRepo) and tags the deployed items with build.name/build.number/build.timestamp
+// so Artifactory links them to the build (this resolves the artifact "path" in the build UI; without it
+// the artifacts show as "externally resolved / No path found").
+//
+// deployRepoURL is Maven's EFFECTIVE deployment URL (resolved from effective-pom/effective-settings, so
+// inheritance, interpolation and active profiles are already applied). Its repo key is resolved to the
+// physical repository - a virtual repo becomes its default-deployment local repo, via GetRepository -
+// and artifacts are then matched by sha256 scoped to that repo. That way identical content stored
+// elsewhere is never mis-tagged, and no repository path layout is assumed. build.timestamp comes from
+// the build's real timestamp via buildUtils.CreateBuildProperties.
+//
+// Must run BEFORE the build info is saved so OriginalDeploymentRepo is persisted for `rt bp`.
+func finalizeDeployedArtifacts(workingDir string, buildInfo *entities.BuildInfo, moduleDeployURLs map[string]string, overrideURL, buildName, buildNumber string, buildArgs *buildUtils.BuildConfiguration, serverDetails *config.ServerDetails) error {
+	if overrideURL == "" && len(moduleDeployURLs) == 0 {
+		log.Warn("Could not determine any Maven deployment repository; skipping build-property tagging")
 		return nil
 	}
 
-	// Create services manager
+	// serverDetails comes from the resolved server-id (falls back to the default configured server).
+	if serverDetails == nil {
+		var err error
+		if serverDetails, err = config.GetDefaultServerConf(); err != nil {
+			return fmt.Errorf("failed to get server details: %w", err)
+		}
+	}
+	if serverDetails == nil {
+		log.Debug("No server details configured, skipping deployed-artifact finalization")
+		return nil
+	}
 	servicesManager, err := utils.CreateServiceManager(serverDetails, -1, 0, false)
 	if err != nil {
 		return fmt.Errorf("failed to create services manager: %w", err)
 	}
 
-	// Get Maven artifact info from pom.xml
-	groupId, artifactId, version, err := getMavenArtifactCoordinates(workingDir)
-	if err != nil {
-		return fmt.Errorf("failed to get Maven artifact coordinates: %w", err)
-	}
-
-	// Get the repository Maven deployed to from settings.xml or pom.xml
-	targetRepo, err := getMavenDeployRepository(workingDir)
-	if err != nil {
-		log.Warn("Could not determine Maven deploy repository, skipping build properties: " + err.Error())
-		return nil
-	}
-
-	// Create search pattern for the specific deployed artifacts in the target repository
-	artifactPath := fmt.Sprintf("%s/%s/%s/%s/%s-*",
-		targetRepo,
-		strings.ReplaceAll(groupId, ".", "/"), artifactId, version, artifactId)
-
-	// Search for deployed artifacts using the specific pattern
-	searchParams := services.SearchParams{
-		CommonParams: &specutils.CommonParams{
-			Pattern: artifactPath,
-		},
-	}
-
-	searchReader, err := servicesManager.SearchFiles(searchParams)
-	if err != nil {
-		return fmt.Errorf("failed to search for deployed artifacts: %w", err)
-	}
-	defer func() {
-		if closeErr := searchReader.Close(); closeErr != nil {
-			log.Debug(fmt.Sprintf("Failed to close search reader: %s", closeErr))
+	// Group each module's artifact checksums by the PHYSICAL repo it deployed to (resolving virtual ->
+	// default-deployment). Modules may deploy to DIFFERENT repos, so this is per-module, not one repo
+	// for the whole reactor. overrideURL (-DaltDeploymentRepository / settings) applies to every module.
+	physicalByKey := make(map[string]string)   // repoKey -> physical repo (GetRepository cache)
+	sha256sByRepo := make(map[string][]string) // physical repo -> checksums to tag
+	for i := range buildInfo.Modules {
+		module := &buildInfo.Modules[i]
+		deployURL := overrideURL
+		if deployURL == "" {
+			deployURL = moduleDeployURLs[module.Id]
 		}
-	}()
-
-	// Filter to only artifacts modified in the last 2 minutes (just deployed)
-	cutoffTime := time.Now().Add(-2 * time.Minute)
-	var recentArtifacts []specutils.ResultItem
-
-	for item := new(specutils.ResultItem); searchReader.NextRecord(item) == nil; item = new(specutils.ResultItem) {
-		// Parse the modified time
-		modTime, err := time.Parse("2006-01-02T15:04:05.999Z", item.Modified)
-		if err != nil {
-			log.Debug("Could not parse modified time for " + item.Name + ": " + err.Error())
+		if deployURL == "" {
+			log.Debug("No deployment repository for module " + module.Id + "; skipping its build-property tagging")
 			continue
 		}
-
-		// Only include artifacts modified after cutoff
-		if modTime.After(cutoffTime) {
-			recentArtifacts = append(recentArtifacts, *item)
-		}
-	}
-
-	if len(recentArtifacts) == 0 {
-		log.Warn("No recently deployed artifacts found")
-		return nil
-	}
-
-	// Create build properties in the same format as NPM/traditional implementations
-	timestamp := strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10) // Unix milliseconds like NPM
-	buildProps := fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp)
-	if projectKey := buildArgs.GetProject(); projectKey != "" {
-		buildProps += fmt.Sprintf(";build.project=%s", projectKey)
-	}
-
-	buildProps = civcs.MergeWithUserProps(buildProps, workingDir)
-
-	// Set properties on each recent artifact individually
-	for _, artifact := range recentArtifacts {
-		// ResultItem has Repo, Path, and Name fields already separated
-		// Use AQL to find the exact artifact
-		aqlPattern := fmt.Sprintf(`{"repo":"%s","path":"%s","name":"%s"}`,
-			targetRepo, artifact.Path, artifact.Name)
-
-		searchParams := services.SearchParams{
-			CommonParams: &specutils.CommonParams{
-				Aql: specutils.Aql{
-					ItemsFind: aqlPattern,
-				},
-			},
-		}
-
-		reader, err := servicesManager.SearchFiles(searchParams)
-		if err != nil {
-			log.Warn(fmt.Sprintf("Failed to search for artifact %s: %s", artifact.Name, err))
+		repoKey, keyErr := extractRepoKeyFromUrl(deployURL)
+		if keyErr != nil {
+			log.Warn("Skipping module " + module.Id + ": " + keyErr.Error())
 			continue
 		}
-
-		propsParams := services.PropsParams{
-			Reader: reader,
-			Props:  buildProps,
+		physicalRepo, cached := physicalByKey[repoKey]
+		if !cached {
+			physicalRepo = resolvePhysicalDeployRepo(servicesManager, repoKey)
+			physicalByKey[repoKey] = physicalRepo
 		}
-
-		_, err = servicesManager.SetProps(propsParams)
-		if closeErr := reader.Close(); closeErr != nil {
-			log.Debug(fmt.Sprintf("Failed to close reader for %s: %s", artifact.Name, closeErr))
+		if physicalRepo == "" {
+			log.Warn("Could not resolve a physical deployment repository for '" + repoKey + "'; skipping module " + module.Id)
+			continue
 		}
-		if err != nil {
-			log.Warn(fmt.Sprintf("Failed to set properties on %s: %s", artifact.Name, err))
-		}
-	}
-
-	log.Info("Successfully set build properties on deployed Maven artifacts")
-	return nil
-}
-
-// getSettingsXmlPath finds the Maven settings.xml file
-func getSettingsXmlPath() string {
-	// Check if -s or --settings flag was used
-	args := os.Args
-	for i, arg := range args {
-		if (arg == "-s" || arg == "--settings") && i+1 < len(args) {
-			return args[i+1]
-		}
-	}
-
-	// Default location: ~/.m2/settings.xml
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(homeDir, ".m2", "settings.xml")
-}
-
-// parseSettingsXml reads and parses Maven settings.xml
-func parseSettingsXml(settingsPath string) (*SettingsXml, error) {
-	if settingsPath == "" {
-		return nil, fmt.Errorf("settings.xml path cannot be empty")
-	}
-	if strings.Contains(settingsPath, "..") {
-		return nil, fmt.Errorf("path traversal detected in settings.xml path: %s", settingsPath)
-	}
-	absPath, err := filepath.Abs(settingsPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve absolute path for settings.xml: %w", err)
-	}
-	cleanedPath := filepath.Clean(absPath)
-	if cleanedPath != absPath {
-		return nil, fmt.Errorf("invalid path detected: %s", settingsPath)
-	}
-
-	data, err := os.ReadFile(absPath)
-	if err != nil {
-		return nil, err
-	}
-
-	var settings SettingsXml
-	if err := xml.Unmarshal(data, &settings); err != nil {
-		return nil, err
-	}
-
-	return &settings, nil
-}
-
-// isSnapshotVersion checks if a Maven version is a SNAPSHOT
-func isSnapshotVersion(version string) bool {
-	return strings.HasSuffix(strings.TrimSpace(version), "-SNAPSHOT")
-}
-
-// extractRepoFromAltProperty parses the alt*DeploymentRepository format: "id::layout::url"
-func extractRepoFromAltProperty(altRepo string) (string, error) {
-	parts := strings.Split(altRepo, "::")
-	if len(parts) >= 3 {
-		repoUrl := parts[2]
-		return extractRepoKeyFromUrl(repoUrl)
-	}
-	return "", fmt.Errorf("invalid alt deployment repository format: %s", altRepo)
-}
-
-// getRepositoryFromSettings extracts deployment repository from settings.xml
-// based on whether the project is a SNAPSHOT or RELEASE version
-func getRepositoryFromSettings(isSnapshot bool) (string, error) {
-	settingsPath := getSettingsXmlPath()
-	if settingsPath == "" {
-		return "", fmt.Errorf("could not determine settings.xml path")
-	}
-
-	settings, err := parseSettingsXml(settingsPath)
-	if err != nil {
-		return "", err
-	}
-
-	// Check active profiles for alt*DeploymentRepository with Maven's actual precedence
-	// Maven prioritizes SPECIFIC (altSnapshot/altRelease) over GENERAL (altDeployment)
-	for _, profileId := range settings.ActiveProfiles {
-		for _, profile := range settings.Profiles {
-			if profile.Id == profileId {
-				// Priority 1: altSnapshotDeploymentRepository or altReleaseDeploymentRepository (SPECIFIC wins)
-				if isSnapshot && profile.AltSnapshotDeploymentRepository != "" {
-					log.Debug("Found altSnapshotDeploymentRepository in settings.xml (specific for SNAPSHOT)")
-					return extractRepoFromAltProperty(profile.AltSnapshotDeploymentRepository)
-				}
-
-				if !isSnapshot && profile.AltReleaseDeploymentRepository != "" {
-					log.Debug("Found altReleaseDeploymentRepository in settings.xml (specific for RELEASE)")
-					return extractRepoFromAltProperty(profile.AltReleaseDeploymentRepository)
-				}
-
-				// Priority 2: altDeploymentRepository (GENERAL fallback)
-				if profile.AltDeploymentRepository != "" {
-					log.Debug("Found altDeploymentRepository in settings.xml (general fallback)")
-					return extractRepoFromAltProperty(profile.AltDeploymentRepository)
-				}
+		// Record the module's real deployment repo, and collect its checksums for tagging in that repo.
+		for j := range module.Artifacts {
+			if module.Artifacts[j].OriginalDeploymentRepo == "" {
+				module.Artifacts[j].OriginalDeploymentRepo = physicalRepo
+			}
+			if module.Artifacts[j].Sha256 != "" {
+				sha256sByRepo[physicalRepo] = append(sha256sByRepo[physicalRepo], module.Artifacts[j].Sha256)
 			}
 		}
 	}
 
-	return "", fmt.Errorf("no deployment repository found in settings.xml")
+	if len(sha256sByRepo) == 0 {
+		log.Warn("No deployed artifacts with checksums found; skipping build-property tagging")
+		return nil
+	}
+
+	// One AQL + one (parallelized) SetProps per physical repo.
+	buildProps := mavenBuildProperties(buildName, buildNumber, buildArgs.GetProject(), workingDir)
+	total := 0
+	for physicalRepo, sha256s := range sha256sByRepo {
+		count, tagErr := tagArtifactsInRepo(servicesManager, physicalRepo, sha256s, buildProps)
+		if tagErr != nil {
+			log.Warn("Failed to set build properties in '" + physicalRepo + "': " + tagErr.Error())
+			continue
+		}
+		total += count
+	}
+	if total == 0 {
+		log.Warn("No deployed artifacts found to tag with build properties")
+		return nil
+	}
+	log.Info(fmt.Sprintf("Set build properties on %d deployed Maven artifact(s)", total))
+	return nil
 }
 
-// extractRepoKeyFromUrl extracts repository key from Artifactory URL using proper URL parsing
+// tagArtifactsInRepo tags every artifact in repo whose content matches one of sha256s with buildProps,
+// using a single AQL search + a single SetProps call. Returns the number of artifacts tagged.
+func tagArtifactsInRepo(servicesManager artifactory.ArtifactoryServicesManager, repo string, sha256s []string, buildProps string) (int, error) {
+	reader, err := servicesManager.SearchFiles(services.SearchParams{
+		CommonParams: &specutils.CommonParams{Aql: specutils.Aql{ItemsFind: checksumAql(repo, sha256s)}},
+	})
+	if err != nil {
+		return 0, err
+	}
+	count, setErr := servicesManager.SetProps(services.PropsParams{Reader: reader, Props: buildProps})
+	if closeErr := reader.Close(); closeErr != nil {
+		log.Debug("Failed to close search reader: " + closeErr.Error())
+	}
+	if setErr != nil {
+		return 0, setErr
+	}
+	return count, nil
+}
+
+// resolvePhysicalDeployRepo returns the physical repository that stores artifacts deployed to repoKey.
+// If repoKey is a virtual repository, its configured defaultDeploymentRepo is returned (empty if none,
+// which is unusable); otherwise repoKey is returned unchanged. Mirrors the pnpm/nix/docker FlexPack pattern.
+func resolvePhysicalDeployRepo(servicesManager artifactory.ArtifactoryServicesManager, repoKey string) string {
+	repoDetails := &services.VirtualRepositoryBaseParams{}
+	if err := servicesManager.GetRepository(repoKey, repoDetails); err != nil {
+		log.Debug(fmt.Sprintf("Could not read repository '%s', using as-is: %s", repoKey, err.Error()))
+		return repoKey
+	}
+	if repoDetails.Rclass == services.VirtualRepositoryRepoType {
+		if repoDetails.DefaultDeploymentRepo == "" {
+			log.Warn("Virtual repository '" + repoKey + "' has no default deployment repository configured; " +
+				"cannot tag deployed artifacts. Configure one, or deploy to a local repository.")
+			return ""
+		}
+		log.Debug("Resolved virtual repository '" + repoKey + "' to default deployment repository '" + repoDetails.DefaultDeploymentRepo + "'")
+		return repoDetails.DefaultDeploymentRepo
+	}
+	return repoKey
+}
+
+// extractRepoKeyFromUrl extracts the repository key from an Artifactory deployment URL, handling both
+// the "/artifactory/<repo>" and "/artifactory/api/maven/<repo>" forms (the repo key is the last segment).
 func extractRepoKeyFromUrl(repoUrl string) (string, error) {
 	repoUrl = strings.TrimSpace(repoUrl)
-
-	// Parse the URL
 	u, err := url.Parse(repoUrl)
 	if err != nil {
 		return "", fmt.Errorf("invalid repository URL: %w", err)
 	}
-
-	// Split path into segments, removing empty strings
 	segments := strings.Split(strings.Trim(u.Path, "/"), "/")
-
-	// Handle /api/maven/REPO-KEY format
-	// Path: /artifactory/api/maven/REPO-KEY
-	// Segments: [artifactory, api, maven, REPO-KEY]
+	// /artifactory/api/maven/<REPO-KEY>
 	if len(segments) >= 4 && segments[len(segments)-3] == "api" && segments[len(segments)-2] == "maven" {
-		repoKey := segments[len(segments)-1]
-		if repoKey != "" {
+		if repoKey := segments[len(segments)-1]; repoKey != "" {
 			return repoKey, nil
 		}
 	}
-
-	// Standard format: /artifactory/REPO-KEY
-	// Segments: [artifactory, REPO-KEY]
-	// The last segment is the repository key
-	if len(segments) >= 2 {
-		repoKey := segments[len(segments)-1]
-		if repoKey != "" {
-			return repoKey, nil
-		}
-	}
-
-	return "", fmt.Errorf("unable to extract repository key from URL: %s (check repository URL format)", repoUrl)
-}
-
-// getMavenDeployRepository determines where Maven deployed artifacts
-// by parsing pom.xml distributionManagement, with fallback to settings.xml
-func getMavenDeployRepository(workingDir string) (string, error) {
-	pomPath := filepath.Join(workingDir, "pom.xml")
-	pomData, err := os.ReadFile(pomPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read pom.xml: %w", err)
-	}
-
-	var pom PomProject
-	if err := xml.Unmarshal(pomData, &pom); err != nil {
-		return "", fmt.Errorf("failed to parse pom.xml: %w", err)
-	}
-
-	// Determine project version to know if it's SNAPSHOT or RELEASE
-	version := pom.Version
-	if version == "" && pom.Parent.Version != "" {
-		version = pom.Parent.Version
-	}
-	isSnapshot := isSnapshotVersion(version)
-	log.Debug(fmt.Sprintf("Project version: %s, isSnapshot: %v", version, isSnapshot))
-
-	// Priority 1: Check settings.xml (Maven standard precedence)
-	// settings.xml alt*DeploymentRepository overrides pom.xml in Maven
-	repoKey, err := getRepositoryFromSettings(isSnapshot)
-	if err == nil {
-		log.Debug("Found deploy repository from settings.xml (overriding pom.xml): " + repoKey)
+	// /artifactory/<REPO-KEY>, or just <REPO-KEY> when Artifactory is at the host root.
+	if repoKey := segments[len(segments)-1]; repoKey != "" {
 		return repoKey, nil
 	}
-
-	// Priority 2: Check pom.xml distributionManagement
-	var repoUrl string
-	switch {
-	case isSnapshot && pom.DistributionManagement.SnapshotRepository.URL != "":
-		repoUrl = pom.DistributionManagement.SnapshotRepository.URL
-		log.Debug("Using snapshotRepository from pom.xml")
-	case !isSnapshot && pom.DistributionManagement.Repository.URL != "":
-		repoUrl = pom.DistributionManagement.Repository.URL
-		log.Debug("Using repository from pom.xml")
-	case pom.DistributionManagement.Repository.URL != "":
-		// Fallback: use release repository if snapshot not defined
-		repoUrl = pom.DistributionManagement.Repository.URL
-		log.Debug("Using repository (fallback) from pom.xml")
-	}
-
-	if repoUrl != "" {
-		repoKey, err := extractRepoKeyFromUrl(repoUrl)
-		if err == nil {
-			log.Debug("Found deploy repository from pom.xml: " + repoKey)
-			return repoKey, nil
-		}
-		log.Debug("Failed to extract repository from pom.xml URL: " + err.Error())
-	}
-
-	return "", fmt.Errorf("no deployment repository found in settings.xml or pom.xml")
+	return "", fmt.Errorf("unable to extract repository key from URL: %s", repoUrl)
 }
 
-// getMavenArtifactCoordinates extracts Maven coordinates from pom.xml
-func getMavenArtifactCoordinates(workingDir string) (groupId, artifactId, version string, err error) {
-	pomPath := filepath.Join(workingDir, "pom.xml")
-	pomData, err := os.ReadFile(pomPath)
+// checksumAql builds an AQL find body matching any of the given sha256 checksums within repo. sha256 is
+// the collision-resistant content identifier; scoping to the (physical) deploy repo keeps identical
+// content stored elsewhere from being matched, without assuming any repository path layout.
+func checksumAql(repo string, sha256s []string) string {
+	var b strings.Builder
+	b.WriteString(`{"repo":`)
+	repoJSON, _ := json.Marshal(repo)
+	b.Write(repoJSON)
+	b.WriteString(`,"$or":[`)
+	for i, sha256 := range sha256s {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(`{"sha256":`)
+		sha256JSON, _ := json.Marshal(sha256)
+		b.Write(sha256JSON)
+		b.WriteByte('}')
+	}
+	b.WriteString("]}")
+	return b.String()
+}
+
+// mavenBuildProperties builds the build.name;build.number;build.timestamp property string (timestamp is
+// the build's real timestamp, matching the published build-info and the docker build/buildx convention),
+// plus the optional build.project and any user-configured properties.
+func mavenBuildProperties(buildName, buildNumber, projectKey, workingDir string) string {
+	buildProps, err := buildUtils.CreateBuildProperties(buildName, buildNumber, projectKey)
 	if err != nil {
-		return "", "", "", fmt.Errorf("failed to read pom.xml: %w", err)
+		log.Debug("Build timestamp unavailable, tagging with name/number only: " + err.Error())
 	}
-
-	var pom PomProject
-	if err := xml.Unmarshal(pomData, &pom); err != nil {
-		return "", "", "", fmt.Errorf("failed to parse pom.xml: %w", err)
+	if projectKey != "" {
+		buildProps += fmt.Sprintf(";build.project=%s", projectKey)
 	}
-
-	// Use project values, fallback to parent if missing
-	groupId = pom.GroupId
-	if groupId == "" {
-		groupId = pom.Parent.GroupId
-	}
-
-	artifactId = pom.ArtifactId
-
-	version = pom.Version
-	if version == "" {
-		version = pom.Parent.Version
-	}
-
-	if groupId == "" || artifactId == "" || version == "" {
-		return "", "", "", fmt.Errorf("failed to extract complete Maven coordinates from pom.xml (groupId=%s, artifactId=%s, version=%s)", groupId, artifactId, version)
-	}
-
-	// Validate Maven coordinates to prevent path traversal attacks via crafted pom.xml.
-	// Maven groupId/artifactId/version legitimately cannot contain path separators or ".." sequences.
-	if err := validateMavenCoordinate(groupId); err != nil {
-		return "", "", "", fmt.Errorf("invalid groupId in pom.xml: %w", err)
-	}
-	if err := validateMavenCoordinate(artifactId); err != nil {
-		return "", "", "", fmt.Errorf("invalid artifactId in pom.xml: %w", err)
-	}
-	if err := validateMavenCoordinate(version); err != nil {
-		return "", "", "", fmt.Errorf("invalid version in pom.xml: %w", err)
-	}
-
-	return groupId, artifactId, version, nil
+	return civcs.MergeWithUserProps(buildProps, workingDir)
 }
 
 // mavenCoordinateRegex is an allowlist of the only characters that may legitimately appear in a
@@ -550,96 +348,147 @@ func validateMavenCoordinate(value string) error {
 	return nil
 }
 
-// addDeployedArtifactsToBuildInfo adds deployed artifacts to the build info
-func addDeployedArtifactsToBuildInfo(buildInfo *entities.BuildInfo, workingDir string) error {
-	// Find the target directory with built artifacts
-	targetDir := filepath.Join(workingDir, "target")
-	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
-		log.Debug("No target directory found, skipping artifact collection")
+// resolutionArgReferencesSettings reports whether arg selects a settings file (its value may be the
+// following token).
+// isSeparateValueFlag reports whether arg is a resolution flag that consumes the next token as its value.
+func isSeparateValueFlag(arg string) bool {
+	return arg == "-s" || arg == "--settings" ||
+		arg == "-f" || arg == "--file" ||
+		arg == "-gs" || arg == "--global-settings"
+}
+
+// extractResolutionArgs picks the resolution-affecting flags out of the user's Maven invocation so
+// they can be replayed on the internal `mvn dependency:tree` call. Forwarded flags:
+//   - -P / --activate-profiles     active profiles
+//   - -D / --define                system property overrides
+//   - -s / --settings              user settings file (value in next token or = form)
+//   - -f / --file                  alternate POM (changes what gets resolved)
+//   - -gs / --global-settings      global settings file
+//   - -o / --offline               offline mode
+//
+// Everything else (goals, deploy-only flags, etc.) is ignored.
+func extractResolutionArgs(userArgs []string) []string {
+	var extracted []string
+	for i := 0; i < len(userArgs); i++ {
+		arg := userArgs[i]
+		switch {
+		case strings.HasPrefix(arg, "-P"), strings.HasPrefix(arg, "--activate-profiles="),
+			strings.HasPrefix(arg, "-D"), strings.HasPrefix(arg, "--define="),
+			strings.HasPrefix(arg, "--settings="), strings.HasPrefix(arg, "-f="),
+			strings.HasPrefix(arg, "--file="), strings.HasPrefix(arg, "-gs="),
+			strings.HasPrefix(arg, "--global-settings="),
+			arg == "-o", arg == "--offline":
+			extracted = append(extracted, arg)
+		case isSeparateValueFlag(arg),
+			arg == "--activate-profiles", arg == "--define":
+			extracted = append(extracted, arg)
+			// These flags take their value as the next token.
+			if i+1 < len(userArgs) {
+				i++
+				extracted = append(extracted, userArgs[i])
+			}
+		}
+	}
+	return extracted
+}
+
+// addDeployedArtifactsToBuildInfo attaches each module's deployed artifacts to the matching build-info
+// module. locations is FlexPack's authoritative id -> location map (built from what Maven actually
+// ran, profile-activated modules included), so no pom re-discovery is needed and submodule artifacts
+// are no longer dropped (previously only Modules[0] received artifacts).
+func addDeployedArtifactsToBuildInfo(buildInfo *entities.BuildInfo, locations map[string]flexpack.ModuleLocation) {
+	if len(buildInfo.Modules) == 0 {
+		log.Warn("No modules found in build info, cannot add artifacts")
+		return
+	}
+
+	for i := range buildInfo.Modules {
+		module := &buildInfo.Modules[i]
+		location, ok := locations[module.Id]
+		if !ok {
+			log.Debug("No build location found for module " + module.Id + ", skipping artifact collection")
+			continue
+		}
+		if artifacts := collectModuleArtifacts(module.Id, location); len(artifacts) > 0 {
+			module.Artifacts = artifacts
+		}
+	}
+}
+
+// collectModuleArtifacts collects the artifacts a single module produces: its main artifact (matching
+// the packaging) from target/, and its pom.xml. Coordinates come from the module id and the build
+// directory/packaging from FlexPack's recorded location, so no pom.xml is re-parsed. Modules without a
+// target directory (e.g. a pom aggregator) yield only the pom artifact.
+func collectModuleArtifacts(moduleId string, location flexpack.ModuleLocation) []entities.Artifact {
+	groupId, artifactId, version, ok := splitModuleId(moduleId)
+	if !ok {
+		log.Warn("Skipping artifacts for module with invalid id: " + moduleId)
 		return nil
 	}
 
-	// Get Maven artifact coordinates
-	groupId, artifactId, version, err := getMavenArtifactCoordinates(workingDir)
-	if err != nil {
-		return fmt.Errorf("failed to get Maven artifact coordinates: %w", err)
-	}
-
-	// Get packaging type from pom.xml
-	packagingType := getPackagingType(workingDir)
-
-	// Create artifacts for the deployed files
 	var artifacts []entities.Artifact
 
-	// Only include the main artifact that matches the packaging type
-	// This follows traditional Maven behavior where intermediate build artifacts (e.g., .jar in WAR projects) are excluded
-	mainArtifactName := fmt.Sprintf("%s-%s.%s", artifactId, version, packagingType)
-	// Defense in depth: re-validate the composed filename before joining it with targetDir.
-	// The individual inputs are already sanitized at extraction, but composing them (version "." packaging)
-	// could still produce ".." at a boundary (e.g. a trailing-dot version "1.0." -> "app-1.0..jar").
-	// Reusing validateMavenCoordinate keeps the traversal rules in a single place.
-	if err := validateMavenCoordinate(mainArtifactName); err != nil {
-		return fmt.Errorf("invalid artifact name: %w", err)
-	}
-	// filepath.Base strips any directory component, guaranteeing the artifact is read from directly
-	// within targetDir regardless of the (already validated) input. This collapses the value to a
-	// single path element and is the canonical sanitizer for stored path-traversal data flows.
-	mainArtifactName = filepath.Base(mainArtifactName)
-	mainArtifactPath := filepath.Join(targetDir, mainArtifactName)
+	// Main artifact matching the packaging type (only present for buildable modules, not pom aggregators).
+	// This follows traditional Maven behavior where intermediate build artifacts (e.g., .jar in WAR projects) are excluded.
+	targetDir := filepath.Join(location.Dir, "target")
+	if _, statErr := os.Stat(targetDir); statErr == nil {
+		packagingType := sanitizePackaging(location.Packaging)
+		mainArtifactName := fmt.Sprintf("%s-%s.%s", artifactId, version, packagingType)
+		// Defense in depth: re-validate the composed filename before joining it with targetDir.
+		// The individual inputs are already sanitized at extraction, but composing them (version "." packaging)
+		// could still produce ".." at a boundary (e.g. a trailing-dot version "1.0." -> "app-1.0..jar").
+		// Reusing validateMavenCoordinate keeps the traversal rules in a single place. An invalid
+		// composed name means we skip the main artifact rather than fail the whole build.
+		if validateErr := validateMavenCoordinate(mainArtifactName); validateErr != nil {
+			log.Warn("Skipping main artifact for module " + moduleId + ": " + validateErr.Error())
+		} else {
+			// filepath.Base strips any directory component, guaranteeing the artifact is read from directly
+			// within targetDir regardless of the (already validated) input. This collapses the value to a
+			// single path element and is the canonical sanitizer for stored path-traversal data flows.
+			mainArtifactName = filepath.Base(mainArtifactName)
+			mainArtifactPath := filepath.Join(targetDir, mainArtifactName)
 
-	if _, err := os.Stat(mainArtifactPath); err == nil {
-		artifact := createArtifactFromFile(mainArtifactPath, groupId, artifactId, version, packagingType)
-		artifacts = append(artifacts, artifact)
-	}
-
-	// Add POM artifact (from project root, not target)
-	pomArtifactName := fmt.Sprintf("%s-%s.pom", artifactId, version)
-	pomArtifactPath := filepath.Join(workingDir, "pom.xml")
-
-	if _, err := os.Stat(pomArtifactPath); err == nil {
-		artifact := createArtifactFromFile(pomArtifactPath, groupId, artifactId, version, "pom")
-		artifact.Name = pomArtifactName
-		artifact.Path = fmt.Sprintf("%s/%s/%s/%s", strings.ReplaceAll(groupId, ".", "/"), artifactId, version, pomArtifactName)
-		artifacts = append(artifacts, artifact)
+			if _, statErr := os.Stat(mainArtifactPath); statErr == nil {
+				artifacts = append(artifacts, createArtifactFromFile(mainArtifactPath, groupId, artifactId, version, packagingType))
+			}
+		}
 	}
 
-	// Add artifacts to the first module (Maven projects typically have one module)
-	if len(buildInfo.Modules) > 0 {
-		buildInfo.Modules[0].Artifacts = artifacts
-	} else {
-		log.Warn("No modules found in build info, cannot add artifacts")
+	// POM artifact (from the module root, not target).
+	pomArtifactPath := filepath.Join(location.Dir, "pom.xml")
+	if _, statErr := os.Stat(pomArtifactPath); statErr == nil {
+		artifacts = append(artifacts, createArtifactFromFile(pomArtifactPath, groupId, artifactId, version, "pom"))
 	}
 
-	return nil
+	return artifacts
 }
 
-// getPackagingType extracts packaging type from pom.xml
-func getPackagingType(workingDir string) string {
-	pomPath := filepath.Join(workingDir, "pom.xml")
-	pomData, err := os.ReadFile(pomPath)
-	if err != nil {
-		return "jar" // Default to jar
+// splitModuleId splits a "groupId:artifactId:version" module id into its parts and validates each as a
+// Maven coordinate (the parts are later composed into filenames, so path-traversal input is rejected).
+func splitModuleId(moduleId string) (groupId, artifactId, version string, ok bool) {
+	parts := strings.Split(moduleId, ":")
+	if len(parts) != 3 {
+		return "", "", "", false
 	}
+	for _, p := range parts {
+		if validateMavenCoordinate(p) != nil {
+			return "", "", "", false
+		}
+	}
+	return parts[0], parts[1], parts[2], true
+}
 
-	var pom PomProject
-	if err := xml.Unmarshal(pomData, &pom); err != nil {
+// sanitizePackaging validates a packaging value (recorded from the dependency-tree root node) that is
+// composed into an artifact filename, falling back to Maven's default "jar" when empty or unsafe.
+func sanitizePackaging(packaging string) string {
+	if packaging == "" {
 		return "jar"
 	}
-
-	if pom.Packaging == "" {
-		return "jar" // Maven default
-	}
-
-	// Sanitize against path traversal: the packaging type from pom.xml is user-controlled and is
-	// later used to build a filename joined with the target directory. Valid packaging types are
-	// short tokens (jar, war, pom, ear, bundle, ...) that never contain path separators or "..".
-	// On an invalid value we fall back to "jar" (Maven's default) rather than failing the build.
-	if err := validateMavenCoordinate(pom.Packaging); err != nil {
-		log.Warn("Invalid packaging type in pom.xml, falling back to jar: " + err.Error())
+	if validateMavenCoordinate(packaging) != nil {
+		log.Warn("Invalid packaging '" + packaging + "', falling back to jar")
 		return "jar"
 	}
-
-	return pom.Packaging
+	return packaging
 }
 
 // createArtifactFromFile creates an entities.Artifact from a file path
