@@ -8,6 +8,7 @@ import (
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBundleEnvKeyForHost(t *testing.T) {
@@ -644,4 +645,74 @@ func TestExtractVersionFromArgs_RejectsRequirements(t *testing.T) {
 	assert.Equal(t, "13.0.6", extractVersionFromArgs([]string{"install", "rake", "-v", "13.0.6"}))
 	assert.Equal(t, "7.1.0.beta1", extractVersionFromArgs([]string{"install", "rails", "--version=7.1.0.beta1"}))
 	assert.Equal(t, "1.0.0", extractVersionFromArgs([]string{"install", "gem", "-v1.0.0"}))
+}
+
+// TestRubyGemfileDir_WalksUpAndHonorsEnv guards the subdirectory case: Bundler loads the
+// Gemfile from a parent directory, so a command run from a subdirectory must resolve the
+// same file or no credentials get injected and `bundle install` fails with exit status 16.
+func TestRubyGemfileDir_WalksUpAndHonorsEnv(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "Gemfile"), []byte("source \"https://rubygems.org\"\n"), 0644))
+	nested := filepath.Join(root, "app", "models")
+	require.NoError(t, os.MkdirAll(nested, 0755))
+
+	// From a subdirectory, the Gemfile above must be found.
+	assert.Equal(t, root, rubyGemfileDir(nested))
+	assert.Equal(t, filepath.Join(root, "Gemfile"), rubyGemfilePath(nested))
+
+	// With no Gemfile anywhere, the working directory is returned unchanged.
+	bare := t.TempDir()
+	assert.Equal(t, bare, rubyGemfileDir(bare))
+
+	// BUNDLE_GEMFILE wins over the directory walk, as it does for Bundler itself.
+	other := t.TempDir()
+	custom := filepath.Join(other, "Custom.gemfile")
+	require.NoError(t, os.WriteFile(custom, []byte("source \"https://rubygems.org\"\n"), 0644))
+	t.Setenv("BUNDLE_GEMFILE", custom)
+	assert.Equal(t, other, rubyGemfileDir(nested))
+	assert.Equal(t, custom, rubyGemfilePath(nested))
+}
+
+// TestGemModuleID prefers the gemspec identity so module IDs are stable across machines,
+// rather than the working-directory name (which produced IDs like "tmp.46NMMEmRLv") or the
+// command name (which made every project report "gem-install").
+func TestGemModuleID(t *testing.T) {
+	rc := &RubyCommand{}
+
+	// A gemspec with literal name and version wins.
+	withSpec := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(withSpec, "Gemfile"), []byte("source \"x\"\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(withSpec, "demo.gemspec"), []byte(
+		"Gem::Specification.new do |s|\n  s.name = \"my-gem\"\n  s.version = \"1.2.3\"\nend\n"), 0644))
+	assert.Equal(t, "my-gem:1.2.3", rc.gemModuleID(withSpec))
+
+	// No gemspec (a Rails-style app): fall back to the Gemfile's directory name.
+	appDir := filepath.Join(t.TempDir(), "my-app")
+	require.NoError(t, os.MkdirAll(appDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "Gemfile"), []byte("source \"x\"\n"), 0644))
+	assert.Equal(t, "my-app", rc.gemModuleID(appDir))
+
+	// A gemspec that computes its version in Ruby cannot be read without executing it,
+	// so the name alone is used rather than reporting a wrong version.
+	computed := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(computed, "c.gemspec"), []byte(
+		"Gem::Specification.new do |s|\n  s.name = \"calc-gem\"\n  s.version = Calc::VERSION\nend\n"), 0644))
+	assert.Equal(t, "calc-gem", rc.gemModuleID(computed))
+}
+
+// TestGemspecField covers the layouts a real gemspec uses: one assignment per line, several
+// separated by semicolons, and attributes whose names merely contain "version".
+func TestGemspecField(t *testing.T) {
+	perLine := "Gem::Specification.new do |spec|\n  spec.name    = \"a-gem\"\n  spec.version = \"2.0.1\"\nend\n"
+	assert.Equal(t, "a-gem", gemspecField(perLine, "name"))
+	assert.Equal(t, "2.0.1", gemspecField(perLine, "version"))
+
+	semicolons := "Gem::Specification.new do |s|\n  s.name=\"b-gem\"; s.version=\"3.1.4\"; s.summary=\"x\"\nend\n"
+	assert.Equal(t, "b-gem", gemspecField(semicolons, "name"))
+	assert.Equal(t, "3.1.4", gemspecField(semicolons, "version"))
+
+	// required_ruby_version must not be mistaken for version.
+	tricky := "Gem::Specification.new do |s|\n  s.required_ruby_version = \">= 3.0\"\n  s.name = \"c-gem\"\nend\n"
+	assert.Equal(t, "", gemspecField(tricky, "version"))
+	assert.Equal(t, "c-gem", gemspecField(tricky, "name"))
 }

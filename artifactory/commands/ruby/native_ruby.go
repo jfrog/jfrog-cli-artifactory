@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
@@ -636,10 +637,50 @@ func rubySourceFromArgs(args []string) string {
 	return ""
 }
 
+// rubyGemfileDir returns the directory Bundler itself would load the Gemfile from, which
+// is not necessarily the directory the command was run in.
+//
+// Bundler honours $BUNDLE_GEMFILE, and otherwise walks up from the working directory
+// until it finds a Gemfile. Resolving it the same way matters because a command run from
+// a subdirectory of a project still operates on the Gemfile above it: reading only the
+// working directory meant no source was discovered, no credentials were injected, and
+// `bundle install` failed with a bare "exit status 16".
+//
+// Returns workingDir unchanged when no Gemfile is found anywhere, so callers behave as
+// before for projects that genuinely have none.
+func rubyGemfileDir(workingDir string) string {
+	if envGemfile := os.Getenv("BUNDLE_GEMFILE"); envGemfile != "" {
+		if abs, err := filepath.Abs(envGemfile); err == nil {
+			return filepath.Dir(abs)
+		}
+	}
+	dir := workingDir
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "Gemfile")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return workingDir
+		}
+		dir = parent
+	}
+}
+
+// rubyGemfilePath returns the Gemfile that Bundler would load for workingDir.
+func rubyGemfilePath(workingDir string) string {
+	if envGemfile := os.Getenv("BUNDLE_GEMFILE"); envGemfile != "" {
+		if abs, err := filepath.Abs(envGemfile); err == nil {
+			return abs
+		}
+	}
+	return filepath.Join(rubyGemfileDir(workingDir), "Gemfile")
+}
+
 // rubySourceFromGemfile scans the project's Gemfile for a `source "<url>"` directive
 // that points at an Artifactory gems repository.
 func rubySourceFromGemfile(workingDir string) string {
-	gemfile := filepath.Join(workingDir, "Gemfile")
+	gemfile := rubyGemfilePath(workingDir)
 	data, err := os.ReadFile(gemfile)
 	if err != nil {
 		return ""
@@ -801,7 +842,16 @@ func (rc *RubyCommand) collectDependencyBuildInfo(workingDir, subCommand, repoKe
 	}
 
 	// For bundle install/update/lock/add: use the full FlexPack lock-file parser.
-	gemConfig := flexpack.GemConfig{WorkingDirectory: workingDir}
+	// Anchor collection on the directory Bundler resolves the Gemfile from, so running
+	// from a subdirectory still finds Gemfile.lock.
+	gemfileDir := rubyGemfileDir(workingDir)
+	gemConfig := flexpack.GemConfig{WorkingDirectory: gemfileDir}
+	// Give flexpack the project identity explicitly; left unset it falls back to the
+	// working-directory name, which is not stable across machines.
+	if name, version := gemspecIdentity(gemfileDir); name != "" {
+		gemConfig.ProjectName = name
+		gemConfig.ProjectVersion = version
+	}
 	gemConfig.GemGroups = parseGemfileGroups(workingDir)
 	gemConfig.InstalledPackages = bundleInstalledPackages(workingDir)
 
@@ -865,7 +915,7 @@ func (rc *RubyCommand) collectGemInstallDependencies(workingDir, subCommand, bui
 		return nil
 	}
 
-	moduleID := "gem-" + subCommand
+	moduleID := rc.gemModuleID(workingDir)
 	if customModule := rc.buildConfiguration.GetModule(); customModule != "" {
 		moduleID = customModule
 	}
@@ -1091,12 +1141,67 @@ func (rc *RubyCommand) collectGemArtifactBuildInfo(workingDir, repoKey string, s
 }
 
 // gemModuleID derives a module ID for gem build/push from the gemspec/dir name.
+// gemModuleID returns the build-info module ID identifying what was built.
+//
+// A module ID is meant to be stable across machines so builds can be compared over time,
+// and to describe the project rather than the command that ran. Preference order:
+//
+//  1. the gemspec's "<name>:<version>", the Ruby equivalent of package.json or pom.xml,
+//     which is what npm and Maven modules look like;
+//  2. the name of the directory holding the Gemfile, for applications that are not gems —
+//     a Rails app has a Gemfile and no gemspec, which is common;
+//  3. "ruby-project" as a last resort.
+//
+// The working directory alone is a poor identity: running from a temporary directory
+// produced module IDs like "tmp.46NMMEmRLv", and a CI checkout directory differs from a
+// developer's, so the same project reported different modules on different machines.
 func (rc *RubyCommand) gemModuleID(workingDir string) string {
-	name := filepath.Base(workingDir)
-	if name == "" || name == "." || name == string(filepath.Separator) {
-		return "ruby-project"
+	gemfileDir := rubyGemfileDir(workingDir)
+	if name, version := gemspecIdentity(gemfileDir); name != "" {
+		if version != "" {
+			return name + ":" + version
+		}
+		return name
 	}
-	return name
+	if base := filepath.Base(gemfileDir); base != "" && base != "." && base != string(filepath.Separator) {
+		return base
+	}
+	return "ruby-project"
+}
+
+// gemspecIdentity reads the gem name and version from a *.gemspec in dir, if exactly one
+// is present. It matches the common literal forms:
+//
+//	s.name = "my-gem"      s.version = "1.2.3"
+//
+// A gemspec that computes either value in Ruby (for example from a VERSION constant)
+// cannot be read without executing it, so those fall back to the directory name rather
+// than reporting a wrong or partial identity.
+func gemspecIdentity(dir string) (name, version string) {
+	matches, err := filepath.Glob(filepath.Join(dir, "*.gemspec"))
+	if err != nil || len(matches) != 1 {
+		return "", ""
+	}
+	data, err := os.ReadFile(matches[0])
+	if err != nil {
+		return "", ""
+	}
+	name = gemspecField(string(data), "name")
+	version = gemspecField(string(data), "version")
+	return name, version
+}
+
+// gemspecField extracts a quoted literal assigned to <receiver>.<field> in a gemspec.
+//
+// The assignment may start a line or follow a semicolon, since Ruby allows several
+// statements on one line. Requiring a dot immediately before the field name keeps
+// "version" from matching inside a longer attribute such as required_ruby_version.
+func gemspecField(content, field string) string {
+	pattern := regexp.MustCompile(`(?m)(?:^|;)\s*\w+\.` + field + `\s*=\s*["']([^"']+)["']`)
+	if m := pattern.FindStringSubmatch(content); len(m) == 2 {
+		return strings.TrimSpace(m[1])
+	}
+	return ""
 }
 
 // rubyCollectGemArtifacts locates the .gem file from the `gem push` command args.
@@ -1201,7 +1306,7 @@ func parseBundleListLine(line string) (name, version string) {
 // Gems outside any group block get ["production"]. Gems inside `group :dev do...end`
 // get ["development"], etc. Gems in multiple groups get all of them.
 func parseGemfileGroups(workingDir string) map[string][]string {
-	gemfilePath := filepath.Join(workingDir, "Gemfile")
+	gemfilePath := rubyGemfilePath(workingDir)
 	data, err := os.ReadFile(gemfilePath)
 	if err != nil {
 		return nil
