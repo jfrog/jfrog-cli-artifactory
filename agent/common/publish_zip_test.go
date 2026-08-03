@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -41,7 +42,7 @@ func TestZipPublishBundleSkipsExcluded(t *testing.T) {
 	for _, file := range zr.File {
 		names[file.Name] = true
 	}
-	if !names["README.md"] || !names[filepath.Join("src", "main.go")] {
+	if !names["README.md"] || !names["src/main.go"] {
 		t.Fatalf("expected included files, got %v", names)
 	}
 	for name := range names {
@@ -86,6 +87,55 @@ func mustMkdir(t *testing.T, root, rel string) {
 	full := filepath.Join(root, rel)
 	if err := os.MkdirAll(full, DefaultDirMode); err != nil {
 		t.Fatalf("mkdir: %v", err)
+	}
+}
+
+func TestZipPublishBundleUsesForwardSlashPaths(t *testing.T) {
+	dir := t.TempDir()
+	mustWritePublishTestFile(t, dir, "plugin.json", `{"name":"demo","version":"1.0.0"}`)
+	mustWritePublishTestFile(t, dir, "skills/greeting/SKILL.md", "# Greeting")
+	mustWritePublishTestFile(t, dir, "skills/math/SKILL.md", "# Math")
+
+	zipPath, tmpDir, _, err := ZipPublishBundle(ZipPublishOptions{
+		SourceDir:      dir,
+		Slug:           "demo",
+		Version:        "1.0.0",
+		TempDirPrefix:  "agent-plugin-publish-",
+		ContentLabel:   "plugin",
+		HashWhileWrite: false,
+	})
+	if err != nil {
+		t.Fatalf("zip: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		t.Fatalf("open zip: %v", err)
+	}
+	defer func() { _ = zr.Close() }()
+
+	for _, file := range zr.File {
+		if strings.Contains(file.Name, "\\") {
+			t.Fatalf("ZIP entry contains backslash (should be forward slash): %s", file.Name)
+		}
+	}
+
+	gotNames := make([]string, 0, len(zr.File))
+	names := make(map[string]bool, len(zr.File))
+	for _, file := range zr.File {
+		gotNames = append(gotNames, file.Name)
+		names[file.Name] = true
+	}
+	if !sort.StringsAreSorted(gotNames) {
+		t.Fatalf("ZIP entries must be sorted ascending by forward-slash path, got %v", gotNames)
+	}
+
+	wantNames := []string{"plugin.json", "skills/greeting/SKILL.md", "skills/math/SKILL.md"}
+	for _, want := range wantNames {
+		if !names[want] {
+			t.Fatalf("expected entry %q in zip, got %v", want, names)
+		}
 	}
 }
 
