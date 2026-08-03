@@ -29,7 +29,7 @@ Build info:
 Environment:
 - Credentials injected via APM_REGISTRY_TOKEN_<NAME>, APM_REGISTRY_USER_<NAME>, APM_REGISTRY_PASS_<NAME>.
 - Registry configuration sourced from ~/.apm/config.json (set by jf setup agent-apm).
-- Lockfile apm.lock.yaml created in working directory.
+- Lockfile apm.lock.yaml created in the working directory (or under --root, if passed).
 
 Related: jf agent apm publish, jf agent apm update, jf setup agent-apm`
 }

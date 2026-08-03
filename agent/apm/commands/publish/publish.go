@@ -77,14 +77,19 @@ func (c *ApmPublishCommand) Run() error {
 		return fmt.Errorf("run apm publish: %w", err)
 	}
 
-	workingDir, err := os.Getwd()
-	if err != nil {
+	if apmcommon.IsDryRunArg(c.args) {
+		// --dry-run still packs the local zip but uploads nothing; skip build-info so the
+		// local-zip checksum fallback doesn't record an artifact that was never published.
+		log.Info("apm publish: --dry-run - nothing was uploaded, skipping build-info recording.")
+	} else if workingDir, err := os.Getwd(); err != nil {
 		log.Warn("apm publish completed, but could not determine working directory for build info:", err.Error())
 	} else {
 		manifestPath := filepath.Join(workingDir, apmcommon.ApmManifestName)
 		owner := ownerFromArgs(c.args)
-		repoName := apmcommon.ResolveRepoNameFromRegistry(c.serverDetails, manifestPath, c.args)
-		if biErr := apmcommon.CollectAndSavePublishBuildInfo(manifestPath, owner, repoName, c.serverDetails, c.buildConfiguration); biErr != nil {
+		packageName := packageNameFromArgs(c.args)
+		artifactoryRepoKey := apmcommon.ResolveRepoNameFromRegistry(c.serverDetails, manifestPath, c.args)
+		zipPath := zipPathFromArgs(c.args)
+		if biErr := apmcommon.CollectAndSavePublishBuildInfo(manifestPath, owner, packageName, artifactoryRepoKey, zipPath, c.serverDetails, c.buildConfiguration); biErr != nil {
 			log.Warn("apm publish completed, but build info recording failed:", biErr.Error())
 		}
 	}
@@ -93,21 +98,51 @@ func (c *ApmPublishCommand) Run() error {
 	return nil
 }
 
+// packageSpecFromArgs extracts the raw "owner/name" value of --package from args.
+// Returns "" if --package isn't present.
+func packageSpecFromArgs(args []string) string {
+	for i, arg := range args {
+		if arg == "--package" && i+1 < len(args) {
+			return args[i+1]
+		}
+		if cut, ok := strings.CutPrefix(arg, "--package="); ok {
+			return cut
+		}
+	}
+	return ""
+}
+
 // ownerFromArgs extracts the owner segment from a "--package owner/name" pair in args.
 // Returns "" if --package isn't present or doesn't contain a "/".
 func ownerFromArgs(args []string) string {
+	owner, _, ok := strings.Cut(packageSpecFromArgs(args), "/")
+	if !ok {
+		return ""
+	}
+	return owner
+}
+
+// packageNameFromArgs extracts the name segment from a "--package owner/name" pair in args -
+// the identifier apm actually uploads under (PUT /v1/packages/{owner}/{name}/versions/{version}),
+// which is independent of apm.yml's own name: field. Returns "" if --package isn't present or
+// doesn't contain a "/".
+func packageNameFromArgs(args []string) string {
+	_, name, ok := strings.Cut(packageSpecFromArgs(args), "/")
+	if !ok {
+		return ""
+	}
+	return name
+}
+
+// zipPathFromArgs extracts the value of --zip, the pre-built archive path apm publishes instead
+// of auto-packing one. Returns "" if --zip isn't present.
+func zipPathFromArgs(args []string) string {
 	for i, arg := range args {
-		var pkg string
-		if arg == "--package" && i+1 < len(args) {
-			pkg = args[i+1]
-		} else if cut, ok := strings.CutPrefix(arg, "--package="); ok {
-			pkg = cut
+		if arg == "--zip" && i+1 < len(args) {
+			return args[i+1]
 		}
-		if pkg == "" {
-			continue
-		}
-		if owner, _, ok := strings.Cut(pkg, "/"); ok {
-			return owner
+		if cut, ok := strings.CutPrefix(arg, "--zip="); ok {
+			return cut
 		}
 	}
 	return ""

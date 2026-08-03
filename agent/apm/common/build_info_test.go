@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/common/testutil"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/stretchr/testify/assert"
@@ -69,7 +70,7 @@ func TestLocalPackedArtifactChecksum(t *testing.T) {
 		zipPath := filepath.Join(tempDir, "my-package-1.2.3.zip")
 		require.NoError(t, os.WriteFile(zipPath, []byte("fake zip contents"), 0o644))
 
-		checksum, err := localPackedArtifactChecksum(tempDir, "my-package", "1.2.3")
+		checksum, err := localPackedArtifactChecksum(zipPath)
 		require.NoError(t, err)
 		// "fake zip contents" sha256, computed independently (shasum -a 256) to catch any
 		// hashing regression, not just "some non-empty string came back".
@@ -81,7 +82,7 @@ func TestLocalPackedArtifactChecksum(t *testing.T) {
 	t.Run("missing zip -> error, not a panic or silent empty checksum", func(t *testing.T) {
 		tempDir := t.TempDir()
 
-		_, err := localPackedArtifactChecksum(tempDir, "never-published", "9.9.9")
+		_, err := localPackedArtifactChecksum(filepath.Join(tempDir, "never-published-9.9.9.zip"))
 		require.Error(t, err)
 	})
 }
@@ -102,6 +103,70 @@ func TestCollectAndSavePublishBuildInfo_FallsBackToLocalZipWhenHeadUnavailable(t
 	// serverDetails=nil makes lookupPublishedArtifactChecksum return an empty checksum
 	// immediately (no network call attempted) - the fallback local-zip hash must fire, and the
 	// overall call must still succeed rather than record an artifact with no checksum at all.
-	err := CollectAndSavePublishBuildInfo(manifestPath, "acme", "acme-repo", nil, buildConfig)
+	err := CollectAndSavePublishBuildInfo(manifestPath, "acme", "my-package", "acme-repo", "", nil, buildConfig)
 	require.NoError(t, err)
+}
+
+func TestCollectAndSavePublishBuildInfo_UsesExplicitZipPath(t *testing.T) {
+	testutil.WithJfrogHome(t)
+	tempDir := t.TempDir()
+
+	manifestPath := filepath.Join(tempDir, ApmManifestName)
+	require.NoError(t, os.WriteFile(manifestPath, []byte("name: my-package\nversion: 1.2.3\n"), 0o644))
+	// --zip lets the caller publish a pre-built archive under any name/path, unlike apm's own
+	// deterministic {name}-{version}.zip auto-pack naming.
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "build"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "build", "custom.zip"), []byte("fake zip contents"), 0o644))
+
+	buildConfig := new(buildUtils.BuildConfiguration)
+	require.NoError(t, buildConfig.SetBuildName("test-build").SetBuildNumber("1").ValidateBuildAndModuleParams())
+
+	err := CollectAndSavePublishBuildInfo(manifestPath, "acme", "my-package", "acme-repo", filepath.Join("build", "custom.zip"), nil, buildConfig)
+	require.NoError(t, err)
+}
+
+func TestSavePublishBuildInfo_ArtifactPathUsesPackageNameNotManifestName(t *testing.T) {
+	testutil.WithJfrogHome(t)
+
+	buildConfig := new(buildUtils.BuildConfiguration)
+	require.NoError(t, buildConfig.SetBuildName("test-build-package-name-path").SetBuildNumber("1").ValidateBuildAndModuleParams())
+	// Partials for this build name/number live outside WithJfrogHome's per-test temp dir (see
+	// note below), so clean them up explicitly rather than leaking state into later test runs.
+	t.Cleanup(func() { _ = buildUtils.RemoveBuildDir("test-build-package-name-path", "1", "") }) // best-effort test cleanup
+
+	// apm.yml's own name: field ("internal-name") can differ from the --package identity apm
+	// actually uploads under ("published-name") - the artifact record must reflect where the
+	// file really landed in Artifactory, not apm.yml's name.
+	err := SavePublishBuildInfo("acme", "internal-name", "published-name", "1.0.0", entities.Checksum{Sha256: "abc"}, "acme-repo", nil, buildConfig)
+	require.NoError(t, err)
+
+	// WithJfrogHome's isolation doesn't extend to build-info's own partials directory (it reads a
+	// build-name-derived path outside the per-test temp dir), so a leftover partial from an
+	// earlier run of this same build name/number can still be present; check the most recent one
+	// rather than requiring exactly one.
+	partials, err := buildUtils.ReadPartialBuildInfoFiles("test-build-package-name-path", "1", "")
+	require.NoError(t, err)
+	require.NotEmpty(t, partials)
+	lastPartial := partials[len(partials)-1]
+	require.Len(t, lastPartial.Artifacts, 1)
+	artifact := lastPartial.Artifacts[0]
+	assert.Equal(t, "published-name-1.0.0.zip", artifact.Name)
+	assert.Equal(t, "acme/published-name/published-name-1.0.0.zip", artifact.Path)
+}
+
+func TestAnchorRequestedByToModule(t *testing.T) {
+	t.Run("direct dependency with no chain gets one anchored to the module id", func(t *testing.T) {
+		got := anchorRequestedByToModule(nil, "consumer:1.0.0")
+		assert.Equal(t, [][]string{{"consumer:1.0.0"}}, got)
+	})
+
+	t.Run("transitive dependency's chain gets the module id appended as its terminal element", func(t *testing.T) {
+		got := anchorRequestedByToModule([][]string{{"owner/direct-dep"}}, "consumer:1.0.0")
+		assert.Equal(t, [][]string{{"owner/direct-dep", "consumer:1.0.0"}}, got)
+	})
+
+	t.Run("multiple diamond-dependency paths each get anchored independently", func(t *testing.T) {
+		got := anchorRequestedByToModule([][]string{{"owner/a"}, {"owner/b"}}, "consumer:1.0.0")
+		assert.Equal(t, [][]string{{"owner/a", "consumer:1.0.0"}, {"owner/b", "consumer:1.0.0"}}, got)
+	})
 }

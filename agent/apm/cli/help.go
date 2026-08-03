@@ -19,11 +19,11 @@ no build-info collection - just run it as "jf agent apm <command>", e.g.:
   jf agent apm lock                 Resolve dependencies and write apm.lock.yaml only.
   jf agent apm deps why <pkg>       Show why a dependency is present (direct/transitive).
   jf agent apm outdated             Show outdated locked dependencies.
-  jf agent apm audit                 Scan installed packages / validate lockfile integrity.
-  jf agent apm doctor                Diagnose environment problems (git, network, auth).
-  jf agent apm view <pkg>            View package metadata or list remote versions.
-  jf agent apm marketplace ...       Manage marketplaces for discovery and governance.
-  jf agent apm mcp ...               Discover, inspect, and install MCP servers.
+  jf agent apm audit                Scan installed packages / validate lockfile integrity.
+  jf agent apm doctor               Diagnose environment problems (git, network, auth).
+  jf agent apm view <pkg>           View package metadata or list remote versions.
+  jf agent apm marketplace ...      Manage marketplaces for discovery and governance.
+  jf agent apm mcp ...              Discover, inspect, and install MCP servers.
 Run "apm --help" to see the full list of commands apm itself supports - all of them are
 reachable this way. "jf agent apm <command> --help" shows that command's own apm-native help.
 

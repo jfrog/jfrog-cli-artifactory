@@ -65,8 +65,11 @@ func (c *ApmUpdateCommand) Run() error {
 		return fmt.Errorf("run apm update: %w", err)
 	}
 
-	workingDir, err := os.Getwd()
-	if err != nil {
+	if apmcommon.IsDryRunArg(c.args) {
+		log.Info("apm update: --dry-run - nothing was updated, skipping build-info recording.")
+	} else if apmcommon.IsGlobalArg(c.args) {
+		log.Info("apm update: --global updates ~/.apm, not the project directory - skipping build-info recording.")
+	} else if workingDir, err := os.Getwd(); err != nil {
 		log.Warn("apm update completed, but could not determine working directory for build info:", err.Error())
 	} else {
 		lockfilePath := filepath.Join(workingDir, apmcommon.ApmLockfileName)

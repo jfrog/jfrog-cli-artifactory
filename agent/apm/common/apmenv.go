@@ -1,6 +1,7 @@
 package apmcommon
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,13 +11,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 const agentPackagesAPIPrefix = "/api/agentpackages/"
+
+// generateAccessTokenTimeout bounds the token-generation HTTP call, so a hung Artifactory
+// response can't block the whole install/publish/update command forever.
+const generateAccessTokenTimeout = 30 * time.Second
 
 // ApmBinaryName is the apm executable RunApmCommand always shells out to.
 const ApmBinaryName = "apm"
@@ -80,7 +87,9 @@ func generateAccessToken(serverDetails *config.ServerDetails) string {
 	form.Set("scope", "applied-permissions/user")
 	form.Set("expires_in", "0")
 
-	req, err := http.NewRequest(http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+	ctx, cancel := context.WithTimeout(context.Background(), generateAccessTokenTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		log.Debug("Failed to build access token request:", err.Error())
 		return ""
@@ -590,4 +599,16 @@ func IsHelpRequest(args []string) bool {
 		}
 	}
 	return false
+}
+
+// IsDryRunArg returns true if the args include --dry-run. install, update, and publish all
+// support it, and none of them change anything on disk when it's set.
+func IsDryRunArg(args []string) bool {
+	return slices.Contains(args, "--dry-run")
+}
+
+// IsGlobalArg returns true if the args include --global or -g. install and update both support
+// it, writing their lockfile to ~/.apm/apm.lock.yaml instead of the project directory.
+func IsGlobalArg(args []string) bool {
+	return slices.Contains(args, "--global") || slices.Contains(args, "-g")
 }

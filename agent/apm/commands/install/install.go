@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	apmcommon "github.com/jfrog/jfrog-cli-artifactory/agent/apm/common"
 	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
@@ -60,11 +61,21 @@ func (c *ApmInstallCommand) Run() error {
 		return fmt.Errorf("run apm install: %w", err)
 	}
 
-	workingDir, err := os.Getwd()
-	if err != nil {
+	if apmcommon.IsDryRunArg(c.args) {
+		log.Info("apm install: --dry-run - nothing was installed, skipping build-info recording.")
+	} else if apmcommon.IsGlobalArg(c.args) {
+		log.Info("apm install: --global installs to ~/.apm, not the project directory - skipping build-info recording.")
+	} else if workingDir, err := os.Getwd(); err != nil {
 		log.Warn("apm install completed, but could not determine working directory for build info:", err.Error())
 	} else {
-		lockfilePath := filepath.Join(workingDir, apmcommon.ApmLockfileName)
+		lockfileDir := workingDir
+		if rootDir := rootDirFromArgs(c.args); rootDir != "" {
+			lockfileDir = rootDir
+			if !filepath.IsAbs(lockfileDir) {
+				lockfileDir = filepath.Join(workingDir, lockfileDir)
+			}
+		}
+		lockfilePath := filepath.Join(lockfileDir, apmcommon.ApmLockfileName)
 		manifestPath := filepath.Join(workingDir, apmcommon.ApmManifestName)
 		if biErr := apmcommon.CollectAndSaveInstallBuildInfo(lockfilePath, manifestPath, c.serverDetails, c.buildConfiguration); biErr != nil {
 			log.Warn("apm install completed, but build info collection failed:", biErr.Error())
@@ -73,6 +84,21 @@ func (c *ApmInstallCommand) Run() error {
 
 	log.Info("apm install finished successfully.")
 	return nil
+}
+
+// rootDirFromArgs extracts the value of --root, which redirects apm_modules/ and apm.lock.yaml
+// under DIR instead of the working directory (apm.yml and .apm/ still resolve from $PWD).
+// Returns "" if --root isn't present.
+func rootDirFromArgs(args []string) string {
+	for i, arg := range args {
+		if arg == "--root" && i+1 < len(args) {
+			return args[i+1]
+		}
+		if cut, ok := strings.CutPrefix(arg, "--root="); ok {
+			return cut
+		}
+	}
+	return ""
 }
 
 // RunInstall is the CLI action handler for `jf agent apm install`.

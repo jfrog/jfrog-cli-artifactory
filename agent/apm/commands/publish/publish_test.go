@@ -59,3 +59,22 @@ func TestOwnerFromArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestZipPathFromArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "--zip with space form", args: []string{"--zip", "./build/my-package-1.0.0.zip"}, want: "./build/my-package-1.0.0.zip"},
+		{name: "--zip= form", args: []string{"--zip=./build/custom.zip"}, want: "./build/custom.zip"},
+		{name: "no --zip flag", args: []string{"--package", "acme/skills-pack"}, want: ""},
+		{name: "--zip as last arg with no value", args: []string{"--zip"}, want: ""},
+		{name: "empty args", args: []string{}, want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, zipPathFromArgs(tt.args))
+		})
+	}
+}

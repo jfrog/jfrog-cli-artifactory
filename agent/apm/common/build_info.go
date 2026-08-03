@@ -92,7 +92,9 @@ func saveInstallBuildInfo(deps []ResolvedDep, checksumMap map[string]entities.Ch
 	entityDeps := make([]entities.Dependency, 0, len(deps))
 	for _, dep := range deps {
 		checksum := checksumMap[dep.ID]
-		entityDeps = append(entityDeps, dep.ToEntitiesDependency(checksum))
+		entityDep := dep.ToEntitiesDependency(checksum)
+		entityDep.RequestedBy = anchorRequestedByToModule(entityDep.RequestedBy, moduleID)
+		entityDeps = append(entityDeps, entityDep)
 	}
 
 	partial := &entities.Partial{
@@ -108,9 +110,25 @@ func saveInstallBuildInfo(deps []ResolvedDep, checksumMap map[string]entities.Ch
 	return nil
 }
 
-// SavePublishBuildInfo saves build artifact info for a published APM package. Path/Name match
-// Artifactory's agentpackages storage layout: {repo}/{owner}/{name}/{name}-{version}.zip
-func SavePublishBuildInfo(owner, name, version string, checksum entities.Checksum, repoName string, serverDetails *config.ServerDetails, buildConfig *buildUtils.BuildConfiguration) error {
+// anchorRequestedByToModule appends moduleID as the terminal element of every requestedBy chain,
+// so each chain ends at the consuming module's id, matching npm/yarn/go/cargo's convention.
+func anchorRequestedByToModule(requestedBy [][]string, moduleID string) [][]string {
+	if len(requestedBy) == 0 {
+		return [][]string{{moduleID}}
+	}
+	anchored := make([][]string, len(requestedBy))
+	for i, chain := range requestedBy {
+		anchored[i] = append(append([]string{}, chain...), moduleID)
+	}
+	return anchored
+}
+
+// SavePublishBuildInfo saves build artifact info for a published APM package. moduleName is the
+// project's own identity (apm.yml's name:, for the build-info module id); packageName is the
+// identity apm actually uploaded under via --package (owner/packageName), which Artifactory's
+// agentpackages storage layout uses for the real path: {repo}/{owner}/{packageName}/{packageName}-{version}.zip.
+// These two can differ, and only packageName reflects where the artifact actually lives.
+func SavePublishBuildInfo(owner, moduleName, packageName, version string, checksum entities.Checksum, repoName string, serverDetails *config.ServerDetails, buildConfig *buildUtils.BuildConfiguration) error {
 	buildName, err := buildConfig.GetBuildName()
 	if err != nil {
 		return err
@@ -130,14 +148,14 @@ func SavePublishBuildInfo(owner, name, version string, checksum entities.Checksu
 
 	moduleID := buildConfig.GetModule()
 	if moduleID == "" {
-		moduleID = name + ":" + version
+		moduleID = moduleName + ":" + version
 	}
 
-	fileName := name + "-" + version + "." + apmPackageFileExtension
-	dirPath := name
+	fileName := packageName + "-" + version + "." + apmPackageFileExtension
+	dirPath := packageName
 	artifactPath := fileName
 	if owner != "" {
-		dirPath = owner + "/" + name
+		dirPath = owner + "/" + packageName
 		artifactPath = dirPath + "/" + fileName
 	}
 
@@ -225,7 +243,7 @@ func tagPublishedArtifactProperties(serverDetails *config.ServerDetails, repoNam
 //     use exactly this as their primary source for a published artifact's checksum
 //     (crypto.GetFileDetails on the local .crate/.gem file) - apm previously had no fallback tier
 //     at all here, unlike its own install-side resolution.
-func CollectAndSavePublishBuildInfo(manifestPath, owner, repoName string, serverDetails *config.ServerDetails, buildConfig *buildUtils.BuildConfiguration) error {
+func CollectAndSavePublishBuildInfo(manifestPath, owner, packageName, repoName, explicitZipPath string, serverDetails *config.ServerDetails, buildConfig *buildUtils.BuildConfiguration) error {
 	collectBuildInfo, err := buildConfig.IsCollectBuildInfo()
 	if err != nil {
 		return err
@@ -241,28 +259,38 @@ func CollectAndSavePublishBuildInfo(manifestPath, owner, repoName string, server
 		log.Debug("APM manifest missing name or version; skipping publish build-info.")
 		return nil
 	}
+	if packageName == "" {
+		packageName = manifest.Name
+	}
 
-	checksum := lookupPublishedArtifactChecksum(owner, manifest.Name, manifest.Version, repoName, serverDetails)
+	checksum := lookupPublishedArtifactChecksum(owner, packageName, manifest.Version, repoName, serverDetails)
 	if !hasAnyChecksum(checksum) {
-		workingDir := filepath.Dir(manifestPath)
-		if localChecksum, localErr := localPackedArtifactChecksum(workingDir, manifest.Name, manifest.Version); localErr == nil {
+		zipPath := explicitZipPath
+		if zipPath == "" {
+			// apm always packs the local zip from apm.yml's own name, regardless of --package.
+			zipPath = manifest.Name + "-" + manifest.Version + "." + apmPackageFileExtension
+		}
+		if !filepath.IsAbs(zipPath) {
+			zipPath = filepath.Join(filepath.Dir(manifestPath), zipPath)
+		}
+		if localChecksum, localErr := localPackedArtifactChecksum(zipPath); localErr == nil {
 			log.Debug("apm publish: HEAD lookup returned no checksum; using the local packed zip's own hash instead.")
 			checksum = localChecksum
 		} else {
 			log.Warn(fmt.Sprintf(
 				"apm publish: could not resolve a checksum for %s@%s from Artifactory or the local packed zip (%s); "+
 					"build-info will record this artifact with no checksum.",
-				manifest.Name, manifest.Version, localErr.Error()))
+				packageName, manifest.Version, localErr.Error()))
 		}
 	}
-	return SavePublishBuildInfo(owner, manifest.Name, manifest.Version, checksum, repoName, serverDetails, buildConfig)
+	return SavePublishBuildInfo(owner, manifest.Name, packageName, manifest.Version, checksum, repoName, serverDetails, buildConfig)
 }
 
 // lookupPublishedArtifactChecksum issues an HTTP HEAD against the just-published artifact's own
 // download URL and reads its checksum from Artifactory's X-Checksum-* response headers. Returns
 // an empty Checksum (not an error) if the repo/owner are unknown or the lookup fails - the caller
 // falls back to hashing the local packed zip, so a missing checksum here isn't yet the final word.
-func lookupPublishedArtifactChecksum(owner, name, version, repoName string, serverDetails *config.ServerDetails) entities.Checksum {
+func lookupPublishedArtifactChecksum(owner, packageName, version, repoName string, serverDetails *config.ServerDetails) entities.Checksum {
 	if owner == "" || repoName == "" || serverDetails == nil {
 		return entities.Checksum{}
 	}
@@ -272,7 +300,7 @@ func lookupPublishedArtifactChecksum(owner, name, version, repoName string, serv
 		return entities.Checksum{}
 	}
 
-	downloadURL := AgentPackagesBaseURL(serverDetails, repoName) + "v1/packages/" + owner + "/" + name + "/versions/" + version + "/download"
+	downloadURL := AgentPackagesBaseURL(serverDetails, repoName) + "v1/packages/" + owner + "/" + packageName + "/versions/" + version + "/download"
 	clientDetails := servicesManager.GetConfig().GetServiceDetails().CreateHttpClientDetails()
 	fileDetails, _, err := servicesManager.Client().GetRemoteFileDetails(downloadURL, &clientDetails)
 	if err != nil {
@@ -282,13 +310,10 @@ func lookupPublishedArtifactChecksum(owner, name, version, repoName string, serv
 	return fileDetails.Checksum
 }
 
-// localPackedArtifactChecksum hashes the zip apm packed for this publish, still sitting in the
-// working directory under apm's own deterministic naming ({name}-{version}.zip - the same
-// convention SavePublishBuildInfo uses for the Artifactory path). Mirrors cargo's and ruby's
-// pattern of hashing the local artifact file directly (gofrog/crypto.GetFileDetails) rather than
-// only ever trusting a network round-trip for a file this process just produced itself.
-func localPackedArtifactChecksum(workingDir, name, version string) (entities.Checksum, error) {
-	zipPath := filepath.Join(workingDir, name+"-"+version+"."+apmPackageFileExtension)
+// localPackedArtifactChecksum hashes the zip apm just published from disk (the auto-packed
+// {name}-{version}.zip, or whatever path --zip pointed at), mirroring cargo's and ruby's pattern
+// of hashing the local artifact file directly (gofrog/crypto.GetFileDetails).
+func localPackedArtifactChecksum(zipPath string) (entities.Checksum, error) {
 	fileDetails, err := crypto.GetFileDetails(zipPath, true)
 	if err != nil {
 		return entities.Checksum{}, fmt.Errorf("hash local packed zip %s: %w", zipPath, err)

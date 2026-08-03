@@ -272,3 +272,39 @@ func TestGenerateAccessToken_NoAuth(t *testing.T) {
 	}
 }
 
+func TestIsDryRunArg(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "--dry-run present", args: []string{"--package", "jfrog/proj3", "--dry-run"}, want: true},
+		{name: "--dry-run present, different position", args: []string{"--dry-run", "--package", "jfrog/proj3"}, want: true},
+		{name: "no --dry-run", args: []string{"--package", "jfrog/proj3"}, want: false},
+		{name: "empty args", args: []string{}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsDryRunArg(tt.args))
+		})
+	}
+}
+
+func TestIsGlobalArg(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "--global present", args: []string{"--global"}, want: true},
+		{name: "-g present", args: []string{"-g"}, want: true},
+		{name: "neither present", args: []string{"--dry-run"}, want: false},
+		{name: "empty args", args: []string{}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsGlobalArg(tt.args))
+		})
+	}
+}
+
