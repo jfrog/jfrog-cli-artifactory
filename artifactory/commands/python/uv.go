@@ -12,6 +12,7 @@ import (
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/build-info-go/utils/pythonutils"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/python/dependencies"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/permissions"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -24,6 +25,10 @@ import (
 type UvCommand struct {
 	PythonCommand
 }
+
+// UVConfigFileEnv is the environment variable uv reads to locate its user-level
+// configuration file, overriding the default per-user path.
+const UVConfigFileEnv = "UV_CONFIG_FILE"
 
 func NewUvCommand() *UvCommand {
 	return &UvCommand{PythonCommand: *NewPythonCommand(pythonutils.UV)}
@@ -221,7 +226,7 @@ func GetConfiguredUVIndexURL() (string, error) {
 }
 
 func getUserUVConfigPath() (string, error) {
-	if configFile := os.Getenv("UV_CONFIG_FILE"); configFile != "" {
+	if configFile := os.Getenv(UVConfigFileEnv); configFile != "" {
 		return configFile, nil
 	}
 
@@ -318,7 +323,9 @@ func writeUVConfig(path string, fullCfg map[string]any, indexes []uvIndexEntry) 
 		return errorutils.CheckErrorf("failed to encode uv config: %w", err)
 	}
 
-	if err := os.WriteFile(path, []byte(b.String()), 0600); err != nil {
+	// The uv index URL embeds credentials, so write owner-only (and tighten a
+	// pre-existing 0644 file, which WriteFile alone would leave world-readable).
+	if err := permissions.WriteFileOwnerOnly(path, []byte(b.String())); err != nil {
 		return errorutils.CheckErrorf("failed to write uv config at %s: %w", path, err)
 	}
 

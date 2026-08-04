@@ -14,6 +14,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
 	artifactoryutils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/permissions"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -383,6 +384,25 @@ func GenerateInitScript(config InitScriptAuthConfig) (string, error) {
 // More info on how Gradle invokes these init scripts can be found here:
 // https://docs.gradle.org/current/userguide/init_scripts.html#sec:using_an_init_script
 func WriteInitScript(initScript string) error {
+	jfrogInitScriptPath := GetInitScriptPath()
+	initScriptsDir := filepath.Dir(jfrogInitScriptPath)
+	if err := os.MkdirAll(initScriptsDir, 0755); err != nil { // #nosec G703 -- path sanitized with filepath.Clean
+		return fmt.Errorf("failed to create Gradle init.d directory: %w", err)
+	}
+	// The init script embeds the Artifactory access token, so write it owner-only
+	// up front rather than writing 0644 and hardening afterwards, which would leave
+	// the token briefly world-readable.
+	if err := permissions.WriteFileOwnerOnly(jfrogInitScriptPath, []byte(initScript)); err != nil {
+		return fmt.Errorf("failed to write Gradle init script to %s: %w", jfrogInitScriptPath, err)
+	}
+	return nil
+}
+
+// GetInitScriptPath returns the path jf setup writes the Gradle init script to:
+// $GRADLE_USER_HOME/init.d/jfrog.init.gradle. When GRADLE_USER_HOME is unset it
+// falls back to Java's user.home (so it stays correct in containers where $HOME
+// differs from user.home) and finally to $HOME/.gradle.
+func GetInitScriptPath() string {
 	gradleHome := os.Getenv(UserHomeEnv)
 	if gradleHome == "" {
 		// Try Java's user.home first (fixes container issue where $HOME != user.home)
@@ -396,16 +416,7 @@ func WriteInitScript(initScript string) error {
 	}
 	// Sanitize the path to prevent directory traversal attacks
 	gradleHome = filepath.Clean(gradleHome)
-
-	initScriptsDir := filepath.Clean(filepath.Join(gradleHome, "init.d"))
-	if err := os.MkdirAll(initScriptsDir, 0755); err != nil { // #nosec G703 -- path sanitized with filepath.Clean
-		return fmt.Errorf("failed to create Gradle init.d directory: %w", err)
-	}
-	jfrogInitScriptPath := filepath.Clean(filepath.Join(initScriptsDir, InitScriptName))
-	if err := os.WriteFile(jfrogInitScriptPath, []byte(initScript), 0644); err != nil { // #nosec G703 -- path sanitized with filepath.Clean
-		return fmt.Errorf("failed to write Gradle init script to %s: %w", jfrogInitScriptPath, err)
-	}
-	return nil
+	return filepath.Clean(filepath.Join(gradleHome, "init.d", InitScriptName))
 }
 
 // GetJavaUserHome queries Java for its user.home system property.
@@ -483,7 +494,11 @@ func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string,
 	}
 
 	// Set CI VCS properties if in CI environment
-	civcs.SetCIVcsPropsToConfig(vConfig)
+	searchDir, wdErr := os.Getwd()
+	if wdErr != nil {
+		searchDir = "."
+	}
+	civcs.SetCIVcsPropsToConfig(vConfig, searchDir)
 
 	props, err = build.CreateBuildInfoProps(deployableArtifactsFile, vConfig, project.Gradle)
 	if err != nil {

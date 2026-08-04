@@ -35,7 +35,7 @@ type InstallCommand struct {
 }
 
 func NewInstallCommand() *InstallCommand {
-	return &InstallCommand{scope: agentcommon.InstallScopeProject}
+	return &InstallCommand{scope: agentcommon.InstallScopeGlobal}
 }
 
 func (ic *InstallCommand) SetServerDetails(details *config.ServerDetails) *InstallCommand {
@@ -151,7 +151,7 @@ func (ic *InstallCommand) Run() error {
 	}
 
 	for _, result := range results {
-		if result.Status != agentcommon.SummaryStatusOK {
+		if result.Status == agentcommon.SummaryStatusFailed {
 			return fmt.Errorf("installation failed for one or more agents (see summary above)")
 		}
 	}
@@ -234,13 +234,67 @@ func (ic *InstallCommand) CopyExtractedToTargets(unzipDir string, installTargets
 			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
 			continue
 		}
-		results = append(results, agentcommon.SummaryRow{
-			Agent:  target.Agent.Name,
-			Scope:  string(target.Scope),
-			Path:   target.DestinationDir,
-			Status: agentcommon.SummaryStatusOK,
-			Detail: agentcommon.SummaryDetailOKInstall,
-		})
+		if hookErr := plugincommon.RunPostInstallHook(target.Agent.Name, ic.slug, ic.version, target.DestinationDir, ic.repoKey); hookErr != nil {
+			if agentcommon.IsWarning(hookErr) {
+				log.Warn(fmt.Sprintf("post-install hook for agent %q: %s", target.Agent.Name, hookErr))
+				results = append(results, agentcommon.InstallWarningRow(target.Agent.Name, string(target.Scope), target.DestinationDir,
+					fmt.Sprintf("Plugin files installed successfully but native registration incomplete: %s", hookErr.Error())))
+			} else {
+				log.Warn(fmt.Sprintf("post-install hook for agent %q: %s", target.Agent.Name, hookErr))
+				results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, hookErr))
+			}
+		} else {
+			log.Info(fmt.Sprintf("post-install hook completed for agent %q", target.Agent.Name))
+			results = append(results, agentcommon.SummaryRow{
+				Agent:  target.Agent.Name,
+				Scope:  string(target.Scope),
+				Path:   target.DestinationDir,
+				Status: agentcommon.SummaryStatusOK,
+				Detail: agentcommon.SummaryDetailOKInstall,
+			})
+		}
+	}
+	return results
+}
+
+// CopyExtractedToTargetsForUpdate copies an unpacked plugin tree over an existing install
+// at each resolved target, writes a plugin-info manifest per target, and runs each agent's
+// post-update hook (native marketplace refresh + plugin resync for claude/codex; a no-op
+// for direct/--path targets, since the file copy alone is the entire update there).
+func (ic *InstallCommand) CopyExtractedToTargetsForUpdate(unzipDir string, installTargets []plugincommon.AgentTarget) []agentcommon.SummaryRow {
+	results := make([]agentcommon.SummaryRow, 0, len(installTargets))
+	for _, target := range installTargets {
+		if err := agentcommon.EnsureDestinationDir(target.DestinationDir); err != nil {
+			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
+			continue
+		}
+		if err := agentcommon.CopyDir(unzipDir, target.DestinationDir); err != nil {
+			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
+			continue
+		}
+		if err := ic.writePluginInfoManifest(target); err != nil {
+			results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, err))
+			continue
+		}
+		if hookErr := plugincommon.RunPostUpdateHook(target.Agent.Name, ic.slug, ic.version, target.DestinationDir, ic.repoKey); hookErr != nil {
+			if agentcommon.IsWarning(hookErr) {
+				log.Warn(fmt.Sprintf("post-update hook for agent %q: %s", target.Agent.Name, hookErr))
+				results = append(results, agentcommon.InstallWarningRow(target.Agent.Name, string(target.Scope), target.DestinationDir,
+					fmt.Sprintf("Plugin files updated successfully but native registration refresh incomplete: %s", hookErr.Error())))
+			} else {
+				log.Warn(fmt.Sprintf("post-update hook for agent %q: %s", target.Agent.Name, hookErr))
+				results = append(results, agentcommon.InstallFailureRow(target.Agent.Name, string(target.Scope), target.DestinationDir, hookErr))
+			}
+		} else {
+			log.Info(fmt.Sprintf("post-update hook completed for agent %q", target.Agent.Name))
+			results = append(results, agentcommon.SummaryRow{
+				Agent:  target.Agent.Name,
+				Scope:  string(target.Scope),
+				Path:   target.DestinationDir,
+				Status: agentcommon.SummaryStatusOK,
+				Detail: agentcommon.SummaryDetailOKUpdate,
+			})
+		}
 	}
 	return results
 }
@@ -273,10 +327,40 @@ func (ic *InstallCommand) resolveAgentTargetDirectories() ([]plugincommon.AgentT
 	if ic.scope == agentcommon.InstallScopeProject && ic.projectDir == "" {
 		return nil, fmt.Errorf("project directory is required for project-scoped install")
 	}
+	if ic.scope == agentcommon.InstallScopeProject {
+		for _, agent := range ic.agents {
+			agentLower := strings.ToLower(agent.Name)
+			if agentLower == "claude" {
+				return nil, fmt.Errorf(
+					"claude does not support project-scoped plugin installs: " +
+						"Claude plugin configuration is user-scoped only (~/.claude/settings.json). " +
+						"Use --global to install there instead",
+				)
+			}
+			if agentLower == "cursor" {
+				return nil, fmt.Errorf(
+					"cursor does not support project-scoped plugin installs: " +
+						"Cursor only auto-discovers full plugins from ~/.cursor/plugins/local/. " +
+						"Use --global to install there instead",
+				)
+			}
+			if agentLower == "codex" {
+				return nil, fmt.Errorf(
+					"codex does not support project-scoped plugin installs: " +
+						"Codex plugin configuration is user-scoped only (~/.codex/config.toml). " +
+						"Use --global to install there instead",
+				)
+			}
+		}
+	}
 	isGlobal := ic.scope == agentcommon.InstallScopeGlobal
 	// Path is "" because harness mode uses project or global scope
 	// e.g., jf agent plugins install web --harness claude --global
-	return agentcommon.ResolveAgentTargets(ic.slug, "", ic.agents, ic.projectDir, isGlobal)
+	targets, err := agentcommon.ResolveAgentTargets(ic.slug, "", ic.agents, ic.projectDir, isGlobal)
+	if err != nil {
+		return nil, err
+	}
+	return plugincommon.InjectRepoKey(targets, ic.repoKey), nil
 }
 
 func (ic *InstallCommand) writePluginInfoManifest(target plugincommon.AgentTarget) error {
@@ -313,8 +397,12 @@ func RunInstall(c *components.Context) error {
 		return err
 	}
 
-	flags, err := agentcommon.ValidateInstallFlags(c, plugincommon.Agents, agentcommon.PluginsAgentsKey, plugincommon.RegistryHelp)
+	flags, err := agentcommon.ValidateInstallFlags(c, plugincommon.Agents, agentcommon.PluginsAgentsKey, plugincommon.RegistryHelp, agentcommon.InstallFlagsOptions{DefaultGlobalScope: true})
 	if err != nil {
+		return err
+	}
+
+	if err := plugincommon.RejectUnsupportedProjectScope(!flags.IsGlobal, flags.Specs, "install"); err != nil {
 		return err
 	}
 

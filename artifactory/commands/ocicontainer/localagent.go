@@ -22,12 +22,12 @@ type localAgentBuildInfoBuilder struct {
 }
 
 // Create new build info builder container CLI tool
-func NewLocalAgentBuildInfoBuilder(image *Image, repository, buildName, buildNumber, project string, serviceManager artifactory.ArtifactoryServicesManager, commandType CommandType, containerManager ContainerManager) (*localAgentBuildInfoBuilder, error) {
+func NewLocalAgentBuildInfoBuilder(image *Image, repository, buildName, buildNumber, project string, serviceManager artifactory.ArtifactoryServicesManager, commandType CommandType, containerManager ContainerManager, workingDirectory string) (*localAgentBuildInfoBuilder, error) {
 	imageSha2, err := containerManager.Id(image, commandType)
 	if err != nil {
 		return nil, err
 	}
-	builder, err := newBuildInfoBuilder(image, repository, buildName, buildNumber, project, serviceManager)
+	builder, err := newBuildInfoBuilder(image, repository, buildName, buildNumber, project, serviceManager, workingDirectory)
 	if err != nil {
 		return nil, err
 	}

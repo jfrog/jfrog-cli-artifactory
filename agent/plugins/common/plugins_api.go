@@ -47,6 +47,13 @@ func ListPlugins(serverDetails *config.ServerDetails, repoKey string, limit int)
 		}
 		latest, err := ResolveLatestPluginVersion(serverDetails, repoKey, slug)
 		if err != nil {
+			if strings.Contains(err.Error(), "has no versions") {
+				// A slug folder can outlive its last version (e.g. right after deleting it),
+				// leaving zero version subfolders. Omit it rather than showing a phantom
+				// empty-version row.
+				log.Debug(fmt.Sprintf("Skipping plugin '%s' from list: %s", slug, err.Error()))
+				continue
+			}
 			log.Warn(fmt.Sprintf("Could not resolve latest version for plugin '%s': %s", slug, err.Error()))
 			latest = ""
 		}
@@ -67,5 +74,14 @@ func ListPlugins(serverDetails *config.ServerDetails, repoKey string, limit int)
 // ReadPluginMeta reads the primary plugin.json under pluginDir and returns the parsed PluginMeta.
 func ReadPluginMeta(pluginDir string) (PluginMeta, error) {
 	_, meta, err := findPrimaryPluginManifest(pluginDir)
+	return meta, err
+}
+
+// ReadPluginMetaForAgent reads pluginDir's manifest for a specific harness — preferring that
+// harness's own manifest convention (e.g. .codex-plugin/plugin.json for codex) over the
+// default search order, so fields like Description reflect the harness actually being read
+// rather than always falling back to Claude's manifest.
+func ReadPluginMetaForAgent(pluginDir, agentName string) (PluginMeta, error) {
+	_, meta, err := findPluginManifestForAgent(pluginDir, agentName)
 	return meta, err
 }

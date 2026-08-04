@@ -312,3 +312,18 @@ func TestWriteUVConfig_RemovesIndexKeyWhenEmpty(t *testing.T) {
 	assert.NotContains(t, string(data), "index")
 	assert.Contains(t, string(data), "compile-bytecode")
 }
+
+// An existing config left at 0644 by a pre-fix run must be tightened too:
+// os.WriteFile applies its mode only when it creates the file, and the index URL
+// written here embeds credentials.
+func TestWriteUVConfig_HardensExistingFile(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "uv.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte("stale = true\n"), 0644))
+	require.NoError(t, os.Chmod(configPath, 0644))
+
+	// #nosec G101 -- This is a fake test token with no real credentials.
+	indexes := []uvIndexEntry{{Name: "jfrog-pypi", URL: "https://user:token@example.com/simple", Default: true}}
+	require.NoError(t, writeUVConfig(configPath, map[string]any{}, indexes))
+
+	assertOwnerOnly(t, configPath)
+}

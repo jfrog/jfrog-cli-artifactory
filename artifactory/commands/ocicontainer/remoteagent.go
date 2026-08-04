@@ -16,8 +16,8 @@ type RemoteAgentBuildInfoBuilder struct {
 	manifestSha2     string
 }
 
-func NewRemoteAgentBuildInfoBuilder(image *Image, repository, buildName, buildNumber, project string, serviceManager artifactory.ArtifactoryServicesManager, manifestSha256 string) (*RemoteAgentBuildInfoBuilder, error) {
-	builder, err := newBuildInfoBuilder(image, repository, buildName, buildNumber, project, serviceManager)
+func NewRemoteAgentBuildInfoBuilder(image *Image, repository, buildName, buildNumber, project string, serviceManager artifactory.ArtifactoryServicesManager, manifestSha256 string, workingDirectory string) (*RemoteAgentBuildInfoBuilder, error) {
+	builder, err := newBuildInfoBuilder(image, repository, buildName, buildNumber, project, serviceManager, workingDirectory)
 	return &RemoteAgentBuildInfoBuilder{
 		buildInfoBuilder: builder,
 		manifestSha2:     manifestSha256,

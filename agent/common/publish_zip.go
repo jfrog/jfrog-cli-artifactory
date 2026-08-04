@@ -164,7 +164,11 @@ func CollectPublishFiles(sourceDir string) (files []ZipFileEntry, maxMtime time.
 	if err != nil {
 		return nil, time.Time{}, err
 	}
-	sort.Slice(files, func(i, j int) bool { return files[i].RelPath < files[j].RelPath })
+	// Sort on the slash form so entry order matches the names written to the zip,
+	// keeping output identical across Windows and Unix.
+	sort.Slice(files, func(i, j int) bool {
+		return filepath.ToSlash(files[i].RelPath) < filepath.ToSlash(files[j].RelPath)
+	})
 	return files, maxMtime, nil
 }
 
@@ -172,7 +176,9 @@ func addFileToZip(zipWriter *zip.Writer, sourceDir string, fileEntry ZipFileEntr
 	absPath := filepath.Join(sourceDir, fileEntry.RelPath)
 
 	header := &zip.FileHeader{
-		Name:     fileEntry.RelPath,
+		// The zip format requires forward slashes, while filepath.Rel yields the
+		// OS separator, which is a backslash on Windows.
+		Name:     filepath.ToSlash(fileEntry.RelPath),
 		Method:   zip.Deflate,
 		Modified: uniformTime,
 	}
