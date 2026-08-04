@@ -371,6 +371,8 @@ type GoProxyUrlParams struct {
 	// the module failed to be retrieved from the proxy.
 	// add |direct to the end of the url.
 	// example: https://gocenter.io|direct
+	// Set FallbackOnlyIfNotFound to use a comma instead of a pipe, limiting the
+	// fallback to 404/410 rather than any error.
 	Direct bool
 	// FallbackOnlyIfNotFound joins the "direct" entry with a comma instead of a
 	// pipe, so the go command falls through to the module's public source only

@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -19,6 +20,7 @@ import (
 	container "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ocicontainer"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/python"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/repository"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/permissions"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/maven"
@@ -85,7 +87,7 @@ var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
 	// Twine's .pypirc path is chosen per invocation (--config-file), not by the environment.
 	project.Twine: {location: "your user-level Twine configuration (.pypirc)"},
 	// ConfigureUVIndex writes to UV_CONFIG_FILE when it is set.
-	project.UV:     {location: "your user-level uv configuration (uv.toml)", overrideEnv: "UV_CONFIG_FILE"},
+	project.UV:     {location: "your user-level uv configuration (uv.toml)", overrideEnv: python.UVConfigFileEnv},
 	project.Nuget:  {location: "your user-level NuGet configuration (NuGet.Config)"},
 	project.Dotnet: {location: "your user-level NuGet configuration (NuGet.Config)"},
 	// `go env -w` writes to the file GOENV points at, defaulting to the per-user Go env file.
@@ -106,23 +108,23 @@ var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
 // configScopeNote describes what the command changed and how widely it applies, or
 // an empty string for a package manager we have nothing accurate to say about.
 func configScopeNote(packageManager project.ProjectType) string {
-	packageManagerConfig, ok := packageManagerConfigs[packageManager]
+	cfg, ok := packageManagerConfigs[packageManager]
 	if !ok {
 		return ""
 	}
-	if packageManagerConfig.credentialsOnly {
-		return fmt.Sprintf("Credentials were saved to %s for your user account.", packageManagerConfig.location)
+	if cfg.credentialsOnly {
+		return fmt.Sprintf("Credentials were saved to %s for your user account.", cfg.location)
 	}
 	// A redirected configuration is not user-level, so report where it actually went
 	// rather than promising a scope that may not hold.
-	if packageManagerConfig.overrideEnv != "" {
-		if overridePath := os.Getenv(packageManagerConfig.overrideEnv); overridePath != "" {
+	if cfg.overrideEnv != "" {
+		if overridePath := os.Getenv(cfg.overrideEnv); overridePath != "" {
 			return fmt.Sprintf("This updated the %s configuration at %s, because %s is set, so its scope follows that path rather than your user-level configuration.",
-				packageManager.String(), overridePath, packageManagerConfig.overrideEnv)
+				packageManager.String(), overridePath, cfg.overrideEnv)
 		}
 	}
 	return fmt.Sprintf("This updated %s, so it applies to every %s project for this user, not only the current directory.",
-		packageManagerConfig.location, packageManager.String())
+		cfg.location, packageManager.String())
 }
 
 // packageManagerToRepositoryPackageType maps project types to corresponding Artifactory repository package types.
@@ -341,6 +343,10 @@ func (sc *SetupCommand) configurePip() error {
 	if err := python.RunConfigCommand(project.Pip, []string{"set", "global.index-url", repoWithCredsUrl}); err != nil {
 		return fmt.Errorf("failed to configure pip index-url: %w", err)
 	}
+	// pip config set creates the file at 0644; harden to 0600 because index-url
+	// embeds credentials. `pip config set` writes the user-level file, so the
+	// derived path matches it without parsing pip's human-readable output.
+	python.HardenPipConfigPermissions()
 	return nil
 }
 
@@ -421,9 +427,69 @@ func (sc *SetupCommand) configureNpmPnpm() error {
 
 	authKey, authValue := commandsutils.GetNpmAuthKeyValue(sc.serverDetails, repoUrl)
 	if authKey != "" && authValue != "" {
-		return npm.ConfigSet(authKey, authValue, sc.packageManager.String())
+		if err := npm.ConfigSet(authKey, authValue, sc.packageManager.String()); err != nil {
+			return err
+		}
+	}
+	// npm writes ~/.npmrc at 0600 already, so only pnpm needs hardening here: it
+	// stores the _authToken in auth.ini at 0644.
+	if sc.packageManager == project.Pnpm {
+		hardenPnpmAuthConfig()
 	}
 	return nil
+}
+
+// pnpmConfigFileNames are the files pnpm may write credentials into. pnpm stores
+// the _authToken differently across versions (auth.ini in v9+, otherwise the
+// rc/config file it reports as `globalconfig`), so all known names are hardened.
+var pnpmConfigFileNames = []string{"auth.ini", "rc", "config.yaml", ".npmrc"}
+
+// hardenPnpmAuthConfig best-effort restricts the pnpm config files that may hold
+// the _authToken in cleartext at 0644 to owner-only.
+func hardenPnpmAuthConfig() {
+	for _, path := range pnpmCredentialFiles() {
+		permissions.RestrictExisting(path)
+	}
+}
+
+// pnpmCredentialFiles returns the existing pnpm config files (see
+// pnpmConfigFileNames) in pnpm's own config directory. There is no first-party Go
+// resolver for that directory, so it is derived from the file pnpm reports as
+// `globalconfig`. This is best-effort: it returns nil (rather than surfacing an
+// error) when pnpm cannot be queried or nothing was written (e.g. anonymous
+// access), so a resolution miss never fails an otherwise-successful setup.
+// Restricting a file without secrets is a harmless no-op.
+func pnpmCredentialFiles() []string {
+	out, err := exec.Command("pnpm", "config", "get", "globalconfig").Output()
+	if err != nil {
+		log.Warn("Could not resolve pnpm's config directory to restrict its permissions. " +
+			"If it holds an access token, restrict it to owner-only access manually.")
+		return nil
+	}
+	globalConfig := strings.TrimSpace(string(out))
+	if globalConfig == "" {
+		return nil
+	}
+	configDir := filepath.Dir(globalConfig)
+	var existing []string
+	for _, name := range pnpmConfigFileNames {
+		path := filepath.Join(configDir, name)
+		if _, err := os.Stat(path); err == nil {
+			existing = append(existing, path)
+		}
+	}
+	return existing
+}
+
+// userFile joins parts onto the current user's home directory. jf setup uses it
+// to locate the credential files other modules write there (~/.m2/settings.xml,
+// ~/.yarnrc) so it can harden them afterwards.
+func userFile(parts ...string) (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to determine home directory: %w", err)
+	}
+	return filepath.Join(append([]string{homeDir}, parts...)...), nil
 }
 
 // configureYarn configures Yarn to use the specified Artifactory repository and sets authentication.
@@ -447,8 +513,18 @@ func (sc *SetupCommand) configureYarn() (err error) {
 
 	authKey, authValue := commandsutils.GetNpmAuthKeyValue(sc.serverDetails, repoUrl)
 	if authKey != "" && authValue != "" {
-		return yarn.ConfigSet(authKey, authValue, "yarn", false)
+		if err = yarn.ConfigSet(authKey, authValue, "yarn", false); err != nil {
+			return err
+		}
 	}
+	// Yarn Classic writes ~/.yarnrc (YARN_RC_FILENAME does not redirect it) with the
+	// auth token in cleartext; restrict it to owner-only. Yarn Berry does not use
+	// ~/.yarnrc, so RestrictExisting warns and moves on there.
+	yarnrc, err := userFile(".yarnrc")
+	if err != nil {
+		return err
+	}
+	permissions.RestrictExisting(yarnrc)
 	return nil
 }
 
@@ -527,7 +603,32 @@ func (sc *SetupCommand) configureGo() error {
 	log.Info("GOPROXY falls back to the module's source only for modules the repository does not serve (404/410). " +
 		"Any other error, including a Curation block or an unreachable Artifactory, now fails the command instead of " +
 		"resolving from the public internet.")
+	// GOPROXY embeds user:token@ in cleartext in the Go env file; restrict it to
+	// owner-only. Best-effort: `go env -w` already succeeded, so a failure to
+	// resolve or tighten the file must not fail an otherwise-configured setup.
+	if goEnvPath, err := goEnvFilePath(); err != nil {
+		log.Warn("Could not resolve the Go environment file to restrict its permissions: " + err.Error() +
+			". If it holds credentials, restrict it to owner-only access manually.")
+	} else {
+		permissions.RestrictExisting(goEnvPath)
+	}
 	return nil
+}
+
+// goEnvFilePath returns the file `go env -w` persists to (honoring GOENV), which
+// now holds the credential-bearing GOPROXY value. `go env GOENV` is the only
+// authoritative source for this path: it applies the same GOENV/default
+// resolution the write used.
+func goEnvFilePath() (string, error) {
+	out, err := exec.Command("go", "env", "GOENV").Output()
+	if err != nil {
+		return "", errorutils.CheckErrorf("failed to resolve the Go environment file path: %s", err.Error())
+	}
+	path := strings.TrimSpace(string(out))
+	if path == "" {
+		return "", errorutils.CheckErrorf("`go env GOENV` returned an empty path")
+	}
+	return path, nil
 }
 
 // configureDotnetNuget configures NuGet or .NET Core to use the specified Artifactory repository with credentials.
@@ -648,13 +749,21 @@ func (sc *SetupCommand) configureMaven() error {
 		password = sc.serverDetails.GetAccessToken()
 	}
 
-	settingsXml, err := maven.NewSettingsXmlManager()
+	// NewSettingsXmlManager resolves this same ~/.m2/settings.xml path internally;
+	// resolving it here too lets us harden the file afterwards, since settings.xml
+	// stores the password/access token in cleartext.
+	settingsXmlPath, err := userFile(".m2", "settings.xml")
+	if err != nil {
+		return err
+	}
+	settingsXml, err := maven.NewSettingsXmlManagerWithPath(settingsXmlPath)
 	if err != nil {
 		return fmt.Errorf("failed to create a new Maven settings.xml manager: %w", err)
 	}
 	if err = settingsXml.ConfigureArtifactoryRepository(sc.serverDetails.GetArtifactoryUrl(), sc.repoName, username, password); err != nil {
 		return fmt.Errorf("failed to update Artifactory mirror in Maven settings.xml: %w", err)
 	}
+	permissions.RestrictExisting(settingsXmlPath)
 	return nil
 }
 
@@ -677,6 +786,7 @@ func (sc *SetupCommand) configureGradle() error {
 		return fmt.Errorf("failed to generate Gradle init script: %w", err)
 	}
 
+	// WriteInitScript writes the token-bearing init script owner-only (0600) itself.
 	if err := gradle.WriteInitScript(initScript); err != nil {
 		return fmt.Errorf("failed to write Gradle init script: %w", err)
 	}

@@ -1,17 +1,10 @@
 package publish
 
 import (
-	"archive/zip"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"runtime"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/jfrog/build-info-go/entities"
 	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
@@ -27,14 +20,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
-
-var zipExcludes = map[string]bool{
-	".git":         true,
-	".jfrog":       true,
-	"__pycache__":  true,
-	"node_modules": true,
-	".DS_Store":    true,
-}
 
 type PublishCommand struct {
 	serverDetails       *config.ServerDetails
@@ -151,19 +136,22 @@ func (pc *PublishCommand) Run() error {
 
 	log.Info(fmt.Sprintf("Publishing skill '%s' version '%s'", slug, version))
 
-	zipPath, err := pc.resolveZip(slug, version)
+	zipPath, zipTmpDir, sha256Hex, err := pc.resolveZip(slug, version)
+	// The temp dir is created before the archive is written, so it can exist even
+	// when the write fails. Register cleanup before checking err.
+	defer func() {
+		if zipTmpDir != "" {
+			_ = os.RemoveAll(zipTmpDir) // best-effort temp cleanup after upload
+		}
+	}()
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if !isPrebuiltZip(pc.skillDir, slug, version) {
-			_ = os.Remove(zipPath)
+	if sha256Hex == "" {
+		// Prebuilt zips bypass the streaming hasher; hash on disk in that case.
+		if sha256Hex, err = agentcommon.ComputeSHA256(zipPath); err != nil {
+			return fmt.Errorf("failed to compute SHA256: %w", err)
 		}
-	}()
-
-	sha256Hex, err := computeSHA256(zipPath)
-	if err != nil {
-		return fmt.Errorf("failed to compute SHA256: %w", err)
 	}
 
 	collectBuildInfo := false
@@ -194,10 +182,13 @@ func (pc *PublishCommand) Run() error {
 	}
 
 	log.Info("Upload complete. Attaching evidence...")
-	pc.attachEvidence(slug, version, sha256Hex)
+	// The upload is flat, so the artifact keeps the zip's base name. Prebuilt zips
+	// use a different name than generated ones, so derive it instead of rebuilding it.
+	zipName := filepath.Base(zipPath)
+	pc.attachEvidence(slug, version, sha256Hex, fmt.Sprintf("%s/%s/%s/%s", pc.repoKey, slug, version, zipName))
 
 	// Post-publish Xray scan gate check
-	artifactPath := fmt.Sprintf("%s/%s/%s-%s.zip", slug, version, slug, version)
+	artifactPath := fmt.Sprintf("%s/%s/%s", slug, version, zipName)
 	if err := common.CheckXrayGate(common.XrayGateParams{
 		ServerDetails:       pc.serverDetails,
 		RepoKey:             pc.repoKey,
@@ -298,196 +289,27 @@ func (pc *PublishCommand) resolveVersionCollision(slug, version string) (string,
 	}
 }
 
-func (pc *PublishCommand) resolveZip(slug, version string) (string, error) {
-	if strings.Contains(version, "..") || strings.ContainsAny(version, "/\\") {
-		return "", fmt.Errorf("invalid version '%s': contains path traversal characters", version)
+// resolveZip locates or builds the publish zip and, when it was built locally,
+// also returns the temp directory holding the zip and its SHA256 (computed in the
+// same pass as the write). zipTmpDir is empty for prebuilt zips; callers should
+// defer os.RemoveAll(zipTmpDir) when non-empty, including on error, because the
+// temp directory is created before the archive is written. The result order mirrors
+// agentcommon.ZipPublishBundle so the values cannot be transposed on their way out.
+func (pc *PublishCommand) resolveZip(slug, version string) (zipPath, zipTmpDir, sha256Hex string, err error) {
+	if agentcommon.IsPrebuiltPublishZip(pc.skillDir, slug, version) {
+		prebuiltPath := agentcommon.PrebuiltPublishZipPath(pc.skillDir, slug, version)
+		log.Info("Using pre-built zip:", prebuiltPath)
+		return prebuiltPath, "", "", nil
 	}
-	prebuilt := filepath.Clean(filepath.Join(pc.skillDir, "zip", fmt.Sprintf("%s_%s.zip", slug, version)))
-	if _, err := os.Stat(prebuilt); err == nil {
-		log.Info("Using pre-built zip:", prebuilt)
-		return prebuilt, nil
-	}
 
-	return zipSkillFolder(pc.skillDir, slug, version)
-}
-
-func isPrebuiltZip(skillDir, slug, version string) bool {
-	prebuilt := filepath.Join(skillDir, "zip", fmt.Sprintf("%s_%s.zip", slug, version))
-	_, err := os.Stat(prebuilt)
-	return err == nil
-}
-
-// zipEpoch is the earliest valid timestamp in ZIP format (MS-DOS epoch).
-// Used as a fallback when all file mtimes are zero.
-var zipEpoch = time.Date(1980, 1, 1, 0, 0, 0, 0, time.UTC)
-
-type skillFile struct {
-	relPath string
-	mode    os.FileMode
-}
-
-// collectFiles walks the skill directory and returns a sorted list of included
-// files with their permissions, plus the max mtime across all included files.
-// Sorting ensures deterministic zip output regardless of filesystem traversal order.
-// The max mtime is used as a uniform timestamp for all zip entries.
-func collectFiles(skillDir string) (files []skillFile, maxMtime time.Time, err error) {
-	err = filepath.Walk(skillDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		relPath, err := filepath.Rel(skillDir, path)
-		if err != nil {
-			return err
-		}
-		if shouldExclude(relPath, info) {
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !info.IsDir() {
-			files = append(files, skillFile{relPath: relPath, mode: info.Mode()})
-			if info.ModTime().After(maxMtime) {
-				maxMtime = info.ModTime()
-			}
-		}
-		return nil
+	return agentcommon.ZipPublishBundle(agentcommon.ZipPublishOptions{
+		SourceDir:      pc.skillDir,
+		Slug:           slug,
+		Version:        version,
+		TempDirPrefix:  "skill-publish-",
+		ContentLabel:   "skill",
+		HashWhileWrite: true,
 	})
-	if err != nil {
-		return
-	}
-	sort.Slice(files, func(i, j int) bool { return files[i].relPath < files[j].relPath })
-	return
-}
-
-// addFileToZip writes a single file into the zip writer with a deterministic header.
-// Timestamps are set to uniformTime (for both modern and legacy MS-DOS fields),
-// Extra field is stripped to remove platform-specific metadata, and file permissions
-// are preserved from the mode captured during collection (no second os.Stat).
-func addFileToZip(w *zip.Writer, skillDir string, sf skillFile, uniformTime time.Time) error {
-	absPath := filepath.Join(skillDir, sf.relPath)
-
-	header := &zip.FileHeader{
-		Name:     sf.relPath,
-		Method:   zip.Deflate,
-		Modified: uniformTime,
-	}
-	header.SetModTime(uniformTime) //nolint:staticcheck // sets legacy MS-DOS ModifiedDate/ModifiedTime fields
-	header.SetMode(normalizeFileMode(sf.mode))
-	header.Extra = nil
-
-	writer, err := w.CreateHeader(header)
-	if err != nil {
-		return err
-	}
-
-	// #nosec G304 -- absPath is from user-provided skill directory joined with a walked relative path
-	file, err := os.Open(absPath)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = file.Close()
-	}()
-
-	_, err = io.Copy(writer, file)
-	return err
-}
-
-// normalizeFileMode returns a consistent Unix file mode for zip entry headers.
-// On Windows, os.Stat returns 0666 for all files (no execute bit support), so
-// we default to 0644 for regular files. On Unix, the real mode is preserved.
-func normalizeFileMode(mode os.FileMode) os.FileMode {
-	if runtime.GOOS == "windows" {
-		return 0644
-	}
-	return mode
-}
-
-func zipSkillFolder(skillDir, slug, version string) (zipPath string, err error) {
-	if strings.Contains(version, "..") || strings.ContainsAny(version, "/\\") {
-		return "", fmt.Errorf("invalid version '%s': contains path traversal characters", version)
-	}
-
-	// Collect and sort file paths for deterministic zip output.
-	// The max mtime is used as a uniform timestamp for all zip entries so that
-	// the zip is byte-identical when rebuilt with the same content and mtimes.
-	files, maxMtime, err := collectFiles(skillDir)
-	if err != nil {
-		return "", fmt.Errorf("failed to collect skill files: %w", err)
-	}
-	if len(files) == 0 {
-		return "", fmt.Errorf("no files found in skill directory %s (all files may have been excluded)", skillDir)
-	}
-	// Guard against zero mtime (e.g. files with epoch timestamps) which produces
-	// invalid MS-DOS dates before the ZIP format's 1980-01-01 minimum.
-	if maxMtime.IsZero() {
-		maxMtime = zipEpoch
-	}
-
-	tmpDir, err := os.MkdirTemp("", "skill-publish-*")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temp dir: %w", err)
-	}
-
-	zipPath = filepath.Clean(filepath.Join(tmpDir, fmt.Sprintf("%s-%s.zip", slug, version)))
-	zipFile, err := os.Create(zipPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to create zip file: %w", err)
-	}
-	defer func() {
-		_ = zipFile.Close()
-	}()
-
-	w := zip.NewWriter(zipFile)
-	defer func() {
-		if cerr := w.Close(); cerr != nil && err == nil {
-			err = fmt.Errorf("failed to finalize zip: %w", cerr)
-		}
-	}()
-
-	for _, sf := range files {
-		if err = addFileToZip(w, skillDir, sf, maxMtime); err != nil {
-			return "", fmt.Errorf("failed to add %s to zip: %w", sf.relPath, err)
-		}
-	}
-
-	return
-}
-
-func shouldExclude(relPath string, info os.FileInfo) bool {
-	name := info.Name()
-
-	if zipExcludes[name] {
-		return true
-	}
-	if strings.HasSuffix(name, ".pyc") {
-		return true
-	}
-	if relPath == "." {
-		return false
-	}
-	return false
-}
-
-func computeSHA256(path string) (string, error) {
-	if strings.Contains(path, "..") {
-		return "", fmt.Errorf("invalid path: contains traversal sequence")
-	}
-	cleanPath := filepath.Clean(path)
-	f, err := os.Open(cleanPath)
-	if err != nil {
-		return "", err
-	}
-	defer func() {
-		_ = f.Close()
-	}()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func (pc *PublishCommand) upload(zipPath, target string, collectBuildInfo bool) (*content.ContentReader, error) {
@@ -528,7 +350,7 @@ func (pc *PublishCommand) upload(zipPath, target string, collectBuildInfo bool) 
 	return nil, err
 }
 
-func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex string) {
+func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex, subjectRepoPath string) {
 	// Flags take precedence over environment variables
 	keyPath := pc.signingKey
 	if keyPath == "" {
@@ -568,8 +390,6 @@ func (pc *PublishCommand) attachEvidence(slug, version, sha256Hex string) {
 		log.Warn("Failed to generate attestation markdown:", err.Error())
 		return
 	}
-
-	subjectRepoPath := fmt.Sprintf("%s/%s/%s/%s-%s.zip", pc.repoKey, slug, version, slug, version)
 
 	opts := agentcommon.CreateEvidenceOpts{
 		SubjectRepoPath: subjectRepoPath,
