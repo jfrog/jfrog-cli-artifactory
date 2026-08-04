@@ -1,16 +1,73 @@
 package apmcommon
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestResolveScopeAndRequestedBy_RejectsFlagShapedRepoURL(t *testing.T) {
-	scopes, requestedBy := resolveScopeAndRequestedBy(t.TempDir(), "--global")
-	assert.Equal(t, []string{apmScopeProd}, scopes)
+func TestResolveDirectAndRequestedBy_RejectsFlagShapedRepoURL(t *testing.T) {
+	isDirect, requestedBy := resolveDirectAndRequestedBy(t.TempDir(), "--global")
+	assert.True(t, isDirect)
 	assert.Empty(t, requestedBy)
+}
+
+func TestFinalScope(t *testing.T) {
+	tests := []struct {
+		name      string
+		isDirect  bool
+		isDev     bool
+		wantScope string
+	}{
+		{name: "direct, not dev -> prod", isDirect: true, isDev: false, wantScope: apmScopeProd},
+		{name: "direct, dev -> dev", isDirect: true, isDev: true, wantScope: apmScopeDev},
+		{name: "transitive, dev -> dev", isDirect: false, isDev: true, wantScope: apmScopeDev},
+		{name: "transitive, not dev -> transitive", isDirect: false, isDev: false, wantScope: apmScopeTransitive},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.wantScope, finalScope(tt.isDirect, tt.isDev))
+		})
+	}
+}
+
+func TestResolveDependencies_ScopeFollowsPriorityLadder(t *testing.T) {
+	tempDir := t.TempDir()
+	lockfilePath := filepath.Join(tempDir, ApmLockfileName)
+	// Flag-shaped repo_urls deterministically resolve isDirect=true with no requestedBy (see
+	// TestResolveDirectAndRequestedBy_RejectsFlagShapedRepoURL) without needing a real apm
+	// subprocess to succeed - exactly what's needed here to isolate the scope computation.
+	content := `
+lockfile_version: "2"
+dependencies:
+  - repo_url: "--fake-dev-dep"
+    version: 1.0.0
+    source: registry
+    resolved_hash: sha256:abc123
+    is_dev: true
+  - repo_url: "--fake-prod-dep"
+    version: 1.0.0
+    source: registry
+    resolved_hash: sha256:def456
+`
+	require.NoError(t, os.WriteFile(lockfilePath, []byte(content), 0o644))
+
+	deps, err := ResolveDependencies(lockfilePath)
+	require.NoError(t, err)
+	require.Len(t, deps, 2)
+
+	byID := make(map[string][]string, len(deps))
+	for _, dep := range deps {
+		byID[dep.ID] = dep.Scopes
+	}
+	// Both are isDirect=true (the flag-shaped fallback), so the ladder distinguishes them
+	// purely on is_dev: dev wins for the first, prod for the second.
+	assert.Equal(t, []string{apmScopeDev}, byID["--fake-dev-dep:1.0.0"])
+	assert.Equal(t, []string{apmScopeProd}, byID["--fake-prod-dep:1.0.0"])
 }
 
 func TestParseDepsWhyOutput_DirectDependency(t *testing.T) {
@@ -18,8 +75,8 @@ func TestParseDepsWhyOutput_DirectDependency(t *testing.T) {
 		"package": {"is_direct": true, "repo_url": "uday/pkg-consumer", "source": "registry", "version": "1.0.0"},
 		"paths": [{"chain": [{"is_direct": true, "repo_url": "uday/pkg-consumer"}]}]
 	}`)
-	scopes, requestedBy := parseDepsWhyOutput(out, "uday/pkg-consumer")
-	assert.Equal(t, []string{apmScopeProd}, scopes)
+	isDirect, requestedBy := parseDepsWhyOutput(out, "uday/pkg-consumer")
+	assert.True(t, isDirect)
 	assert.Empty(t, requestedBy)
 }
 
@@ -31,8 +88,8 @@ func TestParseDepsWhyOutput_TransitiveDependency(t *testing.T) {
 			{"is_direct": false, "repo_url": "uday/pkg-base"}
 		]}]
 	}`)
-	scopes, requestedBy := parseDepsWhyOutput(out, "uday/pkg-base")
-	assert.Equal(t, []string{"transitive"}, scopes)
+	isDirect, requestedBy := parseDepsWhyOutput(out, "uday/pkg-base")
+	assert.False(t, isDirect)
 	assert.Equal(t, [][]string{{"uday/pkg-consumer"}}, requestedBy)
 }
 
@@ -44,14 +101,14 @@ func TestParseDepsWhyOutput_MultipleParentPaths(t *testing.T) {
 			{"chain": [{"is_direct": true, "repo_url": "b/pkg"}, {"is_direct": false, "repo_url": "shared/lib"}]}
 		]
 	}`)
-	scopes, requestedBy := parseDepsWhyOutput(out, "shared/lib")
-	assert.Equal(t, []string{"transitive"}, scopes)
+	isDirect, requestedBy := parseDepsWhyOutput(out, "shared/lib")
+	assert.False(t, isDirect)
 	assert.Equal(t, [][]string{{"a/pkg"}, {"b/pkg"}}, requestedBy)
 }
 
-func TestParseDepsWhyOutput_MalformedJSONFallsBackToProd(t *testing.T) {
-	scopes, requestedBy := parseDepsWhyOutput([]byte("not json"), "uday/pkg-base")
-	assert.Equal(t, []string{apmScopeProd}, scopes)
+func TestParseDepsWhyOutput_MalformedJSONFallsBackToDirect(t *testing.T) {
+	isDirect, requestedBy := parseDepsWhyOutput([]byte("not json"), "uday/pkg-base")
+	assert.True(t, isDirect)
 	assert.Empty(t, requestedBy)
 }
 
@@ -62,6 +119,7 @@ func TestParseDepsWhyOutput_MalformedJSONFallsBackToProd(t *testing.T) {
 // over the older, now-minority "runtime" convention.
 func TestApmScopeConstantsAreStable(t *testing.T) {
 	assert.Equal(t, "prod", apmScopeProd)
+	assert.Equal(t, "dev", apmScopeDev)
 	assert.Equal(t, "transitive", apmScopeTransitive)
 }
 

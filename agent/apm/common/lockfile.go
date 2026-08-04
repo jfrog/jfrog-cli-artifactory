@@ -26,6 +26,7 @@ type ApmLockedPackage struct {
 	ContentHash  string `yaml:"content_hash"`
 	ResolvedURL  string `yaml:"resolved_url"` // full agentpackages download URL
 	ResolvedHash string `yaml:"resolved_hash"`
+	IsDev        bool   `yaml:"is_dev"` // set for devDependencies and everything they pull in transitively
 }
 
 // LoadLockFile reads and parses apm.lock.yaml at path. Every caller constructs path from a

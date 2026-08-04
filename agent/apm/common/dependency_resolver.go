@@ -20,11 +20,29 @@ const depsWhyWorkerCount = 15
 // depsWhyTimeout bounds a single `apm deps why` subprocess, so a hang can't block forever.
 const depsWhyTimeout = 30 * time.Second
 
-// Dependency scope names, matching the "prod"/"transitive" convention Alpine and Cargo use.
+// Dependency scope names. A dependency gets exactly one of these, chosen by finalScope's
+// priority ladder (prod > dev > transitive) - the same mutually-exclusive model pnpm's own
+// resolver in this repo uses (artifactory/commands/pnpm/dependency_resolver.go's addScope),
+// rather than combining them.
 const (
 	apmScopeProd       = "prod"
+	apmScopeDev        = "dev"
 	apmScopeTransitive = "transitive"
 )
+
+// finalScope picks a single scope from whether a dependency is direct and whether it's a dev
+// dependency, following pnpm's priority ladder: prod > dev > transitive. isDev is apm's own
+// lockfile is_dev flag, which already resolves a dependency needed by both a prod and a dev
+// path to false, so prod-over-dev priority falls out for free.
+func finalScope(isDirect, isDev bool) string {
+	if isDirect && !isDev {
+		return apmScopeProd
+	}
+	if isDev {
+		return apmScopeDev
+	}
+	return apmScopeTransitive
+}
 
 // ResolvedDep holds a single APM registry dependency ready for build-info.
 type ResolvedDep struct {
@@ -56,13 +74,13 @@ func ResolveDependencies(lockfilePath string) ([]ResolvedDep, error) {
 		go func(i int, pkg ApmLockedPackage) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			scopes, requestedBy := resolveScopeAndRequestedBy(workingDir, pkg.RepoURL)
+			isDirect, requestedBy := resolveDirectAndRequestedBy(workingDir, pkg.RepoURL)
 			deps[i] = ResolvedDep{
 				ID:          pkg.DepID(),
 				RepoURL:     pkg.RepoURL,
 				SHA256:      SHA256Hex(pkg.ResolvedHash),
 				ResolvedURL: pkg.ResolvedURL,
-				Scopes:      scopes,
+				Scopes:      []string{finalScope(isDirect, pkg.IsDev)},
 				RequestedBy: requestedBy,
 			}
 		}(i, pkg)
@@ -98,16 +116,17 @@ type apmDepsWhyResult struct {
 	} `json:"paths"`
 }
 
-// resolveScopeAndRequestedBy shells out to `apm deps why <repoURL> --json` in workingDir to
+// resolveDirectAndRequestedBy shells out to `apm deps why <repoURL> --json` in workingDir to
 // determine whether a dependency is direct or transitive, and - for transitive ones - which
-// package(s) requested it. Best-effort: any failure falls back to prod scope with no
-// requestedBy rather than failing the whole build-info collection.
-func resolveScopeAndRequestedBy(workingDir, repoURL string) (scopes []string, requestedBy [][]string) {
+// package(s) requested it. Best-effort: any failure defaults to isDirect=true (matching the
+// old "default to prod scope" fallback) with no requestedBy, rather than failing the whole
+// build-info collection.
+func resolveDirectAndRequestedBy(workingDir, repoURL string) (isDirect bool, requestedBy [][]string) {
 	// repoURL comes from apm.lock.yaml, not a trusted CLI arg - reject flag-shaped values so a
 	// tampered lockfile can't smuggle an extra flag into the apm invocation below.
 	if strings.HasPrefix(repoURL, "-") {
-		log.Debug(fmt.Sprintf("Refusing to run apm deps why for suspicious repo_url %q, defaulting to prod scope", repoURL))
-		return []string{apmScopeProd}, nil
+		log.Debug(fmt.Sprintf("Refusing to run apm deps why for suspicious repo_url %q, defaulting to direct", repoURL))
+		return true, nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), depsWhyTimeout)
@@ -116,24 +135,24 @@ func resolveScopeAndRequestedBy(workingDir, repoURL string) (scopes []string, re
 	cmd.Dir = workingDir
 	out, err := cmd.Output()
 	if err != nil {
-		log.Debug(fmt.Sprintf("apm deps why %s failed, defaulting to prod scope: %s", repoURL, err))
-		return []string{apmScopeProd}, nil
+		log.Debug(fmt.Sprintf("apm deps why %s failed, defaulting to direct: %s", repoURL, err))
+		return true, nil
 	}
 	return parseDepsWhyOutput(out, repoURL)
 }
 
-// parseDepsWhyOutput turns `apm deps why --json` output into a scope and requestedBy chains.
-// Split out from resolveScopeAndRequestedBy so the parsing logic is testable without shelling
-// out to a real apm binary.
-func parseDepsWhyOutput(out []byte, repoURL string) (scopes []string, requestedBy [][]string) {
+// parseDepsWhyOutput turns `apm deps why --json` output into a direct/transitive flag and
+// requestedBy chains. Split out from resolveDirectAndRequestedBy so the parsing logic is
+// testable without shelling out to a real apm binary.
+func parseDepsWhyOutput(out []byte, repoURL string) (isDirect bool, requestedBy [][]string) {
 	var result apmDepsWhyResult
 	if err := json.Unmarshal(out, &result); err != nil {
-		log.Debug(fmt.Sprintf("could not parse apm deps why %s output, defaulting to prod scope: %s", repoURL, err))
-		return []string{apmScopeProd}, nil
+		log.Debug(fmt.Sprintf("could not parse apm deps why %s output, defaulting to direct: %s", repoURL, err))
+		return true, nil
 	}
 
 	if result.Package.IsDirect {
-		return []string{apmScopeProd}, nil
+		return true, nil
 	}
 
 	for _, path := range result.Paths {
@@ -150,5 +169,5 @@ func parseDepsWhyOutput(out []byte, repoURL string) (scopes []string, requestedB
 		}
 		requestedBy = append(requestedBy, chain)
 	}
-	return []string{apmScopeTransitive}, requestedBy
+	return false, requestedBy
 }
