@@ -104,6 +104,9 @@ var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
 	project.Podman: {location: "your Podman credential store", credentialsOnly: true},
 	project.Helm:   {location: "your Helm registry credential store", credentialsOnly: true},
 	project.Apt:    {location: "your apt configuration"},
+	// configureRuby writes ~/.gemrc and ~/.bundle/config directly, always under the user's
+	// home directory, and honours no override variable of its own.
+	project.Ruby: {location: "your user-level RubyGems and Bundler configuration (.gemrc and .bundle/config)"},
 }
 
 // configScopeNote describes what the command changed and how widely it applies, or
