@@ -31,10 +31,20 @@ const apmPackageFileExtension = "zip"
 // buildUtils.PrepareBuildPrerequisites reports build-info collection isn't enabled.
 const errBuildInfoNotEnabled = "build info collection is not enabled"
 
+// ShouldCollectBuildInfo reports whether the user enabled build-info collection
+// (--build-name/--build-number or JFROG_CLI_BUILD_*). Used by install/update/publish to avoid
+// "skipping build-info" noise when collection was never requested.
+func ShouldCollectBuildInfo(buildConfig *buildUtils.BuildConfiguration) (bool, error) {
+	if buildConfig == nil {
+		return false, nil
+	}
+	return buildConfig.IsCollectBuildInfo()
+}
+
 // CollectAndSaveInstallBuildInfo reads the lockfile, resolves checksums, and saves build-info.
 // Runs only when build info collection is enabled.
 func CollectAndSaveInstallBuildInfo(lockfilePath, manifestPath string, serverDetails *config.ServerDetails, buildConfig *buildUtils.BuildConfiguration) error {
-	collectBuildInfo, err := buildConfig.IsCollectBuildInfo()
+	collectBuildInfo, err := ShouldCollectBuildInfo(buildConfig)
 	if err != nil {
 		return err
 	}
@@ -244,7 +254,7 @@ func tagPublishedArtifactProperties(serverDetails *config.ServerDetails, repoNam
 //     (crypto.GetFileDetails on the local .crate/.gem file) - apm previously had no fallback tier
 //     at all here, unlike its own install-side resolution.
 func CollectAndSavePublishBuildInfo(manifestPath, owner, packageName, repoName, explicitZipPath string, serverDetails *config.ServerDetails, buildConfig *buildUtils.BuildConfiguration) error {
-	collectBuildInfo, err := buildConfig.IsCollectBuildInfo()
+	collectBuildInfo, err := ShouldCollectBuildInfo(buildConfig)
 	if err != nil {
 		return err
 	}

@@ -61,24 +61,30 @@ func (c *ApmInstallCommand) Run() error {
 		return fmt.Errorf("run apm install: %w", err)
 	}
 
-	if apmcommon.IsDryRunArg(c.args) {
-		log.Info("apm install: --dry-run - nothing was installed, skipping build-info recording.")
-	} else if apmcommon.IsGlobalArg(c.args) {
-		log.Info("apm install: --global installs to ~/.apm, not the project directory - skipping build-info recording.")
-	} else if workingDir, err := os.Getwd(); err != nil {
-		log.Warn("apm install completed, but could not determine working directory for build info:", err.Error())
-	} else {
-		lockfileDir := workingDir
-		if rootDir := rootDirFromArgs(c.args); rootDir != "" {
-			lockfileDir = rootDir
-			if !filepath.IsAbs(lockfileDir) {
-				lockfileDir = filepath.Join(workingDir, lockfileDir)
+	// Only mention / collect build-info when the user asked for it (--build-name/--build-number or env).
+	collectBuildInfo, err := apmcommon.ShouldCollectBuildInfo(c.buildConfiguration)
+	if err != nil {
+		log.Warn("apm install completed, but could not determine build-info collection state:", err.Error())
+	} else if collectBuildInfo {
+		if apmcommon.IsDryRunArg(c.args) {
+			log.Info("apm install: --dry-run - nothing was installed, skipping build-info recording.")
+		} else if apmcommon.IsGlobalArg(c.args) {
+			log.Info("apm install: --global installs to ~/.apm, not the project directory - skipping build-info recording.")
+		} else if workingDir, wdErr := os.Getwd(); wdErr != nil {
+			log.Warn("apm install completed, but could not determine working directory for build info:", wdErr.Error())
+		} else {
+			lockfileDir := workingDir
+			if rootDir := rootDirFromArgs(c.args); rootDir != "" {
+				lockfileDir = rootDir
+				if !filepath.IsAbs(lockfileDir) {
+					lockfileDir = filepath.Join(workingDir, lockfileDir)
+				}
 			}
-		}
-		lockfilePath := filepath.Join(lockfileDir, apmcommon.ApmLockfileName)
-		manifestPath := filepath.Join(workingDir, apmcommon.ApmManifestName)
-		if biErr := apmcommon.CollectAndSaveInstallBuildInfo(lockfilePath, manifestPath, c.serverDetails, c.buildConfiguration); biErr != nil {
-			log.Warn("apm install completed, but build info collection failed:", biErr.Error())
+			lockfilePath := filepath.Join(lockfileDir, apmcommon.ApmLockfileName)
+			manifestPath := filepath.Join(workingDir, apmcommon.ApmManifestName)
+			if biErr := apmcommon.CollectAndSaveInstallBuildInfo(lockfilePath, manifestPath, c.serverDetails, c.buildConfiguration); biErr != nil {
+				log.Warn("apm install completed, but build info collection failed:", biErr.Error())
+			}
 		}
 	}
 

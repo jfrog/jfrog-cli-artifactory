@@ -77,20 +77,26 @@ func (c *ApmPublishCommand) Run() error {
 		return fmt.Errorf("run apm publish: %w", err)
 	}
 
-	if apmcommon.IsDryRunArg(c.args) {
-		// --dry-run still packs the local zip but uploads nothing; skip build-info so the
-		// local-zip checksum fallback doesn't record an artifact that was never published.
-		log.Info("apm publish: --dry-run - nothing was uploaded, skipping build-info recording.")
-	} else if workingDir, err := os.Getwd(); err != nil {
-		log.Warn("apm publish completed, but could not determine working directory for build info:", err.Error())
-	} else {
-		manifestPath := filepath.Join(workingDir, apmcommon.ApmManifestName)
-		owner := ownerFromArgs(c.args)
-		packageName := packageNameFromArgs(c.args)
-		artifactoryRepoKey := apmcommon.ResolveRepoNameFromRegistry(c.serverDetails, manifestPath, c.args)
-		zipPath := zipPathFromArgs(c.args)
-		if biErr := apmcommon.CollectAndSavePublishBuildInfo(manifestPath, owner, packageName, artifactoryRepoKey, zipPath, c.serverDetails, c.buildConfiguration); biErr != nil {
-			log.Warn("apm publish completed, but build info recording failed:", biErr.Error())
+	// Only mention / collect build-info when the user asked for it (--build-name/--build-number or env).
+	collectBuildInfo, err := apmcommon.ShouldCollectBuildInfo(c.buildConfiguration)
+	if err != nil {
+		log.Warn("apm publish completed, but could not determine build-info collection state:", err.Error())
+	} else if collectBuildInfo {
+		if apmcommon.IsDryRunArg(c.args) {
+			// --dry-run still packs the local zip but uploads nothing; skip build-info so the
+			// local-zip checksum fallback doesn't record an artifact that was never published.
+			log.Info("apm publish: --dry-run - nothing was uploaded, skipping build-info recording.")
+		} else if workingDir, wdErr := os.Getwd(); wdErr != nil {
+			log.Warn("apm publish completed, but could not determine working directory for build info:", wdErr.Error())
+		} else {
+			manifestPath := filepath.Join(workingDir, apmcommon.ApmManifestName)
+			owner := ownerFromArgs(c.args)
+			packageName := packageNameFromArgs(c.args)
+			artifactoryRepoKey := apmcommon.ResolveRepoNameFromRegistry(c.serverDetails, manifestPath, c.args)
+			zipPath := zipPathFromArgs(c.args)
+			if biErr := apmcommon.CollectAndSavePublishBuildInfo(manifestPath, owner, packageName, artifactoryRepoKey, zipPath, c.serverDetails, c.buildConfiguration); biErr != nil {
+				log.Warn("apm publish completed, but build info recording failed:", biErr.Error())
+			}
 		}
 	}
 

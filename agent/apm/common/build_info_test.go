@@ -12,6 +12,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestShouldCollectBuildInfo(t *testing.T) {
+	collect, err := ShouldCollectBuildInfo(nil)
+	require.NoError(t, err)
+	assert.False(t, collect, "nil build config must not enable collection")
+
+	empty := new(buildUtils.BuildConfiguration)
+	collect, err = ShouldCollectBuildInfo(empty)
+	require.NoError(t, err)
+	assert.False(t, collect, "no build-name/number must not enable collection")
+
+	enabled := new(buildUtils.BuildConfiguration)
+	require.NoError(t, enabled.SetBuildName("b").SetBuildNumber("1").ValidateBuildAndModuleParams())
+	collect, err = ShouldCollectBuildInfo(enabled)
+	require.NoError(t, err)
+	assert.True(t, collect)
+}
+
 func TestCollectAndSaveInstallBuildInfo_MissingLockfileIsNotAnError(t *testing.T) {
 	testutil.WithJfrogHome(t)
 	tempDir := t.TempDir()

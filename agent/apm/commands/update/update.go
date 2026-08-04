@@ -65,17 +65,23 @@ func (c *ApmUpdateCommand) Run() error {
 		return fmt.Errorf("run apm update: %w", err)
 	}
 
-	if apmcommon.IsDryRunArg(c.args) {
-		log.Info("apm update: --dry-run - nothing was updated, skipping build-info recording.")
-	} else if apmcommon.IsGlobalArg(c.args) {
-		log.Info("apm update: --global updates ~/.apm, not the project directory - skipping build-info recording.")
-	} else if workingDir, err := os.Getwd(); err != nil {
-		log.Warn("apm update completed, but could not determine working directory for build info:", err.Error())
-	} else {
-		lockfilePath := filepath.Join(workingDir, apmcommon.ApmLockfileName)
-		manifestPath := filepath.Join(workingDir, apmcommon.ApmManifestName)
-		if biErr := apmcommon.CollectAndSaveInstallBuildInfo(lockfilePath, manifestPath, c.serverDetails, c.buildConfiguration); biErr != nil {
-			log.Warn("apm update completed, but build info collection failed:", biErr.Error())
+	// Only mention / collect build-info when the user asked for it (--build-name/--build-number or env).
+	collectBuildInfo, err := apmcommon.ShouldCollectBuildInfo(c.buildConfiguration)
+	if err != nil {
+		log.Warn("apm update completed, but could not determine build-info collection state:", err.Error())
+	} else if collectBuildInfo {
+		if apmcommon.IsDryRunArg(c.args) {
+			log.Info("apm update: --dry-run - nothing was updated, skipping build-info recording.")
+		} else if apmcommon.IsGlobalArg(c.args) {
+			log.Info("apm update: --global updates ~/.apm, not the project directory - skipping build-info recording.")
+		} else if workingDir, wdErr := os.Getwd(); wdErr != nil {
+			log.Warn("apm update completed, but could not determine working directory for build info:", wdErr.Error())
+		} else {
+			lockfilePath := filepath.Join(workingDir, apmcommon.ApmLockfileName)
+			manifestPath := filepath.Join(workingDir, apmcommon.ApmManifestName)
+			if biErr := apmcommon.CollectAndSaveInstallBuildInfo(lockfilePath, manifestPath, c.serverDetails, c.buildConfiguration); biErr != nil {
+				log.Warn("apm update completed, but build info collection failed:", biErr.Error())
+			}
 		}
 	}
 

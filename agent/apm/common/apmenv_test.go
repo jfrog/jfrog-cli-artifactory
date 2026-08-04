@@ -307,4 +307,3 @@ func TestIsGlobalArg(t *testing.T) {
 		})
 	}
 }
-
