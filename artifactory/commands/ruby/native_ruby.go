@@ -9,9 +9,12 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"syscall"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/build-info-go/flexpack"
@@ -47,7 +50,7 @@ func (rc *RubyCommand) Run() error {
 		return fmt.Errorf("no subcommand provided for '%s'. Usage: jf ruby %s <subcommand> [args...]", rc.nativeTool, rc.nativeTool)
 	}
 
-	subCommand := rc.args[0]
+	subCommand := rubySubCommand(rc.args)
 
 	// Help requests bypass auth injection entirely so credentials are never
 	// printed in help output (same rationale as the UV native command).
@@ -137,11 +140,37 @@ func (rc *RubyCommand) Run() error {
 			}
 		}
 	}
-	defer func() {
-		if credCleanup != nil {
-			credCleanup()
-		}
-	}()
+	// Credentials written to ~/.gem/credentials must be removed even when the process is
+	// interrupted. Go's default SIGINT/SIGTERM handling exits without running deferred
+	// functions, so Ctrl-C during a slow `gem push` used to leave a recoverable token on
+	// disk. Restore the default behaviour after cleaning up so the signal is not swallowed.
+	if credCleanup != nil {
+		signals := make(chan os.Signal, 1)
+		signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+		cleanupOnce := &sync.Once{}
+		runCleanup := func() { cleanupOnce.Do(credCleanup) }
+		go func() {
+			receivedSignal, ok := <-signals
+			if !ok {
+				return
+			}
+			runCleanup()
+			signal.Stop(signals)
+			if sig, isSyscallSignal := receivedSignal.(syscall.Signal); isSyscallSignal {
+				// Re-raise so the exit status still reflects the interruption.
+				if proc, procErr := os.FindProcess(os.Getpid()); procErr == nil {
+					_ = proc.Signal(sig)
+					return
+				}
+			}
+			os.Exit(1)
+		}()
+		defer func() {
+			signal.Stop(signals)
+			close(signals)
+			runCleanup()
+		}()
+	}
 
 	log.Info(fmt.Sprintf("Running %s %s.", rc.nativeTool, subCommand))
 	// For gem install/fetch, capture stdout to parse "Successfully installed"/"Downloaded" lines.
@@ -351,9 +380,9 @@ func rubyInjectSourceArg(tool, subCommand string, args []string, sourceURL strin
 			// the request URL as "#{host}/api/v1/gems" — if host already ends with /,
 			// the resulting URL has a double slash which Artifactory rejects with 405.
 			hostForPush := strings.TrimRight(sourceURL, "/")
-			return append(args, "--host", hostForPush)
+			return rubyAppendToolArgs(args, "--host", hostForPush)
 		case "install", "fetch":
-			return append(args, "--source", sourceURL)
+			return rubyAppendToolArgs(args, "--source", sourceURL)
 		}
 	}
 	return args
@@ -637,6 +666,59 @@ func rubySourceFromArgs(args []string) string {
 	return ""
 }
 
+// rubyPublishHint returns the command that publishes what was just collected.
+//
+// The project key has to be repeated on `jf rt bp`: build partials are stored per project
+// (the directory is keyed by build name, number and project), so omitting it there looks
+// for a different build entirely and publishes an empty one instead of this.
+func rubyPublishHint(buildConfiguration *buildUtils.BuildConfiguration, buildName, buildNumber string) string {
+	hint := fmt.Sprintf("jf rt bp %s %s", buildName, buildNumber)
+	if buildConfiguration != nil {
+		if project := buildConfiguration.GetProject(); project != "" {
+			hint += " --project=" + project
+		}
+	}
+	return hint
+}
+
+// rubySubCommand returns the first non-flag argument, which is the native subcommand.
+//
+// Global flags may precede it (`gem --backtrace install rake`). Treating args[0] as the
+// subcommand meant such invocations matched no case at all, so credentials were never
+// injected, no source was appended and no build-info was collected — while still exiting 0.
+func rubySubCommand(args []string) string {
+	// The few global flags that take a separate value, whose value must not be mistaken
+	// for the subcommand.
+	valueFlags := map[string]bool{"--config-file": true, "--retry": true, "-r": true, "-C": true}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if !strings.HasPrefix(a, "-") {
+			return a
+		}
+		if valueFlags[a] {
+			i++
+		}
+	}
+	return ""
+}
+
+// rubyAppendToolArgs adds extra arguments for the native tool, before any "--" separator.
+//
+// Everything after "--" is forwarded by gem to the C extension build, so appending at the
+// end handed our --source to extconf instead of to gem, and resolution silently fell back
+// to the default source.
+func rubyAppendToolArgs(args []string, extra ...string) []string {
+	for i, a := range args {
+		if a == "--" {
+			result := make([]string, 0, len(args)+len(extra))
+			result = append(result, args[:i]...)
+			result = append(result, extra...)
+			return append(result, args[i:]...)
+		}
+	}
+	return append(args, extra...)
+}
+
 // rubyGemfileDir returns the directory Bundler itself would load the Gemfile from, which
 // is not necessarily the directory the command was run in.
 //
@@ -879,7 +961,7 @@ func (rc *RubyCommand) collectDependencyBuildInfo(workingDir, subCommand, repoKe
 	if err := rubySaveBuildInfo(bi, rc.buildConfiguration); err != nil {
 		return fmt.Errorf("failed to save RubyGems build info: %w", err)
 	}
-	log.Info(fmt.Sprintf("RubyGems build info collected. Use 'jf rt bp %s %s' to publish.", buildName, buildNumber))
+	log.Info(fmt.Sprintf("RubyGems build info collected. Use '%s' to publish.", rubyPublishHint(rc.buildConfiguration, buildName, buildNumber)))
 	return nil
 }
 
@@ -940,7 +1022,7 @@ func (rc *RubyCommand) collectGemInstallDependencies(workingDir, subCommand, bui
 	if err := rubySaveBuildInfo(bi, rc.buildConfiguration); err != nil {
 		return fmt.Errorf("failed to save RubyGems build info: %w", err)
 	}
-	log.Info(fmt.Sprintf("RubyGems build info collected (%d gem(s)). Use 'jf rt bp %s %s' to publish.", len(deps), buildName, buildNumber))
+	log.Info(fmt.Sprintf("RubyGems build info collected (%d gem(s)). Use '%s' to publish.", len(deps), rubyPublishHint(rc.buildConfiguration, buildName, buildNumber)))
 	return nil
 }
 
@@ -1136,7 +1218,7 @@ func (rc *RubyCommand) collectGemArtifactBuildInfo(workingDir, repoKey string, s
 	if err := rubySaveBuildInfo(bi, rc.buildConfiguration); err != nil {
 		return fmt.Errorf("failed to save RubyGems build info: %w", err)
 	}
-	log.Info(fmt.Sprintf("RubyGems build info collected. Use 'jf rt bp %s %s' to publish.", buildName, buildNumber))
+	log.Info(fmt.Sprintf("RubyGems build info collected. Use '%s' to publish.", rubyPublishHint(rc.buildConfiguration, buildName, buildNumber)))
 	return nil
 }
 
@@ -1314,6 +1396,9 @@ func parseGemfileGroups(workingDir string) map[string][]string {
 
 	groups := make(map[string][]string)
 	var currentGroups []string // nil = top level (production)
+	// Depth of nested blocks opened inside the current group, so that an inner
+	// `platforms :ruby do ... end` does not close the surrounding group.
+	nested := 0
 
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	for scanner.Scan() {
@@ -1330,9 +1415,20 @@ func parseGemfileGroups(workingDir string) map[string][]string {
 			continue
 		}
 
+		// Track blocks nested inside a group (`platforms :ruby do`, `if ... do`) so their
+		// `end` is not mistaken for the group's own.
+		if currentGroups != nil && strings.HasSuffix(line, "do") {
+			nested++
+			continue
+		}
+
 		// Detect `end` closing a group block.
 		if line == "end" && currentGroups != nil {
-			currentGroups = nil
+			if nested > 0 {
+				nested--
+			} else {
+				currentGroups = nil
+			}
 			continue
 		}
 

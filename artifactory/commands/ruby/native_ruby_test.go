@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
+	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -715,4 +716,69 @@ func TestGemspecField(t *testing.T) {
 	tricky := "Gem::Specification.new do |s|\n  s.required_ruby_version = \">= 3.0\"\n  s.name = \"c-gem\"\nend\n"
 	assert.Equal(t, "", gemspecField(tricky, "version"))
 	assert.Equal(t, "c-gem", gemspecField(tricky, "name"))
+}
+
+// TestRubySubCommand: global flags may precede the subcommand. Treating args[0] as the
+// subcommand made `gem --backtrace install rake` skip auth injection and build-info while
+// still exiting 0.
+func TestRubySubCommand(t *testing.T) {
+	assert.Equal(t, "install", rubySubCommand([]string{"install", "rake"}))
+	assert.Equal(t, "install", rubySubCommand([]string{"--backtrace", "install", "rake"}))
+	assert.Equal(t, "push", rubySubCommand([]string{"--debug", "--norc", "push", "a.gem"}))
+	// A flag's separate value must not be mistaken for the subcommand.
+	assert.Equal(t, "install", rubySubCommand([]string{"--config-file", "/tmp/gemrc", "install", "rake"}))
+	assert.Equal(t, "install", rubySubCommand([]string{"--retry", "3", "install"}))
+	// Flags only: no subcommand at all.
+	assert.Equal(t, "", rubySubCommand([]string{"--version"}))
+	assert.Equal(t, "", rubySubCommand(nil))
+}
+
+// TestRubyAppendToolArgs: everything after "--" is forwarded to the C extension build, so
+// injected flags must land before it or gem never sees them.
+func TestRubyAppendToolArgs(t *testing.T) {
+	assert.Equal(t,
+		[]string{"install", "rake", "--source", "https://u@h/api/gems/r"},
+		rubyAppendToolArgs([]string{"install", "rake"}, "--source", "https://u@h/api/gems/r"))
+
+	assert.Equal(t,
+		[]string{"install", "nokogiri", "--source", "https://u@h/api/gems/r", "--", "--use-system-libraries"},
+		rubyAppendToolArgs([]string{"install", "nokogiri", "--", "--use-system-libraries"}, "--source", "https://u@h/api/gems/r"))
+}
+
+// TestRubyPublishHint: the project key must be repeated on `jf rt bp`, because partials are
+// stored per project and omitting it publishes an empty build instead.
+func TestRubyPublishHint(t *testing.T) {
+	assert.Equal(t, "jf rt bp mybuild 7",
+		rubyPublishHint(buildUtils.NewBuildConfiguration("mybuild", "7", "", ""), "mybuild", "7"))
+	assert.Equal(t, "jf rt bp mybuild 7 --project=proj1",
+		rubyPublishHint(buildUtils.NewBuildConfiguration("mybuild", "7", "", "proj1"), "mybuild", "7"))
+	assert.Equal(t, "jf rt bp mybuild 7", rubyPublishHint(nil, "mybuild", "7"))
+}
+
+// TestParseGemfileGroups_NestedBlock: a block nested inside a group must not close it, or
+// every gem after the inner `end` is mis-scoped as production.
+func TestParseGemfileGroups_NestedBlock(t *testing.T) {
+	dir := t.TempDir()
+	gemfile := `source "https://rubygems.org"
+
+gem "rack"
+
+group :development, :test do
+  gem "rspec-rails"
+  platforms :ruby do
+    gem "pg"
+  end
+  gem "factory_bot"
+end
+
+gem "puma"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "Gemfile"), []byte(gemfile), 0644))
+	groups := parseGemfileGroups(dir)
+
+	assert.Equal(t, []string{"production"}, groups["rack"])
+	assert.Equal(t, []string{"development", "test"}, groups["rspec-rails"])
+	assert.Equal(t, []string{"development", "test"}, groups["pg"], "gem inside the nested block")
+	assert.Equal(t, []string{"development", "test"}, groups["factory_bot"], "must not leak to production after the inner end")
+	assert.Equal(t, []string{"production"}, groups["puma"], "after the group really closes")
 }
