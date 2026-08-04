@@ -68,8 +68,6 @@ func (c *ApmInstallCommand) Run() error {
 	} else if collectBuildInfo {
 		if apmcommon.IsDryRunArg(c.args) {
 			log.Info("apm install: --dry-run - nothing was installed, skipping build-info recording.")
-		} else if apmcommon.IsGlobalArg(c.args) {
-			log.Info("apm install: --global installs to ~/.apm, not the project directory - skipping build-info recording.")
 		} else if workingDir, wdErr := os.Getwd(); wdErr != nil {
 			log.Warn("apm install completed, but could not determine working directory for build info:", wdErr.Error())
 		} else {

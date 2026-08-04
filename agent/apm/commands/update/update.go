@@ -72,8 +72,6 @@ func (c *ApmUpdateCommand) Run() error {
 	} else if collectBuildInfo {
 		if apmcommon.IsDryRunArg(c.args) {
 			log.Info("apm update: --dry-run - nothing was updated, skipping build-info recording.")
-		} else if apmcommon.IsGlobalArg(c.args) {
-			log.Info("apm update: --global updates ~/.apm, not the project directory - skipping build-info recording.")
 		} else if workingDir, wdErr := os.Getwd(); wdErr != nil {
 			log.Warn("apm update completed, but could not determine working directory for build info:", wdErr.Error())
 		} else {

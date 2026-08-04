@@ -5,35 +5,27 @@ func GetDescription() string {
 }
 
 func GetAIDescription() string {
-	return `Run any apm command against JFrog Artifactory-backed registries, with credentials
-injected automatically - no apm config set or manual token handling required.
+	return `Run apm against Artifactory-backed registries with credentials injected automatically. Dedicated subcommands install, publish, and update also collect build-info when --build-name and --build-number are set; every other apm command is forwarded with the same authenticated registry access but no build-info collection.
 
-Build-info commands (dedicated subcommands, listed under COMMANDS below):
-  jf agent apm install   Install dependencies from apm.yml / apm.lock.yaml.
-  jf agent apm publish   Publish a package to an agentpackages repository.
-  jf agent apm update    Refresh dependencies to their latest matching refs.
-These three collect and can record build-info (--build-name/--build-number).
-
-Every other apm command also works here, with the same authenticated registry access but
-no build-info collection - just run it as "jf agent apm <command>", e.g.:
-  jf agent apm lock                 Resolve dependencies and write apm.lock.yaml only.
-  jf agent apm deps why <pkg>       Show why a dependency is present (direct/transitive).
-  jf agent apm outdated             Show outdated locked dependencies.
-  jf agent apm audit                Scan installed packages / validate lockfile integrity.
-  jf agent apm doctor               Diagnose environment problems (git, network, auth).
-  jf agent apm view <pkg>           View package metadata or list remote versions.
-  jf agent apm marketplace ...      Manage marketplaces for discovery and governance.
-  jf agent apm mcp ...              Discover, inspect, and install MCP servers.
-Run "apm --help" to see the full list of commands apm itself supports - all of them are
-reachable this way. "jf agent apm <command> --help" shows that command's own apm-native help.
+When to use:
+- Running apm install / publish / update with Artifactory auth and optional build-info.
+- Running any other apm command (lock, outdated, audit, doctor, view, marketplace, mcp, ...) through jf for authenticated registry access.
 
 Prerequisites:
-- apm CLI installed and in PATH.
-- Registry configured via jf setup agent-apm (persistent) or apm.yml's registries: block.
+- apm CLI installed and on PATH.
+- Registry configured via 'jf setup agent-apm' or an apm.yml registries: block.
+- A configured JFrog Platform server (jf c add / jf login), or pass --server-id.
 
-Environment:
-- Credentials injected via APM_REGISTRY_TOKEN_<NAME>, APM_REGISTRY_USER_<NAME>, APM_REGISTRY_PASS_<NAME>.
-- Registry configuration sourced from apm.yml's registries: block or ~/.apm/config.json (set by jf setup agent-apm).
+Common patterns:
+  $ jf agent apm install --build-name=my-build --build-number=1
+  $ jf agent apm publish --package my-org/my-package --build-name=my-build --build-number=1
+  $ jf agent apm update --yes --build-name=my-build --build-number=1
+  $ jf agent apm lock
+  $ jf agent apm outdated
 
-Related: jf setup agent-apm`
+Gotchas:
+- Build-info is collected only by install, publish, and update, and only when both --build-name and --build-number are provided; publish it afterwards with 'jf rt build-publish'.
+- 'jf agent apm <command> --help' shows that command's own help; 'apm --help' lists every native apm command reachable this way.
+
+Related: jf setup agent-apm, jf agent apm install, jf agent apm publish, jf agent apm update, jf rt build-publish`
 }

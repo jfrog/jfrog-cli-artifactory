@@ -606,9 +606,3 @@ func IsHelpRequest(args []string) bool {
 func IsDryRunArg(args []string) bool {
 	return slices.Contains(args, "--dry-run")
 }
-
-// IsGlobalArg returns true if the args include --global or -g. install and update both support
-// it, writing their lockfile to ~/.apm/apm.lock.yaml instead of the project directory.
-func IsGlobalArg(args []string) bool {
-	return slices.Contains(args, "--global") || slices.Contains(args, "-g")
-}
