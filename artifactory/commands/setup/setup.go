@@ -602,6 +602,14 @@ func (sc *SetupCommand) configureRuby() error {
 	// sourceURL stays credential-free: it is what gets printed for the user to paste into
 	// a shared Gemfile. authenticatedURL is the same repository with credentials embedded,
 	// which is what the local config files need.
+	// The URL must end in a slash. RubyGems resolves index files relative to the source, so
+	// without one the final path segment is replaced and it requests
+	// .../api/gems/specs.4.8.gz — losing the repository name — which makes a plain
+	// `gem install` fail with "server did not return a valid file". Bundler normalises the
+	// trailing slash itself, so this is equally correct for the mirror and the Gemfile.
+	if !strings.HasSuffix(repoUrl.Path, "/") {
+		repoUrl.Path += "/"
+	}
 	sourceURL := repoUrl.String()
 	authenticatedURL := sourceURL
 	if password != "" {

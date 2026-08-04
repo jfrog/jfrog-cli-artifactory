@@ -1187,3 +1187,14 @@ func TestAddGemrcSource_FileIsPrivate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
 }
+
+// TestGemSourceIdentity_IgnoresTrailingSlashAndCredentials: gem sources are written with a
+// trailing slash (RubyGems needs it to resolve specs.4.8.gz), so equality checks must not
+// treat the slashed and unslashed forms — or a rotated credential — as different repos.
+func TestGemSourceIdentity_IgnoresTrailingSlashAndCredentials(t *testing.T) {
+	base := "https://acme.jfrog.io/artifactory/api/gems/gems-virtual"
+	assert.Equal(t, base, gemSourceIdentity(base))
+	assert.Equal(t, base, gemSourceIdentity(base+"/"))
+	assert.Equal(t, base, gemSourceIdentity("https://admin:tok@acme.jfrog.io/artifactory/api/gems/gems-virtual/"))
+	assert.Equal(t, base, gemSourceIdentity("https://admin:other@acme.jfrog.io/artifactory/api/gems/gems-virtual"))
+}
