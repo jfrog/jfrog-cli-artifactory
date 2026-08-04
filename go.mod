@@ -10,7 +10,7 @@ require (
 	github.com/jedib0t/go-pretty/v6 v6.8.3
 	github.com/jfrog/build-info-go v1.13.1-0.20260610071651-260ad6720e0d
 	github.com/jfrog/gofrog v1.7.6
-	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260609101026-df3091b39d06
+	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260804120604-edaa34435a80
 	github.com/jfrog/jfrog-cli-evidence v0.9.0
 	github.com/jfrog/jfrog-client-go v1.55.1-0.20260508101905-a17af78a38d7
 	github.com/pkg/errors v0.9.1
@@ -199,7 +199,7 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260729061834-1c527b8abaa6
+// replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260729061834-1c527b8abaa6
 
 // replace github.com/gfleury/go-bitbucket-v1 => github.com/gfleury/go-bitbucket-v1 v0.0.0-20230825095122-9bc1711434ab
 
