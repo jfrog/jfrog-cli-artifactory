@@ -83,7 +83,11 @@ func TestGetServerDetails_DefaultConfigNoFlags(t *testing.T) {
 	assert.Equal(t, "secret", got.Password)
 }
 
-func TestGetServerDetails_UrlOverridesDefaultConfig(t *testing.T) {
+// When --url targets the SAME host as the default server, credentials are
+// borrowed and the URL from --url is used (allows a base-URL override to
+// disambiguate paths like /artifactory vs. /artifactory/ without re-typing
+// credentials).
+func TestGetServerDetails_UrlSameHost_BorrowsCredsAndOverridesUrl(t *testing.T) {
 	testutil.WithJfrogHome(t)
 	saveDefaultServer(t, &config.ServerDetails{
 		ServerId:       "default",
@@ -95,7 +99,7 @@ func TestGetServerDetails_UrlOverridesDefaultConfig(t *testing.T) {
 	})
 
 	c := newCtx()
-	overrideUrl := "https://other.jfrog.io/artifactory"
+	overrideUrl := "https://acme.jfrog.io/artifactory"
 	c.AddStringFlag("url", overrideUrl)
 
 	got, err := GetServerDetails(c)
@@ -104,6 +108,29 @@ func TestGetServerDetails_UrlOverridesDefaultConfig(t *testing.T) {
 	assert.Equal(t, overrideUrl, got.ArtifactoryUrl, "ArtifactoryUrl should be replaced by --url")
 	assert.Equal(t, "alice", got.User, "credentials should be borrowed from default config")
 	assert.Equal(t, "secret", got.Password, "credentials should be borrowed from default config")
+}
+
+// When --url targets a DIFFERENT host than the default server, we must NOT
+// reuse the saved credentials — return an error asking for explicit creds.
+func TestGetServerDetails_UrlDifferentHost_ErrorsOut(t *testing.T) {
+	testutil.WithJfrogHome(t)
+	saveDefaultServer(t, &config.ServerDetails{
+		ServerId:       "default",
+		Url:            "https://acme.jfrog.io/",
+		ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
+		User:           "alice",
+		Password:       "secret",
+		IsDefault:      true,
+	})
+
+	c := newCtx()
+	c.AddStringFlag("url", "https://other.jfrog.io/artifactory")
+
+	_, err := GetServerDetails(c)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "different host")
+	assert.Contains(t, err.Error(), "other.jfrog.io")
+	assert.Contains(t, err.Error(), "acme.jfrog.io")
 }
 
 func TestGetServerDetails_ExplicitCredsRouteToFlagPath(t *testing.T) {

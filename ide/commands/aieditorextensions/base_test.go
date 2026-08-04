@@ -97,6 +97,10 @@ func TestParseBaseSetupConfig_BuggyUrl_ExtraSegment(t *testing.T) {
 	assert.Contains(t, err.Error(), "my-repo", "error should mention the mismatched --repo-key")
 }
 
+// Same-host --url + default config: credentials are borrowed and validation
+// is attempted (fails because the fake token isn't a real one, but the flow
+// must reach the validation stage rather than tripping any of our early URL
+// or config errors).
 func TestParseBaseSetupConfig_UrlAlone_DefaultConfig_ReachesValidation(t *testing.T) {
 	testutil.WithJfrogHome(t)
 	saveDefaultServer(t, &config.ServerDetails{
@@ -107,7 +111,8 @@ func TestParseBaseSetupConfig_UrlAlone_DefaultConfig_ReachesValidation(t *testin
 	})
 
 	ctx := newCtx("vscode")
-	ctx.AddStringFlag("url", "https://unreachable-host.example/artifactory")
+	// --url points at the SAME host as the default server → creds are borrowed.
+	ctx.AddStringFlag("url", "https://acme.jfrog.io/artifactory")
 	ctx.AddStringFlag(RepoKeyFlag, "my-repo")
 
 	_, err := ParseBaseSetupConfig(ctx)
@@ -116,8 +121,34 @@ func TestParseBaseSetupConfig_UrlAlone_DefaultConfig_ReachesValidation(t *testin
 	assert.NotContains(t, err.Error(), "full API/service URL")
 	assert.NotContains(t, err.Error(), "path segment after '/artifactory/'")
 	assert.NotContains(t, err.Error(), "no default server")
+	assert.NotContains(t, err.Error(), "different host")
 }
 
+// Off-host --url + default config: refuse to reuse saved credentials on a
+// host the user didn't associate them with.
+func TestParseBaseSetupConfig_UrlDifferentHost_Errors(t *testing.T) {
+	testutil.WithJfrogHome(t)
+	saveDefaultServer(t, &config.ServerDetails{
+		ServerId:       "default",
+		ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
+		AccessToken:    "fake-token",
+		IsDefault:      true,
+	})
+
+	ctx := newCtx("vscode")
+	ctx.AddStringFlag("url", "https://other-tenant.example/artifactory")
+	ctx.AddStringFlag(RepoKeyFlag, "my-repo")
+
+	_, err := ParseBaseSetupConfig(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "different host")
+	assert.Contains(t, err.Error(), "other-tenant.example")
+}
+
+// Reporter's buggy URL shape (base + repo appended) targeting the same host
+// as the default server. The normalizer must strip the trailing repo BEFORE
+// any network call, and the same-host check must pass so credentials get
+// borrowed and validation is attempted.
 func TestParseBaseSetupConfig_BuggyUrl_NormalizedBeforeValidation(t *testing.T) {
 	testutil.WithJfrogHome(t)
 	saveDefaultServer(t, &config.ServerDetails{
@@ -128,13 +159,16 @@ func TestParseBaseSetupConfig_BuggyUrl_NormalizedBeforeValidation(t *testing.T) 
 	})
 
 	ctx := newCtx("vscode")
-	ctx.AddStringFlag("url", "https://other-nonexistent-host.example/artifactory/my-repo")
+	ctx.AddStringFlag("url", "https://acme.jfrog.io/artifactory/my-repo")
 	ctx.AddStringFlag(RepoKeyFlag, "my-repo")
 
 	_, err := ParseBaseSetupConfig(ctx)
 	require.Error(t, err)
+	// Should reach validation, not any of the early error paths.
 	assert.NotContains(t, err.Error(), "path segment after '/artifactory/'")
 	assert.NotContains(t, err.Error(), "full API/service URL")
+	assert.NotContains(t, err.Error(), "different host")
+	assert.NotContains(t, err.Error(), "no default server")
 }
 
 func TestParseBaseSetupConfig_Constants(t *testing.T) {

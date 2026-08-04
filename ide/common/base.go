@@ -12,29 +12,16 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-// GetServerDetails resolves the server configuration to use, layering flags on
-// top of the configured default server as follows:
-//
-//  1. Explicit credential/server flags (--user, --password, --access-token,
-//     --server-id) → build server details entirely from flags via
-//     CreateArtifactoryDetailsByFlags. --url, if set, overrides the URL.
-//     Nothing is borrowed from the default server.
-//  2. --url alone (no credential or server-id flags) → look up the configured
-//     default server, use its credentials, and override its URL with --url.
-//     If no default server is configured, return a clear error asking the
-//     user to configure one or supply credentials.
-//  3. Nothing supplied → use the default server configuration as-is.
-//
-// This lets `jf ide setup vscode --url <base> --repo-key <key>` work when the
-// user has previously configured a default server, without forcing them to
-// re-type credentials on every command.
+// GetServerDetails resolves the server configuration to use.
 func GetServerDetails(c *components.Context) (*config.ServerDetails, error) {
 	// Case 1: explicit auth or server-id → flag-based path.
 	if hasCredentialFlags(c) || c.IsFlagSet("server-id") {
 		return pluginsCommon.CreateArtifactoryDetailsByFlags(c)
 	}
 
-	// Case 2: --url alone → borrow credentials from the default server.
+	// Case 2: --url alone → borrow credentials from the default server, but
+	// only when --url points at the SAME host as that default server.
+	// When the hosts differ we ask for explicit credentials instead.
 	if c.IsFlagSet("url") {
 		defaults, err := config.GetDefaultServerConf()
 		if err != nil || defaults == nil {
@@ -44,6 +31,13 @@ func GetServerDetails(c *components.Context) (*config.ServerDetails, error) {
 					"(or --user and --password) alongside --url")
 		}
 		overrideUrl := c.GetStringFlagValue("url")
+		if !sameHost(overrideUrl, defaults) {
+			return nil, fmt.Errorf(
+				"--url %q points at a different host than the configured default server (%q). "+
+					"Either pass --access-token (or --user and --password) flags, "+
+					"or use --server-id to use a configured jf config",
+				overrideUrl, defaultServerHost(defaults))
+		}
 		defaults.ArtifactoryUrl = overrideUrl
 		return defaults, nil
 	}
@@ -68,6 +62,45 @@ func hasCredentialFlags(c *components.Context) bool {
 	return c.IsFlagSet("user") ||
 		c.IsFlagSet("password") ||
 		c.IsFlagSet("access-token")
+}
+
+// sameHost checks whether rawUrl targets the same host (host + port) as the
+// default server. Missing or unparseable inputs are treated as a mismatch so
+// credentials are never reused when we can't confirm the target.
+func sameHost(rawUrl string, defaults *config.ServerDetails) bool {
+	if rawUrl == "" || defaults == nil {
+		return false
+	}
+	u, err := url.Parse(rawUrl)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	defaultUrl := defaults.ArtifactoryUrl
+	if defaultUrl == "" {
+		defaultUrl = defaults.Url
+	}
+	d, err := url.Parse(defaultUrl)
+	if err != nil || d.Host == "" {
+		return false
+	}
+	return strings.EqualFold(u.Host, d.Host)
+}
+
+// defaultServerHost returns the host of the default server for use in error
+// messages. Returns "" if it cannot be extracted.
+func defaultServerHost(defaults *config.ServerDetails) string {
+	if defaults == nil {
+		return ""
+	}
+	raw := defaults.ArtifactoryUrl
+	if raw == "" {
+		raw = defaults.Url
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Host
 }
 
 // ValidateRepository validates that the repository exists and is of the specified type
