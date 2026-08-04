@@ -192,6 +192,7 @@ func (mc *MvnCommand) Run() error {
 			SetConfigPath(mc.configPath).
 			SetGoals(mc.goals).
 			SetBuildConf(mc.configuration).
+			SetServerDetails(mc.serverDetails).
 			SetPreferWrapper(mc.preferWrapper)
 		return RunMvn(mvnParams)
 	}
