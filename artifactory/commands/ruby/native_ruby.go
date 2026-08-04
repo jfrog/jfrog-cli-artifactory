@@ -869,14 +869,20 @@ func (rc *RubyCommand) collectBuildInfo(workingDir, subCommand, repoKey string, 
 		return rc.collectGemArtifactBuildInfo(workingDir, repoKey, serverDetails)
 	case rc.collectsDependencies(subCommand):
 		return rc.collectDependencyBuildInfo(workingDir, subCommand, repoKey, serverDetails, capturedOutput)
+	case rc.nativeTool == toolGem && subCommand == "build":
+		// `gem build` resolves nothing itself, but the dependencies it was built against are
+		// recorded in Gemfile.lock. Collecting them covers the flow where a project arrives
+		// with its gems already vendored and is built and published without ever running an
+		// install, which would otherwise report no dependencies at all. Where an install did
+		// run under the same build, the two merge by dependency ID rather than duplicating.
+		//
+		// The built .gem is deliberately not recorded here: it has no Artifactory path until
+		// `gem push` uploads it, and that is where it is recorded.
+		return rc.collectGemBuildDependencies(workingDir, repoKey, serverDetails)
 	default:
 		// Reaching here means the user asked for build-info with --build-name, so say why
 		// none was recorded instead of leaving the flags looking silently accepted.
-		if rc.nativeTool == toolGem && subCommand == "build" {
-			log.Info("Ruby build-info: 'gem build' is a local-only operation, so no artifact is " +
-				"recorded yet — run 'jf ruby gem push' with the same --build-name and " +
-				"--build-number to record the built gem.")
-		} else {
+		{
 			log.Info(fmt.Sprintf("Ruby build-info: '%s %s' records no build-info; only dependency "+
 				"resolution and 'gem push' do.", rc.nativeTool, subCommand))
 		}
@@ -924,8 +930,18 @@ func (rc *RubyCommand) collectDependencyBuildInfo(workingDir, subCommand, repoKe
 	}
 
 	// For bundle install/update/lock/add: use the full FlexPack lock-file parser.
-	// Anchor collection on the directory Bundler resolves the Gemfile from, so running
-	// from a subdirectory still finds Gemfile.lock.
+	return rc.collectLockfileDependencies(workingDir, buildName, buildNumber, repoKey, serverDetails)
+}
+
+// collectLockfileDependencies records the dependency tree from Gemfile.lock.
+//
+// The lock file is the only honest source for a resolved dependency set: a gemspec or
+// Gemfile states requirements such as "~> 13.0", which are not versions and would produce
+// dependency IDs matching nothing in Artifactory.
+//
+// Anchored on the directory Bundler resolves the Gemfile from, so running from a
+// subdirectory still finds Gemfile.lock.
+func (rc *RubyCommand) collectLockfileDependencies(workingDir, buildName, buildNumber, repoKey string, serverDetails *coreConfig.ServerDetails) error {
 	gemfileDir := rubyGemfileDir(workingDir)
 	gemConfig := flexpack.GemConfig{WorkingDirectory: gemfileDir}
 	// Give flexpack the project identity explicitly; left unset it falls back to the
@@ -963,6 +979,29 @@ func (rc *RubyCommand) collectDependencyBuildInfo(workingDir, subCommand, repoKe
 	}
 	log.Info(fmt.Sprintf("RubyGems build info collected. Use '%s' to publish.", rubyPublishHint(rc.buildConfiguration, buildName, buildNumber)))
 	return nil
+}
+
+// collectGemBuildDependencies records the dependencies a `gem build` was built against,
+// read from Gemfile.lock. Without a lock file there is nothing resolved to record, and
+// saying so is better than accepting --build-name and silently producing nothing.
+func (rc *RubyCommand) collectGemBuildDependencies(workingDir, repoKey string, serverDetails *coreConfig.ServerDetails) error {
+	buildName, err := rc.buildConfiguration.GetBuildName()
+	if err != nil {
+		return err
+	}
+	buildNumber, err := rc.buildConfiguration.GetBuildNumber()
+	if err != nil {
+		return err
+	}
+
+	gemfileDir := rubyGemfileDir(workingDir)
+	if _, statErr := os.Stat(filepath.Join(gemfileDir, "Gemfile.lock")); statErr != nil {
+		log.Info("Ruby build-info: no Gemfile.lock found, so 'gem build' has no resolved " +
+			"dependencies to record. Run 'bundle install' first, or record the built gem with " +
+			"'jf ruby gem push' using the same --build-name and --build-number.")
+		return nil
+	}
+	return rc.collectLockfileDependencies(workingDir, buildName, buildNumber, repoKey, serverDetails)
 }
 
 // collectGemInstallDependencies records the gems that were actually installed/fetched.
