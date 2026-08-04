@@ -204,7 +204,7 @@ func (rc *RubyCommand) Run() error {
 // (specs.4.8.gz) but does NOT use GEM_HOST_API_KEY for those requests.
 func rubyEmbedCredsInSourceArg(args []string, serverDetails *coreConfig.ServerDetails) []string {
 	user, pass := rubyCredentials(serverDetails)
-	if !rubyHasCredentials(user, pass) {
+	if !rubyHasCredentials(pass) {
 		return args
 	}
 	result := make([]string, len(args))
@@ -248,7 +248,7 @@ func rubyEmbedCredsInSourceArg(args []string, serverDetails *coreConfig.ServerDe
 // Uses the same logic as rubyEmbedCredsInSourceArg but only targets --host.
 func rubyEmbedCredsInHostArg(args []string, serverDetails *coreConfig.ServerDetails) []string {
 	user, pass := rubyCredentials(serverDetails)
-	if !rubyHasCredentials(user, pass) {
+	if !rubyHasCredentials(pass) {
 		return args
 	}
 	result := make([]string, len(args))
@@ -290,7 +290,7 @@ func rubyEmbedCredsInHostArg(args []string, serverDetails *coreConfig.ServerDeta
 // Returns a cleanup function that restores the original file (or removes the added entry).
 func rubyWriteTempGemCredentials(hostURL string, serverDetails *coreConfig.ServerDetails) (cleanup func(), err error) {
 	user, pass := rubyCredentials(serverDetails)
-	if !rubyHasCredentials(user, pass) {
+	if !rubyHasCredentials(pass) {
 		return nil, fmt.Errorf("no credentials available")
 	}
 
@@ -298,8 +298,13 @@ func rubyWriteTempGemCredentials(hostURL string, serverDetails *coreConfig.Serve
 	if err != nil {
 		return nil, fmt.Errorf("could not determine home directory: %w", err)
 	}
-	gemDir := filepath.Join(homeDir, ".gem")
-	credFile := filepath.Join(gemDir, "credentials")
+	// The home directory comes from the environment, so validate it before deriving any path
+	// from it. Both names below are constants, and no caller-supplied value reaches them.
+	if !filepath.IsAbs(homeDir) {
+		return nil, fmt.Errorf("home directory %q is not an absolute path", homeDir)
+	}
+	gemDir := filepath.Clean(filepath.Join(homeDir, ".gem"))
+	credFile := filepath.Clean(filepath.Join(gemDir, "credentials"))
 
 	// Ensure ~/.gem directory exists.
 	if err := os.MkdirAll(gemDir, 0700); err != nil {
@@ -351,6 +356,7 @@ func rubyWriteTempGemCredentials(hostURL string, serverDetails *coreConfig.Serve
 	newContent += fmt.Sprintf("%s: %s\n", credKey, credValue)
 
 	// Write the credentials file with restricted permissions (0600 required by RubyGems).
+	// #nosec G703 -- credFile is <home>/.gem/credentials; homeDir validated above
 	if err := os.WriteFile(credFile, []byte(newContent), 0600); err != nil {
 		return nil, fmt.Errorf("could not write credentials file: %w", err)
 	}
@@ -358,8 +364,10 @@ func rubyWriteTempGemCredentials(hostURL string, serverDetails *coreConfig.Serve
 	// Return cleanup function.
 	cleanup = func() {
 		if originalExists {
+			// #nosec G703 -- credFile is <home>/.gem/credentials; homeDir validated above
 			_ = os.WriteFile(credFile, originalContent, 0600)
 		} else {
+			// #nosec G703 -- credFile is <home>/.gem/credentials; homeDir validated above
 			_ = os.Remove(credFile)
 		}
 		log.Debug("Ruby auth [gem push]: cleaned up temporary ~/.gem/credentials entry")
@@ -479,7 +487,7 @@ func (rc *RubyCommand) authorizedForSource(serverDetails *coreConfig.ServerDetai
 // RubyGems → GEM_HOST_API_KEY="user:password" (used by `gem push`/`gem fetch`).
 func (rc *RubyCommand) injectAuth(serverDetails *coreConfig.ServerDetails, sourceURL string) []string {
 	user, pass := rubyCredentials(serverDetails)
-	if !rubyHasCredentials(user, pass) {
+	if !rubyHasCredentials(pass) {
 		log.Debug("Ruby auth: no username/password/token available in server config; relying on native configuration")
 		return nil
 	}
@@ -553,7 +561,7 @@ func rubyCredentials(serverDetails *coreConfig.ServerDetails) (user, pass string
 }
 
 // rubyHasCredentials returns true when at least a password or token is available.
-func rubyHasCredentials(user, pass string) bool {
+func rubyHasCredentials(pass string) bool {
 	return pass != ""
 }
 
@@ -995,7 +1003,7 @@ func (rc *RubyCommand) collectGemBuildDependencies(workingDir, repoKey string, s
 	}
 
 	gemfileDir := rubyGemfileDir(workingDir)
-	if _, statErr := os.Stat(filepath.Join(gemfileDir, "Gemfile.lock")); statErr != nil {
+	if !rubyFileExists(filepath.Join(gemfileDir, "Gemfile.lock")) {
 		log.Info("Ruby build-info: no Gemfile.lock found, so 'gem build' has no resolved " +
 			"dependencies to record. Run 'bundle install' first, or record the built gem with " +
 			"'jf ruby gem push' using the same --build-name and --build-number.")
@@ -1009,7 +1017,7 @@ func (rc *RubyCommand) collectGemBuildDependencies(workingDir, repoKey string, s
 // Fallback: explicit -v/--version arg + gem name from args, or gem list query.
 func (rc *RubyCommand) collectGemInstallDependencies(workingDir, subCommand, buildName, buildNumber, repoKey string, serverDetails *coreConfig.ServerDetails, capturedOutput string) error {
 	// Primary: parse the captured stdout for definitive name:version pairs.
-	deps := parseGemCommandOutput(capturedOutput, subCommand)
+	deps := parseGemCommandOutput(capturedOutput)
 
 	// Fallback: if stdout parsing yielded nothing, try extracting from args + gem list.
 	if len(deps) == 0 {
@@ -1103,7 +1111,7 @@ func extractGemNamesFromArgs(args []string) []string {
 // gem fetch prints:   "Downloaded <name>-<version>.gem" or "Fetching: <name>-<version>.gem"
 //
 // This is the primary (most accurate) mechanism — it reflects what actually happened.
-func parseGemCommandOutput(output, subCommand string) []buildinfo.Dependency {
+func parseGemCommandOutput(output string) []buildinfo.Dependency {
 	if output == "" {
 		return nil
 	}
@@ -1222,10 +1230,7 @@ func (rc *RubyCommand) collectGemArtifactBuildInfo(workingDir, repoKey string, s
 		return err
 	}
 
-	artifacts, err := rubyCollectGemArtifacts(workingDir, rc.args)
-	if err != nil {
-		return fmt.Errorf("failed to collect gem artifacts: %w", err)
-	}
+	artifacts := rubyCollectGemArtifacts(workingDir, rc.args)
 	if len(artifacts) == 0 {
 		log.Debug("Ruby build-info: no .gem artifacts found to record")
 		return nil
@@ -1326,7 +1331,7 @@ func gemspecField(content, field string) string {
 }
 
 // rubyCollectGemArtifacts locates the .gem file from the `gem push` command args.
-func rubyCollectGemArtifacts(workingDir string, args []string) ([]buildinfo.Artifact, error) {
+func rubyCollectGemArtifacts(workingDir string, args []string) []buildinfo.Artifact {
 	var gemFiles []string
 	for _, a := range args {
 		if strings.HasSuffix(a, ".gem") && !strings.HasPrefix(a, "-") {
@@ -1352,7 +1357,14 @@ func rubyCollectGemArtifacts(workingDir string, args []string) ([]buildinfo.Arti
 			Checksum: checksum,
 		})
 	}
-	return artifacts, nil
+	return artifacts
+}
+
+// rubyFileExists reports whether path exists. Used where a missing file is an expected,
+// non-error condition, so the absence is not mistaken for a failure.
+func rubyFileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // rubyFileChecksums calculates SHA1, SHA256 and MD5 for a file.

@@ -391,7 +391,7 @@ Successfully installed railties-7.0.4
 Successfully installed rails-7.0.4
 4 gems installed
 `
-	deps := parseGemCommandOutput(output, "install")
+	deps := parseGemCommandOutput(output)
 	assert.Len(t, deps, 4)
 	assert.Equal(t, "activesupport:7.0.4", deps[0].Id)
 	assert.Equal(t, "actionpack:7.0.4", deps[1].Id)
@@ -401,7 +401,7 @@ Successfully installed rails-7.0.4
 
 func TestParseGemCommandOutput_InstallSingle(t *testing.T) {
 	output := "Successfully installed colorize-1.1.0\n1 gem installed\n"
-	deps := parseGemCommandOutput(output, "install")
+	deps := parseGemCommandOutput(output)
 	assert.Len(t, deps, 1)
 	assert.Equal(t, "colorize:1.1.0", deps[0].Id)
 }
@@ -409,7 +409,7 @@ func TestParseGemCommandOutput_InstallSingle(t *testing.T) {
 func TestParseGemCommandOutput_InstallVersionPin(t *testing.T) {
 	// When installing an older version explicitly
 	output := "Successfully installed rake-13.0.1\n1 gem installed\n"
-	deps := parseGemCommandOutput(output, "install")
+	deps := parseGemCommandOutput(output)
 	assert.Len(t, deps, 1)
 	assert.Equal(t, "rake:13.0.1", deps[0].Id)
 }
@@ -417,14 +417,14 @@ func TestParseGemCommandOutput_InstallVersionPin(t *testing.T) {
 func TestParseGemCommandOutput_Fetch(t *testing.T) {
 	// gem fetch output
 	output := "Downloaded httparty-0.21.0.gem\n"
-	deps := parseGemCommandOutput(output, "fetch")
+	deps := parseGemCommandOutput(output)
 	assert.Len(t, deps, 1)
 	assert.Equal(t, "httparty:0.21.0", deps[0].Id)
 }
 
 func TestParseGemCommandOutput_FetchMultiple(t *testing.T) {
 	output := "Downloaded colorize-1.1.0.gem\nDownloaded rake-13.4.2.gem\n"
-	deps := parseGemCommandOutput(output, "fetch")
+	deps := parseGemCommandOutput(output)
 	assert.Len(t, deps, 2)
 	assert.Equal(t, "colorize:1.1.0", deps[0].Id)
 	assert.Equal(t, "rake:13.4.2", deps[1].Id)
@@ -433,7 +433,7 @@ func TestParseGemCommandOutput_FetchMultiple(t *testing.T) {
 func TestParseGemCommandOutput_FetchOlderFormat(t *testing.T) {
 	// Older RubyGems fetch format
 	output := "Fetching: rspec-core-3.12.0.gem (100%)\n"
-	deps := parseGemCommandOutput(output, "fetch")
+	deps := parseGemCommandOutput(output)
 	assert.Len(t, deps, 1)
 	assert.Equal(t, "rspec-core:3.12.0", deps[0].Id)
 }
@@ -441,28 +441,28 @@ func TestParseGemCommandOutput_FetchOlderFormat(t *testing.T) {
 func TestParseGemCommandOutput_HyphenatedGemName(t *testing.T) {
 	// Gem name with hyphens (e.g., rspec-core, net-http)
 	output := "Successfully installed rspec-core-3.12.0\nSuccessfully installed net-http-0.4.1\n"
-	deps := parseGemCommandOutput(output, "install")
+	deps := parseGemCommandOutput(output)
 	assert.Len(t, deps, 2)
 	assert.Equal(t, "rspec-core:3.12.0", deps[0].Id)
 	assert.Equal(t, "net-http:0.4.1", deps[1].Id)
 }
 
 func TestParseGemCommandOutput_Empty(t *testing.T) {
-	deps := parseGemCommandOutput("", "install")
+	deps := parseGemCommandOutput("")
 	assert.Nil(t, deps)
 }
 
 func TestParseGemCommandOutput_NoDeps(t *testing.T) {
 	// Output with no install/download lines (e.g., already installed)
 	output := "Successfully installed colorize-1.1.0\nBut this line has no prefix\n"
-	deps := parseGemCommandOutput(output, "install")
+	deps := parseGemCommandOutput(output)
 	assert.Len(t, deps, 1)
 }
 
 func TestParseGemCommandOutput_Deduplication(t *testing.T) {
 	// Same gem mentioned twice (should deduplicate)
 	output := "Successfully installed rake-13.4.2\nSuccessfully installed rake-13.4.2\n"
-	deps := parseGemCommandOutput(output, "install")
+	deps := parseGemCommandOutput(output)
 	assert.Len(t, deps, 1)
 }
 
@@ -507,10 +507,8 @@ func TestExtractVersionFromArgs(t *testing.T) {
 
 func TestRubyWriteTempGemCredentials(t *testing.T) {
 	// Use a temporary home directory to avoid touching real ~/.gem/credentials
-	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpHome)
 
 	server := &coreConfig.ServerDetails{
 		User:           "admin",
@@ -540,10 +538,8 @@ func TestRubyWriteTempGemCredentials(t *testing.T) {
 }
 
 func TestRubyWriteTempGemCredentials_TrailingSlashPreserved(t *testing.T) {
-	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpHome)
 
 	server := &coreConfig.ServerDetails{
 		User:     "admin",
@@ -567,16 +563,14 @@ func TestRubyWriteTempGemCredentials_TrailingSlashPreserved(t *testing.T) {
 }
 
 func TestRubyWriteTempGemCredentials_PreservesExisting(t *testing.T) {
-	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpHome)
 
 	// Create pre-existing credentials
 	gemDir := filepath.Join(tmpHome, ".gem")
-	os.MkdirAll(gemDir, 0700)
+	require.NoError(t, os.MkdirAll(gemDir, 0700))
 	existingContent := "---\n:rubygems_api_key: existing-key\n"
-	os.WriteFile(filepath.Join(gemDir, "credentials"), []byte(existingContent), 0600)
+	require.NoError(t, os.WriteFile(filepath.Join(gemDir, "credentials"), []byte(existingContent), 0600))
 
 	server := &coreConfig.ServerDetails{
 		User:     "admin",
