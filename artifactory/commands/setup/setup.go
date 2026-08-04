@@ -14,6 +14,7 @@ import (
 
 	bidotnet "github.com/jfrog/build-info-go/build/utils/dotnet"
 	biutils "github.com/jfrog/build-info-go/utils"
+	aptcommand "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/apt"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/golang"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
@@ -21,6 +22,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/python"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/repository"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/ruby"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/permissions"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/maven"
@@ -29,6 +31,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -36,6 +39,94 @@ import (
 	"golang.org/x/exp/maps"
 	"gopkg.in/yaml.v3"
 )
+
+// packageManagerConfig describes the configuration `jf setup` writes for one package
+// manager, so the command can say what it changed and how far the change reaches.
+// Saying so matters because nothing else in the output reveals that the change is not
+// scoped to the directory the command was run in.
+type packageManagerConfig struct {
+	// location names the configuration in the user's terms rather than as an absolute
+	// path: the real path is platform dependent (pip alone has three per-user
+	// locations) and the package manager resolves it itself, so a path spelled out
+	// here would be wrong on some machines.
+	location string
+	// credentialsOnly marks the package managers that only store credentials instead
+	// of redirecting resolution. Their projects do not start resolving through
+	// Artifactory — an unqualified `docker pull alpine` still goes to Docker Hub — so
+	// the note must not claim otherwise.
+	credentialsOnly bool
+	// overrideEnv is the environment variable that moves this configuration off its
+	// user-level default. When it is set the configuration can live anywhere the user
+	// pointed it, including inside the current project, so the note has to describe
+	// that path instead of claiming user-wide scope. Only set where the configure
+	// function or the tool it drives really honors the variable — the per-entry
+	// comments record what was verified.
+	overrideEnv string
+}
+
+// One entry per package manager in packageManagerToRepositoryPackageType;
+// TestPackageManagerConfigs_CoversEverySupportedPackageManager asserts the two
+// stay in step.
+var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
+	// npm resolves the file `npm config set` writes through NPM_CONFIG_USERCONFIG.
+	project.Npm: {location: "your user-level npm configuration (.npmrc)", overrideEnv: "NPM_CONFIG_USERCONFIG"},
+	// pnpm is deliberately left without an override: `pnpm config set` writes to
+	// pnpm's own config directory (auth.ini) and ignores NPM_CONFIG_USERCONFIG, which
+	// it consults only as a fallback when reading credentials.
+	// That file also outranks ~/.npmrc for pnpm, which matters across two setups: a
+	// machine with no pnpm setup inherits npm's ~/.npmrc through the fallback, but
+	// once `jf setup pnpm` has written auth.ini, a later `jf setup npm` moves npm
+	// alone and pnpm keeps resolving from the repository it was given. Both tools are
+	// individually correct, and nothing in either command's output says they now
+	// disagree. Verified against pnpm 11.
+	project.Pnpm: {location: "your user-level pnpm configuration (auth.ini in pnpm's config directory)"},
+	// Yarn Classic writes ~/.yarnrc, and YARN_RC_FILENAME does not redirect it.
+	project.Yarn: {location: "your user-level Yarn configuration (.yarnrc)"},
+	// configurePip writes the file itself when PIP_CONFIG_FILE is set, because
+	// `pip config set` does not support that variable.
+	project.Pip:    {location: "your user-level pip configuration (pip.conf)", overrideEnv: "PIP_CONFIG_FILE"},
+	project.Pipenv: {location: "your user-level pip configuration (pip.conf)", overrideEnv: "PIP_CONFIG_FILE"},
+	// `poetry config` writes config.toml into POETRY_CONFIG_DIR when it is set.
+	project.Poetry: {location: "your user-level Poetry configuration (config.toml)", overrideEnv: "POETRY_CONFIG_DIR"},
+	// Twine's .pypirc path is chosen per invocation (--config-file), not by the environment.
+	project.Twine: {location: "your user-level Twine configuration (.pypirc)"},
+	// ConfigureUVIndex writes to UV_CONFIG_FILE when it is set.
+	project.UV:     {location: "your user-level uv configuration (uv.toml)", overrideEnv: python.UVConfigFileEnv},
+	project.Nuget:  {location: "your user-level NuGet configuration (NuGet.Config)"},
+	project.Dotnet: {location: "your user-level NuGet configuration (NuGet.Config)"},
+	// `go env -w` writes to the file GOENV points at, defaulting to the per-user Go env file.
+	project.Go: {location: "your user-level Go environment (GOPROXY in your Go env file)", overrideEnv: "GOENV"},
+	// gradle.WriteInitScript drops the script under GRADLE_USER_HOME when it is set.
+	project.Gradle: {location: "your user-level Gradle configuration (an init script in your Gradle user home)", overrideEnv: gradle.UserHomeEnv},
+	// Maven picks the settings file per invocation (-s), not from the environment.
+	project.Maven:  {location: "your user-level Maven settings (settings.xml)"},
+	project.Docker: {location: "your Docker credential store", credentialsOnly: true},
+	project.Podman: {location: "your Podman credential store", credentialsOnly: true},
+	project.Helm:   {location: "your Helm registry credential store", credentialsOnly: true},
+	project.Apt:    {location: "your apt configuration"},
+}
+
+// configScopeNote describes what the command changed and how widely it applies, or
+// an empty string for a package manager we have nothing accurate to say about.
+func configScopeNote(packageManager project.ProjectType) string {
+	cfg, ok := packageManagerConfigs[packageManager]
+	if !ok {
+		return ""
+	}
+	if cfg.credentialsOnly {
+		return fmt.Sprintf("Credentials were saved to %s for your user account.", cfg.location)
+	}
+	// A redirected configuration is not user-level, so report where it actually went
+	// rather than promising a scope that may not hold.
+	if cfg.overrideEnv != "" {
+		if overridePath := os.Getenv(cfg.overrideEnv); overridePath != "" {
+			return fmt.Sprintf("This updated the %s configuration at %s, because %s is set, so its scope follows that path rather than your user-level configuration.",
+				packageManager.String(), overridePath, cfg.overrideEnv)
+		}
+	}
+	return fmt.Sprintf("This updated %s, so it applies to every %s project for this user, not only the current directory.",
+		cfg.location, packageManager.String())
+}
 
 // packageManagerToRepositoryPackageType maps project types to corresponding Artifactory repository package types.
 var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
@@ -62,6 +153,8 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	project.Helm: repository.Helm,
 
 	project.Go: repository.Go,
+
+	project.Apt: repository.Debian,
 
 	project.Gradle: repository.Gradle,
 	project.Maven:  repository.Maven,
@@ -192,6 +285,8 @@ func (sc *SetupCommand) Run() (err error) {
 		err = sc.configureUV()
 	case project.Ruby:
 		err = sc.configureRuby()
+	case project.Apt:
+		err = sc.configureApt()
 	default:
 		err = errorutils.CheckErrorf("unsupported package manager: %s", sc.packageManager)
 	}
@@ -203,6 +298,9 @@ func (sc *SetupCommand) Run() (err error) {
 		repoPrefix = coreutils.PrintBoldTitle(fmt.Sprintf(" repository '%s'", sc.repoName))
 	}
 	log.Output(fmt.Sprintf("Successfully configured %s to use JFrog%s.", coreutils.PrintBoldTitle(sc.packageManager.String()), repoPrefix))
+	if note := configScopeNote(sc.packageManager); note != "" {
+		log.Output(note)
+	}
 	return nil
 }
 
@@ -245,6 +343,10 @@ func (sc *SetupCommand) configurePip() error {
 	if err := python.RunConfigCommand(project.Pip, []string{"set", "global.index-url", repoWithCredsUrl}); err != nil {
 		return fmt.Errorf("failed to configure pip index-url: %w", err)
 	}
+	// pip config set creates the file at 0644; harden to 0600 because index-url
+	// embeds credentials. `pip config set` writes the user-level file, so the
+	// derived path matches it without parsing pip's human-readable output.
+	python.HardenPipConfigPermissions()
 	return nil
 }
 
@@ -325,9 +427,69 @@ func (sc *SetupCommand) configureNpmPnpm() error {
 
 	authKey, authValue := commandsutils.GetNpmAuthKeyValue(sc.serverDetails, repoUrl)
 	if authKey != "" && authValue != "" {
-		return npm.ConfigSet(authKey, authValue, sc.packageManager.String())
+		if err := npm.ConfigSet(authKey, authValue, sc.packageManager.String()); err != nil {
+			return err
+		}
+	}
+	// npm writes ~/.npmrc at 0600 already, so only pnpm needs hardening here: it
+	// stores the _authToken in auth.ini at 0644.
+	if sc.packageManager == project.Pnpm {
+		hardenPnpmAuthConfig()
 	}
 	return nil
+}
+
+// pnpmConfigFileNames are the files pnpm may write credentials into. pnpm stores
+// the _authToken differently across versions (auth.ini in v9+, otherwise the
+// rc/config file it reports as `globalconfig`), so all known names are hardened.
+var pnpmConfigFileNames = []string{"auth.ini", "rc", "config.yaml", ".npmrc"}
+
+// hardenPnpmAuthConfig best-effort restricts the pnpm config files that may hold
+// the _authToken in cleartext at 0644 to owner-only.
+func hardenPnpmAuthConfig() {
+	for _, path := range pnpmCredentialFiles() {
+		permissions.RestrictExisting(path)
+	}
+}
+
+// pnpmCredentialFiles returns the existing pnpm config files (see
+// pnpmConfigFileNames) in pnpm's own config directory. There is no first-party Go
+// resolver for that directory, so it is derived from the file pnpm reports as
+// `globalconfig`. This is best-effort: it returns nil (rather than surfacing an
+// error) when pnpm cannot be queried or nothing was written (e.g. anonymous
+// access), so a resolution miss never fails an otherwise-successful setup.
+// Restricting a file without secrets is a harmless no-op.
+func pnpmCredentialFiles() []string {
+	out, err := exec.Command("pnpm", "config", "get", "globalconfig").Output()
+	if err != nil {
+		log.Warn("Could not resolve pnpm's config directory to restrict its permissions. " +
+			"If it holds an access token, restrict it to owner-only access manually.")
+		return nil
+	}
+	globalConfig := strings.TrimSpace(string(out))
+	if globalConfig == "" {
+		return nil
+	}
+	configDir := filepath.Dir(globalConfig)
+	var existing []string
+	for _, name := range pnpmConfigFileNames {
+		path := filepath.Join(configDir, name)
+		if _, err := os.Stat(path); err == nil {
+			existing = append(existing, path)
+		}
+	}
+	return existing
+}
+
+// userFile joins parts onto the current user's home directory. jf setup uses it
+// to locate the credential files other modules write there (~/.m2/settings.xml,
+// ~/.yarnrc) so it can harden them afterwards.
+func userFile(parts ...string) (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to determine home directory: %w", err)
+	}
+	return filepath.Join(append([]string{homeDir}, parts...)...), nil
 }
 
 // configureYarn configures Yarn to use the specified Artifactory repository and sets authentication.
@@ -351,37 +513,122 @@ func (sc *SetupCommand) configureYarn() (err error) {
 
 	authKey, authValue := commandsutils.GetNpmAuthKeyValue(sc.serverDetails, repoUrl)
 	if authKey != "" && authValue != "" {
-		return yarn.ConfigSet(authKey, authValue, "yarn", false)
+		if err = yarn.ConfigSet(authKey, authValue, "yarn", false); err != nil {
+			return err
+		}
 	}
+	// Yarn Classic writes ~/.yarnrc (YARN_RC_FILENAME does not redirect it) with the
+	// auth token in cleartext; restrict it to owner-only. Yarn Berry does not use
+	// ~/.yarnrc, so RestrictExisting warns and moves on there.
+	yarnrc, err := userFile(".yarnrc")
+	if err != nil {
+		return err
+	}
+	permissions.RestrictExisting(yarnrc)
 	return nil
+}
+
+// goProxySeparators are the two characters that delimit GOPROXY entries: a comma
+// falls through only on 404/410, a pipe on any error.
+const goProxySeparators = ",|"
+
+// maskGoProxyCredentials replaces the credentials of every entry in a GOPROXY
+// value, keeping the scheme and host so the message still says which proxy is set.
+//
+// GOPROXY is a separator-delimited list, so masking only up to the first '@'
+// would print every later entry's token verbatim. Within one entry the LAST '@'
+// delimits the credentials, because a password may itself contain '@'.
+func maskGoProxyCredentials(goProxy string) string {
+	var masked strings.Builder
+	entryStart := 0
+	for i, char := range goProxy {
+		if !strings.ContainsRune(goProxySeparators, char) {
+			continue
+		}
+		masked.WriteString(maskGoProxyEntry(goProxy[entryStart:i]))
+		masked.WriteRune(char)
+		entryStart = i + len(string(char))
+	}
+	masked.WriteString(maskGoProxyEntry(goProxy[entryStart:]))
+	return masked.String()
+}
+
+// maskGoProxyEntry masks the credentials of a single GOPROXY entry. Entries
+// without credentials — including the bare `direct` and `off` keywords — are
+// returned unchanged.
+func maskGoProxyEntry(entry string) string {
+	credentialsEnd := strings.LastIndex(entry, "@")
+	if credentialsEnd == -1 {
+		return entry
+	}
+	scheme := ""
+	if schemeEnd := strings.Index(entry, "://"); schemeEnd != -1 && schemeEnd < credentialsEnd {
+		scheme = entry[:schemeEnd+len("://")]
+	}
+	return scheme + "****" + entry[credentialsEnd:]
 }
 
 // configureGo configures Go to use the Artifactory repository for GOPROXY.
 // Runs the following command:
 //
 //	go env -w GOPROXY=https://<user>:<token>@<your-artifactory-url>/artifactory/go/<repo-name>,direct
+//
+// The comma is deliberate. Unlike `jf go`, which resolves through the CLI for a
+// single invocation and exposes --no-fallback, this writes a persistent global
+// GOPROXY consumed by the native go command with no opt-out. A comma limits the
+// fallback to 404/410 (module not proxied); a pipe would fall through on ANY
+// error, so a 403 from Artifactory Curation would be silently satisfied from the
+// module's public source.
 func (sc *SetupCommand) configureGo() error {
 	if goProxyVal := os.Getenv("GOPROXY"); goProxyVal != "" {
 		// Remove the variable so it won't override the newly configured proxy (temporarily).
 		if err := os.Unsetenv("GOPROXY"); err != nil {
 			return errorutils.CheckErrorf("failed to unset GOPROXY environment variable: %w", err)
 		}
-		// Mask credentials in the GOPROXY value
-		if i := strings.Index(goProxyVal, "@"); i != -1 {
-			goProxyVal = "****" + goProxyVal[i:]
-		}
 		// Log a warning about the existing GOPROXY environment variable so the user can unset it permanently
 		log.Warn(fmt.Sprintf("A local GOPROXY='%s' is set and will override the global setting.\n"+
-			"Unset it in your shell config (e.g., .zshrc, .bashrc).", goProxyVal))
+			"Unset it in your shell config (e.g., .zshrc, .bashrc).", maskGoProxyCredentials(goProxyVal)))
 	}
-	repoWithCredsUrl, err := golang.GetArtifactoryRemoteRepoUrl(sc.serverDetails, sc.repoName, golang.GoProxyUrlParams{Direct: true})
+	repoWithCredsUrl, err := golang.GetArtifactoryRemoteRepoUrl(sc.serverDetails, sc.repoName,
+		golang.GoProxyUrlParams{Direct: true, FallbackOnlyIfNotFound: true})
 	if err != nil {
 		return fmt.Errorf("failed to get Go repository URL: %w", err)
 	}
 	if err := biutils.RunGo([]string{"env", "-w", "GOPROXY=" + repoWithCredsUrl}, ""); err != nil {
 		return fmt.Errorf("failed to set GOPROXY environment variable: %w", err)
 	}
+	// This is a behavior change worth surfacing: previously any proxy error fell
+	// back to the module's public source, so an unreachable Artifactory still
+	// produced a working build.
+	log.Info("GOPROXY falls back to the module's source only for modules the repository does not serve (404/410). " +
+		"Any other error, including a Curation block or an unreachable Artifactory, now fails the command instead of " +
+		"resolving from the public internet.")
+	// GOPROXY embeds user:token@ in cleartext in the Go env file; restrict it to
+	// owner-only. Best-effort: `go env -w` already succeeded, so a failure to
+	// resolve or tighten the file must not fail an otherwise-configured setup.
+	if goEnvPath, err := goEnvFilePath(); err != nil {
+		log.Warn("Could not resolve the Go environment file to restrict its permissions: " + err.Error() +
+			". If it holds credentials, restrict it to owner-only access manually.")
+	} else {
+		permissions.RestrictExisting(goEnvPath)
+	}
 	return nil
+}
+
+// goEnvFilePath returns the file `go env -w` persists to (honoring GOENV), which
+// now holds the credential-bearing GOPROXY value. `go env GOENV` is the only
+// authoritative source for this path: it applies the same GOENV/default
+// resolution the write used.
+func goEnvFilePath() (string, error) {
+	out, err := exec.Command("go", "env", "GOENV").Output()
+	if err != nil {
+		return "", errorutils.CheckErrorf("failed to resolve the Go environment file path: %s", err.Error())
+	}
+	path := strings.TrimSpace(string(out))
+	if path == "" {
+		return "", errorutils.CheckErrorf("`go env GOENV` returned an empty path")
+	}
+	return path, nil
 }
 
 // configureDotnetNuget configures NuGet or .NET Core to use the specified Artifactory repository with credentials.
@@ -502,13 +749,21 @@ func (sc *SetupCommand) configureMaven() error {
 		password = sc.serverDetails.GetAccessToken()
 	}
 
-	settingsXml, err := maven.NewSettingsXmlManager()
+	// NewSettingsXmlManager resolves this same ~/.m2/settings.xml path internally;
+	// resolving it here too lets us harden the file afterwards, since settings.xml
+	// stores the password/access token in cleartext.
+	settingsXmlPath, err := userFile(".m2", "settings.xml")
+	if err != nil {
+		return err
+	}
+	settingsXml, err := maven.NewSettingsXmlManagerWithPath(settingsXmlPath)
 	if err != nil {
 		return fmt.Errorf("failed to create a new Maven settings.xml manager: %w", err)
 	}
 	if err = settingsXml.ConfigureArtifactoryRepository(sc.serverDetails.GetArtifactoryUrl(), sc.repoName, username, password); err != nil {
 		return fmt.Errorf("failed to update Artifactory mirror in Maven settings.xml: %w", err)
 	}
+	permissions.RestrictExisting(settingsXmlPath)
 	return nil
 }
 
@@ -531,6 +786,7 @@ func (sc *SetupCommand) configureGradle() error {
 		return fmt.Errorf("failed to generate Gradle init script: %w", err)
 	}
 
+	// WriteInitScript writes the token-bearing init script owner-only (0600) itself.
 	if err := gradle.WriteInitScript(initScript); err != nil {
 		return fmt.Errorf("failed to write Gradle init script: %w", err)
 	}
@@ -842,4 +1098,40 @@ func (sc *SetupCommand) configureHelm() error {
 	cmdLogin.Stderr = os.Stderr
 
 	return cmdLogin.Run()
+}
+
+// configureApt interactively prompts for repo, dist, component, and GPG mode,
+// then delegates to AptSetupCommand which writes the persistent sources.list entry and pinning file.
+// sc.repoName was pre-selected by promptUserToSelectRepository; we let the user confirm or change it.
+func (sc *SetupCommand) configureApt() error {
+	// Show the auto-selected repo and let the user confirm or override.
+	ioutils.ScanFromConsole("Repository name", &sc.repoName, sc.repoName)
+
+	var dist string
+	for dist == "" {
+		ioutils.ScanFromConsole("Distribution name (e.g. noble, jammy, bookworm)", &dist, "")
+	}
+
+	var component string
+	ioutils.ScanFromConsole("Component (e.g. main, contrib, non-free — leave empty for 'main')", &component, "main")
+
+	var gpgChoice string
+	ioutils.ScanFromConsole("GPG mode — 'import' (auto-fetch key), 'trusted' (skip GPG, for testing), or leave empty to skip", &gpgChoice, "")
+
+	cmd := aptcommand.NewAptSetupCommand().
+		SetServerDetails(sc.serverDetails).
+		SetRepoName(sc.repoName).
+		SetDist(dist).
+		SetComponent(component)
+	switch strings.ToLower(strings.TrimSpace(gpgChoice)) {
+	case "":
+		// Leave GPG unconfigured.
+	case "import":
+		cmd.SetImportKey(true)
+	case "trusted":
+		cmd.SetTrusted(true)
+	default:
+		return errorutils.CheckErrorf("invalid GPG mode %q — expected 'import', 'trusted', or empty", gpgChoice)
+	}
+	return cmd.Run()
 }

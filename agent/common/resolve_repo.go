@@ -59,7 +59,7 @@ func ResolveRepo(serverDetails *config.ServerDetails, flagValue string, quiet bo
 	}
 	selected := ioutils.AskFromListWithMismatchConfirmation(
 		fmt.Sprintf("Select a %s repository:", opts.Label),
-		"'%s' is not in the list of discovered repos.",
+		"Not in the list of discovered repos.",
 		options,
 	)
 	return selected, nil

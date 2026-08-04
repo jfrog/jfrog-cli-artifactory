@@ -4,7 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"testing"
+
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
 
 type statusCodeError struct {
@@ -110,5 +114,50 @@ func TestPackageVersionExistsUnknownError(t *testing.T) {
 	}
 	if _, ok := jfrogClientHTTPStatusCode(errors.New("connection refused")); ok {
 		t.Fatal("expected unparseable error")
+	}
+}
+
+func TestLatestOrFallback_FallsBackOnUnparsableVersions(t *testing.T) {
+	versions := []string{"not-semver", "also-not-semver"}
+	got := latestOrFallback(versions)
+	want := versions[len(versions)-1]
+	if got != want {
+		t.Fatalf("got %q, want last element %q", got, want)
+	}
+}
+
+func TestPromptForNewVersion_EmptyInputAborts(t *testing.T) {
+	origStdin := os.Stdin
+	defer func() { os.Stdin = origStdin }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+	os.Stdin = r
+
+	go func() {
+		defer func() { _ = w.Close() }()
+		_, _ = w.WriteString("\n")
+	}()
+
+	_, err = promptForNewVersion()
+	if err == nil {
+		t.Fatal("expected an error for empty version input")
+	}
+	if !strings.Contains(err.Error(), "no version provided, aborting") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestFetchExistingVersionStrings_ToleratesListError(t *testing.T) {
+	got := fetchExistingVersionStrings(ResolveMissingVersionOpts{
+		ListVersions: func(*config.ServerDetails, string, string) ([]PublishableVersion, error) {
+			return nil, errors.New("network error")
+		},
+	})
+	if len(got) != 0 {
+		t.Fatalf("got %v, want empty slice on lookup error", got)
 	}
 }

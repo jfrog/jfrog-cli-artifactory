@@ -11,6 +11,7 @@ import (
 
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/gofrog/version"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
@@ -20,6 +21,8 @@ import (
 
 type PnpmInstallCommand struct {
 	pnpmArgs           []string
+	executedArgs       []string
+	pnpmVersion        *version.Version
 	workingDirectory   string
 	buildConfiguration *buildUtils.BuildConfiguration
 	serverDetails      *config.ServerDetails
@@ -41,6 +44,11 @@ func (pic *PnpmInstallCommand) SetBuildConfiguration(buildConfiguration *buildUt
 
 func (pic *PnpmInstallCommand) SetServerDetails(serverDetails *config.ServerDetails) *PnpmInstallCommand {
 	pic.serverDetails = serverDetails
+	return pic
+}
+
+func (pic *PnpmInstallCommand) SetPnpmVersion(pnpmVersion *version.Version) *PnpmInstallCommand {
+	pic.pnpmVersion = pnpmVersion
 	return pic
 }
 
@@ -84,6 +92,7 @@ func (pic *PnpmInstallCommand) Run() error {
 
 func (pic *PnpmInstallCommand) runPnpmInstall() error {
 	args := append([]string{"install"}, pic.pnpmArgs...)
+	pic.executedArgs = args
 	log.Debug("Running command: pnpm", strings.Join(args, " "))
 	cmd := exec.Command("pnpm", args...)
 	cmd.Dir = pic.workingDirectory
@@ -119,7 +128,17 @@ func (pic *PnpmInstallCommand) collectAndSaveBuildInfo() error {
 		return err
 	}
 
-	return saveBuildInfo(modules, pic.buildConfiguration)
+	pnpmBuild, err := newBuild(pic.buildConfiguration)
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+
+	if err = saveBuildInfo(modules, pic.buildConfiguration, pnpmBuild); err != nil {
+		return err
+	}
+
+	recordPnpmCommandMetadata(pnpmBuild, pic.pnpmVersion, pic.executedArgs)
+	return nil
 }
 
 func runPnpmLs(workingDir string) ([]pnpmLsProject, error) {
@@ -150,7 +169,7 @@ func runPnpmLs(workingDir string) ([]pnpmLsProject, error) {
 	return projects, nil
 }
 
-func saveBuildInfo(modules []*moduleInfo, buildConfiguration *buildUtils.BuildConfiguration) error {
+func saveBuildInfo(modules []*moduleInfo, buildConfiguration *buildUtils.BuildConfiguration, pnpmBuild *build.Build) error {
 	buildName, err := buildConfiguration.GetBuildName()
 	if err != nil {
 		return err
@@ -160,11 +179,6 @@ func saveBuildInfo(modules []*moduleInfo, buildConfiguration *buildUtils.BuildCo
 		return err
 	}
 	log.Debug(fmt.Sprintf("Saving build info for build: %s/%s", buildName, buildNumber))
-
-	pnpmBuild, err := newBuild(buildConfiguration)
-	if err != nil {
-		return errorutils.CheckError(err)
-	}
 
 	customModule := buildConfiguration.GetModule()
 	totalDeps := 0

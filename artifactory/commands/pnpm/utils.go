@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/gofrog/version"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -15,54 +16,80 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+// recordPnpmCommandMetadata saves the pnpm version and the full executed pnpm
+// command as build-info properties, mirroring the docker.build.command pattern
+// used by the docker build command (docker_build.go's getBiProperties). Takes
+// the already-resolved pnpm version and build handle so it doesn't re-spawn
+// `pnpm --version` or re-run build prerequisite prep, both already done by the
+// caller's command validation and build-info setup.
+func recordPnpmCommandMetadata(pnpmBuild *build.Build, pnpmVersion *version.Version, commandArgs []string) {
+	env := buildCommandMetadataEnv(pnpmVersion, commandArgs)
+	if err := pnpmBuild.SavePartialBuildInfo(&entities.Partial{Env: env}); err != nil {
+		log.Warn("Failed to save pnpm command metadata:", err.Error())
+	}
+}
+
+// buildCommandMetadataEnv builds the pnpm.command/pnpm.version build-info Env entries.
+func buildCommandMetadataEnv(pnpmVersion *version.Version, commandArgs []string) entities.Env {
+	env := entities.Env{"pnpm.command": "pnpm " + strings.Join(commandArgs, " ")}
+	if pnpmVersion != nil {
+		env["pnpm.version"] = pnpmVersion.GetVersion()
+	}
+	return env
+}
+
 const (
-	minSupportedPnpmVersion     = "10.0.0"
-	firstUnsupportedPnpmVersion = "11.0.0" // exclusive upper bound: 10.x only
-	minRequiredNodeVersion      = "18.12.0"
+	minSupportedPnpmVersion = "10.0.0"
+	pnpm11Version           = "11.0.0"
+	// minRequiredNodeVersion applies to pnpm 10.x. pnpm 11 dropped support for Node
+	// versions below 22.13 (pure ESM), so pnpm >= 11 requires minRequiredNodeVersionForPnpm11 instead.
+	minRequiredNodeVersion          = "18.12.0"
+	minRequiredNodeVersionForPnpm11 = "22.13.0"
 )
 
 // NewCommand creates a pnpm command by subcommand name with common fields set.
 func NewCommand(cmdName string, args []string, buildConfig *buildUtils.BuildConfiguration, serverDetails *config.ServerDetails) (commands.Command, error) {
-	if err := validatePnpmPrerequisites(); err != nil {
+	pnpmVer, err := validatePnpmPrerequisites()
+	if err != nil {
 		return nil, err
 	}
 	switch cmdName {
 	case "install", "i":
-		return NewPnpmInstallCommand().SetArgs(args).SetBuildConfiguration(buildConfig).SetServerDetails(serverDetails), nil
+		return NewPnpmInstallCommand().SetArgs(args).SetBuildConfiguration(buildConfig).SetServerDetails(serverDetails).SetPnpmVersion(pnpmVer), nil
 	case "publish":
-		return NewPnpmPublishCommand().SetArgs(args).SetBuildConfiguration(buildConfig).SetServerDetails(serverDetails), nil
+		return NewPnpmPublishCommand().SetArgs(args).SetBuildConfiguration(buildConfig).SetServerDetails(serverDetails).SetPnpmVersion(pnpmVer), nil
 	default:
 		return nil, fmt.Errorf("unsupported pnpm command: %s", cmdName)
 	}
 }
 
-// validatePnpmPrerequisites checks that pnpm and Node.js meet the version requirements.
-// Currently only pnpm 10.x is supported.
-func validatePnpmPrerequisites() error {
+// validatePnpmPrerequisites checks that pnpm and Node.js meet the version requirements,
+// returning the resolved pnpm version so callers don't need to re-query it.
+func validatePnpmPrerequisites() (*version.Version, error) {
 	pnpmVer, err := getPnpmVersion()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if pnpmVer.Compare(minSupportedPnpmVersion) > 0 {
-		return errorutils.CheckErrorf(
+		return nil, errorutils.CheckErrorf(
 			"JFrog CLI pnpm commands require pnpm version %s or higher. Current version: %s", minSupportedPnpmVersion, pnpmVer.GetVersion())
-	}
-	if pnpmVer.Compare(firstUnsupportedPnpmVersion) <= 0 {
-		return errorutils.CheckErrorf(
-			"JFrog CLI pnpm commands currently support pnpm 10.x only. Current version: %s", pnpmVer.GetVersion())
 	}
 	log.Debug("pnpm version:", pnpmVer.GetVersion())
 
 	nodeVer, err := getNodeJSVersion()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if nodeVer.Compare(minRequiredNodeVersion) > 0 {
-		return errorutils.CheckErrorf(
-			"pnpm 10 requires Node.js version %s or higher. Current version: %s", minRequiredNodeVersion, nodeVer.GetVersion())
+	requiredNodeVersion := minRequiredNodeVersion
+	if pnpmVer.Compare(pnpm11Version) <= 0 {
+		requiredNodeVersion = minRequiredNodeVersionForPnpm11
+	}
+	if nodeVer.Compare(requiredNodeVersion) > 0 {
+		return nil, errorutils.CheckErrorf(
+			"pnpm %s requires Node.js version %s or higher. Current version: %s", pnpmVer.GetVersion(), requiredNodeVersion, nodeVer.GetVersion())
 	}
 	log.Debug("Node.js version:", nodeVer.GetVersion())
-	return nil
+	return pnpmVer, nil
 }
 
 // getPnpmVersion returns the installed pnpm version.

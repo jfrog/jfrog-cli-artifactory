@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateInitScript(t *testing.T) {
@@ -67,6 +68,34 @@ func TestWriteInitScript(t *testing.T) {
 	content, err := os.ReadFile(expectedPath)
 	assert.NoError(t, err)
 	assert.Equal(t, initScript, string(content))
+
+	// The init script embeds the access token, so it must be written owner-only.
+	// On Windows os.Chmod only toggles the read-only attribute, so the mode is not
+	// enforced and the check is skipped.
+	if runtime.GOOS != "windows" {
+		info, statErr := os.Stat(expectedPath)
+		assert.NoError(t, statErr)
+		assert.Equal(t, os.FileMode(0600), info.Mode().Perm(), "init script must be owner-only")
+	}
+}
+
+// An init script left world-readable by an earlier run must be tightened too:
+// os.WriteFile applies its mode only when it creates the file.
+func TestWriteInitScript_HardensExistingFile(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv(UserHomeEnv, tempDir)
+	scriptPath := filepath.Join(tempDir, "init.d", InitScriptName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(scriptPath), 0755))
+	require.NoError(t, os.WriteFile(scriptPath, []byte("stale"), 0644))
+	require.NoError(t, os.Chmod(scriptPath, 0644))
+
+	require.NoError(t, WriteInitScript("fresh token-bearing content"))
+
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(scriptPath)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0600), info.Mode().Perm(), "a pre-existing init script must be tightened to 0600")
+	}
 }
 
 // TestExtractBuildFilePath tests extraction of build file path from Gradle arguments

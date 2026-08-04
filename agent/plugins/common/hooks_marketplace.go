@@ -47,9 +47,9 @@ func upsertLocalMarketplaceEntry(path, slug, version, marketplaceName string) er
 		Source:  "./" + slug,
 	}
 	found := false
-	for i, p := range m.Plugins {
-		if strings.EqualFold(p.Name, slug) {
-			m.Plugins[i] = entry
+	for index, plugin := range m.Plugins {
+		if strings.EqualFold(plugin.Name, slug) {
+			m.Plugins[index] = entry
 			found = true
 			break
 		}
@@ -70,9 +70,9 @@ func removeLocalMarketplaceEntry(path, slug string) error {
 	}
 	n := len(m.Plugins)
 	kept := m.Plugins[:0]
-	for _, p := range m.Plugins {
-		if !strings.EqualFold(p.Name, slug) {
-			kept = append(kept, p)
+	for _, plugin := range m.Plugins {
+		if !strings.EqualFold(plugin.Name, slug) {
+			kept = append(kept, plugin)
 		}
 	}
 	if len(kept) == n {
