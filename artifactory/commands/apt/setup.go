@@ -189,39 +189,46 @@ func (c *AptSetupCommand) Run() error {
 // runRemove deletes all jfrog-managed sources.list and preferences files.
 // If --dist is set, only files matching that dist suffix are removed.
 func (c *AptSetupCommand) runRemove() error {
-	var wantedSuffix string
+	// Validate before matching so a crafted --dist/--repo cannot slip path
+	// separators/".." into the comparison (glob metacharacters stay harmless
+	// because the glob pattern below is the fixed "jfrog-*" and repo/dist are
+	// only ever compared as literal prefix/suffix, never expanded).
 	if c.dist != "" {
-		// Reject path separators/".." so a crafted --dist cannot make the glob
-		// match and delete files outside the apt config directories.
 		if err := validateSourcesToken("dist", c.dist); err != nil {
 			return err
 		}
-		wantedSuffix = "-" + c.dist
+	}
+	if c.repoName != "" {
+		if err := validateSourcesToken("repo", c.repoName); err != nil {
+			return err
+		}
 	}
 
+	// Files are named jfrog-<repo>-<dist>.<ext>. Narrow by whichever of repo/dist
+	// is set so `--remove --repo=A` only deletes repo A's config, not every repo's:
+	//   repo+dist → prefix "jfrog-<repo>-" AND suffix "-<dist><ext>"
+	//   repo only → prefix "jfrog-<repo>-"                (any dist for that repo)
+	//   dist only → suffix "-<dist><ext>"                 (that dist for any repo)
+	//   neither   → every jfrog-*<ext>
 	removed := 0
 	for _, dir := range []struct{ path, ext string }{
 		{sourcesListDir, ".list"},
 		{preferencesDir, ".pref"},
 		{keyringsDir, ".asc"},
 	} {
-		// Glob only the fixed jfrog-* prefix, avoiding glob metacharacters in dist.
 		matches, err := filepath.Glob(filepath.Join(dir.path, "jfrog-*"))
 		if err != nil {
 			return fmt.Errorf("glob %s: %w", dir.path, err)
 		}
 		for _, f := range matches {
 			base := filepath.Base(f)
-			// Retain only matches ending with the requested suffix extension.
-			// If wantedSuffix is empty, match files ending with just the extension (any dist).
-			// Otherwise, match files ending with "-<dist><extension>".
-			var suffixMatch bool
-			if wantedSuffix == "" {
-				suffixMatch = strings.HasSuffix(base, dir.ext)
-			} else {
-				suffixMatch = strings.HasSuffix(base, wantedSuffix+dir.ext)
+			if !strings.HasSuffix(base, dir.ext) {
+				continue
 			}
-			if !suffixMatch {
+			if c.repoName != "" && !strings.HasPrefix(base, "jfrog-"+c.repoName+"-") {
+				continue
+			}
+			if c.dist != "" && !strings.HasSuffix(base, "-"+c.dist+dir.ext) {
 				continue
 			}
 			if err := os.Remove(f); err != nil {
@@ -272,15 +279,22 @@ func (c *AptSetupCommand) writeSourcesListIdempotent(targetFile, sourceLine stri
 		}
 		log.Info("Updating existing apt source configuration.")
 	}
-	return true, os.WriteFile(targetFile, []byte(sourceLine+"\n"), 0600)
+	if err := os.WriteFile(targetFile, []byte(sourceLine+"\n"), 0600); err != nil {
+		return true, err
+	}
+	// os.WriteFile applies the mode only when it creates the file; on an existing
+	// file the bits are left as-is. Force 0600 so a pre-existing looser file (older
+	// binary, manual edit) is tightened — this file embeds credentials in the URL.
+	return true, os.Chmod(targetFile, 0600)
 }
 
 // writePinningFile writes an apt preferences file that gives Artifactory
-// packages priority 1001 — higher than any default (990) or pinned (1000)
-// source. apt will prefer Artifactory when both it and another repo have
-// the package; if only another repo has it, apt still installs from there.
-// This is not a hard block but prevents silent downgrades to non-Artifactory
-// versions when both sources carry the same package.
+// packages priority 1001 — above apt's downgrade threshold (1000). So whenever
+// Artifactory carries the package it ALWAYS wins version selection, even when
+// that means installing an older Artifactory version over a newer one from
+// another repo (a deliberate downgrade). If only another repo has the package,
+// apt still installs it from there — this pins version preference for shared
+// packages, it does not block packages Artifactory doesn't carry.
 func writePinningFile(path, artHost string) error {
 	content := fmt.Sprintf("Package: *\nPin: origin %s\nPin-Priority: 1001\n", artHost)
 	return os.WriteFile(path, []byte(content), 0644)

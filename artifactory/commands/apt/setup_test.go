@@ -292,6 +292,81 @@ func TestRunRemove_GlobMetacharDistMatchesNothing(t *testing.T) {
 	assert.FileExists(t, filepath.Join(dir, "jfrog-repoA-noble.pref"))
 }
 
+func TestRunRemove_RepoScoped(t *testing.T) {
+	// --remove --repo=A must delete only repo A's files, leaving other repos intact.
+	dir := t.TempDir()
+	origSrc, origPref, origKey := sourcesListDir, preferencesDir, keyringsDir
+	sourcesListDir = dir
+	preferencesDir = dir
+	keyringsDir = dir
+	defer func() {
+		sourcesListDir = origSrc
+		preferencesDir = origPref
+		keyringsDir = origKey
+	}()
+
+	for _, name := range []string{
+		"jfrog-repoA-noble.list", "jfrog-repoA-noble.pref", "jfrog-repoA-jammy.list",
+		"jfrog-repoB-noble.list", "jfrog-repoB-noble.pref",
+	} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("x"), 0600))
+	}
+
+	cmd := &AptSetupCommand{repoName: "repoA"}
+	require.NoError(t, cmd.runRemove())
+
+	assert.NoFileExists(t, filepath.Join(dir, "jfrog-repoA-noble.list"))
+	assert.NoFileExists(t, filepath.Join(dir, "jfrog-repoA-noble.pref"))
+	assert.NoFileExists(t, filepath.Join(dir, "jfrog-repoA-jammy.list"))
+	assert.FileExists(t, filepath.Join(dir, "jfrog-repoB-noble.list"), "other repo must survive")
+	assert.FileExists(t, filepath.Join(dir, "jfrog-repoB-noble.pref"), "other repo must survive")
+}
+
+func TestRunRemove_RepoAndDistScoped(t *testing.T) {
+	dir := t.TempDir()
+	origSrc, origPref, origKey := sourcesListDir, preferencesDir, keyringsDir
+	sourcesListDir = dir
+	preferencesDir = dir
+	keyringsDir = dir
+	defer func() {
+		sourcesListDir = origSrc
+		preferencesDir = origPref
+		keyringsDir = origKey
+	}()
+
+	for _, name := range []string{
+		"jfrog-repoA-noble.list", "jfrog-repoA-jammy.list", "jfrog-repoB-noble.list",
+	} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("x"), 0600))
+	}
+
+	cmd := &AptSetupCommand{repoName: "repoA", dist: "noble"}
+	require.NoError(t, cmd.runRemove())
+
+	assert.NoFileExists(t, filepath.Join(dir, "jfrog-repoA-noble.list"))
+	assert.FileExists(t, filepath.Join(dir, "jfrog-repoA-jammy.list"), "repoA other dist must survive")
+	assert.FileExists(t, filepath.Join(dir, "jfrog-repoB-noble.list"), "other repo must survive")
+}
+
+func TestWriteSourcesListIdempotent_TightensExistingLoosePerms(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix file permission bits not supported on Windows")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.list")
+	// Pre-existing file with loose (world-readable) perms.
+	require.NoError(t, os.WriteFile(path, []byte("deb https://old-host/repo noble main\n"), 0644))
+
+	cmd := &AptSetupCommand{}
+	wrote, err := cmd.writeSourcesListIdempotent(path, "deb https://new-host/repo noble main")
+	require.NoError(t, err)
+	assert.True(t, wrote)
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0600), info.Mode().Perm(), "credential-bearing file must be tightened to 0600")
+}
+
 func TestRunRemove_NothingToRemove(t *testing.T) {
 	dir := t.TempDir()
 	origSrc, origPref, origKey := sourcesListDir, preferencesDir, keyringsDir

@@ -83,6 +83,17 @@ func TestValidateSourcesToken_PathTraversal(t *testing.T) {
 	assert.Error(t, validateSourcesToken("dist", ".."))
 }
 
+func TestValidateSourcesToken_Whitespace(t *testing.T) {
+	// A space in repo/dist injects extra whitespace-delimited fields into the line.
+	assert.Error(t, validateSourcesToken("dist", "no ble"))
+	assert.Error(t, validateSourcesToken("repo", "my repo"))
+	// Tabs are rejected everywhere, including --component.
+	assert.Error(t, validateSourcesToken("dist", "noble\t"))
+	assert.Error(t, validateSourcesToken("component", "main\tcontrib"))
+	// --component legitimately uses spaces to list multiple components.
+	assert.NoError(t, validateSourcesToken("component", "main contrib non-free"))
+}
+
 // ── WriteTempSourcesList ──────────────────────────────────────────────────────
 
 func TestWriteTempSourcesList_ContainsSourcesLine(t *testing.T) {

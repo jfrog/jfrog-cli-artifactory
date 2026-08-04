@@ -161,9 +161,11 @@ func buildSourcesLine(serverDetails *config.ServerDetails, repoName, dist, compo
 
 // validateSourcesToken rejects values that would corrupt a sources.list line or
 // escape the apt config directories when interpolated into a filesystem path.
-// Newlines, carriage returns or null bytes would inject extra sources lines;
-// path separators or ".." would let a token (repo/dist) write or delete files
-// outside /etc/apt/{sources.list.d,preferences.d,keyrings}.
+// Newlines, carriage returns, tabs or null bytes would inject extra sources
+// lines; path separators or ".." would let a token (repo/dist) write or delete
+// files outside /etc/apt/{sources.list.d,preferences.d,keyrings}. A space is
+// rejected for every field except --component, where it is the intended
+// separator for multiple components ("main contrib non-free").
 func validateSourcesToken(field, value string) error {
 	if value == "" {
 		return fmt.Errorf("--%s must not be empty", field)
@@ -172,8 +174,11 @@ func validateSourcesToken(field, value string) error {
 		return fmt.Errorf("invalid character in --%s: path separators are not allowed", field)
 	}
 	for _, r := range value {
-		if r == '\n' || r == '\r' || r == '\000' {
+		if r == '\n' || r == '\r' || r == '\000' || r == '\t' {
 			return fmt.Errorf("invalid character in --%s: control characters are not allowed", field)
+		}
+		if r == ' ' && field != "component" {
+			return fmt.Errorf("invalid character in --%s: spaces are not allowed", field)
 		}
 	}
 	return nil

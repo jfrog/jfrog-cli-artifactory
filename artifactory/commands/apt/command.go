@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -125,9 +126,34 @@ func hasPersistentAptConfig() bool {
 	return err == nil && len(matches) > 0
 }
 
+// sweepStaleTempSources best-effort removes leftover on-the-fly sources.list temp
+// files (which embed credentials in the repo URL) abandoned by a previous run
+// that was killed — OOM, SIGKILL, CI cancellation — before its deferred
+// os.Remove ran. Only files older than one hour are removed, so a concurrent
+// in-flight `jf apt` is never disturbed. Errors are ignored: this is hygiene, not
+// correctness.
+func sweepStaleTempSources() {
+	matches, err := filepath.Glob(filepath.Join(os.TempDir(), "jfrog-apt-sources-*.list"))
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-time.Hour)
+	for _, f := range matches {
+		if info, err := os.Stat(f); err == nil && info.ModTime().Before(cutoff) {
+			_ = os.Remove(f)
+		}
+	}
+}
+
 func (c *AptCommand) Run() error {
 	if len(c.args) == 0 {
 		return fmt.Errorf("no apt arguments provided")
+	}
+
+	// Default the component so a missing --component never makes buildSourcesLine
+	// reject an empty token and silently disable auth injection on the on-the-fly path.
+	if c.component == "" {
+		c.component = "main"
 	}
 
 	nativeTool := "apt-get"
@@ -138,8 +164,18 @@ func (c *AptCommand) Run() error {
 	}
 
 	if nativeTool == "apt-get" && !c.skipLogin {
+		usePersistentConfig := func() {
+			// 'jf setup apt' already wrote a persistent jfrog-*.list with embedded
+			// credentials. Native apt-get resolves against it directly — no temp
+			// source needed, and no missing-auth warning is warranted.
+			log.Info("Using persistent Artifactory apt configuration from " + sourcesListDir +
+				" (written by 'jf setup apt').")
+		}
 		switch {
 		case c.serverDetails != nil && c.repoName != "" && c.dist != "":
+			// Best-effort: clear credential-bearing temp files abandoned by a prior
+			// run killed before its deferred cleanup ran (see sweepStaleTempSources).
+			sweepStaleTempSources()
 			tmpPath, err := WriteTempSourcesList(c.serverDetails, c.repoName, c.dist, c.component, c.trusted)
 			if err != nil {
 				log.Warn("Failed to create temporary sources.list — proceeding without auth injection: " + err.Error())
@@ -169,12 +205,16 @@ func (c *AptCommand) Run() error {
 
 				nativeArgs = append(sourceOpts, nativeArgs...)
 			}
+		case (c.repoName != "") != (c.dist != ""):
+			// Exactly one of --repo/--dist was given (the both-set case matched above).
+			// On-the-fly auth needs both, so the partial flag can't be honored — warn
+			// rather than silently ignoring it, then fall back to persistent config.
+			log.Warn("On-the-fly auth requires both --repo and --dist — the partial flag was ignored.")
+			if hasPersistentAptConfig() {
+				usePersistentConfig()
+			}
 		case hasPersistentAptConfig():
-			// 'jf setup apt' already wrote a persistent jfrog-*.list with embedded
-			// credentials. Native apt-get resolves against it directly — no temp
-			// source needed, and no missing-auth warning is warranted.
-			log.Info("Using persistent Artifactory apt configuration from " + sourcesListDir +
-				" (written by 'jf setup apt').")
+			usePersistentConfig()
 		default:
 			log.Warn("--repo and --dist not both specified and no persistent 'jf setup apt' " +
 				"configuration found — running apt-get without auth injection. Pass --repo and " +
