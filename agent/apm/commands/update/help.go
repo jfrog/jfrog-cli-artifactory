@@ -20,8 +20,18 @@ Prerequisites:
 - Registry configured via jf setup agent-apm or apm.yml's registries: block.
 
 Common patterns:
-  $ jf agent apm update
-  $ jf agent apm update --build-name=my-build --build-number=1
+  # Preview the update plan without applying anything
+  $ jf agent apm update --dry-run
+
+  # Apply the update plan and record build-info
+  $ jf agent apm update --yes --build-name=my-build --build-number=1
+
+Note:
+- --yes is required to actually apply an update. update always shows a plan and asks for
+  confirmation first; without --yes it exits with an error instead of applying anything,
+  even when there's a real plan to apply.
+- A dependency pinned to a bare tag (#1.0.0) never has anything to update - only a semver
+  range (#^1.0.0, #~1.0.0) gives update room to move to a newer matching version.
 
 Version constraints:
 - Respects version constraints in apm.yml's dependencies section.

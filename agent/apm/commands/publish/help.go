@@ -19,9 +19,17 @@ Prerequisites:
 - Registry configured via jf setup agent-apm or apm.yml's registries: block.
 
 Common patterns:
+  # Auto-pack apm.yml/.apm/ and publish
   $ jf agent apm publish --package my-org/my-package
+
+  # Publish and record build-info
   $ jf agent apm publish --package my-org/my-package --build-name=my-build --build-number=1
+
+  # Group multiple packages under one build-info module
   $ jf agent apm publish --package my-org/my-package --build-name=my-build --build-number=1 --module=my-module
+
+  # Preview what would be uploaded without publishing anything
+  $ jf agent apm publish --package my-org/my-package --dry-run
 
 Note:
 - --package is required and must be passed explicitly (owner/name); it is not inferred from a

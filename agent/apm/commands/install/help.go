@@ -18,8 +18,27 @@ Prerequisites:
 - Read permission on the source Artifactory agentpackages repository.
 
 Common patterns:
+  # Install everything already declared in apm.yml
   $ jf agent apm install
-  $ jf agent apm install --build-name=my-build --build-number=1
+
+  # Add and install a package at an exact version
+  $ jf agent apm install my-org/my-package#1.0.0 --target claude
+
+  # Install a floating version range and record build-info
+  $ jf agent apm install "my-org/my-package#^1.0.0" --target claude --build-name=my-build --build-number=1
+
+  # Preview what would be installed without installing anything
+  $ jf agent apm install --dry-run
+
+  # Add a dev-only dependency
+  $ jf agent apm install --dev my-org/my-dev-tool#1.0.0
+
+Note:
+- A bare tag (#1.0.0) is an exact pin: apm update never moves it. Use a semver range
+  (#^1.0.0, #~1.0.0) if you want later updates to pick up newer matching versions.
+- --dry-run shows what would be installed without installing, and skips build-info
+  entirely (there's nothing real to record). --global installs to ~/.apm instead of the
+  current project and also skips build-info, since it isn't scoped to any one project.
 
 Build info:
 - Enabled with --build-name and --build-number flags.
