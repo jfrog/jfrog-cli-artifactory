@@ -100,6 +100,7 @@ var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
 	project.Docker: {location: "your Docker credential store", credentialsOnly: true},
 	project.Podman: {location: "your Podman credential store", credentialsOnly: true},
 	project.Helm:   {location: "your Helm registry credential store", credentialsOnly: true},
+	project.Apt:    {location: "your apt configuration"},
 }
 
 // configScopeNote describes what the command changed and how widely it applies, or
