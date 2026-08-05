@@ -2,7 +2,6 @@ package common
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	prompt "github.com/c-bata/go-prompt"
@@ -20,17 +19,8 @@ type SelectPackageVersionOpts struct {
 	Quiet     bool
 }
 
-// hasStdinTTY returns true if stdin is connected to a terminal.
-// This is a safety check to prevent go-prompt panic in non-interactive environments.
-func hasStdinTTY() bool {
-	stat, err := os.Stdin.Stat()
-	if err != nil {
-		return false
-	}
-	return (stat.Mode() & os.ModeCharDevice) != 0
-}
-
 // SelectPackageVersion resolves "" / "latest" / exact match / interactive prompt for install and update.
+// IsNonInteractive() already prevents go-prompt from being called in non-TTY environments.
 func SelectPackageVersion(opts SelectPackageVersionOpts) (string, error) {
 	requested := strings.TrimSpace(opts.Requested)
 	if isLatestVersionRequest(requested) {
@@ -39,7 +29,7 @@ func SelectPackageVersion(opts SelectPackageVersionOpts) (string, error) {
 	if version, found := findPackageVersion(opts.Available, requested); found {
 		return version, nil
 	}
-	if opts.Quiet || IsNonInteractive() || !hasStdinTTY() {
+	if opts.Quiet || IsNonInteractive() {
 		return "", fmt.Errorf(
 			"version '%s' not found in repository '%s'.\nAvailable versions: %s",
 			requested, opts.RepoKey, strings.Join(opts.Available, ", "),
