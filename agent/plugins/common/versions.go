@@ -16,32 +16,44 @@ var ErrPluginNotFoundInRepo = errors.New("not found in repository")
 
 // listPluginVersions returns the version folders published under <repoKey>/<slug>/ using
 // the generic Artifactory storage API. Folder children that are not directories are skipped.
-// When a 404 occurs, it disambiguates between missing repo vs missing plugin.
+// On 404, it disambiguates between missing repo and missing plugin to provide
+// users with actionable error messages.
 func listPluginVersions(serverDetails *config.ServerDetails, repoKey, slug string) ([]string, error) {
 	if serverDetails == nil {
 		return nil, fmt.Errorf("server details are required to list plugin versions")
 	}
-	if strings.TrimSpace(repoKey) == "" {
+	repoKey = strings.TrimSpace(repoKey)
+	if repoKey == "" {
 		return nil, fmt.Errorf("repository is required to list plugin versions")
 	}
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return nil, fmt.Errorf("plugin name is required to list plugin versions")
+	}
+
 	serviceManager, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
 	if err != nil {
 		return nil, err
 	}
 	info, err := serviceManager.FolderInfo(fmt.Sprintf("%s/%s", repoKey, slug))
 	if err != nil {
-		// If we got a 404, disambiguate: is it the repo or the plugin that's missing?
+		// On 404, determine whether the repo or plugin is missing by checking repo existence.
+		// This gives users clearer error messages for troubleshooting.
 		if agentcommon.IsHTTPNotFound(err) {
-			// Check if the repo itself exists
+			// Attempt to fetch the repo to distinguish repo-missing from plugin-missing errors.
 			_, repoErr := serviceManager.FolderInfo(repoKey)
 			if repoErr != nil && agentcommon.IsHTTPNotFound(repoErr) {
-				return nil, fmt.Errorf("repository '%s' not found", repoKey)
+				return nil, fmt.Errorf("repository '%s' not found: %w", repoKey, repoErr)
 			}
-			// Repo exists, so it's the plugin that's missing
+			if repoErr != nil {
+				// Non-404 errors from repo probe should be propagated (e.g., auth, network).
+				return nil, fmt.Errorf("repository '%s': %w", repoKey, repoErr)
+			}
+			// Repo exists, so it's the plugin that's missing.
 			// Wrap ErrPluginNotFoundInRepo so errors.Is() can find it for special handling in update.go
 			return nil, fmt.Errorf("plugin '%s' not found in repository '%s': %w", slug, repoKey, ErrPluginNotFoundInRepo)
 		}
-		return nil, err
+		return nil, fmt.Errorf("list plugin versions: %w", err)
 	}
 	versions := make([]string, 0, len(info.Children))
 	for _, child := range info.Children {

@@ -38,14 +38,21 @@ func ListSkills(serverDetails *config.ServerDetails, repoKey string, limit int, 
 // ListVersions returns the version folders published under <repoKey>/<slug>/ using
 // the generic Artifactory storage API, bypassing any Skills API filtering.
 // This queries raw storage instead of the filtered Skills API endpoint.
-// When a 404 occurs, it disambiguates between missing repo vs missing skill.
+// On 404, it disambiguates between missing repo and missing skill to provide
+// users with actionable error messages.
 func ListVersions(serverDetails *config.ServerDetails, repoKey, slug string) ([]services.SkillVersion, error) {
 	if serverDetails == nil {
 		return nil, fmt.Errorf("server details are required to list skill versions")
 	}
-	if strings.TrimSpace(repoKey) == "" {
+	repoKey = strings.TrimSpace(repoKey)
+	if repoKey == "" {
 		return nil, fmt.Errorf("repository is required to list skill versions")
 	}
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return nil, fmt.Errorf("skill name is required to list skill versions")
+	}
+
 	serviceManager, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
 	if err != nil {
 		return nil, err
@@ -54,17 +61,22 @@ func ListVersions(serverDetails *config.ServerDetails, repoKey, slug string) ([]
 	// Query raw storage layer instead of filtered Skills API
 	info, err := serviceManager.FolderInfo(fmt.Sprintf("%s/%s", repoKey, slug))
 	if err != nil {
-		// If we got a 404, disambiguate: is it the repo or the skill that's missing?
+		// On 404, determine whether the repo or skill is missing by checking repo existence.
+		// This gives users clearer error messages for troubleshooting.
 		if agentcommon.IsHTTPNotFound(err) {
-			// Check if the repo itself exists
+			// Attempt to fetch the repo to distinguish repo-missing from skill-missing errors.
 			_, repoErr := serviceManager.FolderInfo(repoKey)
 			if repoErr != nil && agentcommon.IsHTTPNotFound(repoErr) {
-				return nil, fmt.Errorf("repository '%s' not found", repoKey)
+				return nil, fmt.Errorf("repository '%s' not found: %w", repoKey, repoErr)
 			}
-			// Repo exists, so it's the skill that's missing
-			return nil, fmt.Errorf("skill '%s' not found in repository '%s'", slug, repoKey)
+			if repoErr != nil {
+				// Non-404 errors from repo probe should be propagated (e.g., auth, network).
+				return nil, fmt.Errorf("repository '%s': %w", repoKey, repoErr)
+			}
+			// Repo exists, so it's the skill that's missing.
+			return nil, fmt.Errorf("skill '%s' not found in repository '%s': %w", slug, repoKey, err)
 		}
-		return nil, err
+		return nil, fmt.Errorf("list skill versions: %w", err)
 	}
 
 	versions := make([]services.SkillVersion, 0, len(info.Children))
