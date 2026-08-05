@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"golang.org/x/term"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 )
 
@@ -21,16 +22,16 @@ func IsQuiet(context *components.Context) bool {
 }
 
 // IsNonInteractive returns true when interactive prompts cannot be used safely.
+// Checks both CI env var and whether stdin is connected to a terminal.
 // go-prompt will panic if it tries to read from a non-terminal stdin.
 func IsNonInteractive() bool {
 	if IsEnvTrue(envCI) {
 		return true
 	}
-	stat, err := os.Stdin.Stat()
-	if err != nil {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return true
 	}
-	return (stat.Mode() & os.ModeCharDevice) == 0
+	return false
 }
 
 // IsEnvTrue reports whether key is set to a truthy value ("true", "1", "t", etc.)

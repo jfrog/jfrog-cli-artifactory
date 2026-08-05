@@ -20,7 +20,6 @@ type SelectPackageVersionOpts struct {
 }
 
 // SelectPackageVersion resolves "" / "latest" / exact match / interactive prompt for install and update.
-// IsNonInteractive() already prevents go-prompt from being called in non-TTY environments.
 func SelectPackageVersion(opts SelectPackageVersionOpts) (string, error) {
 	requested := strings.TrimSpace(opts.Requested)
 	if isLatestVersionRequest(requested) {
