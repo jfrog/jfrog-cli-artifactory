@@ -10,14 +10,13 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
 
-// ErrPluginNotFoundInRepo is returned when repoKey/slug doesn't exist in Artifactory
-// (compare with errors.Is). This can mean the plugin was genuinely never published there,
-// or that repoKey isn't an Artifactory repo jf manages at all — e.g. a native marketplace
-// name passed via --repo (such as Claude's built-in "claude-plugins-official").
+// ErrPluginNotFoundInRepo indicates the plugin was not found in the specified repository.
+// This is distinct from the repository itself not existing.
 var ErrPluginNotFoundInRepo = errors.New("not found in repository")
 
 // listPluginVersions returns the version folders published under <repoKey>/<slug>/ using
 // the generic Artifactory storage API. Folder children that are not directories are skipped.
+// When a 404 occurs, it disambiguates between missing repo vs missing plugin.
 func listPluginVersions(serverDetails *config.ServerDetails, repoKey, slug string) ([]string, error) {
 	if serverDetails == nil {
 		return nil, fmt.Errorf("server details are required to list plugin versions")
@@ -31,6 +30,17 @@ func listPluginVersions(serverDetails *config.ServerDetails, repoKey, slug strin
 	}
 	info, err := serviceManager.FolderInfo(fmt.Sprintf("%s/%s", repoKey, slug))
 	if err != nil {
+		// If we got a 404, disambiguate: is it the repo or the plugin that's missing?
+		if agentcommon.IsHTTPNotFound(err) {
+			// Check if the repo itself exists
+			_, repoErr := serviceManager.FolderInfo(repoKey)
+			if repoErr != nil && agentcommon.IsHTTPNotFound(repoErr) {
+				return nil, fmt.Errorf("repository '%s' not found", repoKey)
+			}
+			// Repo exists, so it's the plugin that's missing
+			// Wrap ErrPluginNotFoundInRepo so errors.Is() can find it for special handling in update.go
+			return nil, fmt.Errorf("plugin '%s' not found in repository '%s': %w", slug, repoKey, ErrPluginNotFoundInRepo)
+		}
 		return nil, err
 	}
 	versions := make([]string, 0, len(info.Children))
@@ -64,6 +74,7 @@ func ResolveLatestPluginVersion(serverDetails *config.ServerDetails, repoKey, sl
 
 // ResolvePluginVersion lists remote versions then applies SelectPackageVersion rules.
 // Used by install and update when --version is set or when resolving latest from Artifactory.
+// listPluginVersions() already provides specific error messages disambiguating missing repo vs plugin.
 func ResolvePluginVersion(serverDetails *config.ServerDetails, repoKey, slug, requested string, quiet bool) (string, error) {
 	requested = strings.TrimSpace(requested)
 	if requested != "" && requested != "latest" {
@@ -73,9 +84,7 @@ func ResolvePluginVersion(serverDetails *config.ServerDetails, repoKey, slug, re
 	}
 	versions, err := listPluginVersions(serverDetails, repoKey, slug)
 	if err != nil {
-		if agentcommon.IsHTTPNotFound(err) {
-			return "", fmt.Errorf("plugin '%s' %w '%s'", slug, ErrPluginNotFoundInRepo, repoKey)
-		}
+		// listPluginVersions already disambiguates between missing repo vs missing plugin
 		return "", fmt.Errorf("failed to list versions: %w", err)
 	}
 	return agentcommon.SelectPackageVersion(agentcommon.SelectPackageVersionOpts{

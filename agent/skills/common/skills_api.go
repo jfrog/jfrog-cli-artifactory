@@ -1,6 +1,9 @@
 package common
 
 import (
+	"fmt"
+	"strings"
+
 	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -32,12 +35,53 @@ func ListSkills(serverDetails *config.ServerDetails, repoKey string, limit int, 
 	return allItems, nil
 }
 
+// ListVersions returns the version folders published under <repoKey>/<slug>/ using
+// the generic Artifactory storage API, bypassing any Skills API filtering.
+// This queries raw storage instead of the filtered Skills API endpoint.
+// When a 404 occurs, it disambiguates between missing repo vs missing skill.
 func ListVersions(serverDetails *config.ServerDetails, repoKey, slug string) ([]services.SkillVersion, error) {
+	if serverDetails == nil {
+		return nil, fmt.Errorf("server details are required to list skill versions")
+	}
+	if strings.TrimSpace(repoKey) == "" {
+		return nil, fmt.Errorf("repository is required to list skill versions")
+	}
 	serviceManager, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
 	if err != nil {
 		return nil, err
 	}
-	return serviceManager.ListSkillVersions(repoKey, slug)
+
+	// Query raw storage layer instead of filtered Skills API
+	info, err := serviceManager.FolderInfo(fmt.Sprintf("%s/%s", repoKey, slug))
+	if err != nil {
+		// If we got a 404, disambiguate: is it the repo or the skill that's missing?
+		if agentcommon.IsHTTPNotFound(err) {
+			// Check if the repo itself exists
+			_, repoErr := serviceManager.FolderInfo(repoKey)
+			if repoErr != nil && agentcommon.IsHTTPNotFound(repoErr) {
+				return nil, fmt.Errorf("repository '%s' not found", repoKey)
+			}
+			// Repo exists, so it's the skill that's missing
+			return nil, fmt.Errorf("skill '%s' not found in repository '%s'", slug, repoKey)
+		}
+		return nil, err
+	}
+
+	versions := make([]services.SkillVersion, 0, len(info.Children))
+	for _, child := range info.Children {
+		if !child.Folder {
+			continue
+		}
+		name := child.Uri
+		if len(name) > 0 && name[0] == '/' {
+			name = name[1:]
+		}
+		if name == "" {
+			continue
+		}
+		versions = append(versions, services.SkillVersion{Version: name})
+	}
+	return versions, nil
 }
 
 func SearchSkills(serverDetails *config.ServerDetails, repoKey, query string, limit int) ([]services.SkillSearchResult, error) {
@@ -49,11 +93,16 @@ func SearchSkills(serverDetails *config.ServerDetails, repoKey, query string, li
 }
 
 func VersionExists(serverDetails *config.ServerDetails, repoKey, slug, version string) (bool, error) {
-	serviceManager, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
+	versions, err := ListVersions(serverDetails, repoKey, slug)
 	if err != nil {
 		return false, err
 	}
-	return serviceManager.SkillVersionExists(repoKey, slug, version)
+	for _, v := range versions {
+		if v.Version == version {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func SearchSkillsByProperty(serverDetails *config.ServerDetails, query, repoKey string) ([]services.SkillPropertySearchResult, error) {

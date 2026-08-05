@@ -49,7 +49,7 @@ func ResolveRepo(serverDetails *config.ServerDetails, flagValue string, quiet bo
 		return repos[0], nil
 	}
 
-	if quiet || IsNonInteractive() {
+	if quiet || IsNonInteractive() || !hasStdinTTY() {
 		return "", fmt.Errorf("multiple %s repositories found (%s); specify --repo or set %s", opts.Label, strings.Join(repos, ", "), opts.EnvVar)
 	}
 

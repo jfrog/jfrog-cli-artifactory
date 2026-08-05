@@ -8,12 +8,12 @@ import (
 )
 
 // ResolveSkillVersion lists remote versions then applies SelectPackageVersion rules.
+// Uses the fixed ListVersions() which queries raw storage, bypassing the Skills API filter.
+// ListVersions() already disambiguates between missing repo vs missing skill on 404 errors.
 func ResolveSkillVersion(serverDetails *config.ServerDetails, repoKey, slug, requested string, quiet bool) (string, error) {
 	versions, err := ListVersions(serverDetails, repoKey, slug)
 	if err != nil {
-		if agentcommon.IsHTTPNotFound(err) {
-			return "", fmt.Errorf("skill '%s' not found in repository '%s'", slug, repoKey)
-		}
+		// ListVersions already provides specific error messages for missing repo vs skill
 		return "", fmt.Errorf("failed to list versions: %w", err)
 	}
 	available := make([]string, len(versions))
