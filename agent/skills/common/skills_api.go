@@ -61,20 +61,8 @@ func ListVersions(serverDetails *config.ServerDetails, repoKey, slug string) ([]
 	// Query raw storage layer instead of filtered Skills API
 	info, err := serviceManager.FolderInfo(fmt.Sprintf("%s/%s", repoKey, slug))
 	if err != nil {
-		// On 404, determine whether the repo or skill is missing by checking repo existence.
-		// This gives users clearer error messages for troubleshooting.
 		if agentcommon.IsHTTPNotFound(err) {
-			// Attempt to fetch the repo to distinguish repo-missing from skill-missing errors.
-			_, repoErr := serviceManager.FolderInfo(repoKey)
-			if repoErr != nil && agentcommon.IsHTTPNotFound(repoErr) {
-				return nil, fmt.Errorf("repository '%s' not found: %w", repoKey, repoErr)
-			}
-			if repoErr != nil {
-				// Non-404 errors from repo probe should be propagated (e.g., auth, network).
-				return nil, fmt.Errorf("repository '%s': %w", repoKey, repoErr)
-			}
-			// Repo exists, so it's the skill that's missing.
-			return nil, fmt.Errorf("skill '%s' not found in repository '%s': %w", slug, repoKey, err)
+			return nil, agentcommon.DisambiguateFolderError(serviceManager, repoKey, err, fmt.Errorf("skill '%s' not found in repository '%s': %w", slug, repoKey, err))
 		}
 		return nil, fmt.Errorf("list skill versions: %w", err)
 	}

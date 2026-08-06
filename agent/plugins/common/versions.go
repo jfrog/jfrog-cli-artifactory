@@ -37,21 +37,8 @@ func listPluginVersions(serverDetails *config.ServerDetails, repoKey, slug strin
 	}
 	info, err := serviceManager.FolderInfo(fmt.Sprintf("%s/%s", repoKey, slug))
 	if err != nil {
-		// On 404, determine whether the repo or plugin is missing by checking repo existence.
-		// This gives users clearer error messages for troubleshooting.
 		if agentcommon.IsHTTPNotFound(err) {
-			// Attempt to fetch the repo to distinguish repo-missing from plugin-missing errors.
-			_, repoErr := serviceManager.FolderInfo(repoKey)
-			if repoErr != nil && agentcommon.IsHTTPNotFound(repoErr) {
-				return nil, fmt.Errorf("repository '%s' not found: %w", repoKey, repoErr)
-			}
-			if repoErr != nil {
-				// Non-404 errors from repo probe should be propagated (e.g., auth, network).
-				return nil, fmt.Errorf("repository '%s': %w", repoKey, repoErr)
-			}
-			// Repo exists, so it's the plugin that's missing.
-			// Wrap ErrPluginNotFoundInRepo so errors.Is() can find it for special handling in update.go
-			return nil, fmt.Errorf("plugin '%s' not found in repository '%s': %w", slug, repoKey, ErrPluginNotFoundInRepo)
+			return nil, agentcommon.DisambiguateFolderError(serviceManager, repoKey, err, fmt.Errorf("plugin '%s' not found in repository '%s': %w", slug, repoKey, ErrPluginNotFoundInRepo))
 		}
 		return nil, fmt.Errorf("list plugin versions: %w", err)
 	}
