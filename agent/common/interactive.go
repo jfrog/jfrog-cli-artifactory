@@ -9,7 +9,25 @@ import (
 
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-client-go/utils/log"
+	"golang.org/x/term"
 )
+
+// isStdinTerminal checks if stdin is a terminal. Can be mocked for testing.
+var isStdinTerminal = defaultIsStdinTerminal
+
+func defaultIsStdinTerminal() bool {
+	return term.IsTerminal(int(os.Stdin.Fd())) // #nosec G115
+}
+
+// SetIsStdinTerminal is a test helper to mock stdin terminal checks.
+// It returns a function that reverts the mock when called.
+func SetIsStdinTerminal(isTerm bool) func() {
+	prev := isStdinTerminal
+	isStdinTerminal = func() bool { return isTerm }
+	return func() {
+		isStdinTerminal = prev
+	}
+}
 
 const envCI = "CI"
 
@@ -22,12 +40,15 @@ func IsQuiet(context *components.Context) bool {
 }
 
 // IsNonInteractive returns true when interactive prompts cannot be used safely.
-// Checks both CI env var and whether stdout is connected to a terminal.
+// Checks CI env var, stdout terminal, and stdin terminal since PromptLine reads/writes both.
 func IsNonInteractive() bool {
 	if IsEnvTrue(envCI) {
 		return true
 	}
 	if !log.IsStdOutTerminal() {
+		return true
+	}
+	if !isStdinTerminal() {
 		return true
 	}
 	return false
