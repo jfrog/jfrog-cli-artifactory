@@ -153,7 +153,9 @@ func (apkCmd *ApkCommand) ServerDetails() (*config.ServerDetails, error) {
 func (apkCmd *ApkCommand) Run() error {
 	// --repo is an explicit repository selection. Validate it before invoking native apk so
 	// every wrapped subcommand fails consistently and clearly for an unknown repository.
-	if apkCmd.repoKey != "" {
+	// Skipped when no server is configured at all: apk still works against the system's
+	// default repositories in that case, so there is nothing to validate against.
+	if apkCmd.repoKey != "" && apkCmd.serverDetails != nil {
 		if err := ensureRepoExists(apkCmd.repoKey, apkCmd.serverDetails); err != nil {
 			return err
 		}
