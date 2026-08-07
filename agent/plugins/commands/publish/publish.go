@@ -1,7 +1,6 @@
 package publish
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"os"
@@ -22,6 +21,9 @@ import (
 
 // packageVersionExists checks whether a version folder exists in Artifactory. Tests may replace it.
 var packageVersionExists = common.PackageVersionExists
+
+// listPluginVersionsFunc lists all versions of a plugin. Tests may replace it.
+var listPluginVersionsFunc = common.ListPluginVersions
 
 type PublishCommand struct {
 	serverDetails      *config.ServerDetails
@@ -93,12 +95,29 @@ func (pc *PublishCommand) Run() error {
 	if err := common.ValidateSlug(slug); err != nil {
 		return err
 	}
-	version, err := pc.resolveVersionCollision(slug, meta.Version)
+
+	version := pc.version
+	if version == "" {
+		version = meta.Version
+	}
+	if version == "" {
+		version, err = pc.resolveMissingVersion(slug)
+		if err != nil {
+			return err
+		}
+	}
+
+	version, err = pc.resolveVersionCollision(slug, version)
 	if err != nil {
 		return err
 	}
 	if err := common.ValidateSemver(version); err != nil {
 		return err
+	}
+
+	// Update all plugin.json files with the resolved version
+	if err := plugincommon.UpdatePluginManifestVersions(pc.pluginDir, version); err != nil {
+		return fmt.Errorf("failed to update plugin manifest versions: %w", err)
 	}
 
 	log.Info(fmt.Sprintf("Publishing plugin '%s' version '%s'", slug, version))
@@ -154,6 +173,29 @@ func (pc *PublishCommand) Run() error {
 	return nil
 }
 
+// resolveMissingVersion handles the case where neither --version nor plugin.json
+// provides a version. It delegates to the common version resolver.
+func (pc *PublishCommand) resolveMissingVersion(slug string) (string, error) {
+	return common.ResolveMissingVersion(common.ResolveMissingVersionOpts{
+		ServerDetails: pc.serverDetails,
+		RepoKey:       pc.repoKey,
+		Slug:          slug,
+		Quiet:         pc.quiet,
+		ListVersions: func(sd *config.ServerDetails, repo, s string) ([]common.PublishableVersion, error) {
+			versions, err := listPluginVersionsFunc(sd, repo, s)
+			if err != nil {
+				return nil, err
+			}
+			// Convert PluginVersion to PublishableVersion
+			result := make([]common.PublishableVersion, len(versions))
+			for i, v := range versions {
+				result[i] = common.PublishableVersion(v)
+			}
+			return result, nil
+		},
+	})
+}
+
 // resolveVersionCollision checks whether the given version already exists in Artifactory.
 // In interactive mode the user picks: overwrite, enter a new version, or abort.
 // In quiet, CI, or other non-interactive mode it fails so pipelines don't silently overwrite artifacts.
@@ -185,26 +227,21 @@ func (pc *PublishCommand) resolveVersionCollision(slug, version string) (string,
 	fmt.Println("  [o] Overwrite the existing version")
 	fmt.Println("  [n] Enter a new version")
 	fmt.Println("  [a] Abort")
-	fmt.Print("Your choice (o/n/a): ")
-
-	reader := bufio.NewReader(os.Stdin)
-	input, err := reader.ReadString('\n')
+	input, err := common.PromptLine("Your choice (o/n/a): ")
 	if err != nil {
-		return "", fmt.Errorf("read user input: %w", err)
+		return "", err
 	}
-	choice := strings.TrimSpace(strings.ToLower(input))
+	choice := strings.ToLower(input)
 
 	switch choice {
 	case "o":
 		log.Info(fmt.Sprintf("Overwriting version %s...", version))
 		return version, nil
 	case "n":
-		fmt.Print("Enter new version: ")
-		newInput, err := reader.ReadString('\n')
+		newVersion, err := common.PromptLine("Enter new version: ")
 		if err != nil {
-			return "", fmt.Errorf("read user input: %w", err)
+			return "", err
 		}
-		newVersion := strings.TrimSpace(newInput)
 		if newVersion == "" {
 			return "", fmt.Errorf("no version provided, aborting")
 		}
