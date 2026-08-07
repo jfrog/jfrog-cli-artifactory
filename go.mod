@@ -8,7 +8,7 @@ require (
 	github.com/forPelevin/gomoji v1.4.1
 	github.com/google/go-containerregistry v0.21.3
 	github.com/jedib0t/go-pretty/v6 v6.8.3
-	github.com/jfrog/build-info-go v1.13.1-0.20260805061509-019102d3c22e
+	github.com/jfrog/build-info-go v1.13.1-0.20260807065030-d74800144289
 	github.com/jfrog/gofrog v1.7.6
 	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260805050922-db404c216e58
 	github.com/jfrog/jfrog-cli-evidence v0.9.0
