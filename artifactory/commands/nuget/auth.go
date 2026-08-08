@@ -18,7 +18,7 @@ func WriteTempNuGetConfig(serverDetails *config.ServerDetails, repoName string, 
 	if err != nil {
 		return "", nil, fmt.Errorf("create temp dir for nuget.config: %w", err)
 	}
-	cleanup = func() { os.RemoveAll(tmpDir) }
+	cleanup = func() { _ = os.RemoveAll(tmpDir) }
 
 	sourceURL, user, password, err := dotnetcmd.GetSourceDetails(serverDetails, repoName, useV2)
 	if err != nil {
