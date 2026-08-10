@@ -699,7 +699,8 @@ func detectSystemArch() string {
 
 // detectSystemAlpineVersion reads /etc/alpine-release and returns the major.minor version
 // (e.g. "3.21", normalized later to "v3.21"). Returns "" when the file is absent or
-// unparseable (i.e. not running on Alpine).
+// unparseable (i.e. not running on Alpine). Only numeric major.minor segments are accepted
+// so a compromised alpine-release cannot inject path separators or ".." into repo URLs.
 func detectSystemAlpineVersion() string {
 	data, err := os.ReadFile("/etc/alpine-release")
 	if err != nil {
@@ -711,7 +712,23 @@ func detectSystemAlpineVersion() string {
 	if len(parts) < 2 {
 		return ""
 	}
-	return parts[0] + "." + parts[1]
+	major, minor := parts[0], parts[1]
+	if !isNumericVersionSegment(major) || !isNumericVersionSegment(minor) {
+		return ""
+	}
+	return major + "." + minor
+}
+
+func isNumericVersionSegment(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func resolveDepID(spec string) (string, error) {

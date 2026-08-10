@@ -42,6 +42,15 @@ func TestValidateArtifactoryPathSegment(t *testing.T) {
 	}
 }
 
+func TestIsNumericVersionSegment(t *testing.T) {
+	assert.True(t, isNumericVersionSegment("3"))
+	assert.True(t, isNumericVersionSegment("21"))
+	assert.False(t, isNumericVersionSegment(""))
+	assert.False(t, isNumericVersionSegment("3a"))
+	assert.False(t, isNumericVersionSegment(".."))
+	assert.False(t, isNumericVersionSegment("3/21"))
+}
+
 func TestAlpinePackageFromDepID(t *testing.T) {
 	pkg := alpinePackageFromDepID("curl:8.5.0-r0")
 	assert.Equal(t, "curl", pkg.Name)

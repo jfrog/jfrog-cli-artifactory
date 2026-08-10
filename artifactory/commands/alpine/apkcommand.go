@@ -371,6 +371,9 @@ func (apkCmd *ApkCommand) writeIsolatedRepositoriesFile() (string, error) {
 	if apkCmd.repoKey == "" {
 		return "", errorutils.CheckErrorf("--repo is required to build an isolated repositories file")
 	}
+	if err := validateArtifactoryPathSegment("repo", apkCmd.repoKey); err != nil {
+		return "", err
+	}
 	rtURL := strings.TrimRight(apkCmd.serverDetails.GetArtifactoryUrl(), "/")
 	if rtURL == "" {
 		return "", errorutils.CheckErrorf("the selected server has no Artifactory URL")
@@ -384,6 +387,11 @@ func (apkCmd *ApkCommand) writeIsolatedRepositoriesFile() (string, error) {
 	}
 	if version != "" && !strings.HasPrefix(version, "v") {
 		version = "v" + version
+	}
+	if version != "" {
+		if err := validateArtifactoryPathSegment("alpine-version", version); err != nil {
+			return "", err
+		}
 	}
 
 	var repoURL string
@@ -406,17 +414,20 @@ func (apkCmd *ApkCommand) writeIsolatedRepositoriesFile() (string, error) {
 	if err != nil {
 		return "", errorutils.CheckError(err)
 	}
+	// Capture the CreateTemp path before any write so Remove/Chmod never depend on
+	// values derived from /etc/alpine-release or other stored inputs.
+	tmpPath := f.Name()
 	defer func() { _ = f.Close() }()
 	if _, err = f.WriteString(repoURL + "\n"); err != nil {
-		_ = os.Remove(f.Name())
+		_ = os.Remove(tmpPath)
 		return "", errorutils.CheckError(err)
 	}
 	// The file embeds a secret — lock it down.
-	if err = os.Chmod(f.Name(), 0600); err != nil {
-		_ = os.Remove(f.Name())
+	if err = os.Chmod(tmpPath, 0600); err != nil {
+		_ = os.Remove(tmpPath)
 		return "", errorutils.CheckError(err)
 	}
-	return f.Name(), nil
+	return tmpPath, nil
 }
 
 // buildHTTPAuth constructs the HTTP_AUTH=basic:<host>:<user>:<password> string for apk-tools.
