@@ -12,37 +12,11 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-// GetServerDetails resolves the server configuration to use.
+// GetServerDetails retrieves server configuration from flags or default config
 func GetServerDetails(c *components.Context) (*config.ServerDetails, error) {
-	// Case 1: explicit auth or server-id → flag-based path.
-	if hasCredentialFlags(c) || c.IsFlagSet("server-id") {
+	if HasServerConfigFlags(c) {
 		return pluginsCommon.CreateArtifactoryDetailsByFlags(c)
 	}
-
-	// Case 2: --url alone → borrow credentials from the default server, but
-	// only when --url points at the SAME host as that default server.
-	// When the hosts differ we ask for explicit credentials instead.
-	if c.IsFlagSet("url") {
-		defaults, err := config.GetDefaultServerConf()
-		if err != nil || defaults == nil {
-			return nil, fmt.Errorf(
-				"--url was provided but no default server is configured and no credentials were supplied. " +
-					"Either run 'jf config add' to configure a server, or pass --access-token " +
-					"(or --user and --password) alongside --url")
-		}
-		overrideUrl := c.GetStringFlagValue("url")
-		if !sameHost(overrideUrl, defaults) {
-			return nil, fmt.Errorf(
-				"--url %q points at a different host than the configured default server (%q). "+
-					"Either pass --access-token (or --user and --password) flags, "+
-					"or use --server-id to use a configured jf config",
-				overrideUrl, defaultServerHost(defaults))
-		}
-		defaults.ArtifactoryUrl = overrideUrl
-		return defaults, nil
-	}
-
-	// Case 3: no flags → default server.
 	rtDetails, err := config.GetDefaultServerConf()
 	if err != nil {
 		return nil, fmt.Errorf("no default server configured")
@@ -56,54 +30,45 @@ func GetServerDetails(c *components.Context) (*config.ServerDetails, error) {
 	return rtDetails, nil
 }
 
-// hasCredentialFlags is true when the user supplied credentials on the
-// command line (as opposed to only supplying --url or --server-id).
-func hasCredentialFlags(c *components.Context) bool {
-	return c.IsFlagSet("user") ||
-		c.IsFlagSet("password") ||
-		c.IsFlagSet("access-token")
+// HasServerConfigFlags checks if any server configuration flags are provided
+func HasServerConfigFlags(c *components.Context) bool {
+	return c.IsFlagSet("url") ||
+		c.IsFlagSet("user") ||
+		c.IsFlagSet("access-token") ||
+		c.IsFlagSet("server-id") ||
+		(c.IsFlagSet("password") && (c.IsFlagSet("url") || c.IsFlagSet("server-id")))
 }
 
-// sameHost checks whether rawUrl targets the same host (host + port) as the
-// default server. Missing or unparseable inputs are treated as a mismatch so
-// credentials are never reused when we can't confirm the target.
-func sameHost(rawUrl string, defaults *config.ServerDetails) bool {
-	if rawUrl == "" || defaults == nil {
-		return false
+// RequireAuthWhenUrlProvided returns an error when --url is supplied without
+// enough information to authenticate. When --url is set, credentials must be
+// provided explicitly via --access-token OR --user + --password.
+//
+// Note that --server-id is deliberately NOT accepted as a substitute here:
+// upstream CreateArtifactoryDetailsByFlags (jfrog-cli-core) treats any --url
+// as "explicit connection details" and skips loading credentials from the
+// saved server-id, so combining --url with --server-id results in an
+// anonymous request. To use a saved server, drop --url and pass --server-id
+// alone (or leave both off to use the default server).
+func RequireAuthWhenUrlProvided(c *components.Context) error {
+	if !c.IsFlagSet("url") {
+		return nil
 	}
-	u, err := url.Parse(rawUrl)
-	if err != nil || u.Host == "" {
-		return false
+	if c.IsFlagSet("access-token") {
+		return nil
 	}
-	defaultUrl := defaults.ArtifactoryUrl
-	if defaultUrl == "" {
-		defaultUrl = defaults.Url
+	if c.IsFlagSet("user") && c.IsFlagSet("password") {
+		return nil
 	}
-	d, err := url.Parse(defaultUrl)
-	if err != nil || d.Host == "" {
-		return false
-	}
-	return strings.EqualFold(u.Host, d.Host)
+	return fmt.Errorf(
+		"--url requires authentication details. " +
+			"Pass --access-token, or --user and --password. " +
+			"To use a server configured via 'jf config add', drop --url and pass --server-id alone")
 }
 
-// defaultServerHost returns the host of the default server for use in error
-// messages. Returns "" if it cannot be extracted.
-func defaultServerHost(defaults *config.ServerDetails) string {
-	if defaults == nil {
-		return ""
-	}
-	raw := defaults.ArtifactoryUrl
-	if raw == "" {
-		raw = defaults.Url
-	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return ""
-	}
-	return u.Host
-}
-
-// ValidateRepository validates that the repository exists and is of the specified type
+// ValidateRepository validates that the repository exists and is of the specified type.
+// Any error returned wraps the underlying transport / Artifactory response so the
+// caller can see the real cause (e.g. 401 Unauthorized) instead of a generic
+// "does not exist" message.
 func ValidateRepository(repoKey string, rtDetails *config.ServerDetails, apiType string) error {
 	log.Debug("Validating repository...")
 	artDetails, err := rtDetails.CreateArtAuthConfig()
@@ -112,7 +77,7 @@ func ValidateRepository(repoKey string, rtDetails *config.ServerDetails, apiType
 	}
 
 	if err := utils.ValidateRepoExists(repoKey, artDetails); err != nil {
-		return fmt.Errorf("repository '%s' does not exist or is not accessible: %w", repoKey, err)
+		return fmt.Errorf("could not validate repository '%s': %w", repoKey, err)
 	}
 
 	if err := utils.ValidateRepoType(repoKey, artDetails, apiType); err != nil {
@@ -155,82 +120,4 @@ func BuildURL(baseUrl, apiType, repoKey, urlSuffix string) string {
 		return fmt.Sprintf("%s/api/%s/%s", baseUrl, apiType, repoKey)
 	}
 	return fmt.Sprintf("%s/api/%s/%s/%s", baseUrl, apiType, repoKey, strings.TrimLeft(urlSuffix, "/"))
-}
-
-// NormalizeArtifactoryBaseUrl inspects a user-provided --url value and returns
-// either a normalized Artifactory base URL or an error describing why the URL
-// cannot be a base URL
-func NormalizeArtifactoryBaseUrl(rawUrl, repoKey string) (string, error) {
-	if rawUrl == "" {
-		return rawUrl, nil
-	}
-	u, err := url.Parse(rawUrl)
-	if err != nil || u.Host == "" {
-		return rawUrl, nil
-	}
-	trimmedPath := strings.Trim(u.Path, "/")
-	if trimmedPath == "" {
-		return rawUrl, nil
-	}
-	segments := strings.Split(trimmedPath, "/")
-
-	// Case A: URL contains an "/api/" segment.
-	for _, seg := range segments {
-		if strings.EqualFold(seg, "api") {
-			return "", fmt.Errorf(
-				"--url %q is a full API/service URL, not an Artifactory base URL. "+
-					"Use the base URL (e.g. https://acme.jfrog.io/artifactory) and pass the "+
-					"repository via --repo-key. Or, pass "+
-					"the full service URL as the SERVICE_URL positional argument",
-				rawUrl)
-		}
-	}
-
-	artIndex := -1
-	for i, seg := range segments {
-		if strings.EqualFold(seg, "artifactory") {
-			artIndex = i
-			break
-		}
-	}
-
-	// Case B: trailing segment matches --repo-key → strip it.
-	last := segments[len(segments)-1]
-	if repoKey != "" && strings.EqualFold(last, repoKey) {
-		return rebuildUrlWithoutLastSegment(u, rawUrl), nil
-	}
-
-	// Case C: extra segments after "/artifactory/"
-	if artIndex >= 0 && artIndex < len(segments)-1 {
-		extra := strings.Join(segments[artIndex+1:], "/")
-		hint := ""
-		if repoKey != "" {
-			hint = fmt.Sprintf(" (--repo-key is set to %q, which does not match)", repoKey)
-		}
-		return "", fmt.Errorf(
-			"--url %q includes a path segment after '/artifactory/' (%q)%s. "+
-				"--url must be the Artifactory base URL (e.g. https://acme.jfrog.io/artifactory), "+
-				"without a repository key. Move the repository name to --repo-key",
-			rawUrl, extra, hint)
-	}
-
-	return rawUrl, nil
-}
-
-// rebuildUrlWithoutLastSegment returns rawUrl with the last non-empty path
-// segment removed, preserving the trailing slash if the original had one.
-func rebuildUrlWithoutLastSegment(u *url.URL, rawUrl string) string {
-	trailingSlash := strings.HasSuffix(rawUrl, "/")
-	trimmed := strings.Trim(u.Path, "/")
-	segs := strings.Split(trimmed, "/")
-	segs = segs[:len(segs)-1]
-	newPath := "/" + strings.Join(segs, "/")
-	if newPath == "/" {
-		newPath = ""
-	} else if trailingSlash {
-		newPath += "/"
-	}
-	nu := *u
-	nu.Path = newPath
-	return nu.String()
 }

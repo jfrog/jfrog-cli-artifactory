@@ -7,7 +7,6 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/ide/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
 const (
@@ -49,39 +48,23 @@ func ParseBaseSetupConfig(ctx *components.Context) (*BaseSetupConfig, error) {
 		return nil, errors.New("--repo-key flag is required. Please specify the repository key for your AI Editor Extensions repository")
 	}
 
-	// Resolve server details.
-	// - --user/--password/--access-token/--server-id supplied → build from flags.
-	// - --url supplied alone → use the configured default
-	//   server and override the URL. If no default server exists, return a clear
-	//   error asking the user to configure one or supply credentials.
-	// - Nothing supplied → default server configuration.
+	if err := common.RequireAuthWhenUrlProvided(ctx); err != nil {
+		return nil, err
+	}
+
+	// Get server details
 	rtDetails, err := common.GetServerDetails(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get server configuration: %w. Please run 'jf config add' first", err)
 	}
 	cfg.ServerDetails = rtDetails
 
-	// If --url was supplied, normalize it before we make any network call.
-	//  and rejects obviously wrong shapes like a full /api/… URL.
-	if ctx.IsFlagSet("url") {
-		normalized, nerr := common.NormalizeArtifactoryBaseUrl(rtDetails.ArtifactoryUrl, cfg.RepoKey)
-		if nerr != nil {
-			return nil, nerr
-		}
-		if normalized != rtDetails.ArtifactoryUrl {
-			log.Info(fmt.Sprintf(
-				"--url %q ended with the --repo-key value %q; using Artifactory base URL: %s",
-				rtDetails.ArtifactoryUrl, cfg.RepoKey, normalized))
-			rtDetails.ArtifactoryUrl = normalized
-		}
-	}
-
-	// Validate the repository exists and is of the expected type. Credentials
-	// come from whichever source GetServerDetails resolved.
+	// Validate repository
 	if err := common.ValidateRepository(cfg.RepoKey, rtDetails, ApiType); err != nil {
 		return nil, err
 	}
 
+	// Build service URL
 	baseUrl := common.GetBaseUrl(rtDetails)
 	cfg.ServiceURL = common.BuildURL(baseUrl, ApiType, cfg.RepoKey, cfg.URLSuffix)
 	cfg.IsDirectURL = false

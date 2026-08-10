@@ -44,6 +44,10 @@ func ParseBaseSetupConfig(c *components.Context) (*BaseSetupConfig, error) {
 		return nil, errors.New("--repo-key flag is required. Please specify the repository key for your JetBrains plugins repository")
 	}
 
+	if err := common.RequireAuthWhenUrlProvided(c); err != nil {
+		return nil, err
+	}
+
 	// Get server details
 	rtDetails, err := common.GetServerDetails(c)
 	if err != nil {
