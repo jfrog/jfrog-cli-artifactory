@@ -329,40 +329,6 @@ func TestExtractGemNamesFromArgs(t *testing.T) {
 	assert.Empty(t, names)
 }
 
-func TestRubyEmbedCredsInHostArg(t *testing.T) {
-	server := &coreConfig.ServerDetails{
-		User:           "myuser",
-		Password:       "mypass",
-		ArtifactoryUrl: "https://my.jfrog.io/artifactory/",
-	}
-
-	// --host= form
-	args := []string{"push", "my.gem", "--host=https://my.jfrog.io/artifactory/api/gems/gems-local/"}
-	result := rubyEmbedCredsInHostArg(args, server)
-	assert.Contains(t, result[2], "myuser:mypass@")
-	assert.Contains(t, result[2], "--host=https://myuser:mypass@")
-
-	// --host <url> form (separate arg)
-	args2 := []string{"push", "my.gem", "--host", "https://my.jfrog.io/artifactory/api/gems/gems-local/"}
-	result2 := rubyEmbedCredsInHostArg(args2, server)
-	assert.Contains(t, result2[3], "myuser:mypass@")
-
-	// URL already has credentials — no double-embed
-	args3 := []string{"push", "my.gem", "--host=https://other:creds@my.jfrog.io/api/gems/r/"}
-	result3 := rubyEmbedCredsInHostArg(args3, server)
-	assert.Equal(t, args3[2], result3[2])
-
-	// --source flag (not --host) — should NOT be modified
-	args4 := []string{"install", "rake", "--source=https://my.jfrog.io/artifactory/api/gems/r/"}
-	result4 := rubyEmbedCredsInHostArg(args4, server)
-	assert.Equal(t, args4[2], result4[2])
-
-	// No --host — args unchanged
-	args5 := []string{"push", "my.gem"}
-	result5 := rubyEmbedCredsInHostArg(args5, server)
-	assert.Equal(t, args5, result5)
-}
-
 func TestCollectsDependencies(t *testing.T) {
 	cmd := NewRubyCommand()
 
@@ -509,6 +475,7 @@ func TestRubyWriteTempGemCredentials(t *testing.T) {
 	// Use a temporary home directory to avoid touching real ~/.gem/credentials
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome) // os.UserHomeDir() reads USERPROFILE on Windows
 
 	server := &coreConfig.ServerDetails{
 		User:           "admin",
@@ -540,6 +507,7 @@ func TestRubyWriteTempGemCredentials(t *testing.T) {
 func TestRubyWriteTempGemCredentials_TrailingSlashPreserved(t *testing.T) {
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome) // os.UserHomeDir() reads USERPROFILE on Windows
 
 	server := &coreConfig.ServerDetails{
 		User:     "admin",
@@ -565,6 +533,7 @@ func TestRubyWriteTempGemCredentials_TrailingSlashPreserved(t *testing.T) {
 func TestRubyWriteTempGemCredentials_PreservesExisting(t *testing.T) {
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome) // os.UserHomeDir() reads USERPROFILE on Windows
 
 	// Create pre-existing credentials
 	gemDir := filepath.Join(tmpHome, ".gem")
@@ -775,4 +744,24 @@ gem "puma"
 	assert.Equal(t, []string{"development", "test"}, groups["pg"], "gem inside the nested block")
 	assert.Equal(t, []string{"development", "test"}, groups["factory_bot"], "must not leak to production after the inner end")
 	assert.Equal(t, []string{"production"}, groups["puma"], "after the group really closes")
+}
+
+// TestUserHomeDir_PrefersHome pins the resolution RubyGems and Bundler themselves use.
+// On Windows os.UserHomeDir reads %USERPROFILE%, but Ruby's Dir.home prefers $HOME, so
+// writing to the former would put ~/.gemrc and ~/.bundle/config where neither tool looks.
+func TestUserHomeDir_PrefersHome(t *testing.T) {
+	custom := t.TempDir()
+	t.Setenv("HOME", custom)
+	home, err := UserHomeDir()
+	require.NoError(t, err)
+	assert.Equal(t, custom, home)
+
+	// With no HOME set, fall back to whatever the platform reports.
+	t.Setenv("HOME", "")
+	fallback, fallbackErr := UserHomeDir()
+	expected, expectedErr := os.UserHomeDir()
+	assert.Equal(t, expectedErr == nil, fallbackErr == nil)
+	if expectedErr == nil {
+		assert.Equal(t, expected, fallback)
+	}
 }

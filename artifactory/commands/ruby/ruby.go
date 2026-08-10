@@ -69,7 +69,12 @@ func (rc *RubyCommand) ServerDetails() (*config.ServerDetails, error) {
 	if rc.serverDetails != nil {
 		return rc.serverDetails, nil
 	}
-	return rubyResolveServerDetails(rc.serverID)
+	details, err := rubyResolveServerDetails(rc.serverID)
+	if err != nil {
+		return nil, err
+	}
+	rc.serverDetails = details
+	return details, nil
 }
 
 // CommandName is the usage-report metric id for native Ruby commands.

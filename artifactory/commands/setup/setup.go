@@ -923,7 +923,7 @@ func bundleMirrorKey(sourceURL string) string {
 // writeBundleSettings merges entries into ~/.bundle/config, preserving every setting
 // already present. The file holds credentials, so it is written 0600.
 func writeBundleSettings(entries map[string]string) error {
-	home, err := os.UserHomeDir()
+	home, err := ruby.UserHomeDir()
 	if err != nil {
 		return err
 	}
@@ -952,7 +952,7 @@ func writeBundleSettings(entries map[string]string) error {
 	if mkdirErr := os.MkdirAll(bundleDir, 0755); mkdirErr != nil {
 		return mkdirErr
 	}
-	return os.WriteFile(configPath, out, 0600)
+	return permissions.WriteFileOwnerOnly(configPath, out)
 }
 
 // marshalBundleConfig renders Bundler's config as YAML that Bundler's own parser accepts.
@@ -981,7 +981,7 @@ func marshalBundleConfig(config map[string]interface{}) ([]byte, error) {
 // separate credential store for installing, so the source URL is the only way a plain
 // `gem install` can authenticate. That is why the file is written 0600.
 func addGemrcSource(sourceURL string) error {
-	home, err := os.UserHomeDir()
+	home, err := ruby.UserHomeDir()
 	if err != nil {
 		return err
 	}
@@ -1017,7 +1017,7 @@ func addGemrcSource(sourceURL string) error {
 		return marshalErr
 	}
 	// The source URL may embed credentials, so this file must not be world-readable.
-	return os.WriteFile(gemrcPath, out, 0600)
+	return permissions.WriteFileOwnerOnly(gemrcPath, out)
 }
 
 // gemSourceIdentity strips embedded credentials and any trailing slash from a gem source

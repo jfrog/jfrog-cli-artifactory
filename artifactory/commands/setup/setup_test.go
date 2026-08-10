@@ -1144,9 +1144,9 @@ func TestWriteBundleSettings_FileIsPrivate(t *testing.T) {
 
 	require.NoError(t, writeBundleSettings(map[string]string{"BUNDLE_MY__JFROG__IO": "admin:secret"}))
 
-	info, err := os.Stat(filepath.Join(tmpHome, ".bundle", "config"))
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0600), info.Mode().Perm(), "config holds credentials and must not be world-readable")
+	// The file holds credentials, so it must not be world-readable. assertOwnerOnly skips
+	// Windows, where the mode always reads back as 0666.
+	assertOwnerOnly(t, filepath.Join(tmpHome, ".bundle", "config"))
 }
 
 func TestWriteBundleSettings_MalformedExistingFileErrors(t *testing.T) {
@@ -1305,9 +1305,8 @@ func TestAddGemrcSource_FileIsPrivate(t *testing.T) {
 
 	require.NoError(t, addGemrcSource("https://admin:tok@acme.jfrog.io/artifactory/api/gems/gems-virtual"))
 
-	info, err := os.Stat(filepath.Join(tmpHome, ".gemrc"))
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	// The source URL embeds credentials, so the file must not be world-readable.
+	assertOwnerOnly(t, filepath.Join(tmpHome, ".gemrc"))
 }
 
 // TestGemSourceIdentity_IgnoresTrailingSlashAndCredentials: gem sources are written with a

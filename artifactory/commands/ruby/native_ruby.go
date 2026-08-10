@@ -44,7 +44,7 @@ func (rc *RubyCommand) Run() error {
 		return fmt.Errorf("unsupported ruby tool %q: expected 'gem' or 'bundle'", rc.nativeTool)
 	}
 
-	// Bug 3 fix: explicit no-args check before help bypass so we don't
+	// An explicit no-args check comes before the help bypass below so we don't
 	// silently fall into gem help when no subcommand is given.
 	if len(rc.args) == 0 {
 		return fmt.Errorf("no subcommand provided for '%s'. Usage: jf ruby %s <subcommand> [args...]", rc.nativeTool, rc.nativeTool)
@@ -52,8 +52,8 @@ func (rc *RubyCommand) Run() error {
 
 	subCommand := rubySubCommand(rc.args)
 
-	// Help requests bypass auth injection entirely so credentials are never
-	// printed in help output (same rationale as the UV native command).
+	// `-h`/`--help`/`help` runs with no auth injection at all, so a credential
+	// is never at risk of being echoed back in help output.
 	if isRubyHelpRequest(subCommand, rc.args) {
 		return runRubyBinary(rc.nativeTool, rc.args, nil)
 	}
@@ -199,9 +199,10 @@ func (rc *RubyCommand) Run() error {
 	return nil
 }
 
-// rubyEmbedCredsInSourceArg rewrites --source/--host URL args to embed credentials
-// for gem install/fetch. RubyGems 3.x uses embedded URL credentials for index downloads
-// (specs.4.8.gz) but does NOT use GEM_HOST_API_KEY for those requests.
+// rubyEmbedCredsInSourceArg rewrites --source/--host URL args to embed credentials.
+// It exists because gem install/fetch fetch the index (specs.4.8.gz) as a plain HTTP
+// request authenticated only via URL-embedded credentials — GEM_HOST_API_KEY (the env
+// var injectAuth otherwise relies on) is not consulted for that request.
 func rubyEmbedCredsInSourceArg(args []string, serverDetails *coreConfig.ServerDetails) []string {
 	user, pass := rubyCredentials(serverDetails)
 	if !rubyHasCredentials(pass) {
@@ -243,47 +244,6 @@ func rubyEmbedCredsInSourceArg(args []string, serverDetails *coreConfig.ServerDe
 	return result
 }
 
-// rubyEmbedCredsInHostArg embeds credentials in the --host URL for gem push.
-// This is the fallback for RubyGems <= 3.0.x which does NOT respect GEM_HOST_API_KEY.
-// Uses the same logic as rubyEmbedCredsInSourceArg but only targets --host.
-func rubyEmbedCredsInHostArg(args []string, serverDetails *coreConfig.ServerDetails) []string {
-	user, pass := rubyCredentials(serverDetails)
-	if !rubyHasCredentials(pass) {
-		return args
-	}
-	result := make([]string, len(args))
-	copy(result, args)
-	for i, a := range result {
-		var rawURL string
-		var prefix string
-		switch {
-		case strings.HasPrefix(a, "--host="):
-			prefix = "--host="
-			rawURL = strings.TrimPrefix(a, prefix)
-		case a == "--host" && i+1 < len(result):
-			parsed, err := url.Parse(result[i+1])
-			if err != nil || parsed.User != nil {
-				continue
-			}
-			parsed.User = url.UserPassword(user, pass)
-			result[i+1] = parsed.String()
-			continue
-		default:
-			continue
-		}
-		if rawURL == "" {
-			continue
-		}
-		parsed, err := url.Parse(rawURL)
-		if err != nil || parsed.User != nil {
-			continue
-		}
-		parsed.User = url.UserPassword(user, pass)
-		result[i] = prefix + parsed.String()
-	}
-	return result
-}
-
 // rubyWriteTempGemCredentials writes a temporary entry to ~/.gem/credentials for gem push.
 // This is the only auth mechanism that works across ALL RubyGems versions (3.0.x through current).
 // RubyGems' push_command.rb ALWAYS checks ~/.gem/credentials keyed by host URL.
@@ -294,7 +254,7 @@ func rubyWriteTempGemCredentials(hostURL string, serverDetails *coreConfig.Serve
 		return nil, fmt.Errorf("no credentials available")
 	}
 
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("could not determine home directory: %w", err)
 	}
@@ -522,6 +482,12 @@ func (rc *RubyCommand) injectAuth(serverDetails *coreConfig.ServerDetails, sourc
 				continue
 			}
 			seen[key] = true
+			if strings.ContainsAny(key, ":=") {
+				// The legacy (Bundler 1.x) key spelling only replaces ".", so a host with
+				// a port produces a key like "BUNDLE_HOST:8081" — not a valid environment
+				// variable name on every platform. Only the sanitized spelling is usable here.
+				continue
+			}
 			if os.Getenv(key) != "" {
 				log.Debug(fmt.Sprintf("Ruby auth [bundle]: %s already set — respecting existing credentials", key))
 				continue
@@ -571,6 +537,23 @@ func rubyHasCredentials(pass string) bool {
 //
 //	"mycompany.jfrog.io" → "BUNDLE_MYCOMPANY__JFROG__IO"
 //
+// UserHomeDir returns the directory RubyGems and Bundler read their user-level
+// configuration from, which is not always the one os.UserHomeDir reports.
+//
+// On Windows, Go resolves the home directory from %USERPROFILE%, while Ruby's Dir.home —
+// which both Gem.user_home and Bundler.user_home build on — prefers $HOME when it is set
+// and only falls back to %USERPROFILE% otherwise. A Windows developer working under Git
+// Bash or MSYS normally does have $HOME set, so writing to %USERPROFILE% would leave
+// ~/.gemrc and ~/.bundle/config in a place neither tool ever reads.
+//
+// On Unix os.UserHomeDir already returns $HOME, so this changes nothing there.
+func UserHomeDir() (string, error) {
+	if home := os.Getenv("HOME"); home != "" {
+		return home, nil
+	}
+	return os.UserHomeDir()
+}
+
 // BundleCredentialKeys returns every key spelling Bundler may look credentials up under
 // for host, valid both as a ~/.bundle/config key and as an environment variable name.
 //
@@ -1434,6 +1417,29 @@ func parseBundleListLine(line string) (name, version string) {
 	return name, version
 }
 
+// rubyBlockOpenerPatterns match Ruby block openers that do not end in the literal "do",
+// e.g. `platforms :mri do |p|` (ends with `|`) and bare conditional keywords that open
+// an implicit block (`if`, `unless`, `case`, `begin`, `while`, `until`). Compiled once at
+// package init since parseGemfileGroups runs them per line.
+var rubyBlockOpenerPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`\bdo\s*\|[^|]*\|$`),
+	regexp.MustCompile(`^(if|unless|case|begin|while|until)\b`),
+}
+
+// opensRubyBlock reports whether line opens a Ruby block that needs a matching `end`,
+// beyond the common `... do` suffix already checked by callers.
+func opensRubyBlock(line string) bool {
+	if strings.HasSuffix(line, "do") {
+		return true
+	}
+	for _, pattern := range rubyBlockOpenerPatterns {
+		if pattern.MatchString(line) {
+			return true
+		}
+	}
+	return false
+}
+
 // parseGemfileGroups parses the Gemfile to extract gem → group mappings.
 // Returns a map where keys are gem names and values are their Bundler groups.
 // Gems outside any group block get ["production"]. Gems inside `group :dev do...end`
@@ -1466,9 +1472,9 @@ func parseGemfileGroups(workingDir string) map[string][]string {
 			continue
 		}
 
-		// Track blocks nested inside a group (`platforms :ruby do`, `if ... do`) so their
-		// `end` is not mistaken for the group's own.
-		if currentGroups != nil && strings.HasSuffix(line, "do") {
+		// Track blocks nested inside a group (`platforms :ruby do`, `platforms :ruby do |p|`,
+		// `if ... do`) so their `end` is not mistaken for the group's own.
+		if currentGroups != nil && opensRubyBlock(line) {
 			nested++
 			continue
 		}
@@ -1804,6 +1810,13 @@ func rubySetBuildProperties(serverDetails *coreConfig.ServerDetails, repoKey, bu
 				break
 			}
 			item = new(specutils.ResultItem)
+		}
+		if searchErr := searchReader.GetError(); searchErr != nil {
+			log.Warn(fmt.Sprintf("Search for artifact %s failed midway, skipping property update: %v", artifact.Name, searchErr))
+			if closeErr := searchReader.Close(); closeErr != nil {
+				log.Warn("Failed to close search reader:", closeErr)
+			}
+			continue
 		}
 		searchReader.Reset()
 
