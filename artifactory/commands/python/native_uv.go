@@ -410,10 +410,16 @@ func isHelpRequest(cmdName string, args []string) bool {
 // exec — everywhere else (auth injection, dev-deps handling, the curation
 // post-failure trigger's supported-command check) keeps seeing "install" as-is.
 func uvBinaryArgs(cmdName string, args []string) []string {
-	if cmdName == "install" {
+	switch cmdName {
+	case "":
+		// Bare "jf uv" — isHelpRequest routes it here so uv prints its own root help.
+		// Prepending "" would make uv reject it as an unknown empty sub-command.
+		return append([]string(nil), args...)
+	case "install":
 		return append([]string{"pip", "install"}, args...)
+	default:
+		return append([]string{cmdName}, args...)
 	}
-	return append([]string{cmdName}, args...)
 }
 
 // runUvBinary streams uv's output live to the terminal (as before), while also
