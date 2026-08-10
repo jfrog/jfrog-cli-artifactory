@@ -559,7 +559,7 @@ func (apkCmd *ApkCommand) enrichChecksumsFromAQL(deps []entities.Dependency) []e
 		return deps
 	}
 
-	sm, err := artutils.CreateServiceManager(apkCmd.serverDetails, -1, 0, false)
+	sm, err := artutils.CreateServiceManager(apkCmd.serverDetails, defaultHTTPRetries, defaultHTTPRetryWaitMilliSecs, false)
 	if err != nil {
 		log.Debug("Could not create Artifactory service manager for AQL checksum enrichment:", err)
 		return deps

@@ -30,6 +30,9 @@ const (
 	uploadThreads                = 1
 	uploadHTTPRetries            = 3
 	uploadHTTPRetryWaitMilliSecs = 0
+	// Negative httpRetries tells CreateServiceManager to keep the client default retry count.
+	defaultHTTPRetries            = -1
+	defaultHTTPRetryWaitMilliSecs = 0
 )
 
 var apkFilenamePattern = regexp.MustCompile(`^(.+)-([^-]+-r\d+)\.([^.]+)\.apk$`)
@@ -368,7 +371,7 @@ func ensureRepoExists(repoKey string, serverDetails *config.ServerDetails) error
 			repoKey,
 		)
 	}
-	servicesManager, err := artutils.CreateServiceManager(serverDetails, -1, 0, false)
+	servicesManager, err := artutils.CreateServiceManager(serverDetails, defaultHTTPRetries, defaultHTTPRetryWaitMilliSecs, false)
 	if err != nil {
 		return errorutils.CheckErrorf("failed to create Artifactory service manager to validate --repo '%s': %w", repoKey, err)
 	}
@@ -386,7 +389,7 @@ func ensureRepoExists(repoKey string, serverDetails *config.ServerDetails) error
 // If repoKey is a virtual repository, it resolves to its DefaultDeploymentRepo.
 // Returns an error if the virtual repo has no default deployment repo configured.
 func resolveLocalUploadRepo(repoKey string, serverDetails *config.ServerDetails) (string, error) {
-	servicesManager, err := artutils.CreateServiceManager(serverDetails, -1, 0, false)
+	servicesManager, err := artutils.CreateServiceManager(serverDetails, defaultHTTPRetries, defaultHTTPRetryWaitMilliSecs, false)
 	if err != nil {
 		log.Debug("Could not create services manager for repo type check, using repo as-is:", err)
 		return repoKey, nil
@@ -484,7 +487,7 @@ func (apkCmd *ApkUploadCommand) enrichUploadDepsFromAQL(deps []entities.Dependen
 	if len(missing) == 0 {
 		return deps
 	}
-	sm, err := artutils.CreateServiceManager(apkCmd.serverDetails, -1, 0, false)
+	sm, err := artutils.CreateServiceManager(apkCmd.serverDetails, defaultHTTPRetries, defaultHTTPRetryWaitMilliSecs, false)
 	if err != nil {
 		log.Debug("Could not create Artifactory service manager for upload AQL enrichment:", err)
 		return deps
