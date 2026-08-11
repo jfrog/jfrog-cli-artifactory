@@ -345,10 +345,14 @@ func (c *CargoCommand) setBuildProperties(arts []entities.Artifact, repo, name, 
 	}()
 
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
-	props := fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", name, number, timestamp)
+	// escapePropValue must be applied to every user-supplied value: build.name/number/project come
+	// from CLI flags, so a value containing `;`, `,`, or `\` would otherwise split or overwrite
+	// properties when the props string is later parsed by ParseProperties.
+	props := fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s",
+		escapePropValue(name), escapePropValue(number), timestamp)
 	if c.buildConfiguration != nil {
 		if projectKey := c.buildConfiguration.GetProject(); projectKey != "" {
-			props += fmt.Sprintf(";build.project=%s", projectKey)
+			props += fmt.Sprintf(";build.project=%s", escapePropValue(projectKey))
 		}
 	}
 
@@ -482,39 +486,78 @@ type cargoConfigToml struct {
 }
 
 // parseCargoRegistries returns registry name -> index URL, merging cargo's config sources the way
-// cargo resolves them: the user-global $CARGO_HOME/config.toml (default ~/.cargo/config.toml) — this
-// is what `jf setup cargo` writes — as a base, overlaid by the project-local
-// <workingDir>/.cargo/config.toml (project entries win). This lets `jf cargo` locate registries
-// whether they came from `jf setup cargo` (global) or a project-committed .cargo/config.toml.
+// cargo resolves them (see https://doc.rust-lang.org/cargo/reference/config.html#hierarchical-structure):
+// $CARGO_HOME/config.toml as the lowest-precedence base, then every ancestor directory from the
+// filesystem root down to workingDir has its .cargo/config.toml (or legacy .cargo/config) applied,
+// so a workspace-root or a project-local config overrides its ancestors and the global.
+// In any single directory, cargo prefers config.toml and only falls back to the legacy config
+// filename when config.toml is absent.
 func parseCargoRegistries(workingDir string) map[string]string {
 	out := map[string]string{}
-	// Global (lowest precedence) — written by `jf setup cargo`.
+	// Global (lowest precedence) — $CARGO_HOME/config.toml, what `jf setup cargo` writes.
 	if home, err := cargoHome(); err == nil && home != "" {
-		readRegistriesInto(filepath.Join(home, "config.toml"), out)
+		if !readRegistriesInto(filepath.Join(home, "config.toml"), out) {
+			readRegistriesInto(filepath.Join(home, "config"), out)
+		}
 	}
-	// Project-local (highest precedence) overlays the global entries.
-	readRegistriesInto(filepath.Join(workingDir, ".cargo", "config.toml"), out)
+	// Ancestor chain — walk from root DOWN to workingDir so deeper configs override ancestors.
+	// This catches workspace-root .cargo/config.toml when running from a member crate directory.
+	for _, dir := range cargoAncestorChain(workingDir) {
+		cargoDir := filepath.Join(dir, ".cargo")
+		if !readRegistriesInto(filepath.Join(cargoDir, "config.toml"), out) {
+			readRegistriesInto(filepath.Join(cargoDir, "config"), out)
+		}
+	}
 	return out
 }
 
-// readRegistriesInto parses one cargo config.toml and merges its [registries.<name>] index URLs
-// into out (existing keys are overwritten). Missing/invalid files are skipped (debug-logged).
-func readRegistriesInto(configPath string, out map[string]string) {
+// cargoAncestorChain returns the absolute directories from filesystem root down to (and including)
+// dir, in that order — so appending each in sequence gives deepest-wins precedence.
+// Returns nil for an empty input.
+func cargoAncestorChain(dir string) []string {
+	if dir == "" {
+		return nil
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		abs = dir
+	}
+	abs = filepath.Clean(abs)
+	var chain []string
+	for {
+		chain = append([]string{abs}, chain...)
+		parent := filepath.Dir(abs)
+		if parent == abs {
+			break
+		}
+		abs = parent
+	}
+	return chain
+}
+
+// readRegistriesInto parses one cargo config file and merges its [registries.<name>] index URLs
+// into out (existing keys are overwritten). Returns true if the file was read and parsed
+// successfully — callers use this to know whether to try the legacy filename as a fallback.
+// Missing/invalid files return false and are debug-logged.
+func readRegistriesInto(configPath string, out map[string]string) bool {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		log.Debug("cargo: could not read " + configPath + ": " + err.Error())
-		return
+		if !os.IsNotExist(err) {
+			log.Debug("cargo: could not read " + configPath + ": " + err.Error())
+		}
+		return false
 	}
 	var cfg cargoConfigToml
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		log.Debug("cargo: could not parse " + configPath + ": " + err.Error())
-		return
+		return false
 	}
 	for name, reg := range cfg.Registries {
 		if reg.Index != "" {
 			out[name] = reg.Index
 		}
 	}
+	return true
 }
 
 // cargoRegistryIndexURL reads <workingDir>/.cargo/config.toml and returns the
@@ -528,3 +571,15 @@ func cargoRegistryIndexURL(workingDir, registryName string) string {
 
 // dirOf returns the directory portion of a forward-slash repo path.
 func dirOf(p string) string { return path.Dir(p) }
+
+// escapePropValue escapes a value for use inside the "k1=v1;k2=v2;..." properties string that
+// SetProps parses via ParseProperties. Order matters: escape `\` first so a value ending in a
+// backslash cannot smuggle out an escape of the next separator; then escape the two separators
+// (`;` for props, `,` for multi-value). `=` need not be escaped: the parser splits only on the
+// first `=`, so subsequent `=`s in a value are preserved.
+func escapePropValue(v string) string {
+	v = strings.ReplaceAll(v, `\`, `\\`)
+	v = strings.ReplaceAll(v, `;`, `\;`)
+	v = strings.ReplaceAll(v, `,`, `\,`)
+	return v
+}

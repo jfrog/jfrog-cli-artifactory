@@ -67,10 +67,10 @@ func commandBucket(cmd string) string {
 	}
 }
 
-// needsRemoteAccess reports whether jf should inject registry auth for the command. Only the two
-// build-info-collecting commands (install, publish) are jf-integrated and get token injection so
-// they can resolve/upload against Artifactory. All other commands are pass-throughs and rely on the
-// user's cargo credentials (e.g. from `jf setup cargo`).
+// needsRemoteAccess reports whether jf should inject registry auth for the command. The three
+// build-info-collecting commands (install, build, publish) are jf-integrated and get token
+// injection so they can resolve/upload against Artifactory. All other commands are pass-throughs
+// and rely on the user's cargo credentials (e.g. from `jf setup cargo`).
 func needsRemoteAccess(cmd string) bool {
 	switch commandBucket(cmd) {
 	case "deps", "publish":
@@ -110,8 +110,14 @@ func registryNameFromArgs(args []string) string {
 	return ""
 }
 
-// registryHostMatches reports whether a cargo registry index URL points at the same
-// host as the configured Artifactory server URL. Strips cargo's "sparse+"/"git+" prefixes.
+// registryHostMatches reports whether a cargo registry index URL points at the SAME Artifactory
+// instance as the configured server URL — same host AND same base path. Strips cargo's
+// "sparse+"/"git+" prefixes.
+//
+// Host-only matching would leak the Artifactory token to any other cargo registry hosted on the
+// same host (a different service reverse-proxied on a different path, another Cargo index on the
+// same domain, etc.). Requiring the registry URL to sit under the Artifactory base path scopes
+// the token to Artifactory-served registries only.
 func registryHostMatches(indexURL, artifactoryURL string) bool {
 	strip := func(s string) string {
 		s = strings.TrimPrefix(s, "sparse+")
@@ -126,7 +132,18 @@ func registryHostMatches(indexURL, artifactoryURL string) bool {
 	if err != nil || au.Host == "" {
 		return false
 	}
-	return strings.EqualFold(iu.Host, au.Host)
+	if !strings.EqualFold(iu.Host, au.Host) {
+		return false
+	}
+	// Same host — require the registry path to sit under the Artifactory base path.
+	// Normalise both to always end with "/" so "/artifactory" does not match "/artifactoryX".
+	base := strings.TrimSuffix(au.Path, "/") + "/"
+	regPath := strings.TrimSuffix(iu.Path, "/") + "/"
+	if base == "/" {
+		// Empty Artifactory base path (bare host) — host equality is the only signal available.
+		return true
+	}
+	return strings.HasPrefix(regPath, base)
 }
 
 // resolveAuthEnv builds cargo registry token env vars for every registry in

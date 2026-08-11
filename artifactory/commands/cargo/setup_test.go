@@ -60,6 +60,16 @@ func decodeToml(t *testing.T, path string) map[string]interface{} {
 	return m
 }
 
+// asTable narrows a TOML value to a nested table, failing the test if the shape is wrong.
+// Wrapping the assertion here keeps the tests focused on the config semantics rather than
+// on defensive type checks and keeps the linter (forcetypeassert) satisfied.
+func asTable(t *testing.T, v interface{}) map[string]interface{} {
+	t.Helper()
+	m, ok := v.(map[string]interface{})
+	require.Truef(t, ok, "expected TOML table, got %T", v)
+	return m
+}
+
 func TestConfigureNativeRegistry_WritesConfigAndCredentials(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CARGO_HOME", home)
@@ -69,22 +79,22 @@ func TestConfigureNativeRegistry_WritesConfigAndCredentials(t *testing.T) {
 
 	cfg := decodeToml(t, filepath.Join(home, "config.toml"))
 	// [registry] default = "jfrog"
-	registry := cfg["registry"].(map[string]interface{})
+	registry := asTable(t, cfg["registry"])
 	assert.Equal(t, jfrogRegistryName, registry["default"])
 	// [registries.jfrog] index = sparse+...
-	registries := cfg["registries"].(map[string]interface{})
-	jfrog := registries[jfrogRegistryName].(map[string]interface{})
+	registries := asTable(t, cfg["registries"])
+	jfrog := asTable(t, registries[jfrogRegistryName])
 	assert.Equal(t, "sparse+https://acme.jfrog.io/artifactory/api/cargo/cargo-local/index/", jfrog["index"])
 	// [source.crates-io] replace-with = "jfrog"
-	source := cfg["source"].(map[string]interface{})
-	cratesIo := source["crates-io"].(map[string]interface{})
+	source := asTable(t, cfg["source"])
+	cratesIo := asTable(t, source["crates-io"])
 	assert.Equal(t, jfrogRegistryName, cratesIo["replace-with"])
 	// [registry] global-credential-providers = ["cargo:token"] — required for cargo to use the token.
 	assert.Equal(t, []interface{}{"cargo:token"}, registry["global-credential-providers"])
 
 	creds := decodeToml(t, filepath.Join(home, "credentials.toml"))
-	credRegs := creds["registries"].(map[string]interface{})
-	credJfrog := credRegs[jfrogRegistryName].(map[string]interface{})
+	credRegs := asTable(t, creds["registries"])
+	credJfrog := asTable(t, credRegs[jfrogRegistryName])
 	// "Bearer " + access token — the scheme Artifactory's Cargo index requires.
 	assert.Equal(t, "Bearer tok123", credJfrog["token"])
 
@@ -103,20 +113,20 @@ func TestConfigureNativeRegistry_WithDeployRepo(t *testing.T) {
 	require.NoError(t, ConfigureNativeRegistry(sd, "cargo-remote", "cargo-local"))
 
 	cfg := decodeToml(t, filepath.Join(home, "config.toml"))
-	registries := cfg["registries"].(map[string]interface{})
+	registries := asTable(t, cfg["registries"])
 	// Resolution registry (jfrog) -> remote; source replacement targets it.
-	jfrog := registries[jfrogRegistryName].(map[string]interface{})
+	jfrog := asTable(t, registries[jfrogRegistryName])
 	assert.Equal(t, "sparse+https://acme.jfrog.io/artifactory/api/cargo/cargo-remote/index/", jfrog["index"])
-	assert.Equal(t, jfrogRegistryName, cfg["source"].(map[string]interface{})["crates-io"].(map[string]interface{})["replace-with"])
+	assert.Equal(t, jfrogRegistryName, asTable(t, asTable(t, cfg["source"])["crates-io"])["replace-with"])
 	// Deploy registry (jfrog-local) -> local.
-	jfrogLocal := registries[jfrogDeployRegistryName].(map[string]interface{})
+	jfrogLocal := asTable(t, registries[jfrogDeployRegistryName])
 	assert.Equal(t, "sparse+https://acme.jfrog.io/artifactory/api/cargo/cargo-local/index/", jfrogLocal["index"])
 
 	// Both registries get the credential.
 	creds := decodeToml(t, filepath.Join(home, "credentials.toml"))
-	credRegs := creds["registries"].(map[string]interface{})
-	assert.Equal(t, "Bearer tok123", credRegs[jfrogRegistryName].(map[string]interface{})["token"])
-	assert.Equal(t, "Bearer tok123", credRegs[jfrogDeployRegistryName].(map[string]interface{})["token"])
+	credRegs := asTable(t, creds["registries"])
+	assert.Equal(t, "Bearer tok123", asTable(t, credRegs[jfrogRegistryName])["token"])
+	assert.Equal(t, "Bearer tok123", asTable(t, credRegs[jfrogDeployRegistryName])["token"])
 }
 
 func TestConfigureNativeRegistry_PreservesExistingKeysAndIsIdempotent(t *testing.T) {
@@ -141,18 +151,18 @@ index = "sparse+https://other.example.com/index/"
 
 	cfg := decodeToml(t, configPath)
 	// Unrelated keys preserved.
-	build := cfg["build"].(map[string]interface{})
+	build := asTable(t, cfg["build"])
 	assert.EqualValues(t, 4, build["jobs"])
-	registries := cfg["registries"].(map[string]interface{})
-	other := registries["other"].(map[string]interface{})
+	registries := asTable(t, cfg["registries"])
+	other := asTable(t, registries["other"])
 	assert.Equal(t, "sparse+https://other.example.com/index/", other["index"])
 	// Our registry added alongside it.
-	jfrog := registries[jfrogRegistryName].(map[string]interface{})
+	jfrog := asTable(t, registries[jfrogRegistryName])
 	assert.Equal(t, "sparse+https://acme.jfrog.io/artifactory/api/cargo/repo1/index/", jfrog["index"])
 	// Basic auth used when no access token is set: "Basic base64(user:password)".
 	// base64("reshmi:pw") = cmVzaG1pOnB3
 	creds := decodeToml(t, filepath.Join(home, "credentials.toml"))
-	credJfrog := creds["registries"].(map[string]interface{})[jfrogRegistryName].(map[string]interface{})
+	credJfrog := asTable(t, asTable(t, creds["registries"])[jfrogRegistryName])
 	assert.Equal(t, "Basic cmVzaG1pOnB3", credJfrog["token"])
 }
 

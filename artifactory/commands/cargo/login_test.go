@@ -38,6 +38,21 @@ func TestRegistryHostMatches(t *testing.T) {
 			artifactoryURL: "",
 			want:           false,
 		},
+		{
+			// Same host but a different service reverse-proxied under a different path
+			// (a separate cargo registry on the same domain). Must NOT match — otherwise
+			// the Artifactory token would leak to that unrelated registry.
+			indexURL:       "sparse+https://acme.jfrog.io/cargo-mirror/index/",
+			artifactoryURL: "https://acme.jfrog.io/artifactory",
+			want:           false,
+		},
+		{
+			// Same host, path is a lexical prefix of the Artifactory base path but not a
+			// path-segment prefix ("/artifactory" vs "/artifactoryX"). Must NOT match.
+			indexURL:       "sparse+https://acme.jfrog.io/artifactoryX/api/cargo/crates/",
+			artifactoryURL: "https://acme.jfrog.io/artifactory",
+			want:           false,
+		},
 	}
 	for _, tc := range cases {
 		got := registryHostMatches(tc.indexURL, tc.artifactoryURL)

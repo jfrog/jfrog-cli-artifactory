@@ -1,6 +1,9 @@
 package cargo
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestExtractRepoNameFromURL(t *testing.T) {
 	cases := map[string]string{
@@ -27,7 +30,10 @@ func (f fakeRepoGetter) GetRepository(_ string, target interface{}) error {
 	if f.err != nil {
 		return f.err
 	}
-	p := target.(*servicesVirtualParams)
+	p, ok := target.(*servicesVirtualParams)
+	if !ok {
+		return fmt.Errorf("fakeRepoGetter: unexpected target type %T", target)
+	}
 	p.Rclass = f.rclass
 	p.DefaultDeploymentRepo = f.defaultDR
 	return nil

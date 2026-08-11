@@ -1,6 +1,7 @@
 package cargo
 
 import (
+	"bytes"
 	"fmt"
 	"net/url"
 	"os"
@@ -109,7 +110,7 @@ func ConfigureNativeRegistry(serverDetails *config.ServerDetails, resolveRepo, d
 	// must be deleted rather than left behind pointing at the old project's local repo. Uday's report:
 	// "jfrog-local still project-scoped" after switching flows was exactly this stale-entry case.
 	configPath := filepath.Join(home, "config.toml")
-	if err = mergeTomlFile(configPath, func(m map[string]interface{}) {
+	if err = mergeTomlFile(configPath, 0644, func(m map[string]interface{}) {
 		setNested(m, []string{"registry", "default"}, jfrogRegistryName)
 		setNested(m, []string{"registry", "global-credential-providers"}, []string{"cargo:token"})
 		setNested(m, []string{"registries", jfrogRegistryName, "index"}, resolveIndex)
@@ -136,7 +137,9 @@ func ConfigureNativeRegistry(serverDetails *config.ServerDetails, resolveRepo, d
 		registries = append(registries, jfrogDeployRegistryName)
 	}
 	credsPath := filepath.Join(home, "credentials.toml")
-	if err = mergeTomlFile(credsPath, func(m map[string]interface{}) {
+	// 0600 up-front — credentials.toml holds a bearer token. A post-write chmod
+	// leaves a world-readable window between create and chmod.
+	if err = mergeTomlFile(credsPath, 0600, func(m map[string]interface{}) {
 		for _, reg := range registries {
 			setNested(m, []string{"registries", reg, "token"}, credential)
 		}
@@ -149,17 +152,17 @@ func ConfigureNativeRegistry(serverDetails *config.ServerDetails, resolveRepo, d
 	}); err != nil {
 		return fmt.Errorf("failed to write cargo credentials %q: %w", credsPath, err)
 	}
-	// credentials.toml holds a secret — restrict permissions (best-effort).
-	if err = os.Chmod(credsPath, 0600); err != nil {
-		log.Debug("cargo: could not chmod credentials.toml: " + err.Error())
-	}
 	return nil
 }
 
 // mergeTomlFile decodes an existing TOML file (treated as empty if missing) into a map, applies
 // apply, then writes it back — creating parent directories as needed. Unrelated keys are
 // preserved; comments and original key ordering are not.
-func mergeTomlFile(path string, apply func(map[string]interface{})) error {
+//
+// The write is atomic and never leaves a partial file at path: apply's output is encoded into a
+// buffer first, then written to a temp file in the same directory with the requested perm, then
+// renamed over path. Callers should pass 0600 for credential files and 0644 for regular config.
+func mergeTomlFile(path string, perm os.FileMode, apply func(map[string]interface{})) error {
 	m := map[string]interface{}{}
 	data, err := os.ReadFile(path)
 	switch {
@@ -173,19 +176,42 @@ func mergeTomlFile(path string, apply func(map[string]interface{})) error {
 
 	apply(m)
 
-	if err = os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	dir := filepath.Dir(path)
+	if err = os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	f, err := os.Create(path)
+	// Encode to a buffer first so a mid-encode failure never truncates path.
+	var buf bytes.Buffer
+	if err = toml.NewEncoder(&buf).Encode(m); err != nil {
+		return fmt.Errorf("encode TOML: %w", err)
+	}
+	// Temp file in the same directory + rename → atomic replace with the intended perm from
+	// the outset. Same-directory rename keeps atomicity on all supported filesystems.
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if cerr := f.Close(); cerr != nil {
-			log.Debug("cargo: close " + path + ": " + cerr.Error())
-		}
-	}()
-	return toml.NewEncoder(f).Encode(m)
+	tmpPath := tmp.Name()
+	cleanup := func() { _ = os.Remove(tmpPath) }
+	if _, err = tmp.Write(buf.Bytes()); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return err
+	}
+	if err = tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return err
+	}
+	if err = tmp.Close(); err != nil {
+		cleanup()
+		return err
+	}
+	if err = os.Rename(tmpPath, path); err != nil {
+		cleanup()
+		return err
+	}
+	return nil
 }
 
 // setNested sets m[keys[0]][keys[1]]...=value, creating intermediate TOML tables

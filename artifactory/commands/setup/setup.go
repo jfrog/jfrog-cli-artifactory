@@ -285,10 +285,16 @@ func (sc *SetupCommand) promptUserToSelectCargoRepositories() error {
 	sc.repoName = remote
 
 	// Deployment repository — a local Cargo repo (publish target). Optional.
+	// Ask up-front so the user can skip publishing even when local repos exist —
+	// SelectRepositoryInteractively has no "none" entry and would otherwise force a choice.
+	if !coreutils.AskYesNo("Configure a local repository for publishing crates?", false) {
+		log.Info("Skipping publish configuration; configuring resolution only.")
+		return nil
+	}
 	local, err := utils.SelectRepositoryInteractively(
 		sc.serverDetails,
 		services.RepositoriesFilterParams{RepoType: utils.Local.String(), PackageType: packageType, ProjectKey: sc.projectKey},
-		"Select a local repository for publishing crates (optional):")
+		"Select a local repository for publishing crates:")
 	if err != nil {
 		if !strings.Contains(err.Error(), noMatchingRepositoriesErrSubstring) {
 			return err
