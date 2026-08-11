@@ -30,7 +30,18 @@ Gotchas:
 - Both builds must live on the same Artifactory instance.
 - The appended build's artifacts are not duplicated; only the reference is added.
 
-Related: jf rt build-publish, jf rt build-promote`
+Related: jf rt build-publish, jf rt build-promote
+
+QA:
+Q: How do I append build 'build1' with number '1' to 'master-build' with number '10'?
+A: jf rt ba master-build 10 build1 1
+
+Q: Could you tell me the command to incorporate 'build3' with the number '3' into 'appBuild' with the number '30'?
+A: jf rt ba appBuild 30 build3 3
+
+Q: How do I add 'build5' build number '5' to my 'simpleBuild' with number '50'?
+A: jf rt ba simpleBuild 50 build5 5
+`
 }
 
 func GetArguments() []components.Argument {
