@@ -54,10 +54,10 @@ Q: How can I set properties on files using variables in the file spec named 'myF
 A: jf rt sp 'key1=value1;key2=value2' --spec=myFileSpec.json --spec-vars='key1=value1;key2=value2'
 
 Q: How can I set properties 'key1=value1;key2=value2' on files that have specific properties 'key1=value1;key2=value2' for files matching the pattern 'my-repo/my-path/*'?
-A: jf rt sp 'my-repo/my-path/*' 'key1=value1;key2=value2' --props=key1=value1;key2=value2
+A: jf rt sp 'my-repo/my-path/*' 'key1=value1;key2=value2' --props='key1=value1;key2=value2'
 
 Q: How can I set properties 'key1=value1;key2=value2' on files that do not have specific properties 'key1=value1;key2=value2' for files matching the pattern 'my-repo/my-path/*'?
-A: jf rt sp 'my-repo/my-path/*' 'key1=value1;key2=value2' --exclude-props=key1=value1;key2=value2
+A: jf rt sp 'my-repo/my-path/*' 'key1=value1;key2=value2' --exclude-props='key1=value1;key2=value2'
 `
 }
 
