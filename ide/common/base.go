@@ -53,6 +53,12 @@ func RequireAuthWhenUrlProvided(c *components.Context) error {
 	if !c.IsFlagSet("url") {
 		return nil
 	}
+	if c.IsFlagSet("server-id") {
+		return fmt.Errorf(
+			"--url and --server-id cannot be combined; --server-id's saved credentials are ignored when --url is set. " +
+				"Use --url with --access-token, or --url with --user and --password. " +
+				"To use a saved server, drop --url and pass --server-id alone")
+	}
 	if c.IsFlagSet("access-token") {
 		return nil
 	}
