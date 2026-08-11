@@ -37,6 +37,7 @@ A: jf rt ping --url=https://my-rt-server.com/artifactory
 
 Q: How can I check connection to Artifactory server with ID 'rt-server-2' without verifying TLS certificates?
 A: jf rt ping --server-id=rt-server-2 --insecure-tls
+Warning: Use --insecure-tls only for controlled troubleshooting; it disables TLS certificate validation.
 `
 }
 
