@@ -37,7 +37,27 @@ Gotchas:
 - Always smoke-test with --dry-run before bulk copies; there is no undo.
 - Cross-repo-type copy may fail (e.g. Maven layout to a generic repo retains paths but loses metadata).
 
-Related: jf rt move, jf rt upload, jf rt search, jf rt build-promote`
+Related: jf rt move, jf rt upload, jf rt search, jf rt build-promote
+
+QA:
+Q: How do I copy a file named 'project.jar' from one repository to another?
+A: jf rt cp SourceRepo/project.jar DestinationRepo/
+
+Q: What is the syntax to copy 'myapp.war' from dockrepo to 'webapps-local/' with a 5 seconds interval between retries?
+A: jf rt cp dockrepo/myapp.war webapps-local/ --retry-wait-time=5s
+
+Q: What's the command to copy all .png files from 'ImageStorage' to 'BackupImages'?
+A: jf rt cp "ImageStorage/*.png" BackupImages/
+
+Q: Could you provide the command to copy 'report.pdf' from the repository 'DocsStorage' to the repository 'BackupDocs'?
+A: jf rt cp DocsStorage/report.pdf BackupDocs/
+
+Q: What is the precise command to copy files that start with 'DEV' from the repository 'DevFiles' to the repository 'BackupDev'?
+A: jf rt cp "DevFiles/DEV*" BackupDev/
+
+Q: How do I copy .log files from 'LogsArchive' to 'BackupLogs'?
+A: jf rt cp "LogsArchive/*.log" BackupLogs/
+`
 }
 
 func GetArguments() []components.Argument {

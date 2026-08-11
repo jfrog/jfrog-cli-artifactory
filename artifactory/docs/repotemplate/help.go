@@ -28,7 +28,18 @@ Gotchas:
 - Interactive only; cannot be scripted unattended.
 - Output is a literal template; you usually want to add ${var} placeholders by hand for reusability.
 
-Related: jf rt repo-create, jf rt repo-update, jf rt replication-template`
+Related: jf rt repo-create, jf rt repo-update, jf rt replication-template
+
+QA:
+Q: Could you guide me through the process of creating a configuration template in JFrog Artifactory considering that the template path is 'template1.json'?
+A: jf rt rpt template1.json
+
+Q: Could you elucidate the approach for establishing a configuration template in JFrog Artifactory provided the template path is 'template3.json'?
+A: jf rt rpt template3.json
+
+Q: Could you outline the procedure for forming a configuration template in JFrog Artifactory with the template path being 'template5.json'?
+A: jf rt rpt template5.json
+`
 }
 
 func GetArguments() []components.Argument {

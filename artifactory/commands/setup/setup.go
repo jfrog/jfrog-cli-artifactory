@@ -13,6 +13,7 @@ import (
 
 	bidotnet "github.com/jfrog/build-info-go/build/utils/dotnet"
 	biutils "github.com/jfrog/build-info-go/utils"
+	aptcommand "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/apt"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/golang"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
@@ -28,6 +29,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -98,6 +100,7 @@ var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
 	project.Docker: {location: "your Docker credential store", credentialsOnly: true},
 	project.Podman: {location: "your Podman credential store", credentialsOnly: true},
 	project.Helm:   {location: "your Helm registry credential store", credentialsOnly: true},
+	project.Apt:    {location: "your apt configuration"},
 }
 
 // configScopeNote describes what the command changed and how widely it applies, or
@@ -147,6 +150,8 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	project.Helm: repository.Helm,
 
 	project.Go: repository.Go,
+
+	project.Apt: repository.Debian,
 
 	project.Gradle: repository.Gradle,
 	project.Maven:  repository.Maven,
@@ -273,6 +278,8 @@ func (sc *SetupCommand) Run() (err error) {
 		err = sc.configureMaven()
 	case project.UV:
 		err = sc.configureUV()
+	case project.Apt:
+		err = sc.configureApt()
 	default:
 		err = errorutils.CheckErrorf("unsupported package manager: %s", sc.packageManager)
 	}
@@ -861,4 +868,40 @@ func (sc *SetupCommand) configureHelm() error {
 	cmdLogin.Stderr = os.Stderr
 
 	return cmdLogin.Run()
+}
+
+// configureApt interactively prompts for repo, dist, component, and GPG mode,
+// then delegates to AptSetupCommand which writes the persistent sources.list entry and pinning file.
+// sc.repoName was pre-selected by promptUserToSelectRepository; we let the user confirm or change it.
+func (sc *SetupCommand) configureApt() error {
+	// Show the auto-selected repo and let the user confirm or override.
+	ioutils.ScanFromConsole("Repository name", &sc.repoName, sc.repoName)
+
+	var dist string
+	for dist == "" {
+		ioutils.ScanFromConsole("Distribution name (e.g. noble, jammy, bookworm)", &dist, "")
+	}
+
+	var component string
+	ioutils.ScanFromConsole("Component (e.g. main, contrib, non-free — leave empty for 'main')", &component, "main")
+
+	var gpgChoice string
+	ioutils.ScanFromConsole("GPG mode — 'import' (auto-fetch key), 'trusted' (skip GPG, for testing), or leave empty to skip", &gpgChoice, "")
+
+	cmd := aptcommand.NewAptSetupCommand().
+		SetServerDetails(sc.serverDetails).
+		SetRepoName(sc.repoName).
+		SetDist(dist).
+		SetComponent(component)
+	switch strings.ToLower(strings.TrimSpace(gpgChoice)) {
+	case "":
+		// Leave GPG unconfigured.
+	case "import":
+		cmd.SetImportKey(true)
+	case "trusted":
+		cmd.SetTrusted(true)
+	default:
+		return errorutils.CheckErrorf("invalid GPG mode %q — expected 'import', 'trusted', or empty", gpgChoice)
+	}
+	return cmd.Run()
 }
