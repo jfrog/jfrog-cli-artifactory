@@ -26,7 +26,18 @@ Gotchas:
 - Anonymous ping works against an unauthenticated server; a successful ping does not imply repo access.
 - Output is indented JSON on stdout; "OK" status means the API is reachable.
 
-Related: jf c show, jf rt curl /api/system/health`
+Related: jf c show, jf rt curl /api/system/health
+
+QA:
+Q: How can I verify the accessibility of my default Artifactory server?
+A: jf rt ping
+
+Q: How can I ping the Artifactory server through the specified URL 'https://my-rt-server.com/artifactory'?
+A: jf rt ping --url=https://my-rt-server.com/artifactory
+
+Q: How can I check connection to Artifactory server with ID 'rt-server-2' without verifying TLS certificates?
+A: jf rt ping --server-id=rt-server-2 --insecure-tls
+`
 }
 
 func GetArguments() []components.Argument {

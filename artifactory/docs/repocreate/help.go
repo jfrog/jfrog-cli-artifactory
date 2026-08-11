@@ -33,7 +33,18 @@ Gotchas:
 - Template variables ${var} are substituted via --vars "k=v;k2=v2".
 - Federated repos require Artifactory Enterprise+; remote-host URLs must be reachable.
 
-Related: jf rt repo-update, jf rt repo-delete, jf rt repo-template`
+Related: jf rt repo-update, jf rt repo-delete, jf rt repo-template
+
+QA:
+Q: Could you guide me through the process of creating a repo in Artifactory considering that the repo name is 'repo1'?
+A: jf rt rc repo1
+
+Q: Could you elucidate the approach for forming a repo in Artifactory provided the repository name is 'repo3'?
+A: jf rt rc repo3
+
+Q: Could you outline the procedure for constructing a repo in Artifactory with the repository name being 'repo5'?
+A: jf rt rc repo5
+`
 }
 
 func GetArguments() []components.Argument {
