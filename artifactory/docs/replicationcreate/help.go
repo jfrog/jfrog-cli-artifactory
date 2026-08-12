@@ -25,7 +25,18 @@ Gotchas:
 - Push replication needs network reachability from this Artifactory to the target.
 - Only one replication per repo+URL combination; calling again with the same target errors.
 
-Related: jf rt replication-template, jf rt replication-delete, jf rt repo-create`
+Related: jf rt replication-template, jf rt replication-delete, jf rt repo-create
+
+QA:
+Q: Could you guide me through the process of creating a replication job in JFrog Artifactory considering that the template path is 'template1.json'?
+A: jf rt rplc template1.json
+
+Q: Could you elucidate the approach for forming a replication job in JFrog Artifactory provided the template path is 'template3.json'?
+A: jf rt rplc template3.json
+
+Q: Could you outline the procedure for constructing a replication job in JFrog Artifactory with the template path being 'template5.json'?
+A: jf rt rplc template5.json
+`
 }
 
 func GetDescription() string {

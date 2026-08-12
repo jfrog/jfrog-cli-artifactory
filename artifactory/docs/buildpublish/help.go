@@ -30,7 +30,12 @@ Gotchas:
 - Default --env-exclude masks common secret patterns; widening it can leak credentials into the build-info.
 - After publish, subsequent rt commands using the same build/number will create a separate revision.
 
-Related: jf rt build-collect-env, jf rt build-add-git, jf rt build-promote, jf rt build-discard`
+Related: jf rt build-collect-env, jf rt build-add-git, jf rt build-promote, jf rt build-discard
+
+QA:
+Q: How can I publish a build named 'my-build' with number '1' using JFrog CLI?
+A: jf rt bp my-build 1
+`
 }
 
 func GetArguments() []components.Argument {

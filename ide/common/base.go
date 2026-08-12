@@ -39,7 +39,42 @@ func HasServerConfigFlags(c *components.Context) bool {
 		(c.IsFlagSet("password") && (c.IsFlagSet("url") || c.IsFlagSet("server-id")))
 }
 
-// ValidateRepository validates that the repository exists and is of the specified type
+// RequireAuthWhenUrlProvided returns an error when --url is supplied without
+// enough information to authenticate. When --url is set, credentials must be
+// provided explicitly via --access-token OR --user + --password.
+//
+// Note that --server-id is deliberately NOT accepted as a substitute here:
+// upstream CreateArtifactoryDetailsByFlags (jfrog-cli-core) treats any --url
+// as "explicit connection details" and skips loading credentials from the
+// saved server-id, so combining --url with --server-id results in an
+// anonymous request. To use a saved server, drop --url and pass --server-id
+// alone (or leave both off to use the default server).
+func RequireAuthWhenUrlProvided(c *components.Context) error {
+	if !c.IsFlagSet("url") {
+		return nil
+	}
+	if c.IsFlagSet("server-id") {
+		return fmt.Errorf(
+			"--url and --server-id cannot be combined; --server-id's saved credentials are ignored when --url is set. " +
+				"Use --url with --access-token, or --url with --user and --password. " +
+				"To use a saved server, drop --url and pass --server-id alone")
+	}
+	if c.IsFlagSet("access-token") {
+		return nil
+	}
+	if c.IsFlagSet("user") && c.IsFlagSet("password") {
+		return nil
+	}
+	return fmt.Errorf(
+		"--url requires authentication details. " +
+			"Pass --access-token, or --user and --password. " +
+			"To use a server configured via 'jf config add', drop --url and pass --server-id alone")
+}
+
+// ValidateRepository validates that the repository exists and is of the specified type.
+// Any error returned wraps the underlying transport / Artifactory response so the
+// caller can see the real cause (e.g. 401 Unauthorized) instead of a generic
+// "does not exist" message.
 func ValidateRepository(repoKey string, rtDetails *config.ServerDetails, apiType string) error {
 	log.Debug("Validating repository...")
 	artDetails, err := rtDetails.CreateArtAuthConfig()
@@ -48,7 +83,7 @@ func ValidateRepository(repoKey string, rtDetails *config.ServerDetails, apiType
 	}
 
 	if err := utils.ValidateRepoExists(repoKey, artDetails); err != nil {
-		return fmt.Errorf("repository '%s' does not exist or is not accessible: %w", repoKey, err)
+		return fmt.Errorf("could not validate repository '%s': %w", repoKey, err)
 	}
 
 	if err := utils.ValidateRepoType(repoKey, artDetails, apiType); err != nil {

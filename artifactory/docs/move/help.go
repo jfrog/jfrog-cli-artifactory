@@ -35,7 +35,15 @@ Gotchas:
 - Same trailing-slash rule as copy/upload: slash = folder, no slash = rename target.
 - Failures partway through can leave artifacts in a mixed state; check the summary.
 
-Related: jf rt copy, jf rt delete, jf rt upload, jf rt build-promote`
+Related: jf rt copy, jf rt delete, jf rt upload, jf rt build-promote
+
+QA:
+Q: What is the command to move 'myapp.war' from local-j to 'webapps-local/' with a 4000 milliseconds delay between retry attempts?
+A: jf rt mv "local-j/myapp.war" webapps-local/ --retry-wait-time=4000ms
+
+Q: How can I move 'mylib.jar' to 'libs-local/' with a retry wait time of 6 seconds?
+A: jf rt mv 'local-j/mylib.jar' libs-local/ --retry-wait-time=6s
+`
 }
 
 func GetArguments() []components.Argument {

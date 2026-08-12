@@ -31,7 +31,18 @@ Gotchas:
 - Deletes are immediate and irreversible unless the repo has trash-can/retention enabled.
 - --recursive defaults to true; combine with precise patterns.
 
-Related: jf rt search, jf rt delete-props, jf rt build-discard`
+Related: jf rt search, jf rt delete-props, jf rt build-discard
+
+QA:
+Q: How to delete .jar files from "MavenCentral"?
+A: jf rt del "MavenCentral/*.jar"
+
+Q: What's the command to delete .png files from "ImageStorage"?
+A: jf rt del "ImageStorage/*.png"
+
+Q: How to delete files starting with "DEV" from "DevFiles"?
+A: jf rt del "DevFiles/DEV*"
+`
 }
 
 func GetArguments() []components.Argument {
