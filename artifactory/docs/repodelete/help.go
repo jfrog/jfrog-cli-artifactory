@@ -28,7 +28,18 @@ Gotchas:
 - All artifacts in matched repos are deleted, not just the repo definition.
 - No grace period; rely on backups for recovery.
 
-Related: jf rt repo-create, jf rt repo-update, jf rt delete`
+Related: jf rt repo-create, jf rt repo-update, jf rt delete
+
+QA:
+Q: Could you guide me through the process of deleting a repository in Artifactory considering that the repo name is 'repo1'?
+A: jf rt rdel repo1
+
+Q: Could you elucidate the approach for eradicating a repository in Artifactory provided the repo name is 'repo3'?
+A: jf rt rdel repo3
+
+Q: Could you outline the procedure for discarding a repository in Artifactory with the repo name being 'repo5'?
+A: jf rt rdel repo5
+`
 }
 
 func GetArguments() []components.Argument {
