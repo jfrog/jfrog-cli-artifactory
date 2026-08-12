@@ -48,6 +48,10 @@ func ParseBaseSetupConfig(ctx *components.Context) (*BaseSetupConfig, error) {
 		return nil, errors.New("--repo-key flag is required. Please specify the repository key for your AI Editor Extensions repository")
 	}
 
+	if err := common.RequireAuthWhenUrlProvided(ctx); err != nil {
+		return nil, err
+	}
+
 	// Get server details
 	rtDetails, err := common.GetServerDetails(ctx)
 	if err != nil {
