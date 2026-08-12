@@ -29,7 +29,18 @@ Gotchas:
 - Default exclusion in build-publish drops *password*, *secret*, *token*, *key*, *auth*; widening that mask can leak credentials.
 - Calling again for the same build overwrites the previous snapshot.
 
-Related: jf rt build-publish, jf rt build-add-git, jf rt build-add-dependencies`
+Related: jf rt build-publish, jf rt build-add-git, jf rt build-add-dependencies
+
+QA:
+Q: How do I collect environment variables for my build 'my-build' with number '1'?
+A: jf rt bce my-build 1
+
+Q: Could you provide the command to collect environment variables for the build 'appBuild' with the number '100'?
+A: jf rt bce appBuild 100
+
+Q: How do I collect environment variables for 'simpleBuild' with build number '10'?
+A: jf rt bce simpleBuild 10
+`
 }
 
 func GetArguments() []components.Argument {

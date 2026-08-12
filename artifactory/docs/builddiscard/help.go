@@ -31,7 +31,18 @@ Gotchas:
 - --max-builds and --max-days can be combined; either condition triggers discard.
 - --async=true returns immediately; check Artifactory logs for completion.
 
-Related: jf rt build-publish, jf rt build-clean, jf rt delete`
+Related: jf rt build-publish, jf rt build-clean, jf rt delete
+
+QA:
+Q: How do I discard old builds of 'my-build' while keeping the 10 most recent?
+A: jf rt bdi my-build --max-builds=10
+
+Q: Could you tell me the command to discard old builds of 'appBuild' but keep the last 5?
+A: jf rt bdi appBuild --max-builds=5
+
+Q: What's the command to discard old builds of 'imageBuild' but keep the last 15?
+A: jf rt bdi imageBuild --max-builds=15
+`
 }
 
 func GetArguments() []components.Argument {
