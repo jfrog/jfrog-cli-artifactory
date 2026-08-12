@@ -32,7 +32,18 @@ Gotchas:
 - Template substitutes ${var} via --vars "k=v;k2=v2".
 - Update is whole-document; omitted fields may be reset to defaults.
 
-Related: jf rt repo-create, jf rt repo-delete, jf rt repo-template`
+Related: jf rt repo-create, jf rt repo-delete, jf rt repo-template
+
+QA:
+Q: Could you guide me through the process of updating a repository in JFrog Artifactory considering that the repo name is 'repo1'?
+A: jf rt ru repo1-template.json
+
+Q: Could you elucidate the approach for altering a repository in JFrog Artifactory provided the repo name is 'repo3'?
+A: jf rt ru repo3-template.json
+
+Q: Could you outline the procedure for adjusting a repository in JFrog Artifactory with the repo name being 'repo5'?
+A: jf rt ru repo5-template.json
+`
 }
 
 func GetArguments() []components.Argument {

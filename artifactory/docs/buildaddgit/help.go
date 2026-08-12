@@ -32,7 +32,18 @@ Gotchas:
 - A shallow clone (depth=1) may have no usable git log, causing empty issue extraction.
 - Issues are extracted by regex; misconfigured patterns silently produce no matches.
 
-Related: jf rt build-publish, jf rt build-collect-env, jf rt build-add-dependencies`
+Related: jf rt build-publish, jf rt build-collect-env, jf rt build-add-dependencies
+
+QA:
+Q: How do I add Git details to my build 'my-build' with number '1'?
+A: jf rt bag my-build 1
+
+Q: Could you tell me the command to incorporate Git info for the build 'appBuild' with the number '100'?
+A: jf rt bag appBuild 100
+
+Q: How do I include Git information for 'simpleBuild' with number '10'?
+A: jf rt bag simpleBuild 10
+`
 }
 
 func GetArguments() []components.Argument {
