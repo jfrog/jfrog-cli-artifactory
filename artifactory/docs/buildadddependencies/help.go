@@ -33,7 +33,18 @@ Gotchas:
 - Local mode does not upload anything; it only records checksums in the in-progress build-info.
 - Files are recorded with build-info-relative paths; renaming sources between this command and build-publish breaks tooling.
 
-Related: jf rt build-publish, jf rt build-add-git, jf rt build-collect-env, jf rt upload`
+Related: jf rt build-publish, jf rt build-add-git, jf rt build-collect-env, jf rt upload
+
+QA:
+Q: How do I add dependencies to my build 'my-build' with number '1'?
+A: jf rt bad my-build 1 "path/to/dependencies/*"
+
+Q: Could you tell me the command to incorporate dependencies for the build 'appBuild' with the number '100'?
+A: jf rt bad appBuild 100 "path/to/dependencies/*"
+
+Q: How do I include dependencies for 'simpleBuild' with build number '10'?
+A: jf rt bad simpleBuild 10 "path/to/dependencies/*"
+`
 }
 
 func GetArguments() []components.Argument {

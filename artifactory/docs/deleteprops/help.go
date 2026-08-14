@@ -29,7 +29,27 @@ Gotchas:
 - Only the listed keys are removed; other properties on the artifact remain.
 - --repo-only narrows to repo-descriptor properties.
 
-Related: jf rt set-props, jf rt search, jf rt delete`
+Related: jf rt set-props, jf rt search, jf rt delete
+
+QA:
+Q: How to delete properties from .jar files in "MavenCentral"?
+A: jf rt delp "MavenCentral/*.jar" key
+
+Q: What's the command to delete properties from .png files in "ImageStorage"?
+A: jf rt delp "ImageStorage/*.png" key
+
+Q: Can I delete properties from "report.pdf" in "DocsStorage"?
+A: jf rt delp DocsStorage/report.pdf key
+
+Q: How to delete properties from files starting with "DEV" in "DevFiles"?
+A: jf rt delp "DevFiles/DEV*" key
+
+Q: What command deletes properties from .log files in "LogsArchive"?
+A: jf rt delp "LogsArchive/*.log" key
+
+Q: How can I remove the 'version' property from all the jar files in the maven-central repository?
+A: jf rt delp 'maven-central/*.jar' 'version'
+`
 }
 
 func GetArguments() []components.Argument {

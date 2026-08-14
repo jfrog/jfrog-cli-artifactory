@@ -2,8 +2,10 @@ package setup
 
 import (
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -14,6 +16,7 @@ import (
 	bidotnet "github.com/jfrog/build-info-go/build/utils/dotnet"
 	biutils "github.com/jfrog/build-info-go/utils"
 	apmcommon "github.com/jfrog/jfrog-cli-artifactory/agent/apm/common"
+	aptcommand "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/apt"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/golang"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
@@ -29,6 +32,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -99,10 +103,9 @@ var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
 	project.Docker: {location: "your Docker credential store", credentialsOnly: true},
 	project.Podman: {location: "your Podman credential store", credentialsOnly: true},
 	project.Helm:   {location: "your Helm registry credential store", credentialsOnly: true},
-	// ConfigureApmRegistryPersistent (via `apm config set`) always writes to
-	// ~/.apm/config.json and sets the registry as apm's default, so this redirects
-	// resolution the same way npm/pip/go do; apm has no override env for the file.
 	project.AgentApm: {location: "your user-level apm configuration (~/.apm/config.json)"},
+	project.Apt:    {location: "your apt configuration"},
+	project.Apk:    {location: "your apk configuration"},
 }
 
 // configScopeNote describes what the command changed and how widely it applies, or
@@ -154,8 +157,12 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 
 	project.Go: repository.Go,
 
+	project.Apt: repository.Debian,
+
 	project.Gradle: repository.Gradle,
 	project.Maven:  repository.Maven,
+
+	project.Apk: repository.Alpine,
 }
 
 // SetupCommand configures registries and authentication for various package manager (npm, Yarn, Pip, Pipenv, Poetry, UV, Go)
@@ -246,7 +253,8 @@ func (sc *SetupCommand) Run() (err error) {
 
 	// If the repository name is not provided, and the package manager is not Docker or Podman, prompt the user to select a repository.
 	// Docker and Podman do not require a repository name as they authenticate directly with the platform and require the repository name as part of the image name.
-	if sc.repoName == "" && sc.packageManager != project.Docker && sc.packageManager != project.Podman {
+	// Alpine (Apk) handles its own repo-type-first interactive flow inside configureApk().
+	if sc.repoName == "" && sc.packageManager != project.Docker && sc.packageManager != project.Podman && sc.packageManager != project.Apk {
 		// Prompt the user to select a virtual repository that matches the package manager.
 		if err = sc.promptUserToSelectRepository(); err != nil {
 			return err
@@ -281,6 +289,10 @@ func (sc *SetupCommand) Run() (err error) {
 		err = sc.configureUV()
 	case project.AgentApm:
 		err = sc.configureAgentApm()
+	case project.Apt:
+		err = sc.configureApt()
+	case project.Apk:
+		err = sc.configureApk()
 	default:
 		err = errorutils.CheckErrorf("unsupported package manager: %s", sc.packageManager)
 	}
@@ -302,21 +314,30 @@ func (sc *SetupCommand) Run() (err error) {
 // every package manager except AgentApm, which is local-only (agentpackages has no remote/virtual
 // support in Artifactory at all, so a virtual-repo search can never find a match for it).
 func (sc *SetupCommand) promptUserToSelectRepository() (err error) {
-	repoType := utils.Virtual
+	repoType := utils.Virtual.String()
 	if sc.packageManager == project.AgentApm {
-		repoType = utils.Local
+		repoType = utils.Local.String()
 	}
+	return sc.promptUserToSelectRepositoryFiltered(repoType)
+}
+
+func (sc *SetupCommand) promptUserToSelectRepositoryFiltered(repoType string) (err error) {
 	repoFilterParams := services.RepositoriesFilterParams{
-		RepoType:    repoType.String(),
+		RepoType:    repoType,
 		PackageType: packageManagerToRepositoryPackageType[sc.packageManager],
 		ProjectKey:  sc.projectKey,
+	}
+
+	promptMessage := fmt.Sprintf("To configure %s, we need you to select a %s repository:", repoFilterParams.PackageType, repoFilterParams.RepoType)
+	if repoType == "" {
+		promptMessage = fmt.Sprintf("To configure %s, we need you to select a repository:", repoFilterParams.PackageType)
 	}
 
 	// Prompt for repository selection based on filter parameters.
 	sc.repoName, err = utils.SelectRepositoryInteractively(
 		sc.serverDetails,
 		repoFilterParams,
-		fmt.Sprintf("To configure %s, we need you to select a %s repository:", repoFilterParams.PackageType, repoFilterParams.RepoType))
+		promptMessage)
 
 	return err
 }
@@ -886,4 +907,432 @@ func (sc *SetupCommand) configureHelm() error {
 	cmdLogin.Stderr = os.Stderr
 
 	return cmdLogin.Run()
+}
+
+// configureApt interactively prompts for repo, dist, component, and GPG mode,
+// then delegates to AptSetupCommand which writes the persistent sources.list entry and pinning file.
+// sc.repoName was pre-selected by promptUserToSelectRepository; we let the user confirm or change it.
+func (sc *SetupCommand) configureApt() error {
+	// Show the auto-selected repo and let the user confirm or override.
+	ioutils.ScanFromConsole("Repository name", &sc.repoName, sc.repoName)
+
+	var dist string
+	for dist == "" {
+		ioutils.ScanFromConsole("Distribution name (e.g. noble, jammy, bookworm)", &dist, "")
+	}
+
+	var component string
+	ioutils.ScanFromConsole("Component (e.g. main, contrib, non-free — leave empty for 'main')", &component, "main")
+
+	var gpgChoice string
+	ioutils.ScanFromConsole("GPG mode — 'import' (auto-fetch key), 'trusted' (skip GPG, for testing), or leave empty to skip", &gpgChoice, "")
+
+	cmd := aptcommand.NewAptSetupCommand().
+		SetServerDetails(sc.serverDetails).
+		SetRepoName(sc.repoName).
+		SetDist(dist).
+		SetComponent(component)
+	switch strings.ToLower(strings.TrimSpace(gpgChoice)) {
+	case "":
+		// Leave GPG unconfigured.
+	case "import":
+		cmd.SetImportKey(true)
+	case "trusted":
+		cmd.SetTrusted(true)
+	default:
+		return errorutils.CheckErrorf("invalid GPG mode %q — expected 'import', 'trusted', or empty", gpgChoice)
+	}
+	return cmd.Run()
+}
+
+// ── Alpine (APK) ─────────────────────────────────────────────────────────────
+
+const (
+	apkKeysDir          = "/etc/apk/keys"
+	apkRepositoriesFile = "/etc/apk/repositories"
+	alpineReleaseFile   = "/etc/alpine-release"
+	apkDefaultBranch    = "main"
+)
+
+// configureApk sets up APK to use an Artifactory Alpine repository.
+func (sc *SetupCommand) configureApk() error {
+	if sc.repoName == "" {
+		repoType, err := sc.resolveApkRepoType()
+		if err != nil {
+			return err
+		}
+		if err = sc.promptUserToSelectRepositoryFiltered(repoType); err != nil {
+			return err
+		}
+	} else if err := apkValidateRepositoryExists(sc.serverDetails.GetArtifactoryUrl(), sc.repoName, sc.serverDetails); err != nil {
+		return err
+	}
+
+	rtURL := strings.TrimRight(sc.serverDetails.GetArtifactoryUrl(), "/")
+
+	alpineVersion := detectAlpineVersion()
+
+	var repoURL string
+	if alpineVersion != "" {
+		repoURL = fmt.Sprintf("%s/%s/%s/%s/", rtURL, sc.repoName, alpineVersion, apkDefaultBranch)
+	} else {
+		repoURL = fmt.Sprintf("%s/%s/", rtURL, sc.repoName)
+	}
+
+	username, password := apkResolveCredentials(sc.serverDetails)
+	repoURLWithCreds, err := apkEmbedCredentials(repoURL, username, password)
+	if err != nil {
+		return err
+	}
+
+	if err := apkWriteSigningKey(rtURL, sc.repoName, sc.serverDetails); err != nil {
+		log.Warn(fmt.Sprintf("Could not fetch RSA signing key for repo %q: %v\n"+
+			"APK will not be able to verify package signatures. "+
+			"Configure a key pair on the repository in Artifactory to fix this.", sc.repoName, err))
+	}
+
+	return apkUpdateRepositories(repoURLWithCreds)
+}
+
+func apkValidateRepositoryExists(rtURL, repoKey string, serverDetails *config.ServerDetails) error {
+	endpoint := fmt.Sprintf("%s/api/repositories/%s", strings.TrimRight(rtURL, "/"), repoKey)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return errorutils.CheckErrorf("failed to validate --repo %q: %w", repoKey, err)
+	}
+	apkSetAuth(req, serverDetails)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return errorutils.CheckErrorf("failed to validate --repo %q: %w", repoKey, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusBadRequest, http.StatusNotFound:
+		return errorutils.CheckErrorf("repository %q not found — check --repo or create the repository in Artifactory", repoKey)
+	default:
+		return errorutils.CheckErrorf("failed to validate --repo %q: Artifactory returned HTTP %d", repoKey, resp.StatusCode)
+	}
+}
+
+func apkResolveCredentials(serverDetails *config.ServerDetails) (username, password string) {
+	if serverDetails == nil {
+		return "", ""
+	}
+	username = serverDetails.GetUser()
+	if storedPassword := serverDetails.GetPassword(); storedPassword != "" {
+		return username, storedPassword
+	}
+	token := serverDetails.GetAccessToken()
+	if token == "" {
+		return username, ""
+	}
+	if username == "" {
+		username = auth.ExtractUsernameFromAccessToken(token)
+	}
+	log.Warn(fmt.Sprintf("Embedding an access token in %s. Native apk commands will fail with "+
+		"\"permission denied\" once the token expires, because nothing refreshes this file. "+
+		"Re-run 'jf setup apk' to refresh it, or configure the server with a username and "+
+		"password (or a long-lived token) to avoid this.", apkRepositoriesFile))
+	return username, token
+}
+
+func apkEmbedCredentials(repoURL, username, password string) (string, error) {
+	if username == "" && password == "" {
+		return repoURL, nil
+	}
+	parsed, err := url.Parse(repoURL)
+	if err != nil {
+		return "", errorutils.CheckErrorf("invalid repository URL %q: %s", repoURL, err.Error())
+	}
+	parsed.User = url.UserPassword(username, password)
+	return parsed.String(), nil
+}
+
+func (sc *SetupCommand) resolveApkRepoType() (string, error) {
+	if sc.projectKey != "" {
+		return "", nil
+	}
+	return promptApkRepoType()
+}
+
+// promptApkRepoType interactively asks the user whether they want a local, remote, or virtual repo.
+func promptApkRepoType() (string, error) {
+	repoTypes := []string{
+		utils.Virtual.String(),
+		utils.Local.String(),
+		utils.Remote.String(),
+	}
+	var selected string
+	var items []ioutils.PromptItem
+	for _, rt := range repoTypes {
+		rt := rt
+		items = append(items, ioutils.PromptItem{Option: rt, TargetValue: &selected})
+	}
+	if err := ioutils.SelectString(items,
+		"Select the Artifactory Alpine repository type you want to use (virtual is recommended):",
+		false,
+		func(item ioutils.PromptItem) { selected = item.Option },
+	); err != nil {
+		return "", err
+	}
+	return selected, nil
+}
+
+// detectAlpineVersion reads /etc/alpine-release and returns the version tag (e.g. "v3.21").
+// Returns an empty string if the file is missing or unparseable — callers treat that as
+// "version unknown, omit from URL".
+func detectAlpineVersion() string {
+	data, err := os.ReadFile(alpineReleaseFile)
+	if err != nil {
+		return ""
+	}
+	ver := strings.TrimSpace(string(data))
+	// Normalise "3.21.0" → "v3.21", "v3.21.0" → "v3.21".
+	ver = strings.TrimPrefix(ver, "v")
+	parts := strings.Split(ver, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	return "v" + parts[0] + "." + parts[1]
+}
+
+// apkWriteSigningKey fetches the RSA public key for the repository from Artifactory and
+// writes it to /etc/apk/keys/.  Returns an error if the repo has no keypair configured
+// or the key cannot be downloaded — the caller decides whether to warn or fail.
+func apkWriteSigningKey(rtURL, repoKey string, serverDetails *config.ServerDetails) error {
+	keyPairRef, err := apkFetchKeyPairRef(rtURL, repoKey, serverDetails)
+	if err != nil {
+		return err
+	}
+
+	keyEndpoint := fmt.Sprintf("%s/api/security/keypair/public/repositories/%s", rtURL, repoKey)
+	pemKey, err := apkDownloadRSAKey(keyEndpoint, serverDetails)
+	if err != nil {
+		return err
+	}
+
+	if err = apkMkdirAll(apkKeysDir); err != nil {
+		return fmt.Errorf("failed to create %s: %w", apkKeysDir, err)
+	}
+	keyFilePath := filepath.Join(apkKeysDir, keyPairRef+".rsa.pub")
+	if err = apkWriteFile(keyFilePath, pemKey, 0644); err != nil {
+		return fmt.Errorf("failed to write RSA key to %s: %w", keyFilePath, err)
+	}
+	log.Info("RSA signing key written to", keyFilePath)
+	return nil
+}
+
+// apkSetAuth attaches the appropriate Authorization header to the request.
+// Prefers Bearer token; falls back to Basic auth when only username+password are set.
+func apkSetAuth(req *http.Request, serverDetails *config.ServerDetails) {
+	if token := serverDetails.GetAccessToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+		return
+	}
+	if user := serverDetails.GetUser(); user != "" {
+		req.SetBasicAuth(user, serverDetails.GetPassword())
+	}
+}
+
+// apkFetchKeyPairRef queries GET /api/repositories/<repo> and returns the primaryKeyPairRef.
+func apkFetchKeyPairRef(rtURL, repoKey string, serverDetails *config.ServerDetails) (string, error) {
+	endpoint := fmt.Sprintf("%s/api/repositories/%s", rtURL, repoKey)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	apkSetAuth(req, serverDetails)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GET %s returned HTTP %d", endpoint, resp.StatusCode)
+	}
+
+	var repoConfig struct {
+		PrimaryKeyPairRef string `json:"primaryKeyPairRef"`
+	}
+	if err = json.Unmarshal(body, &repoConfig); err != nil {
+		return "", err
+	}
+	if repoConfig.PrimaryKeyPairRef == "" {
+		return "", fmt.Errorf("no primaryKeyPairRef configured on repo %q — attach a key pair in Artifactory first", repoKey)
+	}
+	return repoConfig.PrimaryKeyPairRef, nil
+}
+
+// apkDownloadRSAKey downloads the RSA public key PEM from the Artifactory keypair API.
+func apkDownloadRSAKey(endpoint string, serverDetails *config.ServerDetails) (string, error) {
+	if serverDetails.GetAccessToken() == "" && serverDetails.GetUser() == "" {
+		return "", fmt.Errorf("no credentials configured — run 'jf c add' first")
+	}
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	apkSetAuth(req, serverDetails)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("RSA key download failed with HTTP %d: %s", resp.StatusCode, string(body))
+	}
+	pem := string(body)
+	if !strings.Contains(pem, "BEGIN PUBLIC KEY") {
+		return "", fmt.Errorf("unexpected response from RSA key endpoint (is a signing keypair configured on the repo?)")
+	}
+	return pem, nil
+}
+
+// apkMkdirAll creates a directory, using sudo if the current process is not root.
+func apkMkdirAll(path string) error {
+	if os.Getuid() == 0 {
+		return os.MkdirAll(path, 0755)
+	}
+	cmd := exec.Command("sudo", "mkdir", "-p", path)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// apkWriteFile writes content to path with the given permission bits, using sudo
+// when the current process is not root. On the sudo path the file is created with an
+// owner-only umask *before* any bytes are written, so a credential-bearing file is never
+// briefly world-readable; the exact mode is then enforced with chmod.
+func apkWriteFile(path, content string, perm os.FileMode) error {
+	if os.Getuid() == 0 {
+		if err := os.WriteFile(path, []byte(content), perm); err != nil { // #nosec G703 -- path is a hardcoded system file constant, not user input
+			return err
+		}
+		// os.WriteFile only applies perm when creating a new file; an existing file keeps
+		// its old mode. Chmod explicitly so the credential-bearing file is always locked down.
+		return os.Chmod(path, perm)
+	}
+	// `umask 077` creates the file owner-only from the start, avoiding the world-readable
+	// window a bare `sudo tee` would leave. path is a positional arg, not shell-interpolated.
+	cmd := exec.Command("sudo", "sh", "-c", `umask 077; cat > "$1"`, "sh", path)
+	cmd.Stdin = strings.NewReader(content)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	// Widen to the exact requested mode (e.g. 0644 for the public signing key).
+	chmod := exec.Command("sudo", "chmod", fmt.Sprintf("%o", perm), path)
+	chmod.Stdout = io.Discard
+	chmod.Stderr = os.Stderr
+	return chmod.Run()
+}
+
+func apkUpdateRepositories(repoURL string) error {
+	if err := apkMkdirAll(filepath.Dir(apkRepositoriesFile)); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", filepath.Dir(apkRepositoriesFile), err)
+	}
+
+	existing, err := os.ReadFile(apkRepositoriesFile)
+	fileExisted := err == nil
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read %s: %w", apkRepositoriesFile, err)
+	}
+	originalContent := string(existing)
+	content := apkMergeRepositoriesContent(originalContent, repoURL)
+
+	if err = apkWriteFile(apkRepositoriesFile, content, 0600); err != nil {
+		// Restore whenever the file existed before — including when it was empty — so a
+		// partial write is never left behind. `originalContent != ""` would skip the
+		// restore for a previously-empty file.
+		if fileExisted {
+			if restoreErr := apkWriteFile(apkRepositoriesFile, originalContent, 0600); restoreErr != nil {
+				return fmt.Errorf("failed to write %s: %w (also failed to restore original content: %v)", apkRepositoriesFile, err, restoreErr)
+			}
+		}
+		return fmt.Errorf("failed to write %s: %w", apkRepositoriesFile, err)
+	}
+	log.Info(fmt.Sprintf("APK repository configured: %s → %s", apkRepositoriesFile, apkRedactCredentials(repoURL)))
+	return nil
+}
+
+func apkMergeRepositoriesContent(existing, repoURL string) string {
+	repoURL = strings.TrimSpace(repoURL)
+	if existing == "" {
+		return repoURL + "\n"
+	}
+
+	artHost := apkRepoHostname(repoURL)
+	existing = strings.TrimSuffix(existing, "\n")
+	lines := strings.Split(existing, "\n")
+	out := make([]string, 0, len(lines)+1)
+	inserted := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			out = append(out, line)
+			continue
+		}
+		if artHost != "" && apkRepoHostname(trimmed) == artHost {
+			if !inserted {
+				out = append(out, repoURL)
+				inserted = true
+			}
+			continue
+		}
+		out = append(out, line)
+	}
+
+	if !inserted {
+		out = append([]string{repoURL}, out...)
+	}
+	return strings.Join(out, "\n") + "\n"
+}
+
+func apkRepoHostname(repoLine string) string {
+	fields := strings.Fields(strings.TrimSpace(repoLine))
+	if len(fields) == 0 {
+		return ""
+	}
+	candidate := fields[0]
+	if strings.HasPrefix(candidate, "@") {
+		if len(fields) < 2 {
+			return ""
+		}
+		candidate = fields[1]
+	}
+	parsed, err := url.Parse(candidate)
+	if err != nil || parsed.Host == "" {
+		return ""
+	}
+	return parsed.Hostname()
+}
+
+func apkRedactCredentials(repoURL string) string {
+	parsed, err := url.Parse(repoURL)
+	if err != nil || parsed.User == nil {
+		return repoURL
+	}
+	// Splice in a literal masked userinfo instead of going through url.UserPassword + String(),
+	// which percent-encodes the mask ("*" -> "%2A") and prints noisy "%2A%2A%2A:%2A%2A%2A@host".
+	parsed.User = nil
+	return fmt.Sprintf("%s://***:***@%s", parsed.Scheme, strings.TrimPrefix(parsed.String(), parsed.Scheme+"://"))
 }
