@@ -606,3 +606,26 @@ func IsHelpRequest(args []string) bool {
 func IsDryRunArg(args []string) bool {
 	return slices.Contains(args, "--dry-run")
 }
+
+// PassthroughCommand runs an arbitrary apm subcommand with auth environment injected - no
+// build-info collection, unlike install/update/publish. It satisfies jfrog-cli-core's Command
+// interface (CommandName/ServerDetails/Run) on its own, so `jf agent apm <subcmd>` for any
+// subcommand not covered by install/update/publish needs no command-specific type of its own.
+type PassthroughCommand struct {
+	Subcmd string
+	Args   []string
+	Server *config.ServerDetails
+}
+
+func (c *PassthroughCommand) CommandName() string {
+	return CommandNamePrefix + c.Subcmd
+}
+
+func (c *PassthroughCommand) ServerDetails() (*config.ServerDetails, error) {
+	return c.Server, nil
+}
+
+func (c *PassthroughCommand) Run() error {
+	log.Info("Running apm " + SanitizeLogValue(c.Subcmd) + "...")
+	return RunApmSubcommandWithAuth(c.Subcmd, c.Args, c.Server)
+}
