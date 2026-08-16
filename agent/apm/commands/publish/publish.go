@@ -20,7 +20,7 @@ const apmSubcommand = "publish"
 
 // ApmPublishCommand runs `apm publish` with JFrog Artifactory authentication and records the
 // published package in build-info. Never accepts --repo; a registry must already be declared
-// via jf setup agent-apm or apm.yml's own registries: block, which also supplies the repo name
+// via jf setup apm or apm.yml's own registries: block, which also supplies the repo name
 // for build-info enrichment (see ResolveRepoNameFromRegistry).
 type ApmPublishCommand struct {
 	args               []string

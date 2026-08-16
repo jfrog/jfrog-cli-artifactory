@@ -19,7 +19,7 @@ const apmSubcommand = "update"
 
 // ApmUpdateCommand runs `apm update` with JFrog Artifactory authentication and collects
 // build-info from the resulting apm.lock.yaml, reusing install's exact reader. Never accepts
-// --repo; a registry must already be declared via jf setup agent-apm or apm.yml's registries:
+// --repo; a registry must already be declared via jf setup apm or apm.yml's registries:
 // block.
 type ApmUpdateCommand struct {
 	args               []string

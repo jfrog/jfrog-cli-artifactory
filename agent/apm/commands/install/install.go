@@ -20,7 +20,7 @@ const apmSubcommand = "install"
 
 // ApmInstallCommand runs `apm install` with JFrog Artifactory authentication and collects
 // build-info from the resulting apm.lock.yaml. Never accepts --repo; a registry must already be
-// declared via jf setup agent-apm or apm.yml's own registries: block.
+// declared via jf setup apm or apm.yml's own registries: block.
 type ApmInstallCommand struct {
 	args               []string
 	serverDetails      *config.ServerDetails

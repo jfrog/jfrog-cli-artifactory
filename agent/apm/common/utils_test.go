@@ -88,6 +88,11 @@ func TestValidateApmPrerequisites_VersionComparisonDirection(t *testing.T) {
 			rawOutput: "Agent Package Manager (APM) CLI version 0.0.5 (abc1234)",
 			wantError: true,
 		},
+		{
+			name:      "installed version below the raised minimum but above the old one",
+			rawOutput: "Agent Package Manager (APM) CLI version 0.15.0 (abc1234)",
+			wantError: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

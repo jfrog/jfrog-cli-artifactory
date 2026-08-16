@@ -9,7 +9,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-const minSupportedApmVersion = "0.1.0"
+const minSupportedApmVersion = "0.23.0"
 
 // ValidateApmPrerequisites checks that apm is installed and meets minSupportedApmVersion.
 func ValidateApmPrerequisites() error {

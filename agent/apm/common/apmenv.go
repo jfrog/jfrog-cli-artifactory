@@ -289,7 +289,7 @@ func ensureExperimentalFlagEnabled(realHome string, existing *apmConfigJSON) err
 // BuildApmEnv resolves how apm should authenticate for this invocation. Credentials always
 // travel via APM_REGISTRY_TOKEN_<NAME>/APM_REGISTRY_USER_<NAME>+PASS_<NAME> env vars — never
 // written to a file. The registry must already be declared (an existing ~/.apm/config.json
-// entry, written by 'jf setup agent-apm', or apm.yml's own registries: block); if none matches
+// entry, written by 'jf setup apm', or apm.yml's own registries: block); if none matches
 // serverDetails's host, this returns an error rather than silently running apm unauthenticated.
 func BuildApmEnv(serverDetails *config.ServerDetails, manifestPath string) ([]string, error) {
 	if serverDetails == nil {
@@ -305,7 +305,7 @@ func BuildApmEnv(serverDetails *config.ServerDetails, manifestPath string) ([]st
 	if len(discovered) == 0 {
 		return nil, fmt.Errorf(
 			"no APM registry found for %s: declare one in apm.yml's registries: block, "+
-				"or add it to ~/.apm/config.json (via 'jf setup agent-apm')",
+				"or add it to ~/.apm/config.json (via 'jf setup apm')",
 			serverDetails.ArtifactoryUrl)
 	}
 
@@ -432,7 +432,7 @@ func RunApmCommand(env []string, subcmd string, args []string) error {
 
 // ConfigureApmRegistryPersistent configures ~/.apm/config.json via apm's own `apm experimental
 // enable registries` and `apm config set` commands, never by writing the file directly. Called
-// only by `jf setup agent-apm`; repoName is always non-empty, resolved by the interactive repo
+// only by `jf setup apm`; repoName is always non-empty, resolved by the interactive repo
 // picker beforehand.
 func ConfigureApmRegistryPersistent(serverDetails *config.ServerDetails, repoName string) error {
 	if serverDetails == nil {

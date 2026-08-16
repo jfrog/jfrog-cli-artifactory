@@ -16,7 +16,7 @@ Prerequisites:
 - apm CLI installed and on PATH.
 - An apm.yml with dependencies declared, and an existing apm.lock.yaml (e.g. from 'jf agent apm install').
 - Read permission on the source Artifactory agentpackages repository.
-- Registry configured via 'jf setup agent-apm' or an apm.yml registries: block.
+- Registry configured via 'jf setup apm' or an apm.yml registries: block.
 
 Common patterns:
   $ jf agent apm update --dry-run
@@ -28,5 +28,5 @@ Gotchas:
 - --dry-run previews the plan without applying changes and skips build-info.
 - Build-info is collected only when both --build-name and --build-number are provided; publish it afterwards with 'jf rt build-publish'.
 
-Related: jf agent apm install, jf agent apm publish, jf setup agent-apm, jf rt build-publish`
+Related: jf agent apm install, jf agent apm publish, jf setup apm, jf rt build-publish`
 }
