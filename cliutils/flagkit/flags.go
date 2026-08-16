@@ -890,11 +890,11 @@ var commandFlags = map[string][]string{
 	},
 	SkillsPublish: {
 		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, agentQuiet, skipScan, autoDeleteOnFailure,
-		BuildName, BuildNumber, module,
+		BuildName, BuildNumber, module, Project,
 	},
 	AgentPluginsPublish: {
 		url, user, password, accessToken, serverId, repo, version, signingKey, keyAlias, agentQuiet,
-		BuildName, BuildNumber, module,
+		BuildName, BuildNumber, module, Project,
 	},
 	AgentPluginsInstall: {
 		url, user, password, accessToken, serverId, repo, version, harness, projectDir, agentGlobal, installPath, agentFormat, agentQuiet,
