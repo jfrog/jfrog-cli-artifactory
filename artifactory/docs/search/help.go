@@ -38,7 +38,27 @@ Gotchas:
 - Output is JSON to stdout; large result sets benefit from --limit and --sort-by.
 - --transitive only works against virtual repos pointing at remote repos.
 
-Related: jf rt download, jf rt delete, jf rt set-props`
+Related: jf rt download, jf rt delete, jf rt set-props
+
+QA:
+Q: How to search for .jar files in "MavenCentral"?
+A: jf rt s "MavenCentral/*.jar"
+
+Q: What is the command to search 'myapp.war' in 'webapps-local/' with a retry wait time of 2 seconds?
+A: jf rt s webapps-local/myapp.war --retry-wait-time=2s
+
+Q: How can I search for artifacts in 'my-repo' using a spec file 'artifactSpec.json' with variable 'ARTIFACT_TYPE=jar' using JFrog CLI?
+A: jf rt s --spec=artifactSpec.json --spec-vars='ARTIFACT_TYPE=jar'
+
+Q: What's the command to search for .png files in "ImageStorage"?
+A: jf rt s "ImageStorage/*.png"
+
+Q: Can I find "report.pdf" in "DocsStorage"?
+A: jf rt s DocsStorage/report.pdf
+
+Q: How to search for files starting with "DEV" in "DevFiles"?
+A: jf rt s "DevFiles/DEV*"
+`
 }
 
 func GetArguments() []components.Argument {

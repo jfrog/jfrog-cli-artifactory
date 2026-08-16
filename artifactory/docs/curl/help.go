@@ -29,7 +29,18 @@ Gotchas:
 - Use --server-id to pick a specific server when several are configured.
 - The base URL is the Artifactory one; for platform or lifecycle APIs, prefer their dedicated paths.
 
-Related: jf rt ping, jf c show, jf rt repo-create`
+Related: jf rt ping, jf c show, jf rt repo-create
+
+QA:
+Q: How do I use the curl command to send a GET request to the /api/build endpoint in Artifactory?
+A: jf rt curl -XGET /api/build
+
+Q: Could you tell me the command to use curl to send a POST request to the /api/build endpoint in Artifactory with data from a file named data.json?
+A: jf rt curl -XPOST /api/build -d @data.json
+
+Q: How do I use the curl command to send a GET request to the /api/system/version endpoint in Artifactory?
+A: jf rt curl -XGET "/api/system/version"
+`
 }
 
 func GetArguments() []components.Argument {
