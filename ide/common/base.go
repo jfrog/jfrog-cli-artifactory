@@ -30,6 +30,31 @@ func GetServerDetails(c *components.Context) (*config.ServerDetails, error) {
 	return rtDetails, nil
 }
 
+// BuildServerDetailsFromBaseURL constructs a ServerDetails from an explicit
+// Artifactory base URL and the auth flags on ctx (--access-token, or
+// --user + --password). Used when the caller has already resolved a base URL
+// from a full API URL (e.g. --url with /api/<apiType>/<key>/... embedded) and
+// therefore should not consult saved configs.
+func BuildServerDetailsFromBaseURL(c *components.Context, baseURL string) (*config.ServerDetails, error) {
+	baseURL = strings.TrimRight(baseURL, "/") + "/"
+	details := &config.ServerDetails{
+		ArtifactoryUrl: baseURL,
+		Url:            baseURL,
+	}
+	if tok := c.GetStringFlagValue("access-token"); tok != "" {
+		details.AccessToken = tok
+		return details, nil
+	}
+	user := c.GetStringFlagValue("user")
+	password := c.GetStringFlagValue("password")
+	if user != "" && password != "" {
+		details.User = user
+		details.Password = password
+		return details, nil
+	}
+	return nil, fmt.Errorf("credentials required: pass --access-token, or --user and --password")
+}
+
 // HasServerConfigFlags checks if any server configuration flags are provided
 func HasServerConfigFlags(c *components.Context) bool {
 	return c.IsFlagSet("url") ||
@@ -112,6 +137,29 @@ func ExtractRepoKeyFromURL(urlStr, apiType string) string {
 		}
 	}
 	return ""
+}
+
+// SplitApiURL takes a URL like https://host/artifactory/api/<apiType>/<repoKey>[/rest]
+// and returns baseURL="https://host/artifactory", repoKey="<repoKey>", ok=true.
+// Returns ok=false when the URL does not embed /api/<apiType>/<key>.
+func SplitApiURL(rawURL, apiType string) (baseURL, repoKey string, ok bool) {
+	marker := "/api/" + apiType + "/"
+	idx := strings.Index(rawURL, marker)
+	if idx < 0 {
+		return "", "", false
+	}
+	base := strings.TrimRight(rawURL[:idx], "/")
+	rest := rawURL[idx+len(marker):]
+	// Repo key is the first path segment after /api/<apiType>/
+	if slash := strings.Index(rest, "/"); slash >= 0 {
+		repoKey = rest[:slash]
+	} else {
+		repoKey = rest
+	}
+	if base == "" || repoKey == "" {
+		return "", "", false
+	}
+	return base, repoKey, true
 }
 
 // IsValidUrl checks if a string is a valid URL with scheme and host
