@@ -20,6 +20,22 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+// artutils.CreateServiceManager takes (serverDetails, threads, httpRetries, dryRun). Naveen
+// asked why publish/setBuildProperties pass -1, 0, false as literals. Named consts document what
+// each position means and keep the two call-sites in this file in sync if we ever tune the
+// values. The values themselves come from artifactory-services-manager defaults:
+//   - threads = -1 → let CreateServiceManager pick its internal default (per-command tuning); we
+//     do not fan out cargo build-info work across worker threads.
+//   - httpRetries = 0 → publish is user-initiated and should surface transport errors immediately
+//     rather than silently retry; a failed publish must not appear to succeed after a retry.
+//   - dryRun = false → the JFrog-level dry-run flag lives on the CLI layer; the services manager
+//     always performs real calls, and dry-run branching is done up in collectArtifacts.
+const (
+	cargoServiceManagerThreads     = -1
+	cargoServiceManagerHTTPRetries = 0
+	cargoServiceManagerDryRun      = false
+)
+
 // metadataBoolFlags are `cargo metadata`-valid boolean flags that affect resolution.
 var metadataBoolFlags = map[string]bool{
 	"--all-features":        true,
@@ -121,12 +137,16 @@ func (c *CargoCommand) collectArtifacts() error {
 		return err
 	}
 
-	// A dry-run publish uploads nothing, so there is no artifact to scan for and no repo item to
-	// stamp build properties on. Record the dependency build-info only (skip artifact collection to
-	// avoid spurious "not found"/set-properties errors).
+	// Dry-run detection: `--dry-run`/`-n` are NATIVE cargo publish flags (see
+	// https://doc.rust-lang.org/cargo/commands/cargo-publish.html#publish-options); we do not
+	// introduce a jf-level dry-run for cargo. isDryRunPublish just inspects the args the user
+	// forwarded to cargo, so this branch fires only when the user explicitly typed
+	// `jf cargo publish --dry-run`. A dry-run publish uploads nothing, so there is no artifact to
+	// scan for and no repo item to stamp build properties on. Record the dependency build-info
+	// only (skip artifact collection to avoid spurious "not found"/set-properties errors).
 	if isDryRunPublish(c.args) {
 		c.enrichChecksums(bi)
-		log.Info("cargo: publish --dry-run — nothing uploaded; recording dependencies only")
+		log.Info("cargo: 'cargo publish --dry-run' — nothing uploaded; recording dependencies only")
 		return c.saveBuildInfo(bi)
 	}
 
@@ -297,7 +317,7 @@ func (c *CargoCommand) targetRepo() (string, error) {
 	if repo == "" || c.serverDetails == nil {
 		return repo, nil
 	}
-	sm, err := artutils.CreateServiceManager(c.serverDetails, -1, 0, false)
+	sm, err := artutils.CreateServiceManager(c.serverDetails, cargoServiceManagerThreads, cargoServiceManagerHTTPRetries, cargoServiceManagerDryRun)
 	if err != nil {
 		return "", err
 	}
@@ -310,7 +330,7 @@ func (c *CargoCommand) setBuildProperties(arts []entities.Artifact, repo, name, 
 	if len(arts) == 0 || c.serverDetails == nil {
 		return nil
 	}
-	sm, err := artutils.CreateServiceManager(c.serverDetails, -1, 0, false)
+	sm, err := artutils.CreateServiceManager(c.serverDetails, cargoServiceManagerThreads, cargoServiceManagerHTTPRetries, cargoServiceManagerDryRun)
 	if err != nil {
 		return fmt.Errorf("create services manager: %w", err)
 	}
@@ -319,18 +339,18 @@ func (c *CargoCommand) setBuildProperties(arts []entities.Artifact, repo, name, 
 	if err != nil {
 		return err
 	}
-	for _, a := range arts {
-		artifactPath := a.Path
-		if strings.HasSuffix(a.Path, a.Name) {
-			artifactPath = dirOf(a.Path)
+	for _, art := range arts {
+		artifactPath := art.Path
+		if strings.HasSuffix(art.Path, art.Name) {
+			artifactPath = dirOf(art.Path)
 		}
 		writer.Write(specutils.ResultItem{
 			Repo:        repo,
 			Path:        artifactPath,
-			Name:        a.Name,
-			Actual_Sha1: a.Sha1,
-			Actual_Md5:  a.Md5,
-			Sha256:      a.Sha256,
+			Name:        art.Name,
+			Actual_Sha1: art.Sha1,
+			Actual_Md5:  art.Md5,
+			Sha256:      art.Sha256,
 		})
 	}
 	if err := writer.Close(); err != nil {
@@ -392,7 +412,7 @@ func (c *CargoCommand) enrichChecksumsAndFetch(bi *entities.BuildInfo, resolvedR
 		log.Debug("cargo: no target repo for checksum enrichment; skipping")
 		return nil
 	}
-	sm, err := artutils.CreateServiceManager(c.serverDetails, -1, 0, false)
+	sm, err := artutils.CreateServiceManager(c.serverDetails, cargoServiceManagerThreads, cargoServiceManagerHTTPRetries, cargoServiceManagerDryRun)
 	if err != nil {
 		log.Debug("cargo: could not create service manager for checksum enrichment: " + err.Error())
 		return nil
@@ -443,13 +463,25 @@ func applyModuleOverride(bi *entities.BuildInfo, moduleName string, idx int) {
 	if oldId == "" || oldId == moduleName {
 		return
 	}
+	// The three-level walk (deps → each dep's requestedBy paths → each element in a path) is the
+	// data's inherent shape — a slice of slices of strings, one per dependency. Naveen asked to
+	// avoid 3 loops; the innermost element-rename is extracted into rewritePathId so the outer
+	// loops read as "for every requestedBy element, rewrite it" without the two-level index
+	// chain (`bi.Modules[idx].Dependencies[di].RequestedBy`) inline.
 	for di := range bi.Modules[idx].Dependencies {
 		for _, path := range bi.Modules[idx].Dependencies[di].RequestedBy {
-			for ei := range path {
-				if path[ei] == oldId {
-					path[ei] = moduleName
-				}
-			}
+			rewritePathId(path, oldId, moduleName)
+		}
+	}
+}
+
+// rewritePathId replaces every element of path that equals oldId with newId. Mutates in place
+// because RequestedBy paths are a []string alias inside the caller's slice; returning a copy
+// would silently drop the rewrite.
+func rewritePathId(path []string, oldId, newId string) {
+	for ei := range path {
+		if path[ei] == oldId {
+			path[ei] = newId
 		}
 	}
 }

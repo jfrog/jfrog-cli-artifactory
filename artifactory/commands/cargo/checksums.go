@@ -30,7 +30,14 @@ type aqlResult struct {
 }
 
 // missingChecksumNames returns the crate filenames (dep.Id) of dependencies that
-// are missing all checksum fields, de-duplicated, across all modules.
+// are missing ANY checksum field (sha1, sha256, or md5), de-duplicated across all
+// modules. Reviewer flagged the earlier AND-form (missing only when ALL three were
+// empty) as incorrect: cargo's local cache and Cargo.lock don't provide all three
+// hashes (lockfile has sha256 only; local .crate gives all three; server can be
+// asked for the missing ones), so a dep with, say, only sha256 from the lockfile
+// still needs enrichment for sha1/md5. The OR condition ensures we ask Artifactory
+// about every dep that isn't fully hashed. applyChecksums remains the guard against
+// overwriting a hash that was already present — it fills only empty fields.
 func missingChecksumNames(bi *entities.BuildInfo) []string {
 	seen := map[string]bool{}
 	var names []string
@@ -39,7 +46,10 @@ func missingChecksumNames(bi *entities.BuildInfo) []string {
 	}
 	for _, m := range bi.Modules {
 		for _, d := range m.Dependencies {
-			if d.Sha1 == "" && d.Sha256 == "" && d.Md5 == "" && d.Id != "" && !seen[d.Id] {
+			if d.Id == "" || seen[d.Id] {
+				continue
+			}
+			if d.Sha1 == "" || d.Sha256 == "" || d.Md5 == "" {
 				seen[d.Id] = true
 				names = append(names, d.Id)
 			}
@@ -94,48 +104,74 @@ func parseChecksumResults(r io.Reader) (map[string]entities.Checksum, error) {
 }
 
 // queryChecksums runs the batched, paginated AQL queries for one repo and merges results.
+// Each page is executed inside runChecksumPage so `defer body.Close()` has a scope that ends
+// at the boundary of a single AQL round-trip — no manual close plumbing, no leak if a caller
+// adds an early return between parse and close later on.
 func queryChecksums(exec aqlExecutor, repo string, names []string) (map[string]entities.Checksum, error) {
 	merged := map[string]entities.Checksum{}
 	for _, page := range chunk(names, aqlChecksumPageSize) {
-		aql := buildChecksumAql(repo, page)
-		body, err := exec.Aql(aql)
-		if err != nil {
-			if body != nil {
-				// Some transports return a non-nil body alongside an error; close it.
-				if cerr := body.Close(); cerr != nil {
-					log.Debug("cargo: aql body close (after error): " + cerr.Error())
-				}
-			}
-			return merged, err
-		}
-		parsed, perr := parseChecksumResults(body)
-		closeErr := body.Close()
-		if perr != nil {
-			return merged, perr
-		}
-		if closeErr != nil {
-			log.Debug("cargo: aql body close: " + closeErr.Error())
-		}
+		parsed, err := runChecksumPage(exec, repo, page)
 		for k, v := range parsed {
 			merged[k] = v
+		}
+		if err != nil {
+			return merged, err
 		}
 	}
 	return merged, nil
 }
 
-// applyChecksums fills empty dependency checksums from the name->Checksum map.
-// Returns the number of dependencies updated.
+// runChecksumPage executes ONE AQL query and returns its parsed results. The body is closed
+// via defer so every exit path (transport error, parse error, success) releases the connection
+// deterministically — this is the shape Naveen asked for in review ("can't you put defer for
+// closing body.Close()?").
+func runChecksumPage(exec aqlExecutor, repo string, names []string) (map[string]entities.Checksum, error) {
+	body, err := exec.Aql(buildChecksumAql(repo, names))
+	if err != nil {
+		// Some transports return a non-nil body alongside an error; close it if present.
+		if body != nil {
+			if cerr := body.Close(); cerr != nil {
+				log.Debug("cargo: aql body close (after error): " + cerr.Error())
+			}
+		}
+		return nil, err
+	}
+	defer func() {
+		if cerr := body.Close(); cerr != nil {
+			log.Debug("cargo: aql body close: " + cerr.Error())
+		}
+	}()
+	return parseChecksumResults(body)
+}
+
+// applyChecksums fills per-field empty dependency checksums from the name->Checksum
+// map. A dependency counts as "updated" if we filled at least one previously-empty
+// field. Fields that were already populated locally (e.g. sha256 from Cargo.lock)
+// are never overwritten — Artifactory only supplies what was missing.
 func applyChecksums(bi *entities.BuildInfo, byName map[string]entities.Checksum) int {
 	filled := 0
 	for mi := range bi.Modules {
 		deps := bi.Modules[mi].Dependencies
 		for di := range deps {
 			d := &deps[di]
-			if d.Sha1 != "" || d.Sha256 != "" || d.Md5 != "" {
+			cs, ok := byName[d.Id]
+			if !ok {
 				continue
 			}
-			if cs, ok := byName[d.Id]; ok && (cs.Sha1 != "" || cs.Sha256 != "" || cs.Md5 != "") {
-				d.Sha1, d.Sha256, d.Md5 = cs.Sha1, cs.Sha256, cs.Md5
+			updated := false
+			if d.Sha1 == "" && cs.Sha1 != "" {
+				d.Sha1 = cs.Sha1
+				updated = true
+			}
+			if d.Sha256 == "" && cs.Sha256 != "" {
+				d.Sha256 = cs.Sha256
+				updated = true
+			}
+			if d.Md5 == "" && cs.Md5 != "" {
+				d.Md5 = cs.Md5
+				updated = true
+			}
+			if updated {
 				filled++
 			}
 		}

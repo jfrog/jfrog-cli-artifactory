@@ -10,12 +10,22 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+// Cargo-specific literals used across artifact handling. crateFileSuffix names the on-disk
+// filename convention cargo uses for a packaged crate; cargoArtifactType is the value we stamp
+// into build-info entities.Artifact.Type so downstream consumers can filter by package manager;
+// cargoRepoPathPrefix is the path segment Artifactory's Cargo layout uses to bucket crates.
+const (
+	crateFileSuffix     = ".crate"
+	cargoArtifactType   = "crate"
+	cargoRepoPathPrefix = "crates/"
+)
+
 // crateRepoPath parses "<name>-<version>.crate" into the Artifactory path and parts.
 // The layout matches how Artifactory stores Cargo crates (verified live against a Cargo repo and
 // per JFrog docs): "crates/<name>/<name>-<version>.crate". The version is the substring after the
 // LAST hyphen that begins a semver-looking token.
 func crateRepoPath(fileName string) (path, name, version string) {
-	base := strings.TrimSuffix(fileName, ".crate")
+	base := strings.TrimSuffix(fileName, crateFileSuffix)
 	// version starts at the last '-' followed by a digit
 	idx := -1
 	for i := 0; i < len(base)-1; i++ {
@@ -24,17 +34,17 @@ func crateRepoPath(fileName string) (path, name, version string) {
 		}
 	}
 	if idx == -1 {
-		return "crates/" + base + "/" + fileName, base, ""
+		return cargoRepoPathPrefix + base + "/" + fileName, base, ""
 	}
 	name = base[:idx]
 	version = base[idx+1:]
-	return "crates/" + name + "/" + fileName, name, version
+	return cargoRepoPathPrefix + name + "/" + fileName, name, version
 }
 
 // scanCrateArtifacts finds built .crate files under target/package and builds artifacts.
 func scanCrateArtifacts(workingDir, repo string) ([]entities.Artifact, error) {
 	pkgDir := filepath.Join(workingDir, "target", "package")
-	matches, err := filepath.Glob(filepath.Join(pkgDir, "*.crate"))
+	matches, err := filepath.Glob(filepath.Join(pkgDir, "*"+crateFileSuffix))
 	if err != nil {
 		return nil, fmt.Errorf("scan crate artifacts: %w", err)
 	}
@@ -45,7 +55,7 @@ func scanCrateArtifacts(workingDir, repo string) ([]entities.Artifact, error) {
 		art := entities.Artifact{
 			Name:                   fileName,
 			Path:                   repoPath,
-			Type:                   "crate",
+			Type:                   cargoArtifactType,
 			OriginalDeploymentRepo: repo,
 		}
 		if fd, derr := crypto.GetFileDetails(file, true); derr == nil {

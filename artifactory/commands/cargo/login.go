@@ -17,6 +17,22 @@ import (
 // cargo:token for the child process so the injected token is actually consumed.
 const cargoCredentialProviderEnv = "CARGO_REGISTRY_GLOBAL_CREDENTIAL_PROVIDERS"
 
+// cargo per-registry token env vars follow the shape CARGO_REGISTRIES_<NAME>_TOKEN, where the
+// name is uppercased and '-' is replaced with '_'. The two consts pin the prefix and suffix
+// cargo actually looks for so a rename of the env-var scheme is a single edit-point.
+const (
+	cargoRegistryTokenEnvPrefix = "CARGO_REGISTRIES_"
+	cargoRegistryTokenEnvSuffix = "_TOKEN"
+	cargoCredentialProviderName = "cargo:token"
+)
+
+// Authorization-header schemes cargo forwards verbatim to the registry. Kept as consts so the
+// exact wire format (mandated by Artifactory's Cargo index) is not scattered as free strings.
+const (
+	authSchemeBearer = "Bearer "
+	authSchemeBasic  = "Basic "
+)
+
 // cargoCredential returns the exact Authorization-header value cargo's cargo:token provider should
 // forward to Artifactory for the given server, selecting the auth scheme like the other package
 // managers' setup flows do (prefer an access token, else fall back to basic auth):
@@ -29,16 +45,33 @@ const cargoCredentialProviderEnv = "CARGO_REGISTRY_GLOBAL_CREDENTIAL_PROVIDERS"
 // either scheme; the "Bearer" form must carry a JFrog ACCESS TOKEN (verified live: Bearer
 // access-token → 200, bare token → 401), and the "Basic" form carries username:password.
 // Shared by the per-run env-var path (resolveAuthEnv) and the persistent `jf setup cargo` path.
+//
+// Precedence — access token > user+password — is deliberate and matches every other package-manager
+// setup flow in this codebase (nix, npm, pip, twine, gradle, maven, conan, huggingface, helm all
+// prefer AccessToken when present). Naveen raised the concern that "user's command flags are not
+// considered if some token exists, that may be stale". The rationale for the current ordering:
+//  1. `sd` here is the FINAL merged ServerDetails — flags have already been overlaid onto saved
+//     config by the CLI layer, so a `--access-token` on the command line will land in sd.AccessToken
+//     and be honoured. A "stale" token can only appear if it was saved by a prior
+//     `jf c add` — in that case the user's fix is `jf c edit` or an explicit `--access-token=""`,
+//     not a silent downgrade to basic auth here (which would surprise a user who intentionally set
+//     both for two different purposes).
+//  2. Access tokens are the JFrog-recommended auth for machine flows: they can be scoped, expired
+//     and rotated per-service. Silently preferring the coarser user+password when both are set
+//     would move users off the safer credential without warning them.
+//  3. Consistency: reversing the order here alone would create a package-manager-specific quirk
+//     (cargo would behave differently from every sibling command). If we ever decide to flip it,
+//     that is a codebase-wide policy change — not a cargo-only carve-out.
 func cargoCredential(sd *config.ServerDetails) string {
 	if sd == nil {
 		return ""
 	}
 	if sd.AccessToken != "" {
-		return "Bearer " + sd.AccessToken
+		return authSchemeBearer + sd.AccessToken
 	}
 	if sd.User != "" && sd.Password != "" {
 		enc := base64.StdEncoding.EncodeToString([]byte(sd.User + ":" + sd.Password))
-		return "Basic " + enc
+		return authSchemeBasic + enc
 	}
 	return ""
 }
@@ -84,7 +117,7 @@ func needsRemoteAccess(cmd string) bool {
 // Cargo uppercases the registry name and replaces '-' with '_'.
 func cargoRegistryEnvKey(registryName string) string {
 	norm := strings.ToUpper(strings.ReplaceAll(registryName, "-", "_"))
-	return "CARGO_REGISTRIES_" + norm + "_TOKEN"
+	return cargoRegistryTokenEnvPrefix + norm + cargoRegistryTokenEnvSuffix
 }
 
 // buildAuthEnv returns the env entries injecting the registry credential. The credential is the
@@ -183,7 +216,7 @@ func (c *CargoCommand) resolveAuthEnv() []string {
 	// We injected at least one token — ensure cargo has a credential provider to consume it.
 	// Respect an explicit user override in the environment; otherwise enable cargo:token.
 	if os.Getenv(cargoCredentialProviderEnv) == "" {
-		env = append(env, cargoCredentialProviderEnv+"=cargo:token")
+		env = append(env, cargoCredentialProviderEnv+"="+cargoCredentialProviderName)
 	}
 	return env
 }

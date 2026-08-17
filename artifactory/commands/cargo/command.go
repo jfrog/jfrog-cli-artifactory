@@ -30,13 +30,13 @@ func applyEnv(env []string) (restore func()) {
 		}
 		key := kv[:i]
 		val := kv[i+1:]
-		prev, had := os.LookupEnv(key)
+		prevValue, existed := os.LookupEnv(key)
 		if err := os.Setenv(key, val); err != nil {
 			log.Debug("cargo: could not set env " + key + ": " + err.Error())
 			continue
 		}
-		if had {
-			k, p := key, prev
+		if existed {
+			k, p := key, prevValue
 			restores = append(restores, func() {
 				if err := os.Setenv(k, p); err != nil {
 					log.Debug("cargo: could not restore env " + k + ": " + err.Error())
@@ -170,8 +170,13 @@ func redactCargoArgs(args []string) []string {
 	for i, a := range out {
 		switch {
 		case a == "--token":
+			// `--token` with no following value is a malformed cargo invocation; cargo itself will
+			// reject it. There is no secret to redact — nothing to do — but we log so a debugging
+			// user notices the malformed flag rather than silently receiving a cargo usage error.
 			if i+1 < len(out) {
 				out[i+1] = placeholder
+			} else {
+				log.Debug("cargo: '--token' flag has no value; cargo will reject the invocation")
 			}
 		case strings.HasPrefix(a, "--token="):
 			out[i] = "--token=" + placeholder

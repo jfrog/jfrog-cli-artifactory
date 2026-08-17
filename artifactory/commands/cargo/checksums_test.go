@@ -43,11 +43,15 @@ func TestMissingChecksumNames(t *testing.T) {
 		assert.Empty(t, names)
 	})
 
-	t.Run("returns names with all empty checksums", func(t *testing.T) {
+	t.Run("returns names for any missing checksum field", func(t *testing.T) {
+		// Any-field-missing detection (per Naveen's PR #510 review): a dep with only sha256
+		// still needs enrichment for its sha1/md5, so it must appear in the missing list.
+		// Only a dep with ALL three fields populated is complete.
 		bi := &entities.BuildInfo{
 			Modules: []entities.Module{
 				{
 					Dependencies: []entities.Dependency{
+						{Id: "fully-hashed-1.0.crate", Checksum: entities.Checksum{Sha1: "a", Sha256: "b", Md5: "c"}},
 						{Id: "has-sha256-1.0.crate", Checksum: entities.Checksum{Sha256: "notempty"}},
 						{Id: "empty-a-1.0.crate", Checksum: entities.Checksum{}},
 						{Id: "empty-b-2.0.crate", Checksum: entities.Checksum{}},
@@ -56,7 +60,7 @@ func TestMissingChecksumNames(t *testing.T) {
 			},
 		}
 		names := missingChecksumNames(bi)
-		assert.ElementsMatch(t, []string{"empty-a-1.0.crate", "empty-b-2.0.crate"}, names)
+		assert.ElementsMatch(t, []string{"has-sha256-1.0.crate", "empty-a-1.0.crate", "empty-b-2.0.crate"}, names)
 	})
 
 	t.Run("deduplicates repeated Id across modules", func(t *testing.T) {
@@ -267,13 +271,15 @@ func TestEnrichMissingChecksums_NoOps(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("all deps already have checksums issues zero queries", func(t *testing.T) {
+	t.Run("all deps fully hashed (sha1+sha256+md5) issues zero queries", func(t *testing.T) {
+		// Per the corrected missingChecksumNames semantics: only a dep with EVERY hash field
+		// populated is complete. A dep with sha256 alone would still count as missing sha1/md5.
 		fake := &fakeAql{}
 		bi := &entities.BuildInfo{
 			Modules: []entities.Module{
 				{
 					Dependencies: []entities.Dependency{
-						{Id: "a-1.0.crate", Checksum: entities.Checksum{Sha256: "exists"}},
+						{Id: "a-1.0.crate", Checksum: entities.Checksum{Sha1: "s1", Sha256: "s256", Md5: "m5"}},
 					},
 				},
 			},
