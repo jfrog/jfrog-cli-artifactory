@@ -91,21 +91,3 @@ func TestAppendReferenceToken(t *testing.T) {
 	}
 }
 
-func TestUrlHasReferenceToken(t *testing.T) {
-	tests := []struct {
-		name string
-		url  string
-		want bool
-	}{
-		{"tokenless", "https://acme/api/aieditorextensions/repo/_apis/public/gallery", false},
-		{"tokenless with trailing slash", "https://acme/api/aieditorextensions/repo/_apis/public/gallery/", false},
-		{"with token", "https://acme/api/aieditorextensions/repo/_apis/public/gallery/TOKEN", true},
-		{"with token and slash", "https://acme/api/aieditorextensions/repo/_apis/public/gallery/TOKEN/", true},
-		{"unrelated url", "https://acme/artifactory/api/repositories/foo", false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, urlHasReferenceToken(tc.url))
-		})
-	}
-}

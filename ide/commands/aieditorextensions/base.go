@@ -46,26 +46,35 @@ func ParseBaseSetupConfig(ctx *components.Context) (*BaseSetupConfig, error) {
 }
 
 // parsePositionalURLConfig handles `jf ide setup <ide> <URL>`.
-// If <URL> already embeds a token, we pass it through untouched. Otherwise we
-// derive base URL + repo key from the URL, resolve server credentials from
-// standard flags/config, fetch a token, and append it.
+// The URL must contain /api/<ApiType>/<repo-key>/. We derive base URL + repo
+// key from the URL, resolve server credentials from standard flags/config,
+// call AIEditorExtensionGenerateToken, and append the returned referenceToken.
 func parsePositionalURLConfig(ctx *components.Context) (*BaseSetupConfig, error) {
 	rawURL := ctx.GetArgumentAt(1)
+
+	// A positional URL already identifies the Artifactory host, so combining
+	// it with --server-id (which brings its own host + saved credentials) is
+	// ambiguous. Reject the combination up front rather than silently picking
+	// one or the other.
+	if ctx.IsFlagSet("server-id") {
+		return nil, fmt.Errorf(
+			"positional URL and --server-id cannot be combined; the URL already identifies the Artifactory host. " +
+				"Drop --server-id and let the CLI use the default 'jf config' server " +
+				"(or supply --access-token or --user + --password), " +
+				"or drop the positional URL and use --repo-key with --server-id.")
+	}
+
 	cfg := &BaseSetupConfig{
 		ServiceURL:  rawURL,
 		IsDirectURL: true,
-	}
-
-	if urlHasReferenceToken(rawURL) {
-		cfg.RepoKey = common.ExtractRepoKeyFromURL(rawURL, ApiType)
-		return cfg, nil
 	}
 
 	baseURL, repoKey, ok := common.SplitApiURL(rawURL, ApiType)
 	if !ok {
 		return nil, fmt.Errorf(
 			"positional URL does not contain '/api/%s/<repo-key>/' — cannot resolve repo key to fetch a reference token. "+
-				"Use --repo-key with server credentials, or pass a fully-formed Set Me Up URL that already ends with '/gallery/<token>'", ApiType)
+				"Use --repo-key with server credentials, or pass a URL of the form "+
+				"https://<host>/artifactory/api/%s/<repo>/_apis/public/gallery", ApiType, ApiType)
 	}
 	cfg.RepoKey = repoKey
 
@@ -95,6 +104,12 @@ func parseFlagConfig(ctx *components.Context) (*BaseSetupConfig, error) {
 	}
 
 	if cfg.RepoKey == "" {
+		if ctx.GetNumberOfArgs() > 1 {
+			return nil, fmt.Errorf(
+				"positional argument '%s' is not a valid URL (a scheme and host are required, e.g. https://<host>/artifactory/api/%s/<repo>/_apis/public/gallery); "+
+					"and --repo-key was not supplied. Provide either a fully-qualified URL positionally or set --repo-key",
+				ctx.GetArgumentAt(1), ApiType)
+		}
 		return nil, errors.New("--repo-key flag is required. Please specify the repository key for your AI Editor Extensions repository")
 	}
 

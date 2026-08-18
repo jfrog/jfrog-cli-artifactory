@@ -46,11 +46,10 @@ Gotchas:
   ignored when --url is present. To use a saved server, drop --url and pass --server-id alone.
 - --update-mode only applies to VS Code-based IDEs: "default", "manual", or "none".
 - product.json may require elevated privileges to edit on macOS/Linux system installs.
-- If a positional service URL is passed and it already ends with /_apis/public/gallery/<token>, the CLI
-  writes it verbatim (no token round-trip). If it does not, the CLI calls
-  AIEditorExtensionGenerateToken to append a per-user token, using --server-id, --access-token,
-  --user + --password, or the default 'jf config' server to authenticate. The URL must contain
-  /api/aieditorextensions/<repo-key>/ so the CLI can identify the repo to request a token for.
+- When a positional service URL is passed, the CLI calls AIEditorExtensionGenerateToken to append a
+  per-user token, using --server-id, --access-token, --user + --password, or the default
+  'jf config' server to authenticate. The URL must contain /api/aieditorextensions/<repo-key>/ so the
+  CLI can identify the repo to request a token for.
 
 Related: jf c add, jf rt repo-create`
 }

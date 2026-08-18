@@ -75,17 +75,3 @@ func FetchReferenceToken(serverDetails *config.ServerDetails, repoKey string) (s
 func AppendReferenceToken(serviceURL, token string) string {
 	return strings.TrimRight(serviceURL, "/") + "/" + token
 }
-
-// urlHasReferenceToken reports whether a gallery service URL already embeds
-// a reference token, i.e. whether it looks like ".../_apis/public/gallery/<something>".
-// Used to decide whether to skip token fetch on a direct URL that already has one.
-func urlHasReferenceToken(serviceURL string) bool {
-	const marker = "/" + DefaultURLSuffix + "/"
-	idx := strings.Index(serviceURL, marker)
-	if idx < 0 {
-		return false
-	}
-	tail := strings.TrimSpace(serviceURL[idx+len(marker):])
-	tail = strings.TrimRight(tail, "/")
-	return tail != ""
-}
