@@ -2,6 +2,7 @@ package ruby
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -77,19 +78,6 @@ func TestIsRubyHelpRequest(t *testing.T) {
 	assert.True(t, isRubyHelpRequest("install", []string{"install", "--help"}))
 	assert.True(t, isRubyHelpRequest("install", []string{"install", "-h"}))
 	assert.False(t, isRubyHelpRequest("install", []string{"install", "rake"}))
-}
-
-func TestParseBundleListLine(t *testing.T) {
-	name, version := parseBundleListLine("rake (13.0.6)")
-	assert.Equal(t, "rake", name)
-	assert.Equal(t, "13.0.6", version)
-
-	name, version = parseBundleListLine("nokogiri (1.13.9-x86_64-linux)")
-	assert.Equal(t, "nokogiri", name)
-	assert.Equal(t, "1.13.9-x86_64-linux", version)
-
-	name, _ = parseBundleListLine("Gems included by the bundle:")
-	assert.Equal(t, "", name)
 }
 
 func TestExtractQuotedURL(t *testing.T) {
@@ -238,95 +226,93 @@ func TestRubyStripHostTrailingSlash(t *testing.T) {
 	assert.Equal(t, []string{"push", "my.gem"}, args4)
 }
 
-func TestParseGemfileGroups(t *testing.T) {
-	dir := t.TempDir()
-	gemfile := `source "https://rubygems.org"
+func TestRubyExtractInstallDir(t *testing.T) {
+	assert.Equal(t, "/opt/gems", rubyExtractInstallDir([]string{"install", "rake", "-i", "/opt/gems"}))
+	assert.Equal(t, "/opt/gems", rubyExtractInstallDir([]string{"install", "rake", "--install-dir", "/opt/gems"}))
+	assert.Equal(t, "/opt/gems", rubyExtractInstallDir([]string{"install", "rake", "--install-dir=/opt/gems"}))
+	assert.Equal(t, "", rubyExtractInstallDir([]string{"install", "rake"}))
+}
 
-gem "rails"
-gem "puma"
-
-group :development do
-  gem "pry"
-  gem "rubocop"
-end
-
-group :test do
-  gem "rspec"
-end
-
-group :development, :test do
-  gem "faker"
-end
-`
-	if err := os.WriteFile(filepath.Join(dir, "Gemfile"), []byte(gemfile), 0644); err != nil {
-		t.Fatal(err)
+// TestRubyDiffGemSnapshots_Install covers the pure diff logic that replaces parsing
+// "Successfully installed X-Y" from stdout: whatever is new or changed version between
+// the before/after installed-spec snapshots is reported, transitive dependencies included.
+func TestRubyDiffGemSnapshots_Install(t *testing.T) {
+	before := rubyGemSnapshot{installedVersions: map[string]string{"bundler": "1.17.2", "rake": "13.0.1"}}
+	after := rubyGemSnapshot{installedVersions: map[string]string{
+		"bundler":  "1.17.2", // unchanged — must not appear
+		"rake":     "13.0.1", // unchanged — must not appear
+		"rails":    "7.0.4",  // newly installed
+		"railties": "7.0.4",  // newly installed transitive dependency
+	}}
+	deps := rubyDiffGemSnapshots("install", "", before, after)
+	ids := make([]string, len(deps))
+	for i, d := range deps {
+		ids[i] = d.Id
+		assert.Equal(t, gemDepArtifactType, d.Type)
 	}
-
-	groups := parseGemfileGroups(dir)
-	assert.NotNil(t, groups)
-
-	// Top-level gems → production
-	assert.Equal(t, []string{"production"}, groups["rails"])
-	assert.Equal(t, []string{"production"}, groups["puma"])
-
-	// Development group
-	assert.Equal(t, []string{"development"}, groups["pry"])
-	assert.Equal(t, []string{"development"}, groups["rubocop"])
-
-	// Test group
-	assert.Equal(t, []string{"test"}, groups["rspec"])
-
-	// Multi-group
-	assert.ElementsMatch(t, []string{"development", "test"}, groups["faker"])
-
-	// No Gemfile → nil
-	assert.Nil(t, parseGemfileGroups(t.TempDir()))
+	assert.ElementsMatch(t, []string{"rails:7.0.4", "railties:7.0.4"}, ids)
 }
 
-func TestParseGemDeclaration(t *testing.T) {
-	assert.Equal(t, "rails", parseGemDeclaration(`gem "rails"`))
-	assert.Equal(t, "rails", parseGemDeclaration(`gem 'rails'`))
-	assert.Equal(t, "rails", parseGemDeclaration(`gem "rails", "~> 7.0"`))
-	assert.Equal(t, "", parseGemDeclaration(`source "https://rubygems.org"`))
-	assert.Equal(t, "", parseGemDeclaration(`# gem "commented"`))
+// TestRubyDiffGemSnapshots_InstallVersionChange covers reinstalling an existing gem at a
+// different version (e.g. `gem install rake -v 13.0.1` when 13.4.2 was already present).
+func TestRubyDiffGemSnapshots_InstallVersionChange(t *testing.T) {
+	before := rubyGemSnapshot{installedVersions: map[string]string{"rake": "13.4.2"}}
+	after := rubyGemSnapshot{installedVersions: map[string]string{"rake": "13.0.1"}}
+	deps := rubyDiffGemSnapshots("install", "", before, after)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "rake:13.0.1", deps[0].Id)
 }
 
-func TestExtractGemNamesFromArgs(t *testing.T) {
-	// Simple install
-	names := extractGemNamesFromArgs([]string{"install", "colorize"})
-	assert.Equal(t, []string{"colorize"}, names)
+func TestRubyDiffGemSnapshots_InstallNoChange(t *testing.T) {
+	snap := rubyGemSnapshot{installedVersions: map[string]string{"rake": "13.4.2"}}
+	assert.Empty(t, rubyDiffGemSnapshots("install", "", snap, snap))
+}
 
-	// Multiple gems
-	names = extractGemNamesFromArgs([]string{"install", "colorize", "rake", "puma"})
-	assert.Equal(t, []string{"colorize", "rake", "puma"}, names)
+// TestRubyGemFetchIntegration exercises rubyGemFilesIn, rubyReadGemFileSpec and the
+// "fetch" branch of rubyDiffGemSnapshots end to end against a real .gem file built by
+// the actual `gem` binary — the mechanism `gem fetch` itself would produce a file for,
+// without needing network access to fetch a real gem.
+func TestRubyGemFetchIntegration(t *testing.T) {
+	if _, err := exec.LookPath("gem"); err != nil {
+		t.Skip("gem not on PATH")
+	}
+	dir := t.TempDir()
+	gemspec := "Gem::Specification.new do |s|\n" +
+		"  s.name = \"jf-ruby-diff-test\"\n" +
+		"  s.version = \"0.0.1\"\n" +
+		"  s.summary = \"test\"\n" +
+		"  s.authors = [\"test\"]\n" +
+		"  s.files = []\n" +
+		"end\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "jf-ruby-diff-test.gemspec"), []byte(gemspec), 0644))
 
-	// With --source flag (skip flag and value)
-	names = extractGemNamesFromArgs([]string{"install", "colorize", "--source", "https://my.jfrog.io/api/gems/r/"})
-	assert.Equal(t, []string{"colorize"}, names)
+	before, err := rubyGemFilesIn(dir)
+	require.NoError(t, err)
+	assert.Empty(t, before)
 
-	// With --version flag
-	names = extractGemNamesFromArgs([]string{"install", "colorize", "--version", "1.0.0"})
-	assert.Equal(t, []string{"colorize"}, names)
+	cmd := exec.Command("gem", "build", "jf-ruby-diff-test.gemspec")
+	cmd.Dir = dir
+	out, buildErr := cmd.CombinedOutput()
+	require.NoError(t, buildErr, "gem build failed: %s", string(out))
 
-	// With -v flag (short)
-	names = extractGemNamesFromArgs([]string{"install", "rails", "-v", "7.0.0"})
-	assert.Equal(t, []string{"rails"}, names)
+	after, err := rubyGemFilesIn(dir)
+	require.NoError(t, err)
+	assert.Len(t, after, 1)
 
-	// Fetch subcommand
-	names = extractGemNamesFromArgs([]string{"fetch", "rake"})
-	assert.Equal(t, []string{"rake"}, names)
+	deps := rubyDiffGemSnapshots("fetch", dir, rubyGemSnapshot{gemFiles: before}, rubyGemSnapshot{gemFiles: after})
+	require.Len(t, deps, 1)
+	assert.Equal(t, "jf-ruby-diff-test:0.0.1", deps[0].Id)
+}
 
-	// Boolean flags (no value)
-	names = extractGemNamesFromArgs([]string{"install", "rake", "--no-document", "--conservative"})
-	assert.Equal(t, []string{"rake"}, names)
-
-	// Path-like arg skipped
-	names = extractGemNamesFromArgs([]string{"install", "/path/to/some.gem"})
-	assert.Empty(t, names)
-
-	// No gem names (only flags)
-	names = extractGemNamesFromArgs([]string{"install", "--source", "https://example.com"})
-	assert.Empty(t, names)
+// TestRubyInstalledGemVersions is a light integration check that the RubyGems
+// Specification API query itself runs and returns parseable, non-trivial output.
+func TestRubyInstalledGemVersions(t *testing.T) {
+	if _, err := exec.LookPath("ruby"); err != nil {
+		t.Skip("ruby not on PATH")
+	}
+	versions, err := rubyInstalledGemVersions("")
+	require.NoError(t, err)
+	assert.NotEmpty(t, versions, "expected at least the default gems bundled with Ruby itself")
 }
 
 func TestCollectsDependencies(t *testing.T) {
@@ -344,131 +330,6 @@ func TestCollectsDependencies(t *testing.T) {
 	assert.True(t, cmd.collectsDependencies("fetch"))
 	assert.False(t, cmd.collectsDependencies("build"))
 	assert.False(t, cmd.collectsDependencies("push"))
-}
-
-func TestParseGemCommandOutput_Install(t *testing.T) {
-	// Standard gem install output with transitive deps
-	output := `Fetching: activesupport-7.0.4.gem (100%)
-Successfully installed activesupport-7.0.4
-Fetching: actionpack-7.0.4.gem (100%)
-Successfully installed actionpack-7.0.4
-Fetching: railties-7.0.4.gem (100%)
-Successfully installed railties-7.0.4
-Successfully installed rails-7.0.4
-4 gems installed
-`
-	deps := parseGemCommandOutput(output)
-	assert.Len(t, deps, 4)
-	assert.Equal(t, "activesupport:7.0.4", deps[0].Id)
-	assert.Equal(t, "actionpack:7.0.4", deps[1].Id)
-	assert.Equal(t, "railties:7.0.4", deps[2].Id)
-	assert.Equal(t, "rails:7.0.4", deps[3].Id)
-}
-
-func TestParseGemCommandOutput_InstallSingle(t *testing.T) {
-	output := "Successfully installed colorize-1.1.0\n1 gem installed\n"
-	deps := parseGemCommandOutput(output)
-	assert.Len(t, deps, 1)
-	assert.Equal(t, "colorize:1.1.0", deps[0].Id)
-}
-
-func TestParseGemCommandOutput_InstallVersionPin(t *testing.T) {
-	// When installing an older version explicitly
-	output := "Successfully installed rake-13.0.1\n1 gem installed\n"
-	deps := parseGemCommandOutput(output)
-	assert.Len(t, deps, 1)
-	assert.Equal(t, "rake:13.0.1", deps[0].Id)
-}
-
-func TestParseGemCommandOutput_Fetch(t *testing.T) {
-	// gem fetch output
-	output := "Downloaded httparty-0.21.0.gem\n"
-	deps := parseGemCommandOutput(output)
-	assert.Len(t, deps, 1)
-	assert.Equal(t, "httparty:0.21.0", deps[0].Id)
-}
-
-func TestParseGemCommandOutput_FetchMultiple(t *testing.T) {
-	output := "Downloaded colorize-1.1.0.gem\nDownloaded rake-13.4.2.gem\n"
-	deps := parseGemCommandOutput(output)
-	assert.Len(t, deps, 2)
-	assert.Equal(t, "colorize:1.1.0", deps[0].Id)
-	assert.Equal(t, "rake:13.4.2", deps[1].Id)
-}
-
-func TestParseGemCommandOutput_FetchOlderFormat(t *testing.T) {
-	// Older RubyGems fetch format
-	output := "Fetching: rspec-core-3.12.0.gem (100%)\n"
-	deps := parseGemCommandOutput(output)
-	assert.Len(t, deps, 1)
-	assert.Equal(t, "rspec-core:3.12.0", deps[0].Id)
-}
-
-func TestParseGemCommandOutput_HyphenatedGemName(t *testing.T) {
-	// Gem name with hyphens (e.g., rspec-core, net-http)
-	output := "Successfully installed rspec-core-3.12.0\nSuccessfully installed net-http-0.4.1\n"
-	deps := parseGemCommandOutput(output)
-	assert.Len(t, deps, 2)
-	assert.Equal(t, "rspec-core:3.12.0", deps[0].Id)
-	assert.Equal(t, "net-http:0.4.1", deps[1].Id)
-}
-
-func TestParseGemCommandOutput_Empty(t *testing.T) {
-	deps := parseGemCommandOutput("")
-	assert.Nil(t, deps)
-}
-
-func TestParseGemCommandOutput_NoDeps(t *testing.T) {
-	// Output with no install/download lines (e.g., already installed)
-	output := "Successfully installed colorize-1.1.0\nBut this line has no prefix\n"
-	deps := parseGemCommandOutput(output)
-	assert.Len(t, deps, 1)
-}
-
-func TestParseGemCommandOutput_Deduplication(t *testing.T) {
-	// Same gem mentioned twice (should deduplicate)
-	output := "Successfully installed rake-13.4.2\nSuccessfully installed rake-13.4.2\n"
-	deps := parseGemCommandOutput(output)
-	assert.Len(t, deps, 1)
-}
-
-func TestSplitGemNameVersion(t *testing.T) {
-	cases := []struct {
-		input       string
-		wantName    string
-		wantVersion string
-	}{
-		{"colorize-1.1.0", "colorize", "1.1.0"},
-		{"rspec-core-3.12.0", "rspec-core", "3.12.0"},
-		{"net-http-0.4.1", "net-http", "0.4.1"},
-		{"rails-7.0.4.2", "rails", "7.0.4.2"},
-		{"nokogiri-1.13.9-x86_64-linux", "nokogiri", "1.13.9-x86_64-linux"}, // platform suffix in version
-		{"", "", ""},
-		{"noversion", "", ""},
-		{"rake-13.4.2", "rake", "13.4.2"},
-	}
-	for _, c := range cases {
-		name, version := splitGemNameVersion(c.input)
-		assert.Equal(t, c.wantName, name, "input %q name", c.input)
-		assert.Equal(t, c.wantVersion, version, "input %q version", c.input)
-	}
-}
-
-func TestExtractVersionFromArgs(t *testing.T) {
-	// -v flag
-	assert.Equal(t, "13.0.1", extractVersionFromArgs([]string{"install", "rake", "-v", "13.0.1"}))
-
-	// --version flag
-	assert.Equal(t, "7.0.0", extractVersionFromArgs([]string{"install", "rails", "--version", "7.0.0"}))
-
-	// --version= form
-	assert.Equal(t, "1.2.3", extractVersionFromArgs([]string{"install", "gem", "--version=1.2.3"}))
-
-	// No version flag
-	assert.Equal(t, "", extractVersionFromArgs([]string{"install", "rake"}))
-
-	// -v without space (unusual but valid)
-	assert.Equal(t, "1.0.0", extractVersionFromArgs([]string{"install", "gem", "-v1.0.0"}))
 }
 
 func TestRubyWriteTempGemCredentials(t *testing.T) {
@@ -597,20 +458,6 @@ func TestBundleCredentialKeys(t *testing.T) {
 		BundleCredentialKeys("localhost:8081"))
 }
 
-// TestExtractVersionFromArgs_RejectsRequirements guards against recording a version
-// requirement as if it were a version, which produced dependency IDs like "rake:~> 13.0"
-// that match no artifact in Artifactory.
-func TestExtractVersionFromArgs_RejectsRequirements(t *testing.T) {
-	for _, requirement := range []string{"~> 13.0", ">= 1.2", "< 2", "= 1.0", ">1.0", "1.0, 2.0", "13.*"} {
-		assert.Empty(t, extractVersionFromArgs([]string{"install", "rake", "-v", requirement}),
-			"requirement %q must not be treated as a concrete version", requirement)
-	}
-	// Concrete versions still resolve, including prereleases.
-	assert.Equal(t, "13.0.6", extractVersionFromArgs([]string{"install", "rake", "-v", "13.0.6"}))
-	assert.Equal(t, "7.1.0.beta1", extractVersionFromArgs([]string{"install", "rails", "--version=7.1.0.beta1"}))
-	assert.Equal(t, "1.0.0", extractVersionFromArgs([]string{"install", "gem", "-v1.0.0"}))
-}
-
 // TestRubyGemfileDir_WalksUpAndHonorsEnv guards the subdirectory case: Bundler loads the
 // Gemfile from a parent directory, so a command run from a subdirectory must resolve the
 // same file or no credentials get injected and `bundle install` fails with exit status 16.
@@ -716,34 +563,6 @@ func TestRubyPublishHint(t *testing.T) {
 	assert.Equal(t, "jf rt bp mybuild 7 --project=proj1",
 		rubyPublishHint(buildUtils.NewBuildConfiguration("mybuild", "7", "", "proj1"), "mybuild", "7"))
 	assert.Equal(t, "jf rt bp mybuild 7", rubyPublishHint(nil, "mybuild", "7"))
-}
-
-// TestParseGemfileGroups_NestedBlock: a block nested inside a group must not close it, or
-// every gem after the inner `end` is mis-scoped as production.
-func TestParseGemfileGroups_NestedBlock(t *testing.T) {
-	dir := t.TempDir()
-	gemfile := `source "https://rubygems.org"
-
-gem "rack"
-
-group :development, :test do
-  gem "rspec-rails"
-  platforms :ruby do
-    gem "pg"
-  end
-  gem "factory_bot"
-end
-
-gem "puma"
-`
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "Gemfile"), []byte(gemfile), 0644))
-	groups := parseGemfileGroups(dir)
-
-	assert.Equal(t, []string{"production"}, groups["rack"])
-	assert.Equal(t, []string{"development", "test"}, groups["rspec-rails"])
-	assert.Equal(t, []string{"development", "test"}, groups["pg"], "gem inside the nested block")
-	assert.Equal(t, []string{"development", "test"}, groups["factory_bot"], "must not leak to production after the inner end")
-	assert.Equal(t, []string{"production"}, groups["puma"], "after the group really closes")
 }
 
 // TestUserHomeDir_PrefersHome pins the resolution RubyGems and Bundler themselves use.

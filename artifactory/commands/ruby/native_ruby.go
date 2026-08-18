@@ -173,30 +173,41 @@ func (rc *RubyCommand) Run() error {
 	}
 
 	log.Info(fmt.Sprintf("Running %s %s.", rc.nativeTool, subCommand))
-	// For gem install/fetch, capture stdout to parse "Successfully installed"/"Downloaded" lines.
-	var capturedOutput string
-	needsCapture := rc.nativeTool == toolGem && (subCommand == "install" || subCommand == "fetch")
-	if needsCapture {
-		var runErr error
-		capturedOutput, runErr = runRubyBinaryCapture(rc.nativeTool, rc.args, extraEnv)
-		if runErr != nil {
-			return fmt.Errorf("%s %s failed: %w", rc.nativeTool, subCommand, runErr)
-		}
-	} else {
-		if runErr := runRubyBinary(rc.nativeTool, rc.args, extraEnv); runErr != nil {
-			return fmt.Errorf("%s %s failed: %w", rc.nativeTool, subCommand, runErr)
-		}
+	// For gem install/fetch, snapshot RubyGems' own state before and after the command
+	// runs, so build-info can record exactly what changed via RubyGems' own Specification
+	// API — instead of parsing "Successfully installed"/"Downloaded" lines from stdout,
+	// which go missing under --quiet and can vary in wording across RubyGems versions.
+	needsGemSnapshot := rc.wantsBuildInfo() && rc.nativeTool == toolGem && (subCommand == "install" || subCommand == "fetch")
+	var preSnapshot rubyGemSnapshot
+	if needsGemSnapshot {
+		preSnapshot = rubySnapshotGemState(subCommand, workingDir, rc.args)
 	}
 
-	if rc.buildConfiguration != nil {
-		buildName, nameErr := rc.buildConfiguration.GetBuildName()
-		if nameErr == nil && buildName != "" {
-			if biErr := rc.collectBuildInfo(workingDir, subCommand, repoKey, serverDetails, capturedOutput); biErr != nil {
-				log.Warn("Failed to collect Ruby build info: " + biErr.Error())
-			}
+	if runErr := runRubyBinary(rc.nativeTool, rc.args, extraEnv); runErr != nil {
+		return fmt.Errorf("%s %s failed: %w", rc.nativeTool, subCommand, runErr)
+	}
+
+	var installedDeps []buildinfo.Dependency
+	if needsGemSnapshot {
+		postSnapshot := rubySnapshotGemState(subCommand, workingDir, rc.args)
+		installedDeps = rubyDiffGemSnapshots(subCommand, workingDir, preSnapshot, postSnapshot)
+	}
+
+	if rc.wantsBuildInfo() {
+		if biErr := rc.collectBuildInfo(workingDir, subCommand, repoKey, serverDetails, installedDeps); biErr != nil {
+			log.Warn("Failed to collect Ruby build info: " + biErr.Error())
 		}
 	}
 	return nil
+}
+
+// wantsBuildInfo reports whether build-info collection was requested for this invocation.
+func (rc *RubyCommand) wantsBuildInfo() bool {
+	if rc.buildConfiguration == nil {
+		return false
+	}
+	buildName, err := rc.buildConfiguration.GetBuildName()
+	return err == nil && buildName != ""
 }
 
 // rubyEmbedCredsInSourceArg rewrites --source/--host URL args to embed credentials.
@@ -386,20 +397,152 @@ func runRubyBinary(tool string, args, extraEnv []string) error {
 	return cmd.Run()
 }
 
-// runRubyBinaryCapture executes gem/bundle capturing stdout while still printing it.
-// Used for `gem install`/`fetch` to parse installed/downloaded gem names from output.
-func runRubyBinaryCapture(tool string, args, extraEnv []string) (string, error) {
-	cmd := exec.Command(tool, args...) // #nosec G204
-	cmd.Stdin = os.Stdin
-	cmd.Stderr = os.Stderr
-	if len(extraEnv) > 0 {
-		cmd.Env = append(os.Environ(), extraEnv...)
+// rubyGemSnapshot captures the RubyGems state relevant to detecting what a `gem
+// install`/`gem fetch` invocation actually changed: installed specs for "install",
+// or the .gem files present in the fetch directory for "fetch" (fetch downloads a
+// file without installing anything, so there is no installed spec to diff).
+type rubyGemSnapshot struct {
+	installedVersions map[string]string // name -> version, from RubyGems' own Specification API
+	gemFiles          map[string]bool   // filenames present in the fetch directory
+}
+
+// rubySnapshotGemState captures the state needed to detect what subCommand ("install" or
+// "fetch") changes. A failed snapshot is logged and returns zero-value state — the
+// underlying gem command has already run (or is about to), so a snapshot failure should
+// only cost build-info completeness, never fail the command itself.
+func rubySnapshotGemState(subCommand, workingDir string, args []string) rubyGemSnapshot {
+	if subCommand == "fetch" {
+		files, err := rubyGemFilesIn(workingDir)
+		if err != nil {
+			log.Debug("Ruby build-info: could not snapshot .gem files for fetch: " + err.Error())
+		}
+		return rubyGemSnapshot{gemFiles: files}
 	}
-	// Capture stdout while also printing it to the user's terminal.
-	var buf strings.Builder
-	cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
-	err := cmd.Run()
-	return buf.String(), err
+	versions, err := rubyInstalledGemVersions(rubyExtractInstallDir(args))
+	if err != nil {
+		log.Debug("Ruby build-info: could not snapshot installed gems: " + err.Error())
+	}
+	return rubyGemSnapshot{installedVersions: versions}
+}
+
+// rubyDiffGemSnapshots compares a before/after pair of snapshots and returns the gems
+// that appeared as a result, as build-info dependencies. For "install" this naturally
+// covers transitive dependencies pulled in alongside whatever was named on the command
+// line. For "fetch", each newly-appeared file's own embedded spec is read via RubyGems'
+// package API rather than parsed from the filename, which is ambiguous for gem names
+// that themselves contain digits and hyphens (e.g. "aws-sdk-s3-1.100.0.gem").
+func rubyDiffGemSnapshots(subCommand, workingDir string, before, after rubyGemSnapshot) []buildinfo.Dependency {
+	if subCommand == "fetch" {
+		var deps []buildinfo.Dependency
+		for filename := range after.gemFiles {
+			if before.gemFiles[filename] {
+				continue
+			}
+			name, version, err := rubyReadGemFileSpec(filepath.Join(workingDir, filename))
+			if err != nil {
+				log.Debug(fmt.Sprintf("Ruby build-info: could not read spec from %s: %v", filename, err))
+				continue
+			}
+			deps = append(deps, buildinfo.Dependency{Id: fmt.Sprintf("%s:%s", name, version), Type: gemDepArtifactType})
+		}
+		return deps
+	}
+
+	var deps []buildinfo.Dependency
+	for name, version := range after.installedVersions {
+		if before.installedVersions[name] == version {
+			continue
+		}
+		deps = append(deps, buildinfo.Dependency{
+			Id:   fmt.Sprintf("%s:%s", name, version),
+			Type: gemDepArtifactType,
+		})
+	}
+	return deps
+}
+
+// rubyExtractInstallDir extracts the -i/--install-dir value from `gem install` args, if
+// present, so the installed-gem snapshot can be scoped to the same directory the install
+// itself used rather than the default RubyGems search path.
+func rubyExtractInstallDir(args []string) string {
+	for i, a := range args {
+		switch {
+		case (a == "-i" || a == "--install-dir") && i+1 < len(args):
+			return args[i+1]
+		case strings.HasPrefix(a, "--install-dir="):
+			return strings.TrimPrefix(a, "--install-dir=")
+		}
+	}
+	return ""
+}
+
+// rubyInstalledGemVersions returns every currently-installed gem as name -> version,
+// queried through RubyGems' own Specification API rather than any command's text output.
+// When installDir is non-empty, only that directory's specifications are queried
+// (matching a `gem install -i/--install-dir` override).
+func rubyInstalledGemVersions(installDir string) (map[string]string, error) {
+	const script = `
+require "rubygems"
+require "json"
+if ARGV[0] && !ARGV[0].empty?
+  Gem::Specification.dirs = [File.join(ARGV[0], "specifications")]
+end
+specs = {}
+Gem::Specification.each { |s| specs[s.name] = s.version.to_s }
+puts JSON.generate(specs)
+`
+	out, err := exec.Command("ruby", "-e", script, "--", installDir).Output() // #nosec G204 -- fixed script; installDir comes from the user's own -i/--install-dir flag
+	if err != nil {
+		return nil, fmt.Errorf("failed to query installed gems: %w", err)
+	}
+	var specs map[string]string
+	if jsonErr := json.Unmarshal(out, &specs); jsonErr != nil {
+		return nil, fmt.Errorf("failed to parse installed gem list: %w", jsonErr)
+	}
+	return specs, nil
+}
+
+// rubyGemFilesIn lists the .gem filenames present in dir. `gem fetch` always downloads
+// to the current working directory; it has no destination-directory flag.
+func rubyGemFilesIn(dir string) (map[string]bool, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	files := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".gem") {
+			files[e.Name()] = true
+		}
+	}
+	return files, nil
+}
+
+// rubyReadGemFileSpec reads a .gem file's embedded specification via RubyGems' own
+// Gem::Package API — structured access to the actual name/version/platform, rather than
+// parsing the filename.
+func rubyReadGemFileSpec(path string) (name, version string, err error) {
+	const script = `
+require "rubygems"
+require "rubygems/package"
+require "json"
+spec = Gem::Package.new(ARGV[0]).spec
+platform = spec.platform.to_s
+v = platform == "ruby" ? spec.version.to_s : "#{spec.version}-#{platform}"
+puts JSON.generate({name: spec.name, version: v})
+`
+	out, err := exec.Command("ruby", "-e", script, "--", path).Output() // #nosec G204 -- fixed script; path is a filename this process just observed in its own working directory
+	if err != nil {
+		return "", "", fmt.Errorf("failed to read gem spec from %s: %w", path, err)
+	}
+	var result struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	}
+	if jsonErr := json.Unmarshal(out, &result); jsonErr != nil {
+		return "", "", fmt.Errorf("failed to parse gem spec output: %w", jsonErr)
+	}
+	return result.Name, result.Version, nil
 }
 
 // isRubyHelpRequest reports whether the invocation is purely a help request.
@@ -452,8 +595,13 @@ func (rc *RubyCommand) injectAuth(serverDetails *coreConfig.ServerDetails, sourc
 		return nil
 	}
 
-	// Determine the host to authenticate. Prefer the discovered source URL host;
-	// otherwise fall back to the Artifactory server host.
+	// Pick which host name the credential env vars below get built for: the discovered
+	// source URL's host when there is one, else the configured Artifactory host. This is
+	// only choosing a string for env var construction — it does not by itself decide
+	// whether credentials actually go anywhere. That decision belongs to
+	// authorizedForSource below, which is what actually restricts the target to
+	// Artifactory's own host by default (an explicit --server-id is the one case where a
+	// different host is allowed, per authorizedForSource's own doc comment).
 	host := rubyHostOf(sourceURL)
 	if host == "" {
 		host = rubyHostOf(serverDetails.ArtifactoryUrl)
@@ -851,15 +999,16 @@ func rubyHostMatchesServer(rawURL, artifactoryURL string) bool {
 // ── Build info ─────────────────────────────────────────────────────────────────
 
 // collectBuildInfo dispatches build-info collection based on the native tool/sub-command.
-// capturedOutput is the captured stdout from gem commands (empty for bundle commands).
-func (rc *RubyCommand) collectBuildInfo(workingDir, subCommand, repoKey string, serverDetails *coreConfig.ServerDetails, capturedOutput string) error {
+// installedDeps is the set of gems a preceding gem install/fetch actually changed
+// (resolved via rubyDiffGemSnapshots; empty for bundle commands).
+func (rc *RubyCommand) collectBuildInfo(workingDir, subCommand, repoKey string, serverDetails *coreConfig.ServerDetails, installedDeps []buildinfo.Dependency) error {
 	switch {
 	case rc.nativeTool == toolGem && subCommand == "push":
 		// Only gem push records artifacts — it's the point where the .gem enters Artifactory.
 		// gem build is local-only; the artifact has no Artifactory path until pushed.
 		return rc.collectGemArtifactBuildInfo(workingDir, repoKey, serverDetails)
 	case rc.collectsDependencies(subCommand):
-		return rc.collectDependencyBuildInfo(workingDir, subCommand, repoKey, serverDetails, capturedOutput)
+		return rc.collectDependencyBuildInfo(workingDir, subCommand, repoKey, serverDetails, installedDeps)
 	case rc.nativeTool == toolGem && subCommand == "build":
 		// `gem build` resolves nothing itself, but the dependencies it was built against are
 		// recorded in Gemfile.lock. Collecting them covers the flow where a project arrives
@@ -903,9 +1052,10 @@ func (rc *RubyCommand) collectsDependencies(subCommand string) bool {
 }
 
 // collectDependencyBuildInfo records dependencies in build-info. For bundle commands,
-// this parses Gemfile.lock via FlexPack. For gem install/fetch, it records the specific
-// gems that were actually installed/fetched (parsed from the native tool's stdout).
-func (rc *RubyCommand) collectDependencyBuildInfo(workingDir, subCommand, repoKey string, serverDetails *coreConfig.ServerDetails, capturedOutput string) error {
+// this parses Gemfile.lock via FlexPack. For gem install/fetch, it records installedDeps —
+// the gems a RubyGems-state snapshot diff (see rubyDiffGemSnapshots) found were actually
+// installed/fetched.
+func (rc *RubyCommand) collectDependencyBuildInfo(workingDir, subCommand, repoKey string, serverDetails *coreConfig.ServerDetails, installedDeps []buildinfo.Dependency) error {
 	buildName, err := rc.buildConfiguration.GetBuildName()
 	if err != nil {
 		return err
@@ -915,9 +1065,8 @@ func (rc *RubyCommand) collectDependencyBuildInfo(workingDir, subCommand, repoKe
 		return err
 	}
 
-	// For gem install/fetch: parse stdout to determine exactly what was installed/fetched.
 	if rc.nativeTool == toolGem {
-		return rc.collectGemInstallDependencies(workingDir, subCommand, buildName, buildNumber, repoKey, serverDetails, capturedOutput)
+		return rc.collectGemInstallDependencies(workingDir, subCommand, buildName, buildNumber, repoKey, serverDetails, installedDeps)
 	}
 
 	// For bundle install/update/lock/add: use the full FlexPack lock-file parser.
@@ -941,8 +1090,10 @@ func (rc *RubyCommand) collectLockfileDependencies(workingDir, buildName, buildN
 		gemConfig.ProjectName = name
 		gemConfig.ProjectVersion = version
 	}
-	gemConfig.GemGroups = parseGemfileGroups(workingDir)
-	gemConfig.InstalledPackages = bundleInstalledPackages(workingDir)
+	// GemGroups/InstalledPackages are left unset: the FlexPack now queries Bundler's own
+	// Definition API directly for both the dependency groups and the installed set
+	// (respecting any --without/--with already applied via `bundle install`), so there is
+	// no need to re-derive them here by parsing the Gemfile or `bundle list`'s output.
 
 	collector, err := flexpack.NewRubygemsFlexPack(gemConfig)
 	if err != nil {
@@ -995,35 +1146,12 @@ func (rc *RubyCommand) collectGemBuildDependencies(workingDir, repoKey string, s
 	return rc.collectLockfileDependencies(workingDir, buildName, buildNumber, repoKey, serverDetails)
 }
 
-// collectGemInstallDependencies records the gems that were actually installed/fetched.
-// Primary mechanism: parse stdout ("Successfully installed X-Y" / "Downloaded X-Y.gem").
-// Fallback: explicit -v/--version arg + gem name from args, or gem list query.
-func (rc *RubyCommand) collectGemInstallDependencies(workingDir, subCommand, buildName, buildNumber, repoKey string, serverDetails *coreConfig.ServerDetails, capturedOutput string) error {
-	// Primary: parse the captured stdout for definitive name:version pairs.
-	deps := parseGemCommandOutput(capturedOutput)
-
-	// Fallback: if stdout parsing yielded nothing, try extracting from args + gem list.
+// collectGemInstallDependencies records the gems that were actually installed/fetched,
+// as determined by rubyDiffGemSnapshots from RubyGems' own state before and after the
+// command ran.
+func (rc *RubyCommand) collectGemInstallDependencies(workingDir, subCommand, buildName, buildNumber, repoKey string, serverDetails *coreConfig.ServerDetails, deps []buildinfo.Dependency) error {
 	if len(deps) == 0 {
-		explicitVersion := extractVersionFromArgs(rc.args)
-		gemNames := extractGemNamesFromArgs(rc.args)
-		for _, name := range gemNames {
-			version := explicitVersion
-			if version == "" {
-				version = queryInstalledGemVersion(name)
-			}
-			if version == "" {
-				log.Debug(fmt.Sprintf("Ruby build-info [gem %s]: could not determine version for %q — skipping", subCommand, name))
-				continue
-			}
-			deps = append(deps, buildinfo.Dependency{
-				Id:   fmt.Sprintf("%s:%s", name, version),
-				Type: gemDepArtifactType,
-			})
-		}
-	}
-
-	if len(deps) == 0 {
-		log.Debug(fmt.Sprintf("Ruby build-info [gem %s]: no gems detected in output or args — empty build-info", subCommand))
+		log.Debug(fmt.Sprintf("Ruby build-info [gem %s]: no gems detected — empty build-info", subCommand))
 		return nil
 	}
 
@@ -1054,152 +1182,6 @@ func (rc *RubyCommand) collectGemInstallDependencies(workingDir, subCommand, bui
 	}
 	log.Info(fmt.Sprintf("RubyGems build info collected (%d gem(s)). Use '%s' to publish.", len(deps), rubyPublishHint(rc.buildConfiguration, buildName, buildNumber)))
 	return nil
-}
-
-// extractGemNamesFromArgs parses gem names from `gem install/fetch` command args.
-// Skips flags (--source, --version, etc.) and their values.
-func extractGemNamesFromArgs(args []string) []string {
-	var names []string
-	skipNext := false
-	for i, a := range args {
-		if i == 0 {
-			continue // skip the subcommand itself (install/fetch)
-		}
-		if skipNext {
-			skipNext = false
-			continue
-		}
-		// Skip flags and their values.
-		if strings.HasPrefix(a, "-") {
-			// Flags that take a value argument.
-			switch a {
-			case "--source", "-s", "--host", "--version", "-v", "--platform", "-i",
-				"--install-dir", "--bindir", "-n", "--document", "--build-root":
-				skipNext = true
-			}
-			continue
-		}
-		// Skip anything that looks like a path or URL (not a gem name).
-		if strings.Contains(a, "/") || strings.Contains(a, "\\") {
-			continue
-		}
-		names = append(names, a)
-	}
-	return names
-}
-
-// parseGemCommandOutput parses gem install/fetch stdout to extract name:version pairs.
-//
-// gem install prints: "Successfully installed <name>-<version>"
-// gem fetch prints:   "Downloaded <name>-<version>.gem" or "Fetching: <name>-<version>.gem"
-//
-// This is the primary (most accurate) mechanism — it reflects what actually happened.
-func parseGemCommandOutput(output string) []buildinfo.Dependency {
-	if output == "" {
-		return nil
-	}
-	seen := make(map[string]bool)
-	var deps []buildinfo.Dependency
-	scanner := bufio.NewScanner(strings.NewReader(output))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		var nameVersion string
-		switch {
-		case strings.HasPrefix(line, "Successfully installed "):
-			// "Successfully installed colorize-1.1.0"
-			nameVersion = strings.TrimPrefix(line, "Successfully installed ")
-		case strings.HasPrefix(line, "Downloaded "):
-			// "Downloaded colorize-1.1.0.gem"
-			nameVersion = strings.TrimSuffix(strings.TrimPrefix(line, "Downloaded "), ".gem")
-		case strings.HasPrefix(line, "Fetching: "):
-			// "Fetching: colorize-1.1.0.gem (100%)" — older gem versions
-			nameVersion = strings.TrimPrefix(line, "Fetching: ")
-			if idx := strings.Index(nameVersion, ".gem"); idx > 0 {
-				nameVersion = nameVersion[:idx]
-			}
-		default:
-			continue
-		}
-		name, version := splitGemNameVersion(nameVersion)
-		if name == "" || version == "" {
-			continue
-		}
-		depID := fmt.Sprintf("%s:%s", name, version)
-		if seen[depID] {
-			continue
-		}
-		seen[depID] = true
-		deps = append(deps, buildinfo.Dependency{
-			Id:   depID,
-			Type: gemDepArtifactType,
-		})
-	}
-	return deps
-}
-
-// splitGemNameVersion splits "colorize-1.1.0" into ("colorize", "1.1.0").
-// Gem names can contain hyphens (e.g., "rspec-core"), so we split on the LAST
-// hyphen that is followed by a digit.
-func splitGemNameVersion(s string) (name, version string) {
-	for i := len(s) - 1; i >= 0; i-- {
-		if s[i] == '-' && i+1 < len(s) && s[i+1] >= '0' && s[i+1] <= '9' {
-			return s[:i], s[i+1:]
-		}
-	}
-	return "", ""
-}
-
-// extractVersionFromArgs extracts an explicit version from -v/--version flags in args.
-func extractVersionFromArgs(args []string) string {
-	for i, a := range args {
-		switch {
-		case (a == "-v" || a == "--version") && i+1 < len(args):
-			return exactGemVersion(args[i+1])
-		case strings.HasPrefix(a, "--version="):
-			return exactGemVersion(strings.TrimPrefix(a, "--version="))
-		case strings.HasPrefix(a, "-v") && len(a) > 2 && a[2] != '-':
-			// -v1.0.0 form (unusual but valid)
-			return exactGemVersion(a[2:])
-		}
-	}
-	return ""
-}
-
-// exactGemVersion returns value only when it is a concrete version. RubyGems equally
-// accepts a requirement here ("~> 13.0", ">= 1.2"), which cannot stand in for a version:
-// it would produce a build-info dependency ID such as "rake:~> 13.0" that matches no
-// artifact in Artifactory. Returning empty instead makes the caller fall back to querying
-// the version actually installed.
-func exactGemVersion(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" || strings.ContainsAny(value, "~><=,*| ") {
-		return ""
-	}
-	return value
-}
-
-// queryInstalledGemVersion queries the installed version of a gem via `gem list --exact <name>`.
-// Used as a fallback when stdout parsing doesn't yield results.
-// Returns the latest installed version or empty string if not found.
-func queryInstalledGemVersion(name string) string {
-	cmd := exec.Command("gem", "list", "--exact", name)
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	// Output format: "colorize (1.1.0, 0.8.1)" or "colorize (1.1.0)"
-	line := strings.TrimSpace(string(out))
-	openParen := strings.Index(line, "(")
-	closeParen := strings.Index(line, ")")
-	if openParen == -1 || closeParen == -1 || closeParen <= openParen {
-		return ""
-	}
-	versions := line[openParen+1 : closeParen]
-	parts := strings.Split(versions, ",")
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.TrimSpace(parts[0])
 }
 
 // collectGemArtifactBuildInfo records the .gem artifact uploaded by `gem push`.
@@ -1374,223 +1356,6 @@ func rubySaveBuildInfo(bi *buildinfo.BuildInfo, buildConfiguration *buildUtils.B
 		return fmt.Errorf("failed to create build: %w", err)
 	}
 	return bld.SaveBuildInfo(bi)
-}
-
-// bundleInstalledPackages runs `bundle list` and returns the installed gems as
-// name → version. Returns nil on error (caller falls back to including the full lock).
-func bundleInstalledPackages(workingDir string) map[string]string {
-	cmd := exec.Command("bundle", "list")
-	cmd.Dir = workingDir
-	out, err := cmd.Output()
-	if err != nil {
-		log.Debug(fmt.Sprintf("bundle list failed, using full Gemfile.lock for build-info: %v", err))
-		return nil
-	}
-	installed := make(map[string]string)
-	scanner := bufio.NewScanner(strings.NewReader(string(out)))
-	for scanner.Scan() {
-		// Lines look like: "  * rake (13.0.6)"
-		line := strings.TrimSpace(scanner.Text())
-		line = strings.TrimPrefix(line, "* ")
-		name, version := parseBundleListLine(line)
-		if name != "" {
-			installed[name] = version
-		}
-	}
-	if len(installed) == 0 {
-		return nil
-	}
-	return installed
-}
-
-// parseBundleListLine parses "rake (13.0.6)" → name, version.
-func parseBundleListLine(line string) (name, version string) {
-	open := strings.Index(line, " (")
-	if open == -1 {
-		return "", ""
-	}
-	name = strings.TrimSpace(line[:open])
-	rest := line[open+2:]
-	if closeIdx := strings.IndexByte(rest, ')'); closeIdx != -1 {
-		version = strings.TrimSpace(rest[:closeIdx])
-	}
-	return name, version
-}
-
-// rubyBlockOpenerPatterns match Ruby block openers that do not end in the literal "do",
-// e.g. `platforms :mri do |p|` (ends with `|`) and bare conditional keywords that open
-// an implicit block (`if`, `unless`, `case`, `begin`, `while`, `until`). Compiled once at
-// package init since parseGemfileGroups runs them per line.
-var rubyBlockOpenerPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`\bdo\s*\|[^|]*\|$`),
-	regexp.MustCompile(`^(if|unless|case|begin|while|until)\b`),
-}
-
-// opensRubyBlock reports whether line opens a Ruby block that needs a matching `end`,
-// beyond the common `... do` suffix already checked by callers.
-func opensRubyBlock(line string) bool {
-	if strings.HasSuffix(line, "do") {
-		return true
-	}
-	for _, pattern := range rubyBlockOpenerPatterns {
-		if pattern.MatchString(line) {
-			return true
-		}
-	}
-	return false
-}
-
-// parseGemfileGroups parses the Gemfile to extract gem → group mappings.
-// Returns a map where keys are gem names and values are their Bundler groups.
-// Gems outside any group block get ["production"]. Gems inside `group :dev do...end`
-// get ["development"], etc. Gems in multiple groups get all of them.
-func parseGemfileGroups(workingDir string) map[string][]string {
-	gemfilePath := rubyGemfilePath(workingDir)
-	data, err := os.ReadFile(gemfilePath)
-	if err != nil {
-		return nil
-	}
-
-	groups := make(map[string][]string)
-	var currentGroups []string // nil = top level (production)
-	// Depth of nested blocks opened inside the current group, so that an inner
-	// `platforms :ruby do ... end` does not close the surrounding group.
-	nested := 0
-
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		// Skip comments and empty lines.
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		// Detect `group :development do` or `group :development, :test do`
-		if strings.HasPrefix(line, "group") && strings.HasSuffix(line, "do") {
-			currentGroups = parseGroupNames(line)
-			continue
-		}
-
-		// Track blocks nested inside a group (`platforms :ruby do`, `platforms :ruby do |p|`,
-		// `if ... do`) so their `end` is not mistaken for the group's own.
-		if currentGroups != nil && opensRubyBlock(line) {
-			nested++
-			continue
-		}
-
-		// Detect `end` closing a group block.
-		if line == "end" && currentGroups != nil {
-			if nested > 0 {
-				nested--
-			} else {
-				currentGroups = nil
-			}
-			continue
-		}
-
-		// Detect `gem "name"` declarations.
-		gemName := parseGemDeclaration(line)
-		if gemName == "" {
-			continue
-		}
-
-		// Inline group: `gem "rspec", group: :test` or `gem "rspec", groups: [:test, :development]`
-		if inlineGroups := parseInlineGroups(line); len(inlineGroups) > 0 {
-			groups[gemName] = inlineGroups
-		} else if currentGroups != nil {
-			groups[gemName] = currentGroups
-		} else {
-			groups[gemName] = []string{"production"}
-		}
-	}
-
-	if len(groups) == 0 {
-		return nil
-	}
-	return groups
-}
-
-// parseGroupNames extracts group names from `group :dev, :test do`.
-func parseGroupNames(line string) []string {
-	// Strip "group " prefix and " do" suffix.
-	line = strings.TrimPrefix(line, "group")
-	line = strings.TrimSuffix(line, "do")
-	line = strings.TrimSpace(line)
-
-	var result []string
-	for _, part := range strings.Split(line, ",") {
-		part = strings.TrimSpace(part)
-		part = strings.TrimPrefix(part, ":")
-		part = strings.Trim(part, `"'`)
-		if part != "" {
-			result = append(result, part)
-		}
-	}
-	return result
-}
-
-// parseGemDeclaration extracts the gem name from `gem "name"` or `gem 'name'`.
-func parseGemDeclaration(line string) string {
-	if !strings.HasPrefix(line, "gem ") && !strings.HasPrefix(line, "gem\t") {
-		return ""
-	}
-	rest := strings.TrimPrefix(line, "gem")
-	rest = strings.TrimSpace(rest)
-	// Extract quoted name.
-	if len(rest) < 3 {
-		return ""
-	}
-	quote := rest[0]
-	if quote != '"' && quote != '\'' {
-		return ""
-	}
-	endIdx := strings.IndexByte(rest[1:], quote)
-	if endIdx == -1 {
-		return ""
-	}
-	return rest[1 : endIdx+1]
-}
-
-// parseInlineGroups handles `gem "x", group: :test` or `gem "x", groups: [:dev, :test]`.
-func parseInlineGroups(line string) []string {
-	// Look for group: or groups: in the line.
-	idx := strings.Index(line, "group:")
-	if idx == -1 {
-		idx = strings.Index(line, "groups:")
-		if idx == -1 {
-			return nil
-		}
-	}
-	rest := line[idx:]
-	colonIdx := strings.IndexByte(rest, ':')
-	if colonIdx == -1 {
-		return nil
-	}
-	rest = strings.TrimSpace(rest[colonIdx+1:])
-
-	// Handle array form: [:dev, :test]
-	if strings.HasPrefix(rest, "[") {
-		rest = strings.TrimPrefix(rest, "[")
-		rest = strings.TrimSuffix(strings.TrimSpace(rest), "]")
-		// Remove trailing stuff after the bracket
-		if closeIdx := strings.IndexByte(rest, ']'); closeIdx != -1 {
-			rest = rest[:closeIdx]
-		}
-	}
-
-	var result []string
-	for _, part := range strings.Split(rest, ",") {
-		part = strings.TrimSpace(part)
-		part = strings.TrimPrefix(part, ":")
-		part = strings.Trim(part, `"'`)
-		// Remove trailing non-alphanumeric (e.g., closing bracket remnants)
-		part = strings.TrimRight(part, " \t])")
-		if part != "" && !strings.Contains(part, " ") {
-			result = append(result, part)
-		}
-	}
-	return result
 }
 
 // rubyDepEntry associates a dependency index with its gem filename prefix for enrichment.
