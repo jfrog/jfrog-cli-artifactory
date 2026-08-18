@@ -287,30 +287,11 @@ func (lc *ListCommand) buildDirRows(registry map[string]agentcommon.AgentSpec, a
 		projectDir = lc.projectDir
 	}
 
-	var rows []localListRow
 	if pluginscommon.UsesRepoKeyedLayout(agentName) {
-		for _, repoEntry := range entries {
-			if !repoEntry.IsDir() || strings.HasPrefix(repoEntry.Name(), ".") {
-				continue
-			}
-			repoDir := filepath.Join(dir, repoEntry.Name())
-			pluginEntries, err := os.ReadDir(repoDir)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read plugins directory %s: %w", repoDir, err)
-			}
-			for _, entry := range pluginEntries {
-				if !entry.IsDir() {
-					continue
-				}
-				row, ok := lc.buildRowForPlugin(filepath.Join(repoDir, entry.Name()), entry.Name(), projectDir, agentName)
-				if ok {
-					rows = append(rows, row)
-				}
-			}
-		}
-		return rows, nil
+		return lc.buildRepoKeyedRows(dir, projectDir, agentName, entries)
 	}
 
+	var rows []localListRow
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -318,6 +299,32 @@ func (lc *ListCommand) buildDirRows(registry map[string]agentcommon.AgentSpec, a
 		row, ok := lc.buildRowForPlugin(filepath.Join(dir, entry.Name()), entry.Name(), projectDir, agentName)
 		if ok {
 			rows = append(rows, row)
+		}
+	}
+	return rows, nil
+}
+
+// buildRepoKeyedRows lists plugins nested one level deeper, one subdirectory per
+// Artifactory repo (<dir>/<repoKey>/<slug>), e.g. vscode.
+func (lc *ListCommand) buildRepoKeyedRows(dir, projectDir, agentName string, entries []os.DirEntry) ([]localListRow, error) {
+	var rows []localListRow
+	for _, repoEntry := range entries {
+		if !repoEntry.IsDir() || strings.HasPrefix(repoEntry.Name(), ".") {
+			continue
+		}
+		repoDir := filepath.Join(dir, repoEntry.Name())
+		pluginEntries, err := os.ReadDir(repoDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read plugins directory %s: %w", repoDir, err)
+		}
+		for _, entry := range pluginEntries {
+			if !entry.IsDir() {
+				continue
+			}
+			row, ok := lc.buildRowForPlugin(filepath.Join(repoDir, entry.Name()), entry.Name(), projectDir, agentName)
+			if ok {
+				rows = append(rows, row)
+			}
 		}
 	}
 	return rows, nil
