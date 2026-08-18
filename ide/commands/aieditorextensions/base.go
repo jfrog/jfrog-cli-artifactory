@@ -58,10 +58,10 @@ func parsePositionalURLConfig(ctx *components.Context) (*BaseSetupConfig, error)
 	// one or the other.
 	if ctx.IsFlagSet("server-id") {
 		return nil, fmt.Errorf(
-			"positional URL and --server-id cannot be combined; the URL already identifies the Artifactory host. " +
-				"Drop --server-id and let the CLI use the default 'jf config' server " +
+			"positional URL and --server-id cannot be combined; the URL already identifies the Artifactory host - " +
+				"drop --server-id and let the CLI use the default 'jf config' server " +
 				"(or supply --access-token or --user + --password), " +
-				"or drop the positional URL and use --repo-key with --server-id.")
+				"or drop the positional URL and use --repo-key with --server-id")
 	}
 
 	cfg := &BaseSetupConfig{

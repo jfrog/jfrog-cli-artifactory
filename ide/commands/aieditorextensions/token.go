@@ -17,6 +17,7 @@ import (
 const (
 	// aiEditorExtensionTokenAPI is the Artifactory REST path that issues a
 	// per-user reference token used by curated AI editor extension downloads.
+	// #nosec G101 -- REST endpoint path, not a credential.
 	aiEditorExtensionTokenAPI = "api/setMeUp/AIEditorExtensionGenerateToken"
 
 	tokenHTTPRetries            = 3
