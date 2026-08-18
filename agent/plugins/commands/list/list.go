@@ -290,7 +290,7 @@ func (lc *ListCommand) buildDirRows(registry map[string]agentcommon.AgentSpec, a
 	var rows []localListRow
 	if pluginscommon.UsesRepoKeyedLayout(agentName) {
 		for _, repoEntry := range entries {
-			if !repoEntry.IsDir() {
+			if !repoEntry.IsDir() || strings.HasPrefix(repoEntry.Name(), ".") {
 				continue
 			}
 			repoDir := filepath.Join(dir, repoEntry.Name())
