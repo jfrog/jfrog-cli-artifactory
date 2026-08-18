@@ -31,7 +31,18 @@ Gotchas:
 - Interactive confirmation by default; use --quiet in scripts.
 - Always run --dry-run first; deletes are permanent.
 
-Related: jf rt delete, jf rt build-discard`
+Related: jf rt delete, jf rt build-discard
+
+QA:
+Q: Could you guide me through the process of tidying up Git LFS files in JFrog Artifactory considering that the conf for the .git dir resides in the present dir?
+A: jf rt glc
+
+Q: Could you elucidate the approach for removing Git LFS files in JFrog Artifactory provided the .git dir conf exists within 'my-other-project'?
+A: jf rt glc my-other-project
+
+Q: Could you outline the procedure for purging Git LFS files from JFrog Artifactory with the .git dir conf situated within a folder labeled 'my-fourth-project'?
+A: jf rt glc my-fourth-project
+`
 }
 
 func GetArguments() []components.Argument {

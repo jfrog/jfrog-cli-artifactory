@@ -1552,3 +1552,160 @@ func TestPackageManagerConfigs_CoversEverySupportedPackageManager(t *testing.T) 
 		}
 	}
 }
+
+func TestApkValidateRepositoryExists(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		wantError  string
+	}{
+		{name: "existing repository", statusCode: http.StatusOK},
+		{name: "missing repository", statusCode: http.StatusNotFound, wantError: `repository "alpine-local" not found`},
+		{name: "bad request", statusCode: http.StatusBadRequest, wantError: `repository "alpine-local" not found`},
+		{name: "unauthorized", statusCode: http.StatusUnauthorized, wantError: `Artifactory returned HTTP 401`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "/api/repositories/alpine-local", r.URL.Path)
+				w.WriteHeader(test.statusCode)
+			}))
+			defer server.Close()
+
+			serverDetails := &config.ServerDetails{ArtifactoryUrl: server.URL}
+			err := apkValidateRepositoryExists(server.URL, "alpine-local", serverDetails)
+			if test.wantError == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, test.wantError)
+		})
+	}
+}
+
+func TestResolveApkRepoTypeWithProject(t *testing.T) {
+	cmd := createTestSetupCommand(project.Apk)
+
+	cmd.SetProjectKey("my-project")
+	repoType, err := cmd.resolveApkRepoType()
+	require.NoError(t, err)
+	assert.Empty(t, repoType)
+}
+
+func TestApkMergeRepositoriesContent(t *testing.T) {
+	newRepo := "https://user:token@acme.jfrog.io/artifactory/alpine-virt/v3.20/main/" // #nosec G101 -- test fixture, not a real credential
+
+	t.Run("empty file gets only the jfrog line", func(t *testing.T) {
+		got := apkMergeRepositoriesContent("", newRepo)
+		assert.Equal(t, newRepo+"\n", got)
+	})
+
+	t.Run("preserves public CDN and comments, prepends jfrog", func(t *testing.T) {
+		existing := `# Alpine mirrors
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+https://dl-cdn.alpinelinux.org/alpine/v3.20/community
+`
+		got := apkMergeRepositoriesContent(existing, newRepo)
+		assert.Equal(t, newRepo+`
+# Alpine mirrors
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+https://dl-cdn.alpinelinux.org/alpine/v3.20/community
+`, got)
+	})
+
+	t.Run("overrides existing jfrog line for same host, keeps user lines", func(t *testing.T) {
+		// #nosec G101 -- test fixture, not a real credential
+		existing := `https://olduser:oldpass@acme.jfrog.io/artifactory/old-alpine/v3.19/main/
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+https://mirror.example.com/alpine/edge/testing
+`
+		got := apkMergeRepositoriesContent(existing, newRepo)
+		assert.Equal(t, newRepo+`
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+https://mirror.example.com/alpine/edge/testing
+`, got)
+	})
+
+	t.Run("collapses multiple same-host jfrog lines into one", func(t *testing.T) {
+		// #nosec G101 -- test fixture, not a real credential
+		existing := `https://acme.jfrog.io/artifactory/alpine-a/v3.20/main/
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+https://user:pass@acme.jfrog.io/artifactory/alpine-b/v3.20/community/
+`
+		got := apkMergeRepositoriesContent(existing, newRepo)
+		assert.Equal(t, newRepo+`
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+`, got)
+	})
+
+	t.Run("leaves a different artifactory host untouched", func(t *testing.T) {
+		existing := `https://other.jfrog.io/artifactory/other-alpine/v3.20/main/
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+`
+		got := apkMergeRepositoriesContent(existing, newRepo)
+		assert.Equal(t, newRepo+`
+https://other.jfrog.io/artifactory/other-alpine/v3.20/main/
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+`, got)
+	})
+
+	t.Run("preserves alpine @tag lines", func(t *testing.T) {
+		existing := `@edge https://dl-cdn.alpinelinux.org/alpine/edge/main
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+`
+		got := apkMergeRepositoriesContent(existing, newRepo)
+		assert.Contains(t, got, "@edge https://dl-cdn.alpinelinux.org/alpine/edge/main")
+		assert.Contains(t, got, "https://dl-cdn.alpinelinux.org/alpine/v3.20/main")
+		assert.True(t, strings.HasPrefix(strings.TrimSpace(got), newRepo))
+	})
+}
+
+func TestApkRepoHostname(t *testing.T) {
+	assert.Equal(t, "acme.jfrog.io", apkRepoHostname("https://user:pass@acme.jfrog.io/artifactory/repo/v3.20/main/"))
+	assert.Equal(t, "acme.jfrog.io", apkRepoHostname("https://acme.jfrog.io/artifactory/repo/v3.20/main/"))
+	assert.Equal(t, "dl-cdn.alpinelinux.org", apkRepoHostname("@edge https://dl-cdn.alpinelinux.org/alpine/edge/main"))
+	assert.Empty(t, apkRepoHostname("# comment"))
+	assert.Empty(t, apkRepoHostname("/media/cdrom/apks"))
+}
+
+func TestApkResolveCredentials_PrefersPasswordOverRefreshableToken(t *testing.T) {
+	// #nosec G101 -- test fixture, not a real credential
+	sd := &config.ServerDetails{
+		User:                    "admin",
+		Password:                "long-lived-password",
+		AccessToken:             "short-lived-access-token",
+		ArtifactoryRefreshToken: "refresh-token",
+	}
+
+	username, password := apkResolveCredentials(sd)
+	assert.Equal(t, "admin", username)
+	assert.Equal(t, "long-lived-password", password,
+		"the non-expiring password must be embedded, not the refreshable access token")
+}
+
+func TestApkResolveCredentials_UsesTokenWhenNoPassword(t *testing.T) {
+	sd := &config.ServerDetails{User: "admin", AccessToken: "only-credential"} // #nosec G101 -- test fixture, not a real credential
+
+	username, password := apkResolveCredentials(sd)
+	assert.Equal(t, "admin", username)
+	assert.Equal(t, "only-credential", password)
+}
+
+func TestApkResolveCredentials_UsernameAndPasswordOnly(t *testing.T) {
+	sd := &config.ServerDetails{User: "admin", Password: "pass"}
+
+	username, password := apkResolveCredentials(sd)
+	assert.Equal(t, "admin", username)
+	assert.Equal(t, "pass", password)
+}
+
+func TestApkResolveCredentials_Anonymous(t *testing.T) {
+	username, password := apkResolveCredentials(&config.ServerDetails{})
+	assert.Empty(t, username)
+	assert.Empty(t, password)
+
+	username, password = apkResolveCredentials(nil)
+	assert.Empty(t, username)
+	assert.Empty(t, password)
+}
