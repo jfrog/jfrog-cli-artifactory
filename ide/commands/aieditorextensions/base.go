@@ -88,7 +88,15 @@ func parsePositionalURLConfig(ctx *components.Context) (*BaseSetupConfig, error)
 	if err != nil {
 		return nil, fmt.Errorf("failed to obtain reference token for repository '%s': %w", repoKey, err)
 	}
-	cfg.ServiceURL = AppendReferenceToken(rawURL, token)
+
+	// Rebuild the ServiceURL from a canonical shape rather than appending to whatever
+	// the user typed. This gives us a deterministic output regardless of whether the
+	// input URL:
+	//   - lacks the gallery suffix (e.g. .../aieditorextensions/<repo>)
+	//   - already carries an old token (e.g. .../gallery/OLD_TOKEN) — the old token
+	//     is discarded rather than being stacked with the new one
+	//   - contains a query string or fragment — those are dropped by SplitApiURL
+	cfg.ServiceURL = common.BuildURL(baseURL, ApiType, repoKey, DefaultURLSuffix) + "/" + token
 	return cfg, nil
 }
 
@@ -135,15 +143,28 @@ func parseFlagConfig(ctx *components.Context) (*BaseSetupConfig, error) {
 }
 
 // resolveServerDetails picks the server credentials to use when only a
-// positional URL was supplied. It honors --server-id / --access-token /
-// --user+--password / default `jf config` — in that order — via
-// common.GetServerDetails, and falls back to constructing details from the
-// URL's base host if no configured server matches.
+// positional URL was supplied.
+//   - --access-token / --user+--password on the CLI take precedence and are
+//     paired with the URL's own base — no host mismatch possible.
+//   - Otherwise we fall back to the default `jf config` server, but we require
+//     its host to match the positional URL's host. Otherwise we would fetch a
+//     token from Artifactory A and write it into a URL for Artifactory B, and
+//     downloads from that URL would fail with a 401.
 func resolveServerDetails(ctx *components.Context, urlBaseURL string) (*config.ServerDetails, error) {
 	if ctx.IsFlagSet("access-token") || (ctx.IsFlagSet("user") && ctx.IsFlagSet("password")) {
-		// Explicit creds on the CLI take precedence; pair them with the URL's base.
 		return common.BuildServerDetailsFromBaseURL(ctx, urlBaseURL)
 	}
-	// Otherwise defer to --server-id / default jf config resolution.
-	return common.GetServerDetails(ctx)
+	details, err := common.GetServerDetails(ctx)
+	if err != nil {
+		return nil, err
+	}
+	configuredBaseURL := common.GetBaseUrl(details)
+	if !common.URLsHaveSameHost(urlBaseURL, configuredBaseURL) {
+		return nil, fmt.Errorf(
+			"the default 'jf config' server ('%s') does not match the positional URL's host - "+
+				"either pass --access-token or --user + --password to authenticate against the URL directly, "+
+				"or run 'jf config use' to switch to a server that matches",
+			configuredBaseURL)
+	}
+	return details, nil
 }

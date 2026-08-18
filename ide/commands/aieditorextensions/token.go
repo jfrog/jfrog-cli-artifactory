@@ -21,7 +21,7 @@ const (
 	aiEditorExtensionTokenAPI = "api/setMeUp/AIEditorExtensionGenerateToken"
 
 	tokenHTTPRetries            = 3
-	tokenHTTPRetryWaitMilliSecs = 0
+	tokenHTTPRetryWaitMilliSecs = 1000
 )
 
 // generateTokenResponse mirrors the JSON returned by AIEditorExtensionGenerateToken.
@@ -70,9 +70,3 @@ func FetchReferenceToken(serverDetails *config.ServerDetails, repoKey string) (s
 	return parsed.ReferenceToken, nil
 }
 
-// AppendReferenceToken appends "/<token>" to a gallery service URL, taking care
-// not to double up on slashes. The output is the URL that gets written to
-// product.json's extensionsGallery.serviceUrl.
-func AppendReferenceToken(serviceURL, token string) string {
-	return strings.TrimRight(serviceURL, "/") + "/" + token
-}

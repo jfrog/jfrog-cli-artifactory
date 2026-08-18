@@ -142,24 +142,44 @@ func ExtractRepoKeyFromURL(urlStr, apiType string) string {
 // SplitApiURL takes a URL like https://host/artifactory/api/<apiType>/<repoKey>[/rest]
 // and returns baseURL="https://host/artifactory", repoKey="<repoKey>", ok=true.
 // Returns ok=false when the URL does not embed /api/<apiType>/<key>.
+//
+// Only the URL path is inspected; any query string or fragment is dropped.
+// This prevents a URL like ".../<repo>?source=setup" from being interpreted as
+// a repo key of "<repo>?source=setup".
 func SplitApiURL(rawURL, apiType string) (baseURL, repoKey string, ok bool) {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", "", false
+	}
 	marker := "/api/" + apiType + "/"
-	idx := strings.Index(rawURL, marker)
+	idx := strings.Index(u.Path, marker)
 	if idx < 0 {
 		return "", "", false
 	}
-	base := strings.TrimRight(rawURL[:idx], "/")
-	rest := rawURL[idx+len(marker):]
-	// Repo key is the first path segment after /api/<apiType>/
+	basePath := strings.TrimRight(u.Path[:idx], "/")
+	rest := u.Path[idx+len(marker):]
 	if slash := strings.Index(rest, "/"); slash >= 0 {
 		repoKey = rest[:slash]
 	} else {
 		repoKey = rest
 	}
-	if base == "" || repoKey == "" {
+	if repoKey == "" {
 		return "", "", false
 	}
-	return base, repoKey, true
+	baseURL = u.Scheme + "://" + u.Host + basePath
+	return baseURL, repoKey, true
+}
+
+// URLsHaveSameHost reports whether two URLs point at the same host.
+// Used to guard against fetching a per-user token from one Artifactory
+// instance and then writing it into a URL for a different one.
+func URLsHaveSameHost(a, b string) bool {
+	ua, err1 := url.Parse(a)
+	ub, err2 := url.Parse(b)
+	if err1 != nil || err2 != nil || ua.Host == "" || ub.Host == "" {
+		return false
+	}
+	return strings.EqualFold(ua.Host, ub.Host)
 }
 
 // IsValidUrl checks if a string is a valid URL with scheme and host

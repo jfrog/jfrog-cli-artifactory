@@ -47,9 +47,12 @@ Gotchas:
 - --update-mode only applies to VS Code-based IDEs: "default", "manual", or "none".
 - product.json may require elevated privileges to edit on macOS/Linux system installs.
 - When a positional service URL is passed, the CLI calls AIEditorExtensionGenerateToken to append a
-  per-user token, using --server-id, --access-token, --user + --password, or the default
-  'jf config' server to authenticate. The URL must contain /api/aieditorextensions/<repo-key>/ so the
-  CLI can identify the repo to request a token for.
+  per-user token, using --access-token, --user + --password, or the default 'jf config' server to
+  authenticate. --server-id is not accepted alongside a positional URL, since the URL already
+  identifies the Artifactory host and combining the two would be ambiguous. The URL must contain
+  /api/aieditorextensions/<repo-key>/ so the CLI can identify the repo to request a token for.
+  If the default 'jf config' server points at a different Artifactory host than the URL, the
+  command fails with a clear message rather than mixing credentials across hosts.
 
 Related: jf c add, jf rt repo-create`
 }
