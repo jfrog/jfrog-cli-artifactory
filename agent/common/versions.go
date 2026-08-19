@@ -9,6 +9,7 @@ import (
 
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/artifactory"
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
@@ -73,6 +74,27 @@ func PackageVersionExists(serverDetails *config.ServerDetails, repoKey, slug, ve
 func IsHTTPNotFound(err error) bool {
 	code, ok := jfrogClientHTTPStatusCode(err)
 	return ok && code == http.StatusNotFound
+}
+
+// DisambiguateFolderError checks if the repository exists when a folder lookup fails with 404.
+// If the repository itself is missing, it returns a "repository not found" error.
+// If the repository exists but the folder is missing, it returns the folderNotFoundError.
+// Any other errors are propagated.
+func DisambiguateFolderError(serviceManager artifactory.ArtifactoryServicesManager, repoKey string, err error, folderNotFoundError error) error {
+	if !IsHTTPNotFound(err) {
+		return err
+	}
+	// Attempt to fetch the repo to distinguish repo-missing from resource-missing errors.
+	_, repoErr := serviceManager.FolderInfo(repoKey)
+	if repoErr != nil && IsHTTPNotFound(repoErr) {
+		return fmt.Errorf("repository '%s' not found: %w", repoKey, repoErr)
+	}
+	if repoErr != nil {
+		// Non-404 errors from repo probe should be propagated (e.g., auth, network).
+		return fmt.Errorf("repository '%s': %w", repoKey, repoErr)
+	}
+	// Repo exists, so it's the resource that's missing.
+	return folderNotFoundError
 }
 
 // jfrogClientHTTPStatusCode extracts an HTTP status from jfrog-client-go errors by walking the chain.
