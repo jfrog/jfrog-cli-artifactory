@@ -2,42 +2,26 @@ package nuget
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
+	"net/url"
 
-	dotnetutils "github.com/jfrog/build-info-go/build/utils/dotnet"
 	dotnetcmd "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 )
 
-// WriteTempNuGetConfig creates a temporary directory containing a nuget.config file
-// populated with the Artifactory NuGet feed URL and credentials derived from serverDetails.
-// The returned cleanup function removes the temp directory; call it with defer.
-func WriteTempNuGetConfig(serverDetails *config.ServerDetails, repoName string, useV2, allowInsecure bool) (configPath string, cleanup func(), err error) {
-	tmpDir, err := os.MkdirTemp("", "jfrog-nuget-")
-	if err != nil {
-		return "", nil, fmt.Errorf("create temp dir for nuget.config: %w", err)
-	}
-	cleanup = func() { _ = os.RemoveAll(tmpDir) }
-
+// SourceURLWithCredentials builds an Artifactory NuGet feed URL with credentials embedded
+// as https://user:password@host/... so they can be passed directly as a -Source flag.
+// This is rank-1 (command-line flag) in NuGet's credential priority hierarchy and requires
+// no nuget.config modification.
+func SourceURLWithCredentials(serverDetails *config.ServerDetails, repoName string, useV2 bool) (string, error) {
 	sourceURL, user, password, err := dotnetcmd.GetSourceDetails(serverDetails, repoName, useV2)
 	if err != nil {
-		cleanup()
-		return "", nil, err
+		return "", fmt.Errorf("get NuGet source details: %w", err)
 	}
 
-	protocolVersion := "3"
-	if useV2 {
-		protocolVersion = "2"
+	u, err := url.Parse(sourceURL)
+	if err != nil {
+		return "", fmt.Errorf("parse NuGet source URL: %w", err)
 	}
-
-	content := fmt.Sprintf(dotnetutils.ConfigFileFormat,
-		sourceURL, protocolVersion, allowInsecure, user, password)
-
-	configPath = filepath.Join(tmpDir, "nuget.config")
-	if err := os.WriteFile(configPath, []byte(content), 0600); err != nil {
-		cleanup()
-		return "", nil, fmt.Errorf("write temp nuget.config: %w", err)
-	}
-	return configPath, cleanup, nil
+	u.User = url.UserPassword(user, password)
+	return u.String(), nil
 }

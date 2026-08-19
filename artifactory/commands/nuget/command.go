@@ -92,13 +92,11 @@ func (c *NuGetFlexPackCommand) SetWorkingDir(d string) *NuGetFlexPackCommand {
 	return c
 }
 
-// RequiresServerDetails reports whether the command needs JFrog server configuration
-// to create a repository-specific NuGet configuration or stamp pushed artifacts.
+// RequiresServerDetails reports whether the command needs JFrog server configuration.
+// Server details are now always loaded by the caller when a server is available; this
+// method is kept for interface compatibility but no longer gates credential injection.
 func (c *NuGetFlexPackCommand) RequiresServerDetails() bool {
-	if isPushCommand(c.subCommand) {
-		return c.repoDeploy != ""
-	}
-	return isRestoreCommand(c.subCommand) && c.repoResolve != ""
+	return true
 }
 
 func (c *NuGetFlexPackCommand) CommandName() string { return "rt_nuget_flexpack" }
@@ -118,21 +116,36 @@ func (c *NuGetFlexPackCommand) Run() error {
 		c.workingDir = workingDir
 	}
 
-	// Write temp nuget.config for commands that need a source (restore/install/update/build/push).
-	// pack does not need a source config.
-	var configFilePath string
-	if c.serverDetails != nil && needsConfig(c.subCommand) {
+	// Inject credentials at rank 1 (command-line flag) per NuGet's credential priority hierarchy,
+	// so no nuget.config is created or modified. Customers who manage their own credentials
+	// simply omit --repo-resolve; FlexPack then skips injection and collects build-info only.
+	if c.serverDetails != nil {
 		repo := c.repoResolve
 		if isPushCommand(c.subCommand) {
 			repo = c.repoDeploy
 		}
 		if repo != "" {
-			tmpConfig, cleanupFn, err := WriteTempNuGetConfig(c.serverDetails, repo, c.useNugetV2, c.allowInsecureConnections)
-			if err != nil {
-				return err
+			if isPushCommand(c.subCommand) {
+				// Push: inject via NUGET_API_KEY env var (rank 2, NuGet 7.6+) so the token
+				// is not visible in the process list. Fallback: -ApiKey is appended below for
+				// older nuget.exe versions that do not read NUGET_API_KEY.
+				_, _, password, err := dotnetcmd.GetSourceDetails(c.serverDetails, repo, c.useNugetV2)
+				if err != nil {
+					return fmt.Errorf("get NuGet source details for push: %w", err)
+				}
+				if err := os.Setenv("NUGET_API_KEY", password); err != nil {
+					return fmt.Errorf("set NUGET_API_KEY: %w", err)
+				}
+				defer os.Unsetenv("NUGET_API_KEY")
+			} else {
+				// Restore / install / update: inject -Source <url-with-embedded-creds> at rank 1.
+				// Credentials embedded in the URL are not written to any file on disk.
+				authenticatedURL, err := SourceURLWithCredentials(c.serverDetails, repo, c.useNugetV2)
+				if err != nil {
+					return err
+				}
+				c.args = append(c.args, "-Source", authenticatedURL)
 			}
-			defer cleanupFn()
-			configFilePath = tmpConfig
 		}
 	}
 
@@ -149,7 +162,7 @@ func (c *NuGetFlexPackCommand) Run() error {
 	}
 
 	log.Info(fmt.Sprintf("Running %s %s", c.toolchainType, c.subCommand))
-	nativeCmd := c.buildCmd(configFilePath)
+	nativeCmd := c.buildCmd()
 	nativeCmd.Stdin = os.Stdin
 	nativeCmd.Stdout = os.Stdout
 	nativeCmd.Stderr = os.Stderr
@@ -181,40 +194,13 @@ func (c *NuGetFlexPackCommand) Run() error {
 }
 
 // buildCmd builds the exec.Cmd for the native nuget.exe or dotnet CLI.
-func (c *NuGetFlexPackCommand) buildCmd(configFilePath string) *exec.Cmd {
+// Credentials are already embedded in c.args via -Source <url> (restore) or
+// NUGET_API_KEY env var (push) before this is called — no config file needed.
+func (c *NuGetFlexPackCommand) buildCmd() *exec.Cmd {
 	if c.toolchainType == dotnetutils.DotnetCore {
-		cmdArgs := append(strings.Fields(c.subCommand), c.args...)
-		if configFilePath != "" {
-			cmdArgs = append(cmdArgs, "--configfile", configFilePath)
-			if isPushCommand(c.subCommand) && !hasSourceFlag(c.args) {
-				// 'dotnet nuget push' requires an explicit --source even when the config
-				// file defines exactly one source; it never falls back to it implicitly.
-				cmdArgs = append(cmdArgs, "--source", dotnetcmd.SourceName)
-			}
-		}
-		return exec.Command("dotnet", cmdArgs...)
+		return exec.Command("dotnet", append(strings.Fields(c.subCommand), c.args...)...)
 	}
-	args := append([]string{c.subCommand}, c.args...)
-	if configFilePath != "" {
-		args = append(args, "-ConfigFile", configFilePath)
-		if isPushCommand(c.subCommand) && !hasSourceFlag(c.args) {
-			args = append(args, "-Source", dotnetcmd.SourceName)
-		}
-	}
-	return exec.Command("nuget", args...)
-}
-
-// hasSourceFlag reports whether the user already passed an explicit source flag
-// (-s/--source/-source for dotnet, -Source for nuget.exe), inline or as a separate value.
-func hasSourceFlag(args []string) bool {
-	for _, arg := range args {
-		lower := strings.ToLower(arg)
-		if lower == "-s" || lower == "--source" || lower == "-source" ||
-			strings.HasPrefix(lower, "--source=") || strings.HasPrefix(lower, "-source=") {
-			return true
-		}
-	}
-	return false
+	return exec.Command("nuget", append([]string{c.subCommand}, c.args...)...)
 }
 
 func (c *NuGetFlexPackCommand) collectDependencies(buildName, buildNumber string) error {
