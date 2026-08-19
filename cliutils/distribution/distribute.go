@@ -1,6 +1,9 @@
 package distribution
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	pluginsCommon "github.com/jfrog/jfrog-cli-core/v2/plugins/common"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
@@ -29,7 +32,32 @@ func ValidateReleaseBundleDistributeCmd(c *components.Context) error {
 		return pluginsCommon.PrintHelpAndReturnError("The --dist-rules option can't be used with --site, --city or --country-code", c)
 	}
 
+	if err := ValidatePriorityFlag(c); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func ValidatePriorityFlag(c *components.Context) error {
+	if !c.IsFlagSet("priority") {
+		return nil
+	}
+	priority := strings.ToLower(strings.TrimSpace(c.GetStringFlagValue("priority")))
+	switch priority {
+	case "low", "medium", "high":
+		return nil
+	default:
+		return pluginsCommon.PrintHelpAndReturnError(
+			fmt.Sprintf("Invalid --priority value %q. Valid values: low, medium, high", c.GetStringFlagValue("priority")), c)
+	}
+}
+
+func GetPriorityFlagValue(c *components.Context) string {
+	if !c.IsFlagSet("priority") {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(c.GetStringFlagValue("priority")))
 }
 
 func InitReleaseBundleDistributeCmd(c *components.Context) (distributionRules *spec.DistributionRules, maxWaitMinutes int, params distributionUtils.DistributionParams, err error) {

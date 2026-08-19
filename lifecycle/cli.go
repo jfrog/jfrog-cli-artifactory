@@ -480,6 +480,7 @@ func distribute(c *components.Context) error {
 		SetPathMappingTarget(c.GetStringFlagValue(flagkit.PathMappingTarget)).
 		SetSync(c.GetBoolFlagValue(flagkit.Sync)).
 		SetMaxWaitMinutes(maxWaitMinutes).
+		SetPriority(distribution.GetPriorityFlagValue(c)).
 		SetOutputFormat(outputFormat)
 	return commands.Exec(distributeCmd)
 }
@@ -519,8 +520,8 @@ func deleteRemote(c *components.Context) error {
 		return err
 	}
 
-	if len(c.Arguments) != 2 {
-		return pluginsCommon.WrongNumberOfArgumentsHandler(c)
+	if err := distribution.ValidateReleaseBundleDistributeCmd(c); err != nil {
+		return err
 	}
 
 	lcDetails, err := createLifecycleDetailsByFlags(c)
@@ -542,7 +543,8 @@ func deleteRemote(c *components.Context) error {
 		SetMaxWaitMinutes(maxWaitMinutes).
 		SetQuiet(pluginsCommon.GetQuietValue(c)).
 		SetReleaseBundleProject(pluginsCommon.GetProject(c)).
-		SetSync(c.GetBoolFlagValue(flagkit.Sync))
+		SetSync(c.GetBoolFlagValue(flagkit.Sync)).
+		SetPriority(distribution.GetPriorityFlagValue(c))
 	return commands.Exec(deleteCmd)
 }
 
