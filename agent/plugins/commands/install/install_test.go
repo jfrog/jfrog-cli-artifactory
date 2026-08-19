@@ -53,6 +53,36 @@ func TestResolveAgentTargetDirectories_DefaultScopeUsesGlobalForCursor(t *testin
 	assert.Equal(t, plugincommon.ScopeGlobal, targets[0].Scope)
 }
 
+func TestResolveAgentTargetDirectories_DefaultScopeUsesGlobalForVSCode(t *testing.T) {
+	globalBase := filepath.Join(t.TempDir(), "global", ".copilot", "installed-plugins")
+	wantBase, err := filepath.Abs(globalBase)
+	require.NoError(t, err)
+
+	cmd := NewInstallCommand().
+		SetSlug("jfrog-plugin-timepass").
+		SetRepoKey("plugins-local").
+		SetAgents([]plugincommon.AgentSpec{{Name: "vscode", Config: plugincommon.AgentConfig{GlobalDir: globalBase}}})
+
+	targets, err := cmd.resolveAgentTargetDirectories()
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	assert.Equal(t, filepath.Join(wantBase, "plugins-local", "jfrog-plugin-timepass"), targets[0].DestinationDir)
+	assert.Equal(t, plugincommon.ScopeGlobal, targets[0].Scope)
+}
+
+func TestResolveAgentTargetDirectories_ProjectScopeVSCodeRejected(t *testing.T) {
+	cmd := NewInstallCommand().
+		SetSlug("my-plugin").
+		SetAgents([]plugincommon.AgentSpec{{Name: "vscode", Config: plugincommon.AgentConfig{GlobalDir: "~/.copilot/installed-plugins"}}}).
+		SetProjectDir(t.TempDir()).
+		SetGlobal(false)
+
+	targets, err := cmd.resolveAgentTargetDirectories()
+	require.Error(t, err)
+	assert.Nil(t, targets)
+	assert.Contains(t, err.Error(), "vscode does not support project-scoped plugin installs")
+}
+
 func TestResolveAgentTargetDirectories_GlobalScope(t *testing.T) {
 	globalBase := filepath.Join(t.TempDir(), "global", ".cursor", "plugins")
 	wantBase, err := filepath.Abs(globalBase)

@@ -6,7 +6,7 @@ import (
 )
 
 // RejectUnsupportedProjectScope errors when isProjectScope is true and any agent is one of
-// the hardcoded claude/cursor/codex, whose native plugin config is global-only. Custom
+// the hardcoded claude/cursor/codex/vscode, whose native plugin config is global-only. Custom
 // agent-config.json agents aren't restricted. action (e.g. "install", "update") is used in
 // the error message.
 func RejectUnsupportedProjectScope(isProjectScope bool, agents []AgentSpec, action string) error {
@@ -31,6 +31,12 @@ func RejectUnsupportedProjectScope(isProjectScope bool, agents []AgentSpec, acti
 			return fmt.Errorf(
 				"codex does not support project-scoped plugin %ss: "+
 					"Codex plugin configuration is user-scoped only (~/.codex/config.toml). "+
+					"Use --global instead", action,
+			)
+		case "vscode":
+			return fmt.Errorf(
+				"vscode does not support project-scoped plugin %ss: "+
+					"VS Code only auto-discovers plugins from ~/.copilot/installed-plugins/. "+
 					"Use --global instead", action,
 			)
 		}

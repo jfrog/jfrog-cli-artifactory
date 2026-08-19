@@ -26,8 +26,14 @@ func TestRejectUnsupportedProjectScope_CodexRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "codex does not support project-scoped plugin updates")
 }
 
+func TestRejectUnsupportedProjectScope_VSCodeRejected(t *testing.T) {
+	err := RejectUnsupportedProjectScope(true, []AgentSpec{{Name: "VSCode"}}, "install")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "vscode does not support project-scoped plugin installs")
+}
+
 func TestRejectUnsupportedProjectScope_GlobalScopeAlwaysAllowed(t *testing.T) {
-	err := RejectUnsupportedProjectScope(false, []AgentSpec{{Name: "claude"}, {Name: "cursor"}, {Name: "codex"}}, "update")
+	err := RejectUnsupportedProjectScope(false, []AgentSpec{{Name: "claude"}, {Name: "cursor"}, {Name: "codex"}, {Name: "vscode"}}, "update")
 	require.NoError(t, err)
 }
 

@@ -65,4 +65,6 @@ func TestMarketplaceFileName(t *testing.T) {
 	assert.Equal(t, "claude-marketplace.json", MarketplaceFileName("claude"))
 	assert.Equal(t, "cursor-marketplace.json", MarketplaceFileName("Cursor"))
 	assert.Equal(t, "my-agent-marketplace.json", MarketplaceFileName("  my-agent  "))
+	assert.Equal(t, "marketplace.json", MarketplaceFileName("vscode"))
+	assert.Equal(t, "marketplace.json", MarketplaceFileName(" VSCode "))
 }

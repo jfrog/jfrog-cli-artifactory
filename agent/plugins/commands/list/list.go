@@ -184,7 +184,7 @@ func (lc *ListCommand) listLocalPlugins() error {
 		}
 		specs = append(specs, spec)
 	}
-	// claude/cursor/codex have no project-scoped plugin registry to list from — same
+	// claude/cursor/codex/vscode have no project-scoped plugin registry to list from — same
 	// restriction install/update already enforce (RejectUnsupportedProjectScope). Without
 	// this, a non-global list would silently show claude/codex's one global native list
 	// (see buildNativeRows) under a --project-dir the plugins were never actually scoped to.
@@ -260,7 +260,8 @@ func (lc *ListCommand) buildPluginRowsForHarness(registry map[string]agentcommon
 }
 
 // buildDirRows resolves the install dir for agentName and lists installed plugins by
-// scanning it directly. Used for agents with no native plugin registry (e.g. cursor).
+// scanning it directly. Used for agents with no native plugin registry (e.g. cursor,
+// vscode).
 func (lc *ListCommand) buildDirRows(registry map[string]agentcommon.AgentSpec, agentName string) ([]localListRow, error) {
 	spec, err := agentcommon.ResolveAgent(registry, agentName, pluginscommon.RegistryHelp)
 	if err != nil {
@@ -286,6 +287,10 @@ func (lc *ListCommand) buildDirRows(registry map[string]agentcommon.AgentSpec, a
 		projectDir = lc.projectDir
 	}
 
+	if pluginscommon.UsesRepoKeyedLayout(agentName) {
+		return lc.buildRepoKeyedRows(dir, projectDir, agentName, entries)
+	}
+
 	var rows []localListRow
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -294,6 +299,32 @@ func (lc *ListCommand) buildDirRows(registry map[string]agentcommon.AgentSpec, a
 		row, ok := lc.buildRowForPlugin(filepath.Join(dir, entry.Name()), entry.Name(), projectDir, agentName)
 		if ok {
 			rows = append(rows, row)
+		}
+	}
+	return rows, nil
+}
+
+// buildRepoKeyedRows lists plugins nested one level deeper, one subdirectory per
+// Artifactory repo (<dir>/<repoKey>/<slug>), e.g. vscode.
+func (lc *ListCommand) buildRepoKeyedRows(dir, projectDir, agentName string, entries []os.DirEntry) ([]localListRow, error) {
+	var rows []localListRow
+	for _, repoEntry := range entries {
+		if !repoEntry.IsDir() || strings.HasPrefix(repoEntry.Name(), ".") {
+			continue
+		}
+		repoDir := filepath.Join(dir, repoEntry.Name())
+		pluginEntries, err := os.ReadDir(repoDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read plugins directory %s: %w", repoDir, err)
+		}
+		for _, entry := range pluginEntries {
+			if !entry.IsDir() {
+				continue
+			}
+			row, ok := lc.buildRowForPlugin(filepath.Join(repoDir, entry.Name()), entry.Name(), projectDir, agentName)
+			if ok {
+				rows = append(rows, row)
+			}
 		}
 	}
 	return rows, nil
@@ -544,7 +575,7 @@ func RunList(c *components.Context) error {
 
 // resolveListScope applies the same project/global-scope default as install/update's
 // DefaultGlobalScope: when neither --global nor --project-dir is explicitly given, list
-// defaults to global scope, not project scope. claude/cursor/codex only support a global
+// defaults to global scope, not project scope. claude/cursor/codex/vscode only support a global
 // native registry/config anyway (see agentcommon.RejectUnsupportedProjectScope), so
 // defaulting to project scope here would just make list --harness (no flags) reject in
 // listLocalPlugins where install/update would have quietly gone global.

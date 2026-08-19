@@ -17,13 +17,13 @@ func TestLoadAgentRegistry_BuiltInsOnly(t *testing.T) {
 	registry, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.PluginsAgentsKey)
 	require.NoError(t, err)
 
-	for _, name := range []string{"claude", "cursor", "codex"} {
+	for _, name := range []string{"claude", "cursor", "codex", "vscode"} {
 		spec, ok := registry[name]
 		require.True(t, ok, "expected built-in %q", name)
 		assert.False(t, spec.FromConfig)
 	}
 	// Built-in registry must be exactly the supported plugin agents.
-	assert.Len(t, registry, 3)
+	assert.Len(t, registry, 4)
 }
 
 func TestLoadAgentRegistry_OverridesAndAdds(t *testing.T) {
@@ -106,5 +106,5 @@ func TestSupportedAgentsList_OnlyPluginAgents(t *testing.T) {
 	testutil.WithJfrogHome(t)
 	got := agentcommon.SupportedAgentsList(Agents, agentcommon.PluginsAgentsKey)
 	parts := strings.Split(got, ", ")
-	assert.ElementsMatch(t, []string{"claude", "cursor", "codex"}, parts)
+	assert.ElementsMatch(t, []string{"claude", "cursor", "codex", "vscode"}, parts)
 }

@@ -36,6 +36,20 @@ func TestInjectRepoKey_Codex(t *testing.T) {
 	assert.Equal(t, filepath.Join("/home/user/.agents/plugins/local/my-repo", "my-plugin"), result[0].DestinationDir)
 }
 
+func TestInjectRepoKey_VSCode(t *testing.T) {
+	targets := []AgentTarget{
+		{
+			Agent:          AgentSpec{Name: "vscode"},
+			DestinationDir: filepath.Join("/home/user/.copilot/installed-plugins", "my-plugin"),
+		},
+	}
+
+	result := InjectRepoKey(targets, "my-repo")
+
+	assert.Len(t, result, 1)
+	assert.Equal(t, filepath.Join("/home/user/.copilot/installed-plugins/my-repo", "my-plugin"), result[0].DestinationDir)
+}
+
 func TestInjectRepoKey_Cursor_Unchanged(t *testing.T) {
 	originalPath := filepath.Join("/home/user/.cursor/plugins/local", "my-plugin")
 	targets := []AgentTarget{
@@ -109,6 +123,12 @@ func TestInjectRepoKey_MultipleTargets(t *testing.T) {
 			agentName:      "cursor",
 			inputPath:      filepath.FromSlash("/home/user/.cursor/plugins/local/plugin3"),
 			expectedChange: false,
+		},
+		{
+			name:           "vscode_modified",
+			agentName:      "vscode",
+			inputPath:      filepath.FromSlash("/home/user/.copilot/installed-plugins/plugin5"),
+			expectedChange: true,
 		},
 		{
 			name:           "unknown_agent_unchanged",

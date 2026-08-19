@@ -382,6 +382,22 @@ func TestResolveUpdateTargets_CursorUnaffectedByRepoKey(t *testing.T) {
 	assert.Equal(t, filepath.Join(globalBase, "web"), targets[0].DestinationDir)
 }
 
+func TestResolveUpdateTargets_InjectsRepoKeyForVSCode(t *testing.T) {
+	globalBase := t.TempDir()
+	opts := update{
+		repoKey: "my-repo",
+		flags: agentcommon.InstallFlagsResult{
+			Specs:    []plugincommon.AgentSpec{{Name: "vscode", Config: agentcommon.AgentConfig{GlobalDir: globalBase}}},
+			IsGlobal: true,
+		},
+	}
+
+	targets, err := resolveUpdateTargets(opts, "web")
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	assert.Equal(t, filepath.Join(globalBase, "my-repo", "web"), targets[0].DestinationDir)
+}
+
 func TestRunUpdate_AllRejectsSlugFlag(t *testing.T) {
 	ctx := newUpdateContext(t, nil, map[string]string{"harness": "claude", "slug": "web"}, map[string]bool{"all": true})
 	err := RunUpdate(ctx)
