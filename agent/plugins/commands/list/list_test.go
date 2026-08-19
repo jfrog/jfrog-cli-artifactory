@@ -162,3 +162,35 @@ func TestBuildPluginRowsForHarness_CursorUsesDirScan(t *testing.T) {
 	assert.Equal(t, "web", rows[0].Name)
 	assert.Equal(t, "2.0.0", rows[0].Version)
 }
+
+func TestBuildPluginRowsForHarness_VSCodeScansRepoSubdirectories(t *testing.T) {
+	restore := listNativePluginsFunc
+	defer func() { listNativePluginsFunc = restore }()
+	listNativePluginsFunc = func(string) ([]plugincommon.NativePluginInfo, error) {
+		t.Fatal("listNativePluginsFunc must not be called for agents without a native registry")
+		return nil, nil
+	}
+
+	dir := t.TempDir()
+	pluginDir := filepath.Join(dir, "installed-plugins", "plugins-local", "web")
+	require.NoError(t, os.MkdirAll(filepath.Join(pluginDir, ".jfrog"), 0o755))
+	require.NoError(t, agentcommon.WriteInstallInfoManifest(pluginDir, plugincommon.PluginInfoManifestFile, plugincommon.PluginInfoManifest{
+		Repo:             "plugins-local",
+		Slug:             "web",
+		InstalledVersion: "2.0.0",
+		Scope:            "global",
+		Agent:            "vscode",
+	}))
+
+	registry := map[string]agentcommon.AgentSpec{
+		"vscode": {
+			Config: agentcommon.AgentConfig{GlobalDir: filepath.Join(dir, "installed-plugins")},
+		},
+	}
+
+	rows, err := (&ListCommand{global: true}).buildPluginRowsForHarness(registry, "vscode")
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "web", rows[0].Name)
+	assert.Equal(t, "2.0.0", rows[0].Version)
+}

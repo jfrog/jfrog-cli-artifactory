@@ -106,7 +106,7 @@ func RunUpdate(c *components.Context) error {
 }
 
 // validateUpdateScope rejects project-scoped updates for agents whose native plugin
-// configuration only supports global scope (claude, cursor, codex — see
+// configuration only supports global scope (claude, cursor, codex, vscode — see
 // plugincommon.RejectUnsupportedProjectScope). --path mode and --global are always allowed;
 // a custom agent registered via agent-config.json is not restricted here.
 func validateUpdateScope(flags agentcommon.InstallFlagsResult) error {
@@ -224,8 +224,8 @@ func diagnoseNotFoundError(resolveErr error, slug, repoKey string, targets []plu
 }
 
 // resolveUpdateTargets resolves the install targets for slug and injects the
-// Artifactory repo key into the path for claude/codex, matching install's
-// <GlobalDir>/<repoKey>/<slug> layout for those two agents.
+// Artifactory repo key into the path for claude/codex/vscode, matching install's
+// <GlobalDir>/<repoKey>/<slug> layout for those agents.
 func resolveUpdateTargets(opts update, slug string) ([]plugincommon.AgentTarget, error) {
 	targets, err := agentcommon.ResolveAgentTargets(slug, opts.flags.AbsoluteInstallBaseDir, opts.flags.Specs, opts.flags.ProjectDirAbs, opts.flags.IsGlobal)
 	if err != nil {
@@ -279,7 +279,7 @@ type discoveredPlugin struct {
 }
 
 // discoverInstalledPluginTargets finds every jf-installed plugin (valid plugin-info.json)
-// under each --harness, grouped by (slug, repo); claude/codex scan every repo subdirectory
+// under each --harness, grouped by (slug, repo); claude/codex/vscode scan every repo subdirectory
 // (UsesRepoKeyedLayout), others read the repo from the manifest. repoFilter, when non-empty,
 // keeps only that exact repo.
 func discoverInstalledPluginTargets(flags agentcommon.InstallFlagsResult, repoFilter string) ([]discoveredPlugin, error) {

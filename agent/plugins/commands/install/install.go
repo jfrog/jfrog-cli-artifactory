@@ -327,31 +327,8 @@ func (ic *InstallCommand) resolveAgentTargetDirectories() ([]plugincommon.AgentT
 	if ic.scope == agentcommon.InstallScopeProject && ic.projectDir == "" {
 		return nil, fmt.Errorf("project directory is required for project-scoped install")
 	}
-	if ic.scope == agentcommon.InstallScopeProject {
-		for _, agent := range ic.agents {
-			agentLower := strings.ToLower(agent.Name)
-			if agentLower == "claude" {
-				return nil, fmt.Errorf(
-					"claude does not support project-scoped plugin installs: " +
-						"Claude plugin configuration is user-scoped only (~/.claude/settings.json). " +
-						"Use --global to install there instead",
-				)
-			}
-			if agentLower == "cursor" {
-				return nil, fmt.Errorf(
-					"cursor does not support project-scoped plugin installs: " +
-						"Cursor only auto-discovers full plugins from ~/.cursor/plugins/local/. " +
-						"Use --global to install there instead",
-				)
-			}
-			if agentLower == "codex" {
-				return nil, fmt.Errorf(
-					"codex does not support project-scoped plugin installs: " +
-						"Codex plugin configuration is user-scoped only (~/.codex/config.toml). " +
-						"Use --global to install there instead",
-				)
-			}
-		}
+	if err := plugincommon.RejectUnsupportedProjectScope(ic.scope == agentcommon.InstallScopeProject, ic.agents, "install"); err != nil {
+		return nil, err
 	}
 	isGlobal := ic.scope == agentcommon.InstallScopeGlobal
 	// Path is "" because harness mode uses project or global scope

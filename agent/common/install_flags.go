@@ -45,7 +45,7 @@ func (r InstallFlagsResult) PathMode() bool {
 // InstallFlagsOptions configures harness install flag validation.
 type InstallFlagsOptions struct {
 	// DefaultGlobalScope uses global scope when neither --global nor --project-dir is set.
-	// Agent plugins (claude, cursor, codex) only support global installs.
+	// Agent plugins (claude, cursor, codex, vscode) only support global installs.
 	DefaultGlobalScope bool
 }
 
