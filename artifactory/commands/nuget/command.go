@@ -151,14 +151,18 @@ func (c *NuGetFlexPackCommand) Run() error {
 					return err
 				}
 				defer cleanup()
-			} else if c.toolchainType != dotnetutils.Nuget {
-				// dotnet CLI handles embedded credentials on V3 URLs correctly. Pass
-				// -Source <url-with-Basic-Auth> (V3 or V2 based on --use-nuget-v2).
+			} else if c.toolchainType != dotnetutils.Nuget && !isPushCommand(c.subCommand) {
+				// dotnet CLI restore/install/update: inject --source <url-with-Basic-Auth>.
+				// Push is excluded: the bypass below handles all push cases (both nuget.exe
+				// and dotnet CLI) via a direct HTTP PUT to Artifactory using Basic Auth, which
+				// avoids the service-index 401 that occurs when dotnet tries to load a V3
+				// index.json from a URL with embedded JWT credentials.
+				// Note: dotnet CLI uses --source / -s (POSIX style); nuget.exe uses -Source.
 				authenticatedURL, err := SourceURLWithCredentials(c.serverDetails, repo, c.useNugetV2)
 				if err != nil {
 					return err
 				}
-				c.args = append(c.args, "-Source", authenticatedURL)
+				c.args = append(c.args, "--source", authenticatedURL)
 			}
 		}
 	}
@@ -175,12 +179,14 @@ func (c *NuGetFlexPackCommand) Run() error {
 		}
 	}
 
-	// nuget.exe push always sends credentials as X-NuGet-ApiKey regardless of the
-	// credential source. Artifactory rejects access tokens via that header with 403.
-	// When targeting a known Artifactory repo (and the user hasn't overridden -Source or
-	// -ApiKey, which take precedence), bypass nuget.exe and push directly via the NuGet
-	// gallery REST endpoint using Basic Auth (which Artifactory accepts).
-	if c.toolchainType == dotnetutils.Nuget && isPushCommand(c.subCommand) && c.serverDetails != nil && c.repoDeploy != "" && !hasNativeAuthOverride(c.args) {
+	// Both nuget.exe and dotnet CLI have push auth issues with Artifactory:
+	//   nuget.exe sends X-NuGet-ApiKey which Artifactory rejects for access tokens (403).
+	//   dotnet nuget push with embedded credentials in a V3 URL fails to load the service
+	//   index (401) because dotnet does not forward URL-embedded auth for index.json fetches.
+	// When targeting a known Artifactory repo (and the user hasn't overridden the source or
+	// API key flags), bypass the native tool entirely and push directly via the NuGet gallery
+	// REST endpoint using Basic Auth — which Artifactory accepts for both toolchains.
+	if isPushCommand(c.subCommand) && c.serverDetails != nil && c.repoDeploy != "" && !hasNativeAuthOverride(c.args) {
 		log.Info("Pushing NuGet package to Artifactory...")
 		if err := c.pushPackagesToArtifactory(); err != nil {
 			return fmt.Errorf("nuget push: %w", err)
@@ -300,10 +306,46 @@ func (c *NuGetFlexPackCommand) injectCredentialsViaTempConfig(repo string) (func
 
 // pushPackagesToArtifactory resolves all .nupkg/.snupkg paths from push args (expanding
 // globs), pushes each directly to Artifactory's NuGet gallery endpoint using Basic Auth,
-// and replicates nuget.exe's sibling .snupkg auto-push behaviour. This bypasses nuget.exe
-// push, which sends credentials as X-NuGet-ApiKey — a header Artifactory rejects for
-// access tokens (403 Forbidden).
+// and replicates nuget.exe's sibling .snupkg auto-push behaviour. This bypasses the native
+// push tool (nuget.exe or dotnet) to avoid authentication issues: nuget.exe sends
+// X-NuGet-ApiKey which Artifactory rejects for access tokens (403), and dotnet nuget push
+// cannot authenticate against a V3 index.json with embedded URL credentials (401).
 func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
+	// Warn about flags that the native tool would have honoured but the bypass cannot
+	// forward. Flags in this list are silently accepted (or handled below); any unrecognised
+	// flag produces a visible warning. Includes both nuget.exe style (single-dash) and dotnet
+	// CLI style (double-dash) equivalents for each option.
+	recognisedPushFlags := map[string]bool{
+		// skip-duplicate: handled explicitly below
+		"-skipduplicate": true, "--skip-duplicate": true,
+		// no-symbols: handled explicitly below
+		"-nosymbols": true, "--no-symbols": true, "-n": true,
+		// timeout: advisory to the native tool only; irrelevant for the direct PUT
+		"-timeout": true, "--timeout": true,
+		// verbosity: no-op for the bypass (we use jf log levels)
+		"-verbosity": true, "--verbosity": true, "-v": true,
+		// disable-buffering: streaming hint for the native tool; no-op for the bypass
+		"-disablebuffering": true, "--disable-buffering": true,
+		// non-interactive / --interactive: interactive auth prompts are not used by the bypass
+		"-noninteractive": true, "--interactive": true,
+		// config-file: credentials are supplied via Basic Auth in the bypass; no config needed
+		"-configfile": true, "--configfile": true,
+		// force-english-output: locale hint for the native tool; no-op for the bypass
+		"-forceenglishoutput": true, "--force-english-output": true,
+	}
+	for _, arg := range c.args {
+		if !strings.HasPrefix(arg, "-") {
+			continue
+		}
+		flagOnly := strings.ToLower(arg)
+		if idx := strings.IndexByte(flagOnly, '='); idx != -1 {
+			flagOnly = flagOnly[:idx]
+		}
+		if !recognisedPushFlags[flagOnly] {
+			log.Warn(fmt.Sprintf("Flag %q is not forwarded when pushing directly to Artifactory; it will have no effect.", arg))
+		}
+	}
+
 	packages, err := resolvePackagePaths(c.workingDir, c.args)
 	if err != nil {
 		return fmt.Errorf("resolve package paths: %w", err)
@@ -421,20 +463,25 @@ func resolvePackagePaths(workingDir string, args []string) ([]string, error) {
 	return paths, nil
 }
 
-// hasSkipDuplicate reports whether -SkipDuplicate is present in args.
+// hasSkipDuplicate reports whether the skip-duplicate flag is present in args.
+// Handles both nuget.exe style (-SkipDuplicate) and dotnet CLI style (--skip-duplicate).
 func hasSkipDuplicate(args []string) bool {
 	for _, arg := range args {
-		if strings.EqualFold(arg, "-SkipDuplicate") {
+		switch strings.ToLower(arg) {
+		case "-skipduplicate", "--skip-duplicate":
 			return true
 		}
 	}
 	return false
 }
 
-// hasNoSymbols reports whether -NoSymbols is present in args.
+// hasNoSymbols reports whether the no-symbols flag is present in args.
+// Handles nuget.exe style (-NoSymbols), dotnet CLI style (--no-symbols), and the short
+// form (-n used by dotnet nuget push).
 func hasNoSymbols(args []string) bool {
 	for _, arg := range args {
-		if strings.EqualFold(arg, "-NoSymbols") {
+		switch strings.ToLower(arg) {
+		case "-nosymbols", "--no-symbols", "-n":
 			return true
 		}
 	}
@@ -442,14 +489,23 @@ func hasNoSymbols(args []string) bool {
 }
 
 // hasNativeAuthOverride reports whether the user passed a flag that explicitly controls
-// NuGet's own auth for push (-Source redirects to a custom feed; -ApiKey/-SymbolApiKey
-// sets the X-NuGet-ApiKey header, which Artifactory rejects for access tokens but which
-// the user may intend for a real NuGet API key workflow). When any of these are present,
-// the user's intent takes precedence over --repo and the bypass must not fire.
+// NuGet's own auth for push. Covers both nuget.exe style (-Source, -ApiKey, -SymbolApiKey)
+// and dotnet CLI style (--source, -s, --api-key, -k, --symbol-api-key). Handles both the
+// space-separated form (flag as its own token) and the inline-equals form (--api-key=VALUE
+// as a single token). When any of these are present the user's intent takes precedence over
+// --repo and the bypass must not fire.
 func hasNativeAuthOverride(args []string) bool {
 	for _, arg := range args {
-		switch strings.ToLower(arg) {
-		case "-source", "-s", "-apikey", "-symbolapikey":
+		// Strip an optional inline value (--flag=value → --flag) before matching.
+		flag := strings.ToLower(arg)
+		if idx := strings.IndexByte(flag, '='); idx != -1 {
+			flag = flag[:idx]
+		}
+		switch flag {
+		case "-source", "-s", "--source",
+			"-apikey", "--api-key", "-k",
+			"-symbolapikey", "--symbol-api-key",
+			"-ss", "--symbol-source":
 			return true
 		}
 	}

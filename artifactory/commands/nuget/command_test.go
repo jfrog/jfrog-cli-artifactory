@@ -104,6 +104,48 @@ func TestArtifactPatternsUseExactPaths(t *testing.T) {
 	}
 }
 
+func TestHasNativeAuthOverride(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		expected bool
+	}{
+		// nuget.exe style (single dash)
+		{name: "nuget -Source", args: []string{"-Source", "https://host/"}, expected: true},
+		{name: "nuget -s", args: []string{"-s", "https://host/"}, expected: true},
+		{name: "nuget -ApiKey", args: []string{"-ApiKey", "key"}, expected: true},
+		{name: "nuget -SymbolApiKey", args: []string{"-SymbolApiKey", "key"}, expected: true},
+		// dotnet CLI style (double dash)
+		{name: "dotnet --source space-separated", args: []string{"--source", "https://host/"}, expected: true},
+		{name: "dotnet --source inline-equals", args: []string{"--source=https://host/"}, expected: true},
+		{name: "dotnet --api-key space-separated", args: []string{"--api-key", "token"}, expected: true},
+		{name: "dotnet --api-key inline-equals", args: []string{"--api-key=mytoken"}, expected: true},
+		{name: "dotnet -k short", args: []string{"-k", "token"}, expected: true},
+		{name: "dotnet -k inline-equals", args: []string{"-k=mytoken"}, expected: true},
+		{name: "dotnet --symbol-api-key", args: []string{"--symbol-api-key", "key"}, expected: true},
+		{name: "dotnet --symbol-api-key inline-equals", args: []string{"--symbol-api-key=key"}, expected: true},
+		// case insensitivity
+		{name: "mixed case -APIKEY", args: []string{"-APIKEY", "key"}, expected: true},
+		{name: "mixed case --Source", args: []string{"--Source", "https://host/"}, expected: true},
+		// dotnet --symbol-source (Gap 2 fix)
+		{name: "dotnet --symbol-source", args: []string{"--symbol-source", "https://symbols/"}, expected: true},
+		{name: "dotnet --symbol-source inline-equals", args: []string{"--symbol-source=https://symbols/"}, expected: true},
+		{name: "dotnet -ss", args: []string{"-ss", "https://symbols/"}, expected: true},
+		// no override
+		{name: "no flags", args: []string{"Package.1.0.0.nupkg"}, expected: false},
+		{name: "unrelated flags", args: []string{"Package.1.0.0.nupkg", "--skip-duplicate", "--timeout", "60"}, expected: false},
+		{name: "empty args", args: []string{}, expected: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if actual := hasNativeAuthOverride(test.args); actual != test.expected {
+				t.Fatalf("hasNativeAuthOverride(%v) = %t, want %t", test.args, actual, test.expected)
+			}
+		})
+	}
+}
+
 func TestRestoreTarget(t *testing.T) {
 	workingDir := t.TempDir()
 	projectDir := filepath.Join(workingDir, "src")
