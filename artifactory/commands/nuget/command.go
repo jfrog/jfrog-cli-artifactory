@@ -270,13 +270,20 @@ func (c *NuGetFlexPackCommand) injectCredentialsViaTempConfig(repo string) (func
 
 	const sourceName = "JFrog"
 
+	// NuGet 6.8+ rejects HTTP sources unless allowInsecureConnections="true" is set.
+	// Local Artifactory instances in CI typically run on plain HTTP.
+	allowInsecure := ""
+	if strings.HasPrefix(strings.ToLower(sourceURL), "http://") {
+		allowInsecure = ` allowInsecureConnections="true"`
+	}
+
 	// <clear/> ensures no other sources (nuget.org, system config) interfere — all traffic
 	// is routed exclusively through Artifactory.
 	configContent := fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <packageSources>
     <clear />
-    <add key=%q value=%q />
+    <add key=%q value=%q`+allowInsecure+` />
   </packageSources>
   <packageSourceCredentials>
     <%s>
