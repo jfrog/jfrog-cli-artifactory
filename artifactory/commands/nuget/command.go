@@ -367,7 +367,12 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
 	}
 
 	rtURL := strings.TrimSuffix(c.serverDetails.ArtifactoryUrl, "/")
-	pushURL := rtURL + "/api/nuget/v2/" + c.repoDeploy + "/"
+	// Artifactory stores .nupkg flat when pushed to the standard package endpoint and
+	// .snupkg flat when pushed to the symbol-package endpoint. Using the wrong endpoint
+	// causes Artifactory to rename the file (e.g. snupkg → nupkg), breaking path-based
+	// stamping and downstream artifact lookup.
+	nupkgPushURL := rtURL + "/api/nuget/v2/" + c.repoDeploy + "/"
+	snupkgPushURL := rtURL + "/api/nuget/v2/" + c.repoDeploy + "/symbolpackage"
 	skipDuplicate := hasSkipDuplicate(c.args)
 	noSymbols := hasNoSymbols(c.args)
 
@@ -378,8 +383,15 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
 		Proxy:           http.ProxyFromEnvironment,
 	}}
 
+	pushURL := func(pkgPath string) string {
+		if strings.HasSuffix(strings.ToLower(pkgPath), ".snupkg") {
+			return snupkgPushURL
+		}
+		return nupkgPushURL
+	}
+
 	for _, pkgPath := range packages {
-		if err := pushSinglePackage(httpClient, pushURL, pkgPath, user, password, skipDuplicate); err != nil {
+		if err := pushSinglePackage(httpClient, pushURL(pkgPath), pkgPath, user, password, skipDuplicate); err != nil {
 			return err
 		}
 		// Replicate nuget.exe behaviour: when pushing a .nupkg, also push the sibling
@@ -387,7 +399,7 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
 		if !noSymbols && strings.HasSuffix(strings.ToLower(pkgPath), ".nupkg") {
 			snupkgPath := pkgPath[:len(pkgPath)-len(".nupkg")] + ".snupkg"
 			if _, statErr := os.Stat(snupkgPath); statErr == nil {
-				if err := pushSinglePackage(httpClient, pushURL, snupkgPath, user, password, skipDuplicate); err != nil {
+				if err := pushSinglePackage(httpClient, snupkgPushURL, snupkgPath, user, password, skipDuplicate); err != nil {
 					return err
 				}
 			}
@@ -591,9 +603,9 @@ func artifactPatterns(artifacts []entities.Artifact) []string {
 
 // stampBuildProperties attaches build.name/build.number/build.timestamp to each uploaded
 // package at its exact, deterministic Artifactory path (<repo>/<file>, flat at the repository
-// root - Artifactory's NuGet push API never nests packages under <id>/<version>/). It uses
-// fully-qualified path patterns so no repository-wide scan is performed. Symbol packages
-// (.snupkg) are stamped at their own exact paths alongside the primary packages.
+// root). Artifactory stores .nupkg flat when pushed to the standard package endpoint and
+// .snupkg flat when pushed to the symbol-package endpoint; both therefore share the same
+// flat path scheme. Fully-qualified patterns are used so no repository-wide scan is performed.
 func (c *NuGetFlexPackCommand) stampBuildProperties(artifacts []entities.Artifact, buildName, buildNumber string) error {
 	if c.serverDetails == nil || c.repoDeploy == "" {
 		// Anonymous push or no deploy repo: there is no JFrog target to stamp.
