@@ -637,10 +637,10 @@ func artifactPatterns(artifacts []entities.Artifact) []string {
 }
 
 // stampBuildProperties attaches build.name/build.number/build.timestamp to each uploaded
-// package at its exact, deterministic Artifactory path (<repo>/<file>, flat at the repository
-// root). Artifactory stores .nupkg flat when pushed to the standard package endpoint and
-// .snupkg flat when pushed to the symbol-package endpoint; both therefore share the same
-// flat path scheme. Fully-qualified patterns are used so no repository-wide scan is performed.
+// package at its exact, deterministic Artifactory path. Primary packages (.nupkg) are stored
+// flat at the repository root; symbol packages (.snupkg) are stored at
+// symbolpackage/<id>.<version>.nupkg. Both paths are captured in artifact.Path by
+// newArtifactFromFile. Fully-qualified patterns are used so no repository-wide scan is performed.
 func (c *NuGetFlexPackCommand) stampBuildProperties(artifacts []entities.Artifact, buildName, buildNumber string) error {
 	if c.serverDetails == nil || c.repoDeploy == "" {
 		// Anonymous push or no deploy repo: there is no JFrog target to stamp.
