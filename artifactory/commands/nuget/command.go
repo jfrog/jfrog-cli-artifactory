@@ -555,7 +555,14 @@ func (c *NuGetFlexPackCommand) collectDependencies(buildName, buildNumber string
 // it is never re-run; a stamping failure is surfaced as an error without masking the push.
 func (c *NuGetFlexPackCommand) collectAndStampPushArtifacts(buildName, buildNumber string) error {
 	log.Info(fmt.Sprintf("Collecting NuGet artifact info for %s/%s", buildName, buildNumber))
-	artifacts, err := nugetflex.CollectPushArtifacts(c.workingDir, c.args, c.repoDeploy)
+	// Resolve the actual local repo so OriginalDeploymentRepo is always a local repo key.
+	// When the user pushes to a virtual repo, Artifactory routes to its defaultDeploymentRepo;
+	// we need that local key in build-info so downstream tools can locate the artifact.
+	deployRepo, err := c.resolveLocalDeployRepo(c.repoDeploy)
+	if err != nil {
+		return fmt.Errorf("resolve deployment repo: %w", err)
+	}
+	artifacts, err := nugetflex.CollectPushArtifacts(c.workingDir, c.args, deployRepo)
 	if err != nil {
 		return fmt.Errorf("collect pushed NuGet artifacts: %w", err)
 	}
@@ -563,6 +570,34 @@ func (c *NuGetFlexPackCommand) collectAndStampPushArtifacts(buildName, buildNumb
 		return err
 	}
 	return c.saveArtifactsBuildInfo(buildName, buildNumber, artifacts)
+}
+
+// resolveLocalDeployRepo returns the local repo key where artifacts actually land.
+// If repoKey is a virtual repo it returns the virtual repo's defaultDeploymentRepo;
+// for local/remote repos it returns repoKey unchanged.
+// Resolution failures are non-fatal: the original key is returned with a warning.
+func (c *NuGetFlexPackCommand) resolveLocalDeployRepo(repoKey string) (string, error) {
+	if repoKey == "" || c.serverDetails == nil {
+		return repoKey, nil
+	}
+	servicesManager, err := rtutils.CreateServiceManager(c.serverDetails, -1, 0, false)
+	if err != nil {
+		return repoKey, nil
+	}
+	var params services.VirtualRepositoryBaseParams
+	if err := servicesManager.GetRepository(repoKey, &params); err != nil {
+		log.Warn(fmt.Sprintf("Could not resolve repo type for %q; using as-is for OriginalDeploymentRepo: %v", repoKey, err))
+		return repoKey, nil
+	}
+	if params.Rclass != "virtual" {
+		return repoKey, nil
+	}
+	if params.DefaultDeploymentRepo == "" {
+		log.Warn(fmt.Sprintf("Virtual repo %q has no defaultDeploymentRepo configured; OriginalDeploymentRepo will be the virtual repo key.", repoKey))
+		return repoKey, nil
+	}
+	log.Debug(fmt.Sprintf("Resolved virtual repo %q → local repo %q for OriginalDeploymentRepo", repoKey, params.DefaultDeploymentRepo))
+	return params.DefaultDeploymentRepo, nil
 }
 
 // collectPackArtifacts records the packages produced by a pack command, detected by comparing
