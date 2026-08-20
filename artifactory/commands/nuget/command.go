@@ -1,7 +1,12 @@
 package nuget
 
 import (
+	"bytes"
+	"crypto/tls"
 	"fmt"
+	"io"
+	"mime/multipart"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,7 +18,6 @@ import (
 	"github.com/jfrog/build-info-go/entities"
 	buildinfoflex "github.com/jfrog/build-info-go/flexpack"
 	nugetflex "github.com/jfrog/build-info-go/flexpack/nuget"
-	dotnetcmd "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
 	rtutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
@@ -93,10 +97,12 @@ func (c *NuGetFlexPackCommand) SetWorkingDir(d string) *NuGetFlexPackCommand {
 }
 
 // RequiresServerDetails reports whether the command needs JFrog server configuration.
-// Server details are now always loaded by the caller when a server is available; this
-// method is kept for interface compatibility but no longer gates credential injection.
+// RequiresServerDetails returns true only when the command will actually use server
+// credentials: push targeting a deploy repo, or restore targeting a resolve repo.
+// Anonymous push/restore, pack, and passthrough commands do not require server details.
 func (c *NuGetFlexPackCommand) RequiresServerDetails() bool {
-	return true
+	return (isPushCommand(c.subCommand) && c.repoDeploy != "") ||
+		(isRestoreCommand(c.subCommand) && c.repoResolve != "")
 }
 
 func (c *NuGetFlexPackCommand) CommandName() string { return "rt_nuget_flexpack" }
@@ -116,30 +122,38 @@ func (c *NuGetFlexPackCommand) Run() error {
 		c.workingDir = workingDir
 	}
 
-	// Inject credentials at rank 1 (command-line flag) per NuGet's credential priority hierarchy,
-	// so no nuget.config is created or modified. Customers who manage their own credentials
-	// simply omit --repo-resolve; FlexPack then skips injection and collects build-info only.
+	// .slnx is an SDK-only solution format; nuget.exe has no parser for it.
+	if c.toolchainType == dotnetutils.Nuget && hasSlnxTarget(c.args) {
+		return fmt.Errorf(".slnx solution files are not supported by nuget.exe; use 'jf dotnet restore' instead")
+	}
+
+	// Inject credentials per NuGet's credential priority hierarchy so no nuget.config is
+	// created or modified. Customers who manage their own credentials simply omit
+	// --repo-resolve/--repo; FlexPack then skips injection and collects build-info only.
 	if c.serverDetails != nil {
 		repo := c.repoResolve
 		if isPushCommand(c.subCommand) {
 			repo = c.repoDeploy
 		}
 		if repo != "" {
-			if isPushCommand(c.subCommand) {
-				// Push: inject via NUGET_API_KEY env var (rank 2, NuGet 7.6+) so the token
-				// is not visible in the process list. Fallback: -ApiKey is appended below for
-				// older nuget.exe versions that do not read NUGET_API_KEY.
-				_, _, password, err := dotnetcmd.GetSourceDetails(c.serverDetails, repo, c.useNugetV2)
+			if c.toolchainType == dotnetutils.Nuget && !isPushCommand(c.subCommand) {
+				// nuget.exe (mono) re-embeds credentials into MSBuild's /p:RestoreSources=
+				// regardless of whether they come from -Source or a -ConfigFile config. MSBuild
+				// can authenticate V2 feeds with embedded Basic Auth but fails to load a V3
+				// service index (index.json) the same way, causing NU1301. Use a temp nuget.config
+				// with a V2 source URL so MSBuild sees a V2 feed URL with embedded credentials.
+				//
+				// Push is excluded: nuget.exe push always sends credentials as X-NuGet-ApiKey
+				// regardless of the credential source; Artifactory rejects access tokens via that
+				// header with 403. pushNupkgToArtifactory handles push directly via Basic Auth.
+				cleanup, err := c.injectCredentialsViaTempConfig(repo)
 				if err != nil {
-					return fmt.Errorf("get NuGet source details for push: %w", err)
+					return err
 				}
-				if err := os.Setenv("NUGET_API_KEY", password); err != nil {
-					return fmt.Errorf("set NUGET_API_KEY: %w", err)
-				}
-				defer os.Unsetenv("NUGET_API_KEY")
-			} else {
-				// Restore / install / update: inject -Source <url-with-embedded-creds> at rank 1.
-				// Credentials embedded in the URL are not written to any file on disk.
+				defer cleanup()
+			} else if c.toolchainType != dotnetutils.Nuget {
+				// dotnet CLI handles embedded credentials on V3 URLs correctly. Pass
+				// -Source <url-with-Basic-Auth> (V3 or V2 based on --use-nuget-v2).
 				authenticatedURL, err := SourceURLWithCredentials(c.serverDetails, repo, c.useNugetV2)
 				if err != nil {
 					return err
@@ -161,13 +175,25 @@ func (c *NuGetFlexPackCommand) Run() error {
 		}
 	}
 
-	log.Info(fmt.Sprintf("Running %s %s", c.toolchainType, c.subCommand))
-	nativeCmd := c.buildCmd()
-	nativeCmd.Stdin = os.Stdin
-	nativeCmd.Stdout = os.Stdout
-	nativeCmd.Stderr = os.Stderr
-	if err := nativeCmd.Run(); err != nil {
-		return fmt.Errorf("%s %s failed: %w", c.toolchainType, c.subCommand, err)
+	// nuget.exe push always sends credentials as X-NuGet-ApiKey regardless of the
+	// credential source. Artifactory rejects access tokens via that header with 403.
+	// When targeting a known Artifactory repo (and the user hasn't overridden -Source or
+	// -ApiKey, which take precedence), bypass nuget.exe and push directly via the NuGet
+	// gallery REST endpoint using Basic Auth (which Artifactory accepts).
+	if c.toolchainType == dotnetutils.Nuget && isPushCommand(c.subCommand) && c.serverDetails != nil && c.repoDeploy != "" && !hasNativeAuthOverride(c.args) {
+		log.Info("Pushing NuGet package to Artifactory...")
+		if err := c.pushPackagesToArtifactory(); err != nil {
+			return fmt.Errorf("nuget push: %w", err)
+		}
+	} else {
+		log.Info(fmt.Sprintf("Running %s %s", c.toolchainType, c.subCommand))
+		nativeCmd := c.buildCmd()
+		nativeCmd.Stdin = os.Stdin
+		nativeCmd.Stdout = os.Stdout
+		nativeCmd.Stderr = os.Stderr
+		if err := nativeCmd.Run(); err != nil {
+			return fmt.Errorf("%s %s failed: %w", c.toolchainType, c.subCommand, err)
+		}
 	}
 
 	if c.buildConfiguration == nil {
@@ -194,13 +220,240 @@ func (c *NuGetFlexPackCommand) Run() error {
 }
 
 // buildCmd builds the exec.Cmd for the native nuget.exe or dotnet CLI.
-// Credentials are already embedded in c.args via -Source <url> (restore) or
-// NUGET_API_KEY env var (push) before this is called — no config file needed.
+// Credentials are already injected into c.args (via -Source <url> or -ConfigFile) and
+// into the process environment (via NuGetPackageSourceCredentials_) before this is called.
 func (c *NuGetFlexPackCommand) buildCmd() *exec.Cmd {
 	if c.toolchainType == dotnetutils.DotnetCore {
 		return exec.Command("dotnet", append(strings.Fields(c.subCommand), c.args...)...)
 	}
 	return exec.Command("nuget", append([]string{c.subCommand}, c.args...)...)
+}
+
+// injectCredentialsViaTempConfig handles credential injection for nuget.exe. It writes a
+// temporary nuget.config with a V2 source URL and <packageSourceCredentials>.
+//
+// V2 is required because nuget.exe (mono) re-embeds credentials from any source — including
+// a -ConfigFile config — into MSBuild's /p:RestoreSources property. MSBuild can load a V2
+// feed with embedded Basic Auth but fails on V3 (index.json) URLs (NU1301). Using
+// ClearTextPassword (not Password) because nuget.exe's encrypted Password storage is
+// Windows DPAPI-only; ClearTextPassword works on all platforms including mono/macOS.
+//
+// For restore: only -ConfigFile is appended (no -Source). MSBuild's RestoreTask reads
+// sources from the config file directly via /p:RestoreConfigFile. Adding -Source <name>
+// would cause nuget.exe to pass /p:RestoreSources=<name> to MSBuild, which then
+// resolves the name as a local filesystem path instead of a named source — breaking
+// restore for SDK-style (.csproj) projects whenever the global packages cache is empty.
+//
+// For push: -Source <name> is also appended because push is handled by nuget.exe directly
+// (not MSBuild), so it CAN look up named sources from the config file.
+//
+// The returned cleanup func removes the temp file. The caller must defer it immediately
+// after a nil-error return.
+func (c *NuGetFlexPackCommand) injectCredentialsViaTempConfig(repo string) (func(), error) {
+	// Only called for non-push nuget.exe commands (restore, update, install).
+	// Push is handled by pushPackagesToArtifactory which uses Basic Auth directly.
+	//
+	// restore delegates to MSBuild (for SDK-style projects), so it:
+	//   - must NOT receive -Source <name> (MSBuild resolves names as filesystem paths)
+	//   - reads sources directly from /p:RestoreConfigFile — V3 URL is safe here because
+	//     the URL is in the config file, not re-embedded by nuget.exe into RestoreSources
+	sourceURL, user, password, err := NuGetExeV3SourceDetails(c.serverDetails, repo)
+	if err != nil {
+		return nil, fmt.Errorf("get NuGet source details: %w", err)
+	}
+
+	const sourceName = "JFrog"
+
+	// <clear/> ensures no other sources (nuget.org, system config) interfere — all traffic
+	// is routed exclusively through Artifactory.
+	configContent := fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key=%q value=%q />
+  </packageSources>
+  <packageSourceCredentials>
+    <%s>
+      <add key="Username" value=%q />
+      <add key="ClearTextPassword" value=%q />
+    </%s>
+  </packageSourceCredentials>
+</configuration>`, sourceName, sourceURL, sourceName, user, password, sourceName)
+
+	tmpFile, err := os.CreateTemp("", "jfrog-nuget-*.config")
+	if err != nil {
+		return nil, fmt.Errorf("create temp nuget.config: %w", err)
+	}
+	if _, err := tmpFile.WriteString(configContent); err != nil {
+		_ = os.Remove(tmpFile.Name())
+		return nil, fmt.Errorf("write temp nuget.config: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(tmpFile.Name())
+		return nil, fmt.Errorf("close temp nuget.config: %w", err)
+	}
+
+	c.args = append(c.args, "-ConfigFile", tmpFile.Name())
+
+	return func() { _ = os.Remove(tmpFile.Name()) }, nil
+}
+
+// pushPackagesToArtifactory resolves all .nupkg/.snupkg paths from push args (expanding
+// globs), pushes each directly to Artifactory's NuGet gallery endpoint using Basic Auth,
+// and replicates nuget.exe's sibling .snupkg auto-push behaviour. This bypasses nuget.exe
+// push, which sends credentials as X-NuGet-ApiKey — a header Artifactory rejects for
+// access tokens (403 Forbidden).
+func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
+	packages, err := resolvePackagePaths(c.workingDir, c.args)
+	if err != nil {
+		return fmt.Errorf("resolve package paths: %w", err)
+	}
+	if len(packages) == 0 {
+		return fmt.Errorf("no .nupkg or .snupkg files found in push arguments: %v", c.args)
+	}
+
+	_, user, password, err := NuGetExeV2SourceDetails(c.serverDetails, c.repoDeploy)
+	if err != nil {
+		return fmt.Errorf("get credentials: %w", err)
+	}
+
+	rtURL := strings.TrimSuffix(c.serverDetails.ArtifactoryUrl, "/")
+	pushURL := rtURL + "/api/nuget/v2/" + c.repoDeploy + "/"
+	skipDuplicate := hasSkipDuplicate(c.args)
+	noSymbols := hasNoSymbols(c.args)
+
+	//nolint:gosec
+	tlsCfg := &tls.Config{InsecureSkipVerify: c.allowInsecureConnections}
+	httpClient := &http.Client{Transport: &http.Transport{
+		TLSClientConfig: tlsCfg,
+		Proxy:           http.ProxyFromEnvironment,
+	}}
+
+	for _, pkgPath := range packages {
+		if err := pushSinglePackage(httpClient, pushURL, pkgPath, user, password, skipDuplicate); err != nil {
+			return err
+		}
+		// Replicate nuget.exe behaviour: when pushing a .nupkg, also push the sibling
+		// .snupkg if one exists alongside it (unless -NoSymbols was passed).
+		if !noSymbols && strings.HasSuffix(strings.ToLower(pkgPath), ".nupkg") {
+			snupkgPath := pkgPath[:len(pkgPath)-len(".nupkg")] + ".snupkg"
+			if _, statErr := os.Stat(snupkgPath); statErr == nil {
+				if err := pushSinglePackage(httpClient, pushURL, snupkgPath, user, password, skipDuplicate); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func pushSinglePackage(client *http.Client, pushURL, pkgPath, user, password string, skipDuplicate bool) error {
+	f, err := os.Open(pkgPath)
+	if err != nil {
+		return fmt.Errorf("open %q: %w", pkgPath, err)
+	}
+	defer f.Close()
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	part, err := mw.CreateFormFile("package", filepath.Base(pkgPath))
+	if err != nil {
+		return fmt.Errorf("create form file: %w", err)
+	}
+	if _, err := io.Copy(part, f); err != nil {
+		return fmt.Errorf("buffer package: %w", err)
+	}
+	if err := mw.Close(); err != nil {
+		return fmt.Errorf("close multipart writer: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPut, pushURL, &body)
+	if err != nil {
+		return fmt.Errorf("build push request: %w", err)
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.SetBasicAuth(user, password)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("push request: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+
+	switch resp.StatusCode {
+	case http.StatusCreated, http.StatusOK:
+		log.Info(fmt.Sprintf("Package %q pushed successfully", filepath.Base(pkgPath)))
+		return nil
+	case http.StatusConflict:
+		if skipDuplicate {
+			log.Warn(fmt.Sprintf("Package %q already exists — skipping duplicate", filepath.Base(pkgPath)))
+			return nil
+		}
+		return fmt.Errorf("package already exists (409 Conflict); use -SkipDuplicate to skip")
+	default:
+		return fmt.Errorf("push failed: HTTP %d — %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+}
+
+// resolvePackagePaths returns all .nupkg and .snupkg file paths from args, expanding
+// glob patterns relative to workingDir. Flags (args starting with -) are skipped.
+func resolvePackagePaths(workingDir string, args []string) ([]string, error) {
+	var paths []string
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(arg))
+		if ext != ".nupkg" && ext != ".snupkg" {
+			continue
+		}
+		pattern := arg
+		if !filepath.IsAbs(pattern) {
+			pattern = filepath.Join(workingDir, pattern)
+		}
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("expand glob %q: %w", arg, err)
+		}
+		paths = append(paths, matches...)
+	}
+	return paths, nil
+}
+
+// hasSkipDuplicate reports whether -SkipDuplicate is present in args.
+func hasSkipDuplicate(args []string) bool {
+	for _, arg := range args {
+		if strings.EqualFold(arg, "-SkipDuplicate") {
+			return true
+		}
+	}
+	return false
+}
+
+// hasNoSymbols reports whether -NoSymbols is present in args.
+func hasNoSymbols(args []string) bool {
+	for _, arg := range args {
+		if strings.EqualFold(arg, "-NoSymbols") {
+			return true
+		}
+	}
+	return false
+}
+
+// hasNativeAuthOverride reports whether the user passed a flag that explicitly controls
+// NuGet's own auth for push (-Source redirects to a custom feed; -ApiKey/-SymbolApiKey
+// sets the X-NuGet-ApiKey header, which Artifactory rejects for access tokens but which
+// the user may intend for a real NuGet API key workflow). When any of these are present,
+// the user's intent takes precedence over --repo and the bypass must not fire.
+func hasNativeAuthOverride(args []string) bool {
+	for _, arg := range args {
+		switch strings.ToLower(arg) {
+		case "-source", "-s", "-apikey", "-symbolapikey":
+			return true
+		}
+	}
+	return false
 }
 
 func (c *NuGetFlexPackCommand) collectDependencies(buildName, buildNumber string) error {
@@ -378,6 +631,17 @@ func restoreOptionTakesValue(arg string) bool {
 	default:
 		return false
 	}
+}
+
+// hasSlnxTarget returns true if any positional arg is a .slnx file. Used to detect SDK-only
+// solution formats before passing them to nuget.exe, which has no .slnx parser.
+func hasSlnxTarget(args []string) bool {
+	for _, arg := range args {
+		if strings.EqualFold(filepath.Ext(arg), ".slnx") {
+			return true
+		}
+	}
+	return false
 }
 
 // isRestoreCommand returns true for commands that download packages (need dependency collection).

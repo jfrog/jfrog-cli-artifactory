@@ -40,7 +40,7 @@ func TestBuildCmdPreservesNativeArguments(t *testing.T) {
 				SetToolchainType(test.toolchainType).
 				SetSubCommand(test.subCommand).
 				SetArgs(test.args).
-				buildCmd("")
+				buildCmd()
 			if !reflect.DeepEqual(command.Args, test.expected) {
 				t.Fatalf("command arguments: got %v, want %v", command.Args, test.expected)
 			}
