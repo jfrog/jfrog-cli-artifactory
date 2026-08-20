@@ -9,6 +9,10 @@ import (
 	"testing"
 
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/artifactory"
+	servicesutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type statusCodeError struct {
@@ -160,4 +164,64 @@ func TestFetchExistingVersionStrings_ToleratesListError(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("got %v, want empty slice on lookup error", got)
 	}
+}
+
+type mockServicesManager struct {
+	artifactory.EmptyArtifactoryServicesManager
+	folderInfoFunc func(string) (*servicesutils.FolderInfo, error)
+}
+
+func (m *mockServicesManager) FolderInfo(path string) (*servicesutils.FolderInfo, error) {
+	if m.folderInfoFunc != nil {
+		return m.folderInfoFunc(path)
+	}
+	return nil, nil
+}
+
+func TestDisambiguateFolderError(t *testing.T) {
+	err404 := errors.New("server response: 404 Not Found")
+	err500 := errors.New("server response: 500 Internal Server Error")
+	folderNotFoundError := errors.New("plugin not found")
+
+	t.Run("non-404 error is propagated directly", func(t *testing.T) {
+		mock := &mockServicesManager{}
+		got := DisambiguateFolderError(mock, "my-repo", err500, folderNotFoundError)
+		assert.Equal(t, err500, got)
+	})
+
+	t.Run("404 error and repo exists (returns folderNotFoundError)", func(t *testing.T) {
+		mock := &mockServicesManager{
+			folderInfoFunc: func(path string) (*servicesutils.FolderInfo, error) {
+				assert.Equal(t, "my-repo", path)
+				return &servicesutils.FolderInfo{}, nil
+			},
+		}
+		got := DisambiguateFolderError(mock, "my-repo", err404, folderNotFoundError)
+		assert.Equal(t, folderNotFoundError, got)
+	})
+
+	t.Run("404 error and repo also 404s (returns repository not found error)", func(t *testing.T) {
+		mock := &mockServicesManager{
+			folderInfoFunc: func(path string) (*servicesutils.FolderInfo, error) {
+				assert.Equal(t, "my-repo", path)
+				return nil, err404
+			},
+		}
+		got := DisambiguateFolderError(mock, "my-repo", err404, folderNotFoundError)
+		require.Error(t, got)
+		assert.Contains(t, got.Error(), "repository 'my-repo' not found")
+	})
+
+	t.Run("404 error and repo check returns non-404 error (propagates repo check error)", func(t *testing.T) {
+		mock := &mockServicesManager{
+			folderInfoFunc: func(path string) (*servicesutils.FolderInfo, error) {
+				assert.Equal(t, "my-repo", path)
+				return nil, err500
+			},
+		}
+		got := DisambiguateFolderError(mock, "my-repo", err404, folderNotFoundError)
+		require.Error(t, got)
+		assert.Contains(t, got.Error(), "repository 'my-repo'")
+		assert.True(t, errors.Is(got, err500))
+	})
 }

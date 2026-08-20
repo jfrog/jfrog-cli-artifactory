@@ -21,11 +21,11 @@ type AgentTarget = agentcommon.InstallTarget
 
 // UsesRepoKeyedLayout reports whether agentName nests installed plugins one level deeper
 // under a repo-key subdirectory (see MarketplaceRootForAgent) instead of storing them
-// directly under GlobalDir. True only for claude and codex, so each Artifactory repo gets
-// its own isolated marketplace subdirectory; cursor/--path have no such nesting.
+// directly under GlobalDir. True for claude, codex and vscode, so each Artifactory repo
+// gets its own isolated marketplace subdirectory; cursor/--path have no such nesting.
 func UsesRepoKeyedLayout(agentName string) bool {
 	switch strings.ToLower(agentName) {
-	case "claude", "codex":
+	case "claude", "codex", "vscode":
 		return true
 	default:
 		return false
@@ -34,7 +34,7 @@ func UsesRepoKeyedLayout(agentName string) bool {
 
 // MarketplaceRootForAgent returns the directory holding an agent's installed plugin slugs
 // directly as subdirectories (filepath.Join(result, slug) is the plugin's install dir).
-// For claude/codex that's <globalOrProjectDir>/<repoKey>, so repos never collide; every
+// For claude/codex/vscode that's <globalOrProjectDir>/<repoKey>, so repos never collide; every
 // other agent uses <globalOrProjectDir> unchanged and ignores repoKey.
 func MarketplaceRootForAgent(agentName, globalOrProjectDir, repoKey string) string {
 	if UsesRepoKeyedLayout(agentName) {
@@ -43,7 +43,7 @@ func MarketplaceRootForAgent(agentName, globalOrProjectDir, repoKey string) stri
 	return globalOrProjectDir
 }
 
-// InjectRepoKey rewrites claude/codex targets' DestinationDir to
+// InjectRepoKey rewrites repo-keyed agents' (claude/codex/vscode) DestinationDir to
 // <GlobalDir>/<slug> → <GlobalDir>/<repoKey>/<slug>, so different repos never overwrite
 // each other's marketplace registration; other targets are unchanged. Callers needing the
 // marketplace root before the slug is known should use MarketplaceRootForAgent directly.

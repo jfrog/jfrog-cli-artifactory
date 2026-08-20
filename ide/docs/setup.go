@@ -26,6 +26,12 @@ Prerequisites:
     * --url paired with --user + --password.
 - --repo-key identifies the Artifactory repository.
 - For VS Code-based IDEs you may need write access to product.json (sudo on some installs).
+- When the AI Editor Extensions gallery URL is passed as the positional argument
+  (not via --repo-key), the CLI calls Artifactory's AIEditorExtensionGenerateToken
+  endpoint using the resolved server credentials and appends the returned per-user
+  referenceToken to the gallery URL written into product.json. This makes curated
+  downloads attributable to the authenticated user. The flag flow (--repo-key
+  with --url / --server-id / default server) does not tokenize the URL.
 
 Common patterns:
   $ jf ide setup vscode --repo-key=vscode-remote
@@ -40,7 +46,13 @@ Gotchas:
   ignored when --url is present. To use a saved server, drop --url and pass --server-id alone.
 - --update-mode only applies to VS Code-based IDEs: "default", "manual", or "none".
 - product.json may require elevated privileges to edit on macOS/Linux system installs.
-- If a service URL is passed as the second positional arg, --repo-key and server config become optional.
+- When a positional service URL is passed, the CLI calls AIEditorExtensionGenerateToken to append a
+  per-user token, using --access-token, --user + --password, or the default 'jf config' server to
+  authenticate. --server-id is not accepted alongside a positional URL, since the URL already
+  identifies the Artifactory host and combining the two would be ambiguous. The URL must contain
+  /api/aieditorextensions/<repo-key>/ so the CLI can identify the repo to request a token for.
+  If the default 'jf config' server points at a different Artifactory host than the URL, the
+  command fails with a clear message rather than mixing credentials across hosts.
 
 Related: jf c add, jf rt repo-create`
 }

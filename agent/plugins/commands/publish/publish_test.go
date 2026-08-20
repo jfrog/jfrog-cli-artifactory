@@ -15,6 +15,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/common/testutil"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -239,6 +240,11 @@ func TestResolveVersionCollision_NonInteractiveVersionAbsent(t *testing.T) {
 
 func TestResolveVersionCollision_InteractiveUnknownExistenceProceeds(t *testing.T) {
 	t.Setenv("CI", "")
+	revertStdout := log.SetIsTerminalFlagsWithCallback(true)
+	defer revertStdout()
+
+	revertStdin := common.SetIsStdinTerminal(true)
+	defer revertStdin()
 
 	orig := packageVersionExists
 	defer func() { packageVersionExists = orig }()
