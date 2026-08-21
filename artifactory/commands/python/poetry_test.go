@@ -35,6 +35,8 @@ func initPoetryTest(t *testing.T) (string, func()) {
 	return poetryProjectPath, cleanUp
 }
 
+// TestSetPypiRepoUrlWithCredentials_URLTransformation verifies that the publish URL drops the
+// /simple suffix while every resolution command keeps it, so Poetry queries a PEP 503 index.
 func TestSetPypiRepoUrlWithCredentials_URLTransformation(t *testing.T) {
 	tests := []struct {
 		name        string

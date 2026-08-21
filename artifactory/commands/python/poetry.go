@@ -303,6 +303,9 @@ func poetryRepoUrl(rtUrl *url.URL, commandName string) string {
 	return strings.TrimSuffix(strings.TrimSuffix(indexUrl, "/simple"), "/")
 }
 
+// SetPypiRepoUrlWithCredentials configures Poetry with the Artifactory repository URL and its
+// credentials. Publish commands only update the Poetry configuration, while resolution commands
+// also register the source in pyproject.toml. It is a no-op when no credentials are available.
 func (pc *PoetryCommand) SetPypiRepoUrlWithCredentials() error {
 	rtUrl, username, password, err := GetPypiRepoUrlWithCredentials(pc.serverDetails, pc.repository, false)
 	if err != nil {
