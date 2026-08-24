@@ -115,13 +115,13 @@ func RunInstall(c *components.Context) error {
 	if err != nil {
 		return err
 	}
-	serverDetails, err := agentcommon.GetServerDetails(c)
+	serverDetails, err := agentcommon.GetServerDetailsByID(opts.ServerID)
 	if err != nil {
 		return err
 	}
 
 	cmd := NewApmInstallCommand().
-		SetArgs(opts.RemainingArgs).
+		SetArgs(opts.ApmNativeArgs).
 		SetServerDetails(serverDetails).
 		SetBuildConfiguration(opts.BuildConfig)
 

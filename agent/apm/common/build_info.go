@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/gofrog/crypto"
@@ -133,6 +134,48 @@ func anchorRequestedByToModule(requestedBy [][]string, moduleID string) [][]stri
 	return anchored
 }
 
+// buildArtifactPathParts derives (fileName, dirPath, artifactPath) for a published APM package
+// from the assumed agentpackages storage convention: {repo}/{owner}/{packageName}/{packageName}-
+// {version}.zip. This is a naming convention this code assumes, not something read back from
+// Artifactory - verifyArtifactPathExists is how callers can confirm it against the real repo.
+func buildArtifactPathParts(owner, packageName, version string) (fileName, dirPath, artifactPath string) {
+	fileName = packageName + "-" + version + "." + apmPackageFileExtension
+	dirPath = packageName
+	artifactPath = fileName
+	if owner != "" {
+		dirPath = owner + "/" + packageName
+		artifactPath = dirPath + "/" + fileName
+	}
+	return fileName, dirPath, artifactPath
+}
+
+// verifyArtifactPathExists issues an HTTP HEAD directly against repoName/artifactPath (the exact
+// path build-info is about to record) to confirm apm's agentpackages storage convention actually
+// matches where the file lives. Best-effort only: returns false and logs a warning on any
+// failure, but never blocks or fails the publish - build-info is still recorded either way.
+func verifyArtifactPathExists(serverDetails *config.ServerDetails, repoName, artifactPath string) bool {
+	if serverDetails == nil || repoName == "" || artifactPath == "" {
+		return false
+	}
+	servicesManager, err := artCoreUtils.CreateServiceManager(serverDetails, -1, 0, false)
+	if err != nil {
+		log.Debug("apm publish: could not create service manager for artifact path verification:", err.Error())
+		return false
+	}
+
+	base := strings.TrimSuffix(serverDetails.GetArtifactoryUrl(), "/")
+	directURL := base + "/" + repoName + "/" + artifactPath
+	clientDetails := servicesManager.GetConfig().GetServiceDetails().CreateHttpClientDetails()
+	if _, _, err := servicesManager.Client().GetRemoteFileDetails(directURL, &clientDetails); err != nil {
+		log.Warn(fmt.Sprintf(
+			"apm publish: could not confirm the assumed artifact path %q exists in %s (%s); "+
+				"build-info will still record this path, but it may not match where apm actually stored the file.",
+			artifactPath, repoName, err.Error()))
+		return false
+	}
+	return true
+}
+
 // SavePublishBuildInfo saves build artifact info for a published APM package. moduleName is the
 // project's own identity (apm.yml's name:, for the build-info module id); packageName is the
 // identity apm actually uploaded under via --package (owner/packageName), which Artifactory's
@@ -161,13 +204,7 @@ func SavePublishBuildInfo(owner, moduleName, packageName, version string, checks
 		moduleID = moduleName + ":" + version
 	}
 
-	fileName := packageName + "-" + version + "." + apmPackageFileExtension
-	dirPath := packageName
-	artifactPath := fileName
-	if owner != "" {
-		dirPath = owner + "/" + packageName
-		artifactPath = dirPath + "/" + fileName
-	}
+	fileName, dirPath, artifactPath := buildArtifactPathParts(owner, packageName, version)
 
 	artifact := entities.Artifact{
 		Name:                   fileName,
@@ -272,6 +309,11 @@ func CollectAndSavePublishBuildInfo(manifestPath, owner, packageName, repoName, 
 	if packageName == "" {
 		packageName = manifest.Name
 	}
+
+	// Best-effort confirmation that the assumed agentpackages path actually holds the file
+	// build-info is about to record it under. Never blocks the publish either way.
+	_, _, artifactPath := buildArtifactPathParts(owner, packageName, manifest.Version)
+	verifyArtifactPathExists(serverDetails, repoName, artifactPath)
 
 	checksum := lookupPublishedArtifactChecksum(owner, packageName, manifest.Version, repoName, serverDetails)
 	if !hasAnyChecksum(checksum) {

@@ -21,9 +21,22 @@ const depsWhyWorkerCount = 15
 const depsWhyTimeout = 30 * time.Second
 
 // Dependency scope names. A dependency gets exactly one of these, chosen by finalScope's
-// priority ladder (prod > dev > transitive) - the same mutually-exclusive model pnpm's own
-// resolver in this repo uses (artifactory/commands/pnpm/dependency_resolver.go's addScope),
-// rather than combining them.
+// priority ladder (prod > dev > transitive) rather than combining them.
+//
+// "prod"/"dev" are not this repo's invention: they're build-info-go's own vocabulary for the
+// Dependency.Scopes field, e.g. its npm resolver (build-info-go's build/utils/npm.go getScopes)
+// emits exactly these two strings. "transitive" is this repo's own addition on top of that (also
+// used by the pnpm resolver, artifactory/commands/pnpm/dependency_resolver.go) to distinguish
+// direct from pulled-in-only dependencies, a distinction build-info-go's npm resolver doesn't
+// need to make.
+//
+// apm itself has no equivalent "scope" vocabulary at all - apm.yml does have its own
+// dependencies/devDependencies split deliberately mirroring package.json
+// (https://microsoft.github.io/apm/concepts/package-anatomy/), but nothing in apm.yml or
+// apm.lock.yaml is ever called a "scope", and this package doesn't re-walk apm.yml's tree to
+// derive it - it trusts apm's own already-resolved per-entry flags (is_dev from apm.lock.yaml,
+// is_direct from `apm deps why --json`) and maps those two booleans onto build-info-go's
+// established prod/dev vocabulary, extended with transitive.
 const (
 	apmScopeProd       = "prod"
 	apmScopeDev        = "dev"

@@ -927,7 +927,7 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, serverId, repo, harness, projectDir, agentGlobal, agentFormat, agentLimit, agentSortBy, agentSortOrder, agentCheckUpdates,
 	},
 	AgentApm: {
-		BuildName, BuildNumber, module, Project,
+		serverId, BuildName, BuildNumber, module, Project,
 	},
 }
 

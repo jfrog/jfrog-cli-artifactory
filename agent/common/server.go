@@ -34,6 +34,25 @@ func GetServerDetails(commandContext *components.Context) (*config.ServerDetails
 	return details, nil
 }
 
+// GetServerDetailsByID returns ServerDetails for serverID, or the default configured server if
+// serverID is empty. Unlike GetServerDetails, it never inspects commandContext flags - callers
+// that manually extract --server-id from raw arguments (e.g. SkipFlagParsing subcommands, where
+// urfave/cli parses none of jf's own flags) resolve it through this instead.
+func GetServerDetailsByID(serverID string) (*config.ServerDetails, error) {
+	details, err := config.GetSpecificConfig(serverID, true, false)
+	if err != nil {
+		return nil, fmt.Errorf("no default server configured. Use 'jf config add' or provide --server-id: %w", err)
+	}
+	if details == nil {
+		return nil, fmt.Errorf("no default server configured. Use 'jf config add' or provide --server-id")
+	}
+	if details.ArtifactoryUrl == "" && details.Url == "" {
+		return nil, fmt.Errorf("no Artifactory URL configured")
+	}
+	NormalizeArtifactoryUrl(details)
+	return details, nil
+}
+
 // NormalizeArtifactoryUrl ensures details.ArtifactoryUrl always ends with /artifactory/,
 // filling in details.Url from it when Url is empty.
 func NormalizeArtifactoryUrl(details *config.ServerDetails) {

@@ -1,7 +1,6 @@
 package apmcommon
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,26 +12,23 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
+	rtUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/access/services"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-const agentPackagesAPIPrefix = "/api/agentpackages/"
-
-// generateAccessTokenTimeout bounds the token-generation HTTP call, so a hung Artifactory
-// response can't block the whole install/publish/update command forever.
-const generateAccessTokenTimeout = 30 * time.Second
-
-// ApmBinaryName is the apm executable RunApmCommand always shells out to.
-const ApmBinaryName = "apm"
-
-// HelpFlag is the help flag this package constructs when forwarding to apm.
-const HelpFlag = "--help"
-
-// apmConfigDirName and apmConfigFileName make up ~/.apm/config.json.
 const (
+	agentPackagesAPIPrefix = "/api/agentpackages/"
+
+	// ApmBinaryName is the apm executable RunApmCommand always shells out to.
+	ApmBinaryName = "apm"
+
+	// HelpFlag is the help flag this package constructs when forwarding to apm.
+	HelpFlag = "--help"
+
+	// apmConfigDirName and apmConfigFileName make up ~/.apm/config.json.
 	apmConfigDirName  = ".apm"
 	apmConfigFileName = "config.json"
 )
@@ -63,23 +59,66 @@ func BuildRegistryEntry(serverDetails *config.ServerDetails, repoName string) (r
 		if generatedToken != "" {
 			return base, generatedToken
 		}
-		// Fallback: if token generation fails, fall through to no-token case
-		// (APM CLI may handle auth differently or skip this registry)
+		// No fallback auth mechanism exists here - token generation failing means this
+		// registry entry is returned without credentials (see "no token available" below).
+		log.Debug(fmt.Sprintf("apm: failed to generate access token for %s; registry %q will be configured without credentials", base, repoName))
 	}
 
 	// No token available - return URL only
 	return base, ""
 }
 
-// generateAccessToken calls Artifactory's deprecated token generation API
-// (POST /artifactory/api/security/token, form-urlencoded - the JSON, plural
-// "/tokens" endpoint returns 405) to create an access token from username/
-// password. Returns empty string if generation fails.
+// generateAccessToken creates an access token from username/password. It tries
+// jfrog-client-go's access TokenService first (the same ServiceManager-based path used
+// elsewhere in this repo, e.g. jfrog-cli-core's AccessTokenCreateCommand), falling back to a
+// direct call against Artifactory's older, deprecated token endpoint only if that fails - some
+// Artifactory instances still don't expose (or allow) the modern Access service. Returns empty
+// string if both paths fail.
 func generateAccessToken(serverDetails *config.ServerDetails) string {
 	if serverDetails.User == "" || serverDetails.Password == "" {
 		return ""
 	}
 
+	if token := generateAccessTokenViaAccessAPI(serverDetails); token != "" {
+		return token
+	}
+
+	log.Debug("apm: modern access-token API failed; falling back to the deprecated Artifactory token endpoint")
+	return generateAccessTokenLegacy(serverDetails)
+}
+
+// generateAccessTokenViaAccessAPI is the primary token-generation path, described above.
+func generateAccessTokenViaAccessAPI(serverDetails *config.ServerDetails) string {
+	accessManager, err := rtUtils.CreateAccessServiceManager(serverDetails, false)
+	if err != nil {
+		log.Debug("Failed to create access service manager for token generation:", err.Error())
+		return ""
+	}
+
+	nonExpiring := uint(0)
+	tokenParams := services.CreateTokenParams{Username: serverDetails.User}
+	tokenParams.Scope = "applied-permissions/user"
+	tokenParams.ExpiresIn = &nonExpiring
+
+	tokenResponse, err := accessManager.CreateAccessToken(tokenParams)
+	if err != nil {
+		log.Debug("Failed to generate access token via the access API:", err.Error())
+		return ""
+	}
+	if tokenResponse.AccessToken == "" {
+		log.Debug("Access API token generation returned no access_token")
+		return ""
+	}
+
+	log.Debug("Access token generated for APM registry via the access API")
+	return tokenResponse.AccessToken
+}
+
+// generateAccessTokenLegacy calls Artifactory's deprecated token generation API (POST
+// /artifactory/api/security/token, form-urlencoded - the JSON, plural "/tokens" endpoint
+// returns 405) to create an access token from username/password. Fallback only - see
+// generateAccessToken. Returns empty string if generation fails.
+func generateAccessTokenLegacy(serverDetails *config.ServerDetails) string {
 	tokenURL := strings.TrimSuffix(serverDetails.ArtifactoryUrl, "/") + "/api/security/token"
 
 	form := url.Values{}
@@ -87,11 +126,9 @@ func generateAccessToken(serverDetails *config.ServerDetails) string {
 	form.Set("scope", "applied-permissions/user")
 	form.Set("expires_in", "0")
 
-	ctx, cancel := context.WithTimeout(context.Background(), generateAccessTokenTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+	req, err := http.NewRequest(http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
-		log.Debug("Failed to build access token request:", err.Error())
+		log.Debug("Failed to build legacy access token request:", err.Error())
 		return ""
 	}
 	req.SetBasicAuth(serverDetails.User, serverDetails.Password)
@@ -99,35 +136,35 @@ func generateAccessToken(serverDetails *config.ServerDetails) string {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Debug("Failed to generate access token:", err.Error())
+		log.Debug("Failed to generate legacy access token:", err.Error())
 		return ""
 	}
 	defer func() { _ = resp.Body.Close() }() // read-side close on an already fully-read response
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Debug("Failed to read access token response:", err.Error())
+		log.Debug("Failed to read legacy access token response:", err.Error())
 		return ""
 	}
 	if resp.StatusCode != http.StatusOK {
-		log.Debug(fmt.Sprintf("Access token generation returned status %d: %s", resp.StatusCode, string(body)))
+		log.Debug(fmt.Sprintf("Legacy access token generation returned status %d: %s", resp.StatusCode, string(body)))
 		return ""
 	}
 
 	// Response field is "access_token", not "token".
 	var response map[string]any
 	if err := json.Unmarshal(body, &response); err != nil {
-		log.Debug("Failed to parse token response:", err.Error())
+		log.Debug("Failed to parse legacy token response:", err.Error())
 		return ""
 	}
 
 	token, ok := response["access_token"].(string)
 	if !ok || token == "" {
-		log.Debug("No access_token in API response")
+		log.Debug("No access_token in legacy API response")
 		return ""
 	}
 
-	log.Debug("Access token generated for APM registry")
+	log.Debug("Access token generated for APM registry via the legacy endpoint")
 	return token
 }
 
@@ -409,25 +446,63 @@ func RunApmCommand(env []string, subcmd string, args []string) error {
 		cmd.Env = env
 	}
 
-	// Capture both stdout and stderr to detect validation failures
-	var outBuf, errBuf strings.Builder
+	// Capture only a bounded tail of stdout/stderr - just enough to spot the validation
+	// markers below - so a chatty subcommand can't grow these buffers unbounded. The full,
+	// unbounded output still reaches the user via os.Stdout/os.Stderr.
+	var outBuf, errBuf tailBuffer
+	outBuf.maxSize, errBuf.maxSize = maxCapturedOutputBytes, maxCapturedOutputBytes
 	cmd.Stdout = io.MultiWriter(os.Stdout, &outBuf)
 	cmd.Stderr = io.MultiWriter(os.Stderr, &errBuf)
 	cmd.Stdin = os.Stdin
 
 	err := cmd.Run()
-	output := outBuf.String() + errBuf.String()
-
-	// Check for APM validation failures: "[x]" marker or "All packages failed validation"
-	// APM sometimes exits with code 0 even when validation failed
-	if strings.Contains(output, "[x]") || strings.Contains(output, "All packages failed validation") {
-		return fmt.Errorf("apm %s failed: validation errors detected in output", subcmd)
-	}
-
 	if err != nil {
 		return fmt.Errorf("apm %s failed: %w", subcmd, err)
 	}
+
+	// apm sometimes exits with code 0 even when dependency validation failed, so scan the
+	// output too - but only for subcommands that actually perform validation. Passthrough
+	// subcommands (e.g. "list", "--help") can legitimately contain "[x]" in unrelated text.
+	if isValidationCheckedSubcommand(subcmd) {
+		output := outBuf.String() + errBuf.String()
+		if strings.Contains(output, "[x]") || strings.Contains(output, "All packages failed validation") {
+			return fmt.Errorf("apm %s failed: validation errors detected in output", subcmd)
+		}
+	}
 	return nil
+}
+
+// maxCapturedOutputBytes bounds how much of each stream's tail RunApmCommand retains for
+// validation-marker detection.
+const maxCapturedOutputBytes = 64 * 1024
+
+// tailBuffer is an io.Writer that retains only the most recent maxSize bytes written to it.
+type tailBuffer struct {
+	maxSize int
+	buf     []byte
+}
+
+func (t *tailBuffer) Write(p []byte) (int, error) {
+	t.buf = append(t.buf, p...)
+	if len(t.buf) > t.maxSize {
+		t.buf = t.buf[len(t.buf)-t.maxSize:]
+	}
+	return len(p), nil
+}
+
+func (t *tailBuffer) String() string {
+	return string(t.buf)
+}
+
+// isValidationCheckedSubcommand reports whether subcmd is one of the apm subcommands that
+// perform dependency validation and can exit 0 while still having failed it.
+func isValidationCheckedSubcommand(subcmd string) bool {
+	switch subcmd {
+	case "install", "update", "publish":
+		return true
+	default:
+		return false
+	}
 }
 
 // ConfigureApmRegistryPersistent configures ~/.apm/config.json via apm's own `apm experimental
