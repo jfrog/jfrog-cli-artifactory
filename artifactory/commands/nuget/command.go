@@ -3,6 +3,7 @@ package nuget
 import (
 	"bytes"
 	"crypto/tls"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -136,7 +137,7 @@ func (c *NuGetFlexPackCommand) Run() error {
 			repo = c.repoDeploy
 		}
 		if repo != "" {
-			if c.toolchainType == dotnetutils.Nuget && !isPushCommand(c.subCommand) {
+			if c.toolchainType == dotnetutils.Nuget && isRestoreCommand(c.subCommand) {
 				// nuget.exe (mono) re-embeds credentials into MSBuild's /p:RestoreSources=
 				// regardless of whether they come from -Source or a -ConfigFile config. MSBuild
 				// can authenticate V2 feeds with embedded Basic Auth but fails to load a V3
@@ -146,12 +147,14 @@ func (c *NuGetFlexPackCommand) Run() error {
 				// Push is excluded: nuget.exe push always sends credentials as X-NuGet-ApiKey
 				// regardless of the credential source; Artifactory rejects access tokens via that
 				// header with 403. pushNupkgToArtifactory handles push directly via Basic Auth.
+				// Pack and passthrough commands are also excluded: they are local-only and do not
+				// need a NuGet source.
 				cleanup, err := c.injectCredentialsViaTempConfig(repo)
 				if err != nil {
 					return err
 				}
 				defer cleanup()
-			} else if c.toolchainType != dotnetutils.Nuget && !isPushCommand(c.subCommand) {
+			} else if c.toolchainType != dotnetutils.Nuget && isRestoreCommand(c.subCommand) {
 				// dotnet CLI restore/install/update: inject --source <url-with-Basic-Auth>.
 				// Push is excluded: the bypass below handles all push cases (both nuget.exe
 				// and dotnet CLI) via a direct HTTP PUT to Artifactory using Basic Auth, which
@@ -279,19 +282,19 @@ func (c *NuGetFlexPackCommand) injectCredentialsViaTempConfig(repo string) (func
 
 	// <clear/> ensures no other sources (nuget.org, system config) interfere — all traffic
 	// is routed exclusively through Artifactory.
-	configContent := fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
+	configContent := `<?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <packageSources>
     <clear />
-    <add key=%q value=%q`+allowInsecure+` />
+    <add key=` + xmlAttrValue(sourceName) + ` value=` + xmlAttrValue(sourceURL) + allowInsecure + ` />
   </packageSources>
   <packageSourceCredentials>
-    <%s>
-      <add key="Username" value=%q />
-      <add key="ClearTextPassword" value=%q />
-    </%s>
+    <` + sourceName + `>
+      <add key="Username" value=` + xmlAttrValue(user) + ` />
+      <add key="ClearTextPassword" value=` + xmlAttrValue(password) + ` />
+    </` + sourceName + `>
   </packageSourceCredentials>
-</configuration>`, sourceName, sourceURL, sourceName, user, password, sourceName)
+</configuration>`
 
 	tmpFile, err := os.CreateTemp("", "jfrog-nuget-*.config")
 	if err != nil {
@@ -376,8 +379,10 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
 	skipDuplicate := hasSkipDuplicate(c.args)
 	noSymbols := hasNoSymbols(c.args)
 
-	//nolint:gosec
-	tlsCfg := &tls.Config{InsecureSkipVerify: c.allowInsecureConnections}
+	// allowInsecureConnections controls whether plain-HTTP NuGet sources are accepted
+	// (NuGet 6.8+ allowInsecureConnections flag). It does NOT skip TLS certificate
+	// verification for HTTPS endpoints, which must always be enforced.
+	tlsCfg := &tls.Config{InsecureSkipVerify: false} //nolint:gosec
 	httpClient := &http.Client{Transport: &http.Transport{
 		TLSClientConfig: tlsCfg,
 		Proxy:           http.ProxyFromEnvironment,
@@ -477,7 +482,14 @@ func resolvePackagePaths(workingDir string, args []string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("expand glob %q: %w", arg, err)
 		}
-		paths = append(paths, matches...)
+		// Re-filter glob matches to only include NuGet package files; a glob like
+		// "bin/*" could expand to non-package files if the pattern is broad.
+		for _, m := range matches {
+			ext := strings.ToLower(filepath.Ext(m))
+			if ext == ".nupkg" || ext == ".snupkg" {
+				paths = append(paths, m)
+			}
+		}
 	}
 	return paths, nil
 }
@@ -575,26 +587,25 @@ func (c *NuGetFlexPackCommand) collectAndStampPushArtifacts(buildName, buildNumb
 // resolveLocalDeployRepo returns the local repo key where artifacts actually land.
 // If repoKey is a virtual repo it returns the virtual repo's defaultDeploymentRepo;
 // for local/remote repos it returns repoKey unchanged.
-// Resolution failures are non-fatal: the original key is returned with a warning.
+// Failures are hard errors: build-info must never record a virtual repo key that
+// downstream tools would 404 on.
 func (c *NuGetFlexPackCommand) resolveLocalDeployRepo(repoKey string) (string, error) {
 	if repoKey == "" || c.serverDetails == nil {
 		return repoKey, nil
 	}
 	servicesManager, err := rtutils.CreateServiceManager(c.serverDetails, -1, 0, false)
 	if err != nil {
-		return repoKey, nil
+		return "", fmt.Errorf("create services manager to resolve repo %q: %w", repoKey, err)
 	}
 	var params services.VirtualRepositoryBaseParams
 	if err := servicesManager.GetRepository(repoKey, &params); err != nil {
-		log.Warn(fmt.Sprintf("Could not resolve repo type for %q; using as-is for OriginalDeploymentRepo: %v", repoKey, err))
-		return repoKey, nil
+		return "", fmt.Errorf("resolve repo type for %q: %w", repoKey, err)
 	}
 	if params.Rclass != "virtual" {
 		return repoKey, nil
 	}
 	if params.DefaultDeploymentRepo == "" {
-		log.Warn(fmt.Sprintf("Virtual repo %q has no defaultDeploymentRepo configured; OriginalDeploymentRepo will be the virtual repo key.", repoKey))
-		return repoKey, nil
+		return "", fmt.Errorf("virtual repo %q has no defaultDeploymentRepo configured; cannot determine the local repo for build-info", repoKey)
 	}
 	log.Debug(fmt.Sprintf("Resolved virtual repo %q → local repo %q for OriginalDeploymentRepo", repoKey, params.DefaultDeploymentRepo))
 	return params.DefaultDeploymentRepo, nil
@@ -773,10 +784,16 @@ func isPackCommand(sub string) bool {
 	return sub == "pack"
 }
 
-// needsConfig returns true when the subcommand needs a NuGet source (restore, push, etc.).
-// pack is a local-only operation and does not use a NuGet source.
-func needsConfig(sub string) bool {
-	return isRestoreCommand(sub) || isPushCommand(sub)
+// xmlAttrValue returns s with XML special characters escaped, wrapped in double quotes,
+// suitable for use as an XML attribute value (e.g. key="foo&amp;bar").
+// It uses encoding/xml.EscapeText to ensure &, <, >, ", and ' are properly escaped.
+func xmlAttrValue(s string) string {
+	var buf bytes.Buffer
+	if err := xml.EscapeText(&buf, []byte(s)); err != nil {
+		// EscapeText only fails on unsupported code points; fall back to the raw value.
+		return `"` + s + `"`
+	}
+	return `"` + buf.String() + `"`
 }
 
 // saveBuildInfoLocally saves build-info for later publishing with 'jf rt bp'.
