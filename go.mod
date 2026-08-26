@@ -8,7 +8,7 @@ require (
 	github.com/forPelevin/gomoji v1.4.1
 	github.com/google/go-containerregistry v0.21.3
 	github.com/jedib0t/go-pretty/v6 v6.8.3
-	github.com/jfrog/build-info-go v1.13.1-0.20260820164502-c052ac9d077c
+	github.com/jfrog/build-info-go v1.13.1-0.20260826100753-e3fe21d97f7c
 	github.com/jfrog/gofrog v1.7.6
 	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260811051029-e2289bda7c64
 	github.com/jfrog/jfrog-cli-evidence v0.9.0
@@ -166,6 +166,7 @@ require (
 	github.com/transparency-dev/merkle v0.0.2 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	github.com/urfave/cli v1.22.17 // indirect
+	github.com/urfave/cli/v2 v2.27.7 // indirect
 	github.com/vbatts/tar-split v0.12.2 // indirect
 	github.com/vbauerster/cupwriter v0.0.4 // indirect
 	github.com/vbauerster/mpb/v8 v8.14.0 // indirect
@@ -173,6 +174,7 @@ require (
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	github.com/xrash/smetrics v0.0.0-20250705151800-55b8f293f342 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.64.0 // indirect
 	go.opentelemetry.io/otel v1.42.0 // indirect

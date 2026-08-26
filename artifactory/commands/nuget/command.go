@@ -174,9 +174,15 @@ func (c *NuGetFlexPackCommand) Run() error {
 	// identify the packages this command produces (including custom --output directories and
 	// bin/<Configuration> defaults), instead of scanning the working directory for stale files.
 	var packSnapshot nugetflex.PackageSnapshot
+	var packOutputDir string
 	if isPackCommand(c.subCommand) {
+		packOutputDir = extractPackOutputDir(c.args)
+		var extraDirs []string
+		if packOutputDir != "" {
+			extraDirs = append(extraDirs, packOutputDir)
+		}
 		var snapErr error
-		packSnapshot, snapErr = nugetflex.SnapshotPackageFiles(c.workingDir)
+		packSnapshot, snapErr = nugetflex.SnapshotPackageFiles(c.workingDir, extraDirs...)
 		if snapErr != nil {
 			return snapErr
 		}
@@ -223,7 +229,7 @@ func (c *NuGetFlexPackCommand) Run() error {
 	case isPushCommand(c.subCommand):
 		return c.collectAndStampPushArtifacts(buildName, buildNumber)
 	case isPackCommand(c.subCommand):
-		return c.collectPackArtifacts(buildName, buildNumber, packSnapshot)
+		return c.collectPackArtifacts(buildName, buildNumber, packSnapshot, packOutputDir)
 	}
 	return nil
 }
@@ -612,10 +618,15 @@ func (c *NuGetFlexPackCommand) resolveLocalDeployRepo(repoKey string) (string, e
 }
 
 // collectPackArtifacts records the packages produced by a pack command, detected by comparing
-// the pre-command package snapshot with the current filesystem state.
-func (c *NuGetFlexPackCommand) collectPackArtifacts(buildName, buildNumber string, before nugetflex.PackageSnapshot) error {
+// the pre-command package snapshot with the current filesystem state. outputDir is the
+// explicit --output directory passed to the pack command (empty string if not provided).
+func (c *NuGetFlexPackCommand) collectPackArtifacts(buildName, buildNumber string, before nugetflex.PackageSnapshot, outputDir string) error {
 	log.Info(fmt.Sprintf("Collecting NuGet artifact info for %s/%s", buildName, buildNumber))
-	artifacts, err := nugetflex.CollectPackedArtifacts(c.workingDir, before, c.repoDeploy)
+	var extraDirs []string
+	if outputDir != "" {
+		extraDirs = append(extraDirs, outputDir)
+	}
+	artifacts, err := nugetflex.CollectPackedArtifacts(c.workingDir, before, c.repoDeploy, extraDirs...)
 	if err != nil {
 		return fmt.Errorf("collect packed NuGet artifacts: %w", err)
 	}
@@ -692,6 +703,28 @@ func (c *NuGetFlexPackCommand) stampBuildProperties(artifacts []entities.Artifac
 	}
 	log.Info(fmt.Sprintf("Stamped build properties on %d NuGet artifact(s).", length))
 	return nil
+}
+
+// extractPackOutputDir returns the explicit --output / -OutputDirectory directory from pack
+// command args, or an empty string when the flag is absent. Handles both nuget.exe style
+// (-OutputDirectory <dir>) and dotnet CLI style (--output <dir> / -o <dir> / --output=<dir>).
+func extractPackOutputDir(args []string) string {
+	for i, arg := range args {
+		lower := strings.ToLower(arg)
+		// Inline-value form: --output=dir or -outputdirectory:dir
+		for _, prefix := range []string{"--output=", "-outputdirectory=", "-outputdirectory:"} {
+			if strings.HasPrefix(lower, prefix) {
+				return arg[len(prefix):]
+			}
+		}
+		// Space-separated form: --output dir / -o dir / -OutputDirectory dir
+		if lower == "--output" || lower == "-o" || lower == "-outputdirectory" {
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+		}
+	}
+	return ""
 }
 
 // restoreTarget returns the solution, project, or directory explicitly supplied to the
