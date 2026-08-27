@@ -438,7 +438,11 @@ func pushSinglePackage(client *http.Client, pushURL, pkgPath, user, password str
 	mw := multipart.NewWriter(pw)
 	writeErr := make(chan error, 1)
 	go func() {
-		defer pw.Close()
+		defer func() {
+			if closeErr := pw.Close(); closeErr != nil {
+				log.Debug("Failed to close pipe writer:", closeErr.Error())
+			}
+		}()
 		part, err := mw.CreateFormFile("package", filepath.Base(pkgPath))
 		if err != nil {
 			writeErr <- fmt.Errorf("create form file: %w", err)

@@ -202,7 +202,7 @@ func TestPushSinglePackage(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tc.statusCode)
 				if tc.responseBody != "" {
-					fmt.Fprint(w, tc.responseBody)
+					_, _ = fmt.Fprint(w, tc.responseBody)
 				}
 			}))
 			defer srv.Close()
