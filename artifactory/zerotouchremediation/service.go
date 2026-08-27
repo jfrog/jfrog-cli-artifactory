@@ -2,6 +2,7 @@ package zerotouchremediation
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -148,6 +149,22 @@ func ApplyLockfiles(projectRoot string, lockfiles []Lockfile, treatAsAbsent []st
 	}
 
 	var backups []lockfileBackup
+	restoreWritten := func() error {
+		var restoreErr error
+		for _, backup := range backups {
+			if rbErr := restoreLockfileBackup(backup); rbErr != nil {
+				restoreErr = errors.Join(restoreErr, rbErr)
+			}
+		}
+		return restoreErr
+	}
+	fail := func(cause error) (func() error, error) {
+		if rbErr := restoreWritten(); rbErr != nil {
+			return nil, errors.Join(errorutils.CheckError(cause), rbErr)
+		}
+		return nil, errorutils.CheckError(cause)
+	}
+
 	for _, lf := range lockfiles {
 		fullPath := filepath.Join(projectRoot, lf.Path)
 		backup := lockfileBackup{path: fullPath}
@@ -156,31 +173,28 @@ func ApplyLockfiles(projectRoot string, lockfiles []Lockfile, treatAsAbsent []st
 			if readErr == nil {
 				backup.content = data
 			} else if !os.IsNotExist(readErr) {
-				return nil, errorutils.CheckError(readErr)
+				return fail(readErr)
 			}
 		}
-		backups = append(backups, backup)
 
 		if err = os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-			return nil, errorutils.CheckError(err)
+			return fail(err)
 		}
 		if err = os.WriteFile(fullPath, lf.Content, 0644); err != nil {
-			return nil, errorutils.CheckError(err)
+			return fail(err)
 		}
+		backups = append(backups, backup)
 	}
 
-	return func() error {
-		for _, backup := range backups {
-			if backup.content == nil {
-				if err = os.Remove(backup.path); err != nil && !os.IsNotExist(err) {
-					return errorutils.CheckError(err)
-				}
-				continue
-			}
-			if err = os.WriteFile(backup.path, backup.content, 0644); err != nil {
-				return errorutils.CheckError(err)
-			}
+	return restoreWritten, nil
+}
+
+func restoreLockfileBackup(backup lockfileBackup) error {
+	if backup.content == nil {
+		if err := os.Remove(backup.path); err != nil && !os.IsNotExist(err) {
+			return errorutils.CheckError(err)
 		}
 		return nil
-	}, nil
+	}
+	return errorutils.CheckError(os.WriteFile(backup.path, backup.content, 0644))
 }

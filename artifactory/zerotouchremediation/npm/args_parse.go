@@ -13,8 +13,9 @@ type discoveryOptions struct {
 }
 
 type npmCLIArgs struct {
-	prefixDir     string
-	bootstrapArgs []string
+	prefixDir       string
+	bootstrapArgs   []string
+	packageOperands []string
 }
 
 func parseNpmCLIArgs(args []string) npmCLIArgs {
@@ -31,21 +32,31 @@ func parseNpmCLIArgs(args []string) npmCLIArgs {
 			out.prefixDir = strings.TrimPrefix(arg, "--prefix=")
 		case strings.HasPrefix(arg, "--cwd="):
 			out.prefixDir = strings.TrimPrefix(arg, "--cwd=")
-		case strings.HasPrefix(arg, "-C"):
-			if arg == "-C" {
-				continue
-			}
+		case strings.HasPrefix(arg, "-C") && arg != "-C":
 			out.prefixDir = strings.TrimPrefix(arg, "-C")
-		case arg == "--workspaces" || arg == "-w":
+		case arg == "--workspaces":
 			out.bootstrapArgs = append(out.bootstrapArgs, arg)
+		case arg == "--workspace" || arg == "-w":
+			if i+1 < len(args) {
+				i++
+				out.bootstrapArgs = append(out.bootstrapArgs, arg, args[i])
+			}
 		case strings.HasPrefix(arg, "--workspace="):
 			out.bootstrapArgs = append(out.bootstrapArgs, arg)
-		case arg == "--workspace" && i+1 < len(args):
-			out.bootstrapArgs = append(out.bootstrapArgs, arg, args[i+1])
-			i++
+		case strings.HasPrefix(arg, "-w=") && len(arg) > 3:
+			out.bootstrapArgs = append(out.bootstrapArgs, arg)
+		case strings.HasPrefix(arg, "-"):
+			continue
+		default:
+			out.packageOperands = append(out.packageOperands, arg)
 		}
 	}
 	return out
+}
+
+// HasPackageOperands reports whether npmArgs include a package name (not an option value).
+func HasPackageOperands(npmArgs []string) bool {
+	return len(parseNpmCLIArgs(npmArgs).packageOperands) > 0
 }
 
 // BootstrapArgsFrom extracts workspace flags to pass to npm install --package-lock-only.

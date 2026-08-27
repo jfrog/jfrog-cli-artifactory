@@ -307,3 +307,22 @@ func TestApplyLockfiles_WritesMultipleFiles(t *testing.T) {
 
 	require.NoError(t, restore())
 }
+
+func TestApplyLockfiles_RollsBackOnLaterWriteFailure(t *testing.T) {
+	dir := t.TempDir()
+	firstPath := filepath.Join(dir, "package-lock.json")
+	require.NoError(t, os.WriteFile(firstPath, []byte("original-first"), 0644))
+	blocker := filepath.Join(dir, "blocker")
+	require.NoError(t, os.WriteFile(blocker, []byte("not-a-dir"), 0644))
+
+	restore, err := ApplyLockfiles(dir, []Lockfile{
+		{Path: "package-lock.json", Content: []byte("remediated-first")},
+		{Path: "blocker/nested.lock", Content: []byte("remediated-second")},
+	}, nil)
+	require.Error(t, err)
+	assert.Nil(t, restore)
+
+	data, readErr := os.ReadFile(firstPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, "original-first", string(data))
+}

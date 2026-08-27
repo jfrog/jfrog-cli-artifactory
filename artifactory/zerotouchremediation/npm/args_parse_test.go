@@ -23,8 +23,36 @@ func TestParseNpmCLIArgs_PrefixEquals(t *testing.T) {
 }
 
 func TestParseNpmCLIArgs_WorkspaceBootstrap(t *testing.T) {
-	opts := parseNpmCLIArgs([]string{"install", "--workspace", "@scope/pkg", "-w"})
-	assert.Equal(t, []string{"--workspace", "@scope/pkg", "-w"}, opts.bootstrapArgs)
+	opts := parseNpmCLIArgs([]string{"install", "--workspace", "@scope/pkg", "-w", "app"})
+	assert.Equal(t, []string{"--workspace", "@scope/pkg", "-w", "app"}, opts.bootstrapArgs)
+}
+
+func TestParseNpmCLIArgs_ShortWorkspaceConsumesValue(t *testing.T) {
+	opts := parseNpmCLIArgs([]string{"-w", "app"})
+	assert.Equal(t, []string{"-w", "app"}, opts.bootstrapArgs)
+	assert.Empty(t, opts.packageOperands)
+}
+
+func TestParseNpmCLIArgs_ShortWorkspaceEquals(t *testing.T) {
+	opts := parseNpmCLIArgs([]string{"install", "-w=app"})
+	assert.Equal(t, []string{"-w=app"}, opts.bootstrapArgs)
+}
+
+func TestParseNpmCLIArgs_WorkspacesBooleanUnchanged(t *testing.T) {
+	opts := parseNpmCLIArgs([]string{"install", "--workspaces"})
+	assert.Equal(t, []string{"--workspaces"}, opts.bootstrapArgs)
+}
+
+func TestParseNpmCLIArgs_PackageOperandsSkipOptionValues(t *testing.T) {
+	opts := parseNpmCLIArgs([]string{"--save", "lodash"})
+	assert.Equal(t, []string{"lodash"}, opts.packageOperands)
+
+	opts = parseNpmCLIArgs([]string{"--prefix", "packages/app", "lodash"})
+	assert.Equal(t, []string{"lodash"}, opts.packageOperands)
+	assert.Equal(t, "packages/app", opts.prefixDir)
+
+	opts = parseNpmCLIArgs([]string{"--verbose"})
+	assert.Empty(t, opts.packageOperands)
 }
 
 func TestEffectiveStartDir_PublishPathOverridesCwd(t *testing.T) {
@@ -59,5 +87,15 @@ func TestEffectiveStartDir_PrefixFromArgsUnixRoot(t *testing.T) {
 }
 
 func TestBootstrapArgsFrom(t *testing.T) {
-	assert.Equal(t, []string{"-w"}, BootstrapArgsFrom([]string{"install", "-w"}))
+	assert.Equal(t, []string{"-w", "app"}, BootstrapArgsFrom([]string{"install", "-w", "app"}))
+	assert.Empty(t, BootstrapArgsFrom([]string{"install", "-w"}))
+}
+
+func TestHasPackageOperands(t *testing.T) {
+	assert.True(t, HasPackageOperands([]string{"lodash"}))
+	assert.True(t, HasPackageOperands([]string{"--save", "lodash"}))
+	assert.False(t, HasPackageOperands([]string{"--verbose"}))
+	assert.False(t, HasPackageOperands([]string{"-w", "app"}))
+	assert.False(t, HasPackageOperands([]string{"--workspace", "@scope/pkg"}))
+	assert.False(t, HasPackageOperands(nil))
 }

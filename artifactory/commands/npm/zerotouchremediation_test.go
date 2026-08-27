@@ -33,5 +33,8 @@ func TestIsSinglePackageInstall(t *testing.T) {
 	assert.True(t, isSinglePackageInstall([]string{"lodash"}))
 	assert.True(t, isSinglePackageInstall([]string{"--save", "lodash"}))
 	assert.False(t, isSinglePackageInstall([]string{"--verbose"}))
+	assert.False(t, isSinglePackageInstall([]string{"-w", "app"}))
+	assert.False(t, isSinglePackageInstall([]string{"--workspace", "@scope/pkg"}))
+	assert.False(t, isSinglePackageInstall([]string{"--prefix", "packages/app"}))
 	assert.False(t, isSinglePackageInstall(nil))
 }

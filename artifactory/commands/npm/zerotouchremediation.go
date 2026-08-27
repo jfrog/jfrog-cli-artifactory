@@ -103,10 +103,5 @@ func runNpmAt(_ context.Context, executablePath, projectRoot string, args ...str
 }
 
 func isSinglePackageInstall(npmArgs []string) bool {
-	for _, arg := range npmArgs {
-		if !strings.HasPrefix(arg, "-") {
-			return true
-		}
-	}
-	return false
+	return cnpm.HasPackageOperands(npmArgs)
 }
