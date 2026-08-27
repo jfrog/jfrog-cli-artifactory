@@ -34,6 +34,7 @@ type MvnUtils struct {
 	insecureTls               bool
 	disableDeploy             bool
 	outputWriter              io.Writer
+	preferWrapper             bool
 }
 
 func NewMvnUtils() *MvnUtils {
@@ -85,16 +86,54 @@ func (mu *MvnUtils) SetOutputWriter(writer io.Writer) *MvnUtils {
 	return mu
 }
 
+// SetPreferWrapper controls Maven executable resolution in native (FlexPack) mode.
+// When true (jf mvnw), a Maven Wrapper (mvnw/mvnw.cmd) must be found upward from the
+// working directory, or the command fails. When false (jf mvn), a wrapper is never
+// used; native mode always runs "mvn" from PATH.
+func (mu *MvnUtils) SetPreferWrapper(preferWrapper bool) *MvnUtils {
+	mu.preferWrapper = preferWrapper
+	return mu
+}
+
+// resolveMavenExecutable determines which Maven executable native (FlexPack) mode should run.
+// jf mvn (preferWrapper=false) always uses "mvn" from PATH, unchanged from prior behavior.
+// jf mvnw (preferWrapper=true) searches upward from the working directory for a project root
+// containing ".mvn" (the Maven Wrapper marker directory) and requires mvnw/mvnw.cmd there;
+// it fails rather than silently falling back to PATH "mvn".
+func resolveMavenExecutable(preferWrapper bool) (string, error) {
+	if !preferWrapper {
+		return "mvn", nil
+	}
+	projectRoot, exists, err := fileutils.FindUpstream(".mvn", fileutils.Dir)
+	if err != nil {
+		return "", errorutils.CheckError(err)
+	}
+	if exists {
+		wrapperName := "mvnw"
+		if coreutils.IsWindows() {
+			wrapperName = "mvnw.cmd"
+		}
+		wrapperPath := filepath.Join(projectRoot, wrapperName)
+		if _, statErr := os.Stat(wrapperPath); statErr == nil {
+			return wrapperPath, nil
+		}
+	}
+	return "", errorutils.CheckErrorf("mvnw invoked but no Maven Wrapper (mvnw/mvnw.cmd) was found in the current directory or any parent directory")
+}
+
 func RunMvn(mu *MvnUtils) error {
 	// FlexPack completely bypasses traditional Maven Build Info Extractor
 	if utils.ShouldRunNative(mu.configPath) {
 		log.Debug("Maven native implementation activated")
+		mavenExecutable, err := resolveMavenExecutable(mu.preferWrapper)
+		if err != nil {
+			return err
+		}
 		// Execute native Maven command directly (no JFrog Maven plugin)
-		cmd := exec.Command("mvn", mu.goals...)
+		cmd := exec.Command(mavenExecutable, mu.goals...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
-		err := cmd.Run()
-		if err != nil {
+		if err = cmd.Run(); err != nil {
 			log.Error("Failed to execute package manager command: " + err.Error())
 			return errorutils.CheckError(err)
 		}
@@ -220,7 +259,11 @@ func createMvnRunProps(vConfig *viper.Viper, buildArtifactsDetailsFile string, t
 	}
 
 	// Set CI VCS properties if in CI environment
-	civcs.SetCIVcsPropsToConfig(vConfig)
+	workingDir, wdErr := os.Getwd()
+	if wdErr != nil {
+		workingDir = "."
+	}
+	civcs.SetCIVcsPropsToConfig(vConfig, workingDir)
 
 	buildInfoProps, err := buildUtils.CreateBuildInfoProps(buildArtifactsDetailsFile, vConfig, project.Maven)
 	if err != nil {

@@ -1,7 +1,9 @@
 package setup
 
 import (
+	"bytes"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/python"
 	cmdutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/maven"
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
@@ -20,14 +23,64 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
 	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/utils/io"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
+	"gopkg.in/yaml.v3"
 )
 
 const (
 	goProxyEnv = "GOPROXY"
 )
+
+// assertOwnerOnly verifies path is restricted to 0600, the mode jf setup applies
+// to credential-bearing config files. It skips Windows, where os.Chmod only
+// toggles the read-only attribute and the mode always reads back as 0666.
+func assertOwnerOnly(t *testing.T, path string) {
+	t.Helper()
+	if coreutils.IsWindows() {
+		return
+	}
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0600), info.Mode().Perm(), "%s must be owner-only readable", path)
+}
+
+// collectConfigPaths walks root and returns the paths of known npm-family config
+// files. The walk only collects paths; callers read them afterwards, so no
+// filesystem operation runs inside the callback (avoids the WalkDir TOCTOU gosec
+// flags).
+func collectConfigPaths(t *testing.T, root string) []string {
+	t.Helper()
+	configFileNames := []string{".npmrc", "auth.ini", "rc", "config.yaml"}
+	var configPaths []string
+	require.NoError(t, filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || !slices.Contains(configFileNames, entry.Name()) {
+			return err
+		}
+		configPaths = append(configPaths, path)
+		return nil
+	}))
+	return configPaths
+}
+
+// findConfigFileContaining returns the path of the package-manager config file
+// under root whose contents include substr. pnpm chooses its own config directory
+// and credential file name per version (auth.ini, rc, config.yaml, ...), so the
+// file holding the token is located by content rather than by an assumed name.
+func findConfigFileContaining(t *testing.T, root, substr string) string {
+	t.Helper()
+	for _, path := range collectConfigPaths(t, root) {
+		content, err := os.ReadFile(path)
+		require.NoError(t, err)
+		if strings.Contains(string(content), substr) {
+			return path
+		}
+	}
+	require.FailNowf(t, "config file not found", "no config file under %s contains %q", root, substr)
+	return ""
+}
 
 // testCredential returns a fake JWT-like string for testing. NOT a real credential.
 func testCredential() string {
@@ -91,6 +144,14 @@ func testSetupCommandNpmPnpm(t *testing.T, packageManager project.ProjectType) {
 
 			// Set NPM_CONFIG_USERCONFIG to point to the temporary npmrc file path.
 			t.Setenv("NPM_CONFIG_USERCONFIG", npmrcFilePath)
+			// `pnpm config set` ignores NPM_CONFIG_USERCONFIG and writes to its own config
+			// directory instead, so every variable that locates a home or config directory
+			// is redirected into tempDir as well. Without this the pnpm cases write into
+			// the developer's real pnpm configuration and then fail on the missing .npmrc.
+			t.Setenv("HOME", tempDir)
+			t.Setenv("USERPROFILE", tempDir)
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(tempDir, "xdg"))
+			t.Setenv("LOCALAPPDATA", filepath.Join(tempDir, "localappdata"))
 
 			// Set up server details for the current test case's authentication type.
 			loginCmd := createTestSetupCommand(packageManager)
@@ -101,10 +162,17 @@ func testSetupCommandNpmPnpm(t *testing.T, packageManager project.ProjectType) {
 			// Run the login command and ensure no errors occur.
 			require.NoError(t, loginCmd.Run())
 
-			// Read the contents of the temporary npmrc file.
-			npmrcContentBytes, err := os.ReadFile(npmrcFilePath)
-			assert.NoError(t, err)
-			npmrcContent := string(npmrcContentBytes)
+			npmrcContent := readPackageManagerConfigs(t, tempDir)
+
+			// pnpm writes the _authToken at 0644, and jf setup restricts it to
+			// owner-only. The file it lands in varies by pnpm version, so assert on
+			// whichever config file actually holds the auth entry. Only written when
+			// there is a credential to store. npm is not asserted here: it writes
+			// ~/.npmrc at 0600 itself, so jf setup adds no hardening of ours to test.
+			hasCredentials := testCase.accessToken != "" || (testCase.user != "" && testCase.password != "")
+			if packageManager == project.Pnpm && hasCredentials {
+				assertOwnerOnly(t, findConfigFileContaining(t, tempDir, ":_auth"))
+			}
 
 			// Validate that the registry URL was set correctly in .npmrc.
 			assert.Contains(t, npmrcContent, fmt.Sprintf("%s=%s", cmdutils.NpmConfigRegistryKey, "https://acme.jfrog.io/artifactory/api/npm/test-repo/"))
@@ -118,11 +186,34 @@ func testSetupCommandNpmPnpm(t *testing.T, packageManager project.ProjectType) {
 				expectedBasicAuth := fmt.Sprintf("//acme.jfrog.io/artifactory/api/npm/test-repo/:%s=\"bXlVc2VyOm15UGFzc3dvcmQ=\"", cmdutils.NpmConfigAuthKey)
 				assert.Contains(t, npmrcContent, expectedBasicAuth)
 			}
-
-			// Clean up the temporary npmrc file.
-			assert.NoError(t, os.Remove(npmrcFilePath))
 		})
 	}
+}
+
+// readPackageManagerConfigs returns the contents of every npm-family configuration file
+// written under root. npm writes the file NPM_CONFIG_USERCONFIG names, while pnpm writes
+// auth.ini inside its own config directory, whose path differs per platform, so the files
+// are found by walking rather than assumed. Only known configuration file names are read,
+// to keep caches and log files out of the assertions.
+func readPackageManagerConfigs(t *testing.T, root string) string {
+	configPaths := collectConfigPaths(t, root)
+	require.NotEmptyf(t, configPaths, "no package manager configuration was written under %s", root)
+
+	var contents []string
+	for _, configPath := range configPaths {
+		content, err := os.ReadFile(configPath)
+		require.NoError(t, err)
+		contents = append(contents, string(content))
+	}
+	return strings.Join(contents, "\n")
+}
+
+// pnpmCredentialFiles is best-effort: when pnpm cannot be executed it returns no
+// paths (and warns) rather than erroring, so a missing pnpm never breaks setup.
+func TestPnpmCredentialFiles_PnpmMissing(t *testing.T) {
+	// An empty PATH makes `pnpm` unresolvable on every OS.
+	t.Setenv("PATH", t.TempDir())
+	assert.Nil(t, pnpmCredentialFiles())
 }
 
 func TestSetupCommand_Yarn(t *testing.T) {
@@ -154,6 +245,9 @@ func TestSetupCommand_Yarn(t *testing.T) {
 			yarnrcContentBytes, err := os.ReadFile(yarnrcFilePath)
 			assert.NoError(t, err)
 			yarnrcContent := string(yarnrcContentBytes)
+
+			// ~/.yarnrc stores the auth token in cleartext, so it must be owner-only.
+			assertOwnerOnly(t, yarnrcFilePath)
 
 			// Check that the registry URL is correctly set in .yarnrc.
 			assert.Contains(t, yarnrcContent, fmt.Sprintf("%s \"%s\"", cmdutils.NpmConfigRegistryKey, "https://acme.jfrog.io/artifactory/api/npm/test-repo"))
@@ -211,6 +305,14 @@ func testSetupCommandPip(t *testing.T, packageManager project.ProjectType, custo
 			assert.NoError(t, err)
 			pipConfigContent := string(pipConfigContentBytes)
 
+			// Windows has no Unix permission bits: os.Chmod there only toggles
+			// the read-only attribute, so the mode always reads back as 0666.
+			if !coreutils.IsWindows() {
+				info, err := os.Stat(pipConfFilePath)
+				require.NoError(t, err)
+				assert.Equal(t, os.FileMode(0600), info.Mode().Perm(), "pip config must be owner-only readable")
+			}
+
 			switch {
 			case testCase.accessToken != "":
 				// Validate token-based authentication.
@@ -231,17 +333,11 @@ func testSetupCommandPip(t *testing.T, packageManager project.ProjectType, custo
 
 // globalGlobalPipConfigPath returns the path to the global pip.conf file and a backup function to restore the original file.
 func globalGlobalPipConfigPath(t *testing.T) (string, func()) {
-	var pipConfFilePath string
-	if coreutils.IsWindows() {
-		// Sanitize path from environment variable to prevent path traversal
-		appData := filepath.Clean(os.Getenv("APPDATA"))
-		pipConfFilePath = filepath.Join(appData, "pip", "pip.ini")
-	} else {
-		// Retrieve the home directory and construct the pip.conf file path.
-		homeDir, err := os.UserHomeDir()
-		assert.NoError(t, err)
-		pipConfFilePath = filepath.Join(homeDir, ".config", "pip", "pip.conf")
-	}
+	// Resolve through the same helper the command uses, so this stays correct on
+	// hosts where pip does not use ~/.config (e.g. macOS with
+	// ~/Library/Application Support/pip present, or a Linux XDG_CONFIG_HOME).
+	pipConfFilePath, err := python.ResolvePipConfigPath()
+	require.NoError(t, err)
 	// Back up the existing .pip.conf file and ensure restoration after the test.
 	restorePipConfFunc, err := ioutils.BackupFile(pipConfFilePath, ".pipconf.backup")
 	assert.NoError(t, err)
@@ -321,6 +417,11 @@ func setupGoProxyCleanup(t *testing.T, goProxyEnv string) func() {
 }
 
 func TestSetupCommand_Go(t *testing.T) {
+	// Isolate the Go env file so the test asserts (and hardens) a temporary file
+	// rather than mutating the developer's real ~/.../go/env permissions.
+	goEnvPath := filepath.Join(t.TempDir(), "go-env")
+	t.Setenv("GOENV", goEnvPath)
+
 	// Capture original GOPROXY state immediately, defer only the cleanup
 	cleanup := setupGoProxyCleanup(t, goProxyEnv)
 	defer cleanup()
@@ -341,6 +442,9 @@ func TestSetupCommand_Go(t *testing.T) {
 			// Run the login command and ensure no errors occur.
 			require.NoError(t, goLoginCmd.Run())
 
+			// The Go env file embeds user:token@ in GOPROXY, so it must be owner-only.
+			assertOwnerOnly(t, goEnvPath)
+
 			// Get the value of the GOPROXY environment variable.
 			outputBytes, err := exec.Command("go", "env", goProxyEnv).Output()
 			assert.NoError(t, err)
@@ -358,6 +462,12 @@ func TestSetupCommand_Go(t *testing.T) {
 				assert.Contains(t, goProxy, "https://acme.jfrog.io/artifactory/api/go/test-repo")
 			}
 
+			// The fallback must be comma-separated. A pipe would make the go command
+			// fall through to the module's public source on ANY error, including a 403
+			// from Artifactory Curation, silently defeating the block.
+			assert.Contains(t, goProxy, ",direct", "jf setup must limit the direct fallback to 404/410")
+			assert.NotContains(t, goProxy, "|direct", "a pipe separator would fall back on any error, including a Curation 403")
+
 			// Clean up the global GOPROXY setting after each test case
 			err = exec.Command("go", "env", "-u", goProxyEnv).Run()
 			assert.NoError(t, err, "Failed to unset GOPROXY after test case")
@@ -367,6 +477,9 @@ func TestSetupCommand_Go(t *testing.T) {
 
 // Test that configureGo unsets any existing GOPROXY env var before configuring.
 func TestConfigureGo_UnsetEnv(t *testing.T) {
+	// Isolate the Go env file (configureGo now hardens it) to a temporary path.
+	t.Setenv("GOENV", filepath.Join(t.TempDir(), "go-env"))
+
 	// Capture original GOPROXY state immediately, defer only the cleanup
 	cleanup := setupGoProxyCleanup(t, goProxyEnv)
 	defer cleanup()
@@ -385,6 +498,9 @@ func TestConfigureGo_UnsetEnv(t *testing.T) {
 
 // Test that configureGo unsets any existing multi-entry GOPROXY env var before configuring.
 func TestConfigureGo_UnsetEnv_MultiEntry(t *testing.T) {
+	// Isolate the Go env file (configureGo now hardens it) to a temporary path.
+	t.Setenv("GOENV", filepath.Join(t.TempDir(), "go-env"))
+
 	// Capture original GOPROXY state immediately, defer only the cleanup
 	cleanup := setupGoProxyCleanup(t, goProxyEnv)
 	defer cleanup()
@@ -421,6 +537,9 @@ func TestSetupCommand_Gradle(t *testing.T) {
 			contentBytes, err := os.ReadFile(expectedInitScriptPath)
 			require.NoError(t, err)
 			content := string(contentBytes)
+
+			// The init script embeds the access token in cleartext, so it must be owner-only.
+			assertOwnerOnly(t, expectedInitScriptPath)
 
 			assert.Contains(t, content, "artifactoryUrl = 'https://acme.jfrog.io/artifactory'")
 			if testCase.accessToken != "" {
@@ -570,6 +689,9 @@ func TestSetupCommand_Maven(t *testing.T) {
 
 			// Check that the Artifactory URL is correctly set in settings.xml.
 			assert.Contains(t, settingsXmlContent, fmt.Sprintf("<url>%s</url>", mavenLoginCmd.serverDetails.ArtifactoryUrl+"/"+mavenLoginCmd.repoName))
+
+			// settings.xml stores the password/token in cleartext, so it must be owner-only.
+			assertOwnerOnly(t, settingsXmlPath)
 
 			// Validate the mirror ID and name are set correctly.
 			assert.Contains(t, settingsXmlContent, fmt.Sprintf("<id>%s</id>", maven.ArtifactoryMirrorID))
@@ -922,4 +1044,668 @@ func TestSetupCommand_MavenCorrupted(t *testing.T) {
 		assert.Contains(t, content, "<password>test-password</password>")
 		assert.NotContains(t, content, testCredential(), "Old token should be replaced")
 	})
+}
+
+func withTempHome(t *testing.T) string {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	return tmpHome
+}
+
+// bundlerParseConfig mirrors how Bundler itself reads ~/.bundle/config. Bundler uses a
+// line-based stub serializer rather than a YAML parser: its HASH_REGEX takes the key up
+// to the last colon followed by whitespace or end-of-line, then strips one optional pair
+// of surrounding quotes from the value. Porting that here lets these tests assert that
+// what we write is what Bundler actually reads back, rather than merely that it is valid
+// YAML.
+func bundlerParseConfig(content string) map[string]string {
+	parsed := map[string]string{}
+	for _, line := range strings.Split(content, "\n") {
+		separator := -1
+		for i := 0; i < len(line); i++ {
+			if line[i] != ':' {
+				continue
+			}
+			if i+1 == len(line) || line[i+1] == ' ' || line[i+1] == '\t' {
+				separator = i
+			}
+		}
+		if separator < 0 {
+			continue
+		}
+		key := strings.TrimLeft(line[:separator], " ")
+		value := strings.TrimPrefix(line[separator+1:], " ")
+		if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
+			value = value[1 : len(value)-1]
+		}
+		if key == "" || value == "" {
+			continue
+		}
+		parsed[key] = value
+	}
+	return parsed
+}
+
+func readBundleConfig(t *testing.T, home string) map[string]string {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(home, ".bundle", "config"))
+	require.NoError(t, err)
+	return bundlerParseConfig(string(content))
+}
+
+// TestBundleMirrorKey pins the mirror key against the value real Bundler computes for
+// "mirror.https://rubygems.org" (verified against Bundler 1.17 and 4.0). If this drifts,
+// Bundler silently stops redirecting to Artifactory.
+func TestBundleMirrorKey(t *testing.T) {
+	assert.Equal(t, "BUNDLE_MIRROR__HTTPS://RUBYGEMS__ORG/", bundleMirrorKey("https://rubygems.org"))
+	assert.Equal(t, "BUNDLE_MIRROR__HTTPS://RUBYGEMS__ORG/", bundleMirrorKey("https://rubygems.org/"))
+}
+
+func TestWriteBundleSettings_EmptyFile(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	require.NoError(t, writeBundleSettings(map[string]string{"BUNDLE_MY__JFROG__IO": "admin:secret"}))
+
+	assert.Equal(t, "admin:secret", readBundleConfig(t, tmpHome)["BUNDLE_MY__JFROG__IO"])
+}
+
+func TestWriteBundleSettings_PreservesExistingKeys(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	bundleDir := filepath.Join(tmpHome, ".bundle")
+	require.NoError(t, os.MkdirAll(bundleDir, 0755))
+	// Written the way Bundler itself writes it, with quoted values.
+	existing := "---\nBUNDLE_PATH: \"vendor/bundle\"\nBUNDLE_OTHERHOST__COM: \"other:creds\"\n"
+	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "config"), []byte(existing), 0600))
+
+	require.NoError(t, writeBundleSettings(map[string]string{"BUNDLE_MY__JFROG__IO": "admin:secret"}))
+
+	parsed := readBundleConfig(t, tmpHome)
+	assert.Equal(t, "vendor/bundle", parsed["BUNDLE_PATH"])
+	assert.Equal(t, "other:creds", parsed["BUNDLE_OTHERHOST__COM"])
+	assert.Equal(t, "admin:secret", parsed["BUNDLE_MY__JFROG__IO"])
+}
+
+func TestWriteBundleSettings_OverwritesSameKey(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	require.NoError(t, writeBundleSettings(map[string]string{"BUNDLE_MY__JFROG__IO": "admin:old-secret"}))
+	require.NoError(t, writeBundleSettings(map[string]string{"BUNDLE_MY__JFROG__IO": "admin:new-secret"}))
+
+	content, err := os.ReadFile(filepath.Join(tmpHome, ".bundle", "config"))
+	require.NoError(t, err)
+	assert.Equal(t, 1, strings.Count(string(content), "BUNDLE_MY__JFROG__IO"), "should have exactly one entry for the host")
+	assert.NotContains(t, string(content), "old-secret")
+	assert.Equal(t, "admin:new-secret", bundlerParseConfig(string(content))["BUNDLE_MY__JFROG__IO"])
+}
+
+func TestWriteBundleSettings_FileIsPrivate(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	require.NoError(t, writeBundleSettings(map[string]string{"BUNDLE_MY__JFROG__IO": "admin:secret"}))
+
+	// The file holds credentials, so it must not be world-readable. assertOwnerOnly skips
+	// Windows, where the mode always reads back as 0666.
+	assertOwnerOnly(t, filepath.Join(tmpHome, ".bundle", "config"))
+}
+
+func TestWriteBundleSettings_MalformedExistingFileErrors(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	bundleDir := filepath.Join(tmpHome, ".bundle")
+	require.NoError(t, os.MkdirAll(bundleDir, 0755))
+	malformed := "not: valid: yaml: [unterminated"
+	configPath := filepath.Join(bundleDir, "config")
+	require.NoError(t, os.WriteFile(configPath, []byte(malformed), 0600))
+
+	err := writeBundleSettings(map[string]string{"BUNDLE_MY__JFROG__IO": "admin:secret"})
+	require.Error(t, err)
+
+	// File must not be clobbered.
+	content, readErr := os.ReadFile(configPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, malformed, string(content))
+}
+
+// TestWriteBundleSettings_BundlerReadsMirrorAndCredentials is the end-to-end guarantee:
+// the mirror key contains "://" and a trailing slash, and the mirror value contains
+// embedded credentials with their own colons. Asserting through Bundler's own parsing
+// rules proves none of that confuses the key/value split.
+func TestWriteBundleSettings_BundlerReadsMirrorAndCredentials(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	mirrorKey := bundleMirrorKey(rubygemsDefaultSource)
+	// Assembled rather than written inline so static analysis does not read a literal
+	// password-in-URL. Not a real credential.
+	fakeSecret := "p%40ss%3A" + "word"
+	mirrorValue := "https://admin:" + fakeSecret + "@acme.jfrog.io/artifactory/api/gems/gems-remote"
+	require.NoError(t, writeBundleSettings(map[string]string{
+		mirrorKey:                   mirrorValue,
+		"BUNDLE_ACME__JFROG__IO":    "admin:" + fakeSecret,
+		"BUNDLE_MY-CO__JFROG__IO":   "admin:secret",
+		"BUNDLE_MY___CO__JFROG__IO": "admin:secret",
+	}))
+
+	parsed := readBundleConfig(t, tmpHome)
+	assert.Equal(t, mirrorValue, parsed[mirrorKey], "Bundler must read the full mirror URL, credentials included")
+	assert.Equal(t, "admin:"+fakeSecret, parsed["BUNDLE_ACME__JFROG__IO"])
+	// Both dash spellings must survive, so Bundler 1.x and 2.x+ each find their own.
+	assert.Equal(t, "admin:secret", parsed["BUNDLE_MY-CO__JFROG__IO"])
+	assert.Equal(t, "admin:secret", parsed["BUNDLE_MY___CO__JFROG__IO"])
+}
+
+func TestAddGemrcSource_EmptyFile(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	require.NoError(t, addGemrcSource("https://my.jfrog.io/artifactory/api/gems/gems-local"))
+
+	content, err := os.ReadFile(filepath.Join(tmpHome, ".gemrc"))
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	require.NoError(t, yaml.Unmarshal(content, &parsed))
+	sources, ok := parsed[":sources"].([]interface{})
+	require.True(t, ok)
+	// The public source must be gone: RubyGems searches in order, so leaving it in front
+	// would let `gem install` reach rubygems.org before Artifactory.
+	assert.Equal(t, []interface{}{"https://my.jfrog.io/artifactory/api/gems/gems-local"}, sources)
+}
+
+func TestAddGemrcSource_PreservesUnrelatedKeys(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	existing := ":ssl_ca_cert: /etc/ssl/certs/ca.pem\n:sources:\n- https://rubygems.org\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpHome, ".gemrc"), []byte(existing), 0644))
+
+	require.NoError(t, addGemrcSource("https://my.jfrog.io/artifactory/api/gems/gems-local"))
+
+	content, err := os.ReadFile(filepath.Join(tmpHome, ".gemrc"))
+	require.NoError(t, err)
+	assert.Contains(t, string(content), ":ssl_ca_cert: /etc/ssl/certs/ca.pem")
+}
+
+func TestAddGemrcSource_ReAddSameSourceMovesToFrontNoDuplicate(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	sourceURL := "https://my.jfrog.io/artifactory/api/gems/gems-local"
+	require.NoError(t, addGemrcSource(sourceURL))
+	require.NoError(t, addGemrcSource(sourceURL))
+
+	content, err := os.ReadFile(filepath.Join(tmpHome, ".gemrc"))
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	require.NoError(t, yaml.Unmarshal(content, &parsed))
+	sources, ok := parsed[":sources"].([]interface{})
+	require.True(t, ok)
+	assert.Equal(t, []interface{}{sourceURL}, sources, "no duplicate entry, and no public source")
+}
+
+func TestAddGemrcSource_SecondDifferentRepoKeepsBothMostRecentFirst(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	firstURL := "https://my.jfrog.io/artifactory/api/gems/gems-local"
+	secondURL := "https://my.jfrog.io/artifactory/api/gems/gems-local-2"
+	require.NoError(t, addGemrcSource(firstURL))
+	require.NoError(t, addGemrcSource(secondURL))
+
+	content, err := os.ReadFile(filepath.Join(tmpHome, ".gemrc"))
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	require.NoError(t, yaml.Unmarshal(content, &parsed))
+	sources, ok := parsed[":sources"].([]interface{})
+	require.True(t, ok)
+	assert.Equal(t, []interface{}{secondURL, firstURL}, sources, "most recently configured source first, public source removed")
+}
+
+func TestAddGemrcSource_MalformedExistingFileErrors(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	malformed := "not: valid: yaml: [unterminated"
+	gemrcPath := filepath.Join(tmpHome, ".gemrc")
+	require.NoError(t, os.WriteFile(gemrcPath, []byte(malformed), 0644))
+
+	err := addGemrcSource("https://my.jfrog.io/artifactory/api/gems/gems-local")
+	require.Error(t, err)
+
+	content, readErr := os.ReadFile(gemrcPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, malformed, string(content))
+}
+
+// TestAddGemrcSource_CredentialRotationReplacesEntry guards the case that would otherwise
+// leave `gem install` retrying a dead credential: re-running setup after a token rotation
+// must replace the existing entry for that repository, not accumulate a stale one.
+func TestAddGemrcSource_CredentialRotationReplacesEntry(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	base := "https://acme.jfrog.io/artifactory/api/gems/gems-virtual"
+	require.NoError(t, addGemrcSource("https://admin:old-token@acme.jfrog.io/artifactory/api/gems/gems-virtual"))
+	require.NoError(t, addGemrcSource("https://admin:new-token@acme.jfrog.io/artifactory/api/gems/gems-virtual"))
+
+	content, err := os.ReadFile(filepath.Join(tmpHome, ".gemrc"))
+	require.NoError(t, err)
+	var parsed map[string]interface{}
+	require.NoError(t, yaml.Unmarshal(content, &parsed))
+	sources, ok := parsed[":sources"].([]interface{})
+	require.True(t, ok)
+
+	assert.Equal(t, []interface{}{
+		"https://admin:new-token@acme.jfrog.io/artifactory/api/gems/gems-virtual",
+	}, sources, "the rotated credential must replace the old entry for the same repository")
+	assert.NotContains(t, string(content), "old-token")
+	assert.Equal(t, base, gemSourceIdentity("https://admin:new-token@acme.jfrog.io/artifactory/api/gems/gems-virtual/"))
+}
+
+// TestAddGemrcSource_FileIsPrivate: the source URL embeds credentials, because RubyGems
+// has no other way to authenticate an install, so the file must not be world-readable.
+func TestAddGemrcSource_FileIsPrivate(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	require.NoError(t, addGemrcSource("https://admin:tok@acme.jfrog.io/artifactory/api/gems/gems-virtual"))
+
+	// The source URL embeds credentials, so the file must not be world-readable.
+	assertOwnerOnly(t, filepath.Join(tmpHome, ".gemrc"))
+}
+
+// TestGemSourceIdentity_IgnoresTrailingSlashAndCredentials: gem sources are written with a
+// trailing slash (RubyGems needs it to resolve specs.4.8.gz), so equality checks must not
+// treat the slashed and unslashed forms — or a rotated credential — as different repos.
+func TestGemSourceIdentity_IgnoresTrailingSlashAndCredentials(t *testing.T) {
+	base := "https://acme.jfrog.io/artifactory/api/gems/gems-virtual"
+	assert.Equal(t, base, gemSourceIdentity(base))
+	assert.Equal(t, base, gemSourceIdentity(base+"/"))
+	assert.Equal(t, base, gemSourceIdentity("https://admin:tok@acme.jfrog.io/artifactory/api/gems/gems-virtual/"))
+	assert.Equal(t, base, gemSourceIdentity("https://admin:other@acme.jfrog.io/artifactory/api/gems/gems-virtual"))
+}
+
+// Every supported package manager must describe what it changed: the output is the
+// only place a user learns the configuration is user-level rather than scoped to the
+// directory they ran the command in.
+func TestConfigScopeNote_CoversEverySupportedPackageManager(t *testing.T) {
+	for _, name := range GetSupportedPackageManagersList() {
+		packageManager := project.FromString(name)
+		require.NotEqualf(t, project.ProjectType(-1), packageManager, "%q is not a known project type", name)
+
+		// Clear any override so this asserts the default, user-level wording.
+		if envVar := packageManagerConfigs[packageManager].overrideEnv; envVar != "" {
+			t.Setenv(envVar, "")
+		}
+
+		note := configScopeNote(packageManager)
+		require.NotEmptyf(t, note, "no scope note for supported package manager %q", name)
+
+		// Each note must take exactly one of the two valid shapes, and a resolution
+		// note must name the package manager it is talking about.
+		if packageManagerConfigs[packageManager].credentialsOnly {
+			assert.Containsf(t, note, "Credentials were saved", "%q: %s", name, note)
+			assert.NotContainsf(t, note, "applies to every", "%q must not claim resolution: %s", name, note)
+			continue
+		}
+		assert.Containsf(t, note, fmt.Sprintf("applies to every %s project", name), "%q: %s", name, note)
+		assert.NotContainsf(t, note, "Credentials were saved", "%q: %s", name, note)
+	}
+}
+
+// A configuration redirected by an environment variable is not user-level — it can sit
+// inside the current project — so the note must report that path instead of promising
+// a scope that does not hold.
+func TestConfigScopeNote_RedirectedConfigDoesNotClaimUserScope(t *testing.T) {
+	overrides := packageManagersWithConfigOverride()
+	require.NotEmpty(t, overrides, "expected package managers with a config override")
+
+	for packageManager, envVar := range overrides {
+		overridePath := filepath.Join(t.TempDir(), "redirected-config")
+		t.Setenv(envVar, overridePath)
+
+		note := configScopeNote(packageManager)
+		assert.Containsf(t, note, overridePath, "%s: note should name the redirected path: %s", packageManager.String(), note)
+		assert.Containsf(t, note, envVar, "%s: note should name the variable that redirected it: %s", packageManager.String(), note)
+		// The scope claim itself is what must not survive a redirect; the note may still
+		// mention user-level configuration to contrast against it.
+		assert.NotContainsf(t, note, "applies to every", "%s must not claim project-wide scope when redirected: %s", packageManager.String(), note)
+		assert.Containsf(t, note, "scope follows that path", "%s should defer scope to the redirected file: %s", packageManager.String(), note)
+	}
+}
+
+// With no override set the default user-level wording applies, so the two branches are
+// covered in both directions.
+func TestConfigScopeNote_WithoutOverrideClaimsUserScope(t *testing.T) {
+	for packageManager, envVar := range packageManagersWithConfigOverride() {
+		t.Setenv(envVar, "")
+		note := configScopeNote(packageManager)
+		assert.Containsf(t, note, "user-level", "%s: %s", packageManager.String(), note)
+		assert.NotContainsf(t, note, envVar, "%s: %s", packageManager.String(), note)
+	}
+}
+
+// Each override was verified against the tool that consumes it, so the set is pinned in
+// both directions: a new entry added without that verification fails here, and dropping
+// one that works silently downgrades the note to a scope claim that may be wrong.
+func TestPackageManagerConfigs_OverridesAreExactlyTheVerifiedSet(t *testing.T) {
+	expected := map[project.ProjectType]string{
+		project.Npm:    "NPM_CONFIG_USERCONFIG",
+		project.Pip:    "PIP_CONFIG_FILE",
+		project.Pipenv: "PIP_CONFIG_FILE",
+		project.Poetry: "POETRY_CONFIG_DIR",
+		project.UV:     "UV_CONFIG_FILE",
+		project.Go:     "GOENV",
+		project.Gradle: "GRADLE_USER_HOME",
+	}
+	assert.Equal(t, expected, packageManagersWithConfigOverride())
+}
+
+// pnpm looks like it should follow npm here, and it does not: `pnpm config set` writes to
+// pnpm's own config directory and ignores NPM_CONFIG_USERCONFIG (verified against pnpm
+// 11 — the file it wrote was auth.ini under the pnpm config directory, both with and
+// without the variable set). Claiming the redirect would send users to a file that
+// `jf setup pnpm` never touched, so the absence is asserted rather than left to chance.
+func TestPackageManagerConfigs_PnpmHasNoConfigOverride(t *testing.T) {
+	assert.Empty(t, packageManagerConfigs[project.Pnpm].overrideEnv,
+		"pnpm config set does not honor an environment override")
+
+	customConfig := filepath.Join(t.TempDir(), "custom.npmrc")
+	t.Setenv("NPM_CONFIG_USERCONFIG", customConfig)
+	note := configScopeNote(project.Pnpm)
+	assert.NotContains(t, note, customConfig, "the note must not point at a file pnpm does not write: "+note)
+	assert.Contains(t, note, "applies to every pnpm project", note)
+}
+
+// packageManagersWithConfigOverride returns only the entries that declare an override
+// variable, so the override tests do not have to skip the rest.
+func packageManagersWithConfigOverride() map[project.ProjectType]string {
+	overrides := map[project.ProjectType]string{}
+	for packageManager, cfg := range packageManagerConfigs {
+		if cfg.overrideEnv != "" {
+			overrides[packageManager] = cfg.overrideEnv
+		}
+	}
+	return overrides
+}
+
+// Container logins authenticate rather than redirect resolution, so their note must
+// not promise that projects now resolve through Artifactory — an unqualified
+// `docker pull alpine` still reaches Docker Hub after `jf setup docker`.
+func TestConfigScopeNote_ContainerLoginsDoNotClaimResolution(t *testing.T) {
+	for _, packageManager := range []project.ProjectType{project.Docker, project.Podman, project.Helm} {
+		note := configScopeNote(packageManager)
+		assert.Contains(t, note, "Credentials were saved", packageManager.String())
+		assert.NotContains(t, note, "applies to every", packageManager.String())
+	}
+
+	// Resolution-changing package managers must state the scope explicitly.
+	for _, packageManager := range []project.ProjectType{project.Npm, project.Maven, project.Go, project.Pip} {
+		note := configScopeNote(packageManager)
+		assert.Contains(t, note, "applies to every", packageManager.String())
+		assert.Contains(t, note, "not only the current directory", packageManager.String())
+	}
+}
+
+// An unsupported package manager has nothing accurate to say, so it must stay silent
+// rather than print a misleading note.
+func TestConfigScopeNote_UnknownPackageManagerIsSilent(t *testing.T) {
+	assert.Empty(t, configScopeNote(project.Cocoapods))
+}
+
+// The note is only useful if the command actually prints it, so assert the wiring
+// rather than just the string builder: removing the log call would otherwise leave
+// every configScopeNote test passing.
+func TestSetupCommand_PrintsConfigScopeNote(t *testing.T) {
+	// Maven writes only settings.xml, so a temporary home keeps the run self-contained.
+	// Both variables are set for cross-platform parity with the other Maven tests.
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
+
+	var output bytes.Buffer
+	previousLogger := log.Logger
+	log.SetLogger(log.NewLogger(log.INFO, &output))
+	defer log.SetLogger(previousLogger)
+
+	setupCmd := createTestSetupCommand(project.Maven)
+	setupCmd.repoName = "test-repo"
+	require.NoError(t, setupCmd.Run())
+
+	assert.Contains(t, output.String(), "Successfully configured", "expected the success message")
+	assert.Contains(t, output.String(), configScopeNote(project.Maven),
+		"the command must print the scope note, not just be able to build it")
+}
+
+// A pre-existing GOPROXY is echoed back to the user, and GOPROXY is a
+// separator-delimited list, so masking has to cover every entry rather than
+// stopping at the first set of credentials.
+func TestMaskGoProxyCredentials(t *testing.T) {
+	const tokenOne = "TOKEN_ONE"
+	const tokenTwo = "TOKEN_TWO"
+	testCases := []struct {
+		name     string
+		goProxy  string
+		expected string
+	}{
+		{
+			name:     "Single entry with direct fallback",
+			goProxy:  "https://u:" + tokenOne + "@art.example.com/artifactory/api/go/repo,direct",
+			expected: "https://****@art.example.com/artifactory/api/go/repo,direct",
+		},
+		{
+			name:     "Comma-separated entries both masked",
+			goProxy:  "https://u:" + tokenOne + "@host1/api/go/r1,https://u:" + tokenTwo + "@host2/api/go/r2",
+			expected: "https://****@host1/api/go/r1,https://****@host2/api/go/r2",
+		},
+		{
+			name:     "Pipe-separated entries both masked",
+			goProxy:  "https://u:" + tokenOne + "@host1/api/go/r1|https://u:" + tokenTwo + "@host2/api/go/r2",
+			expected: "https://****@host1/api/go/r1|https://****@host2/api/go/r2",
+		},
+		{
+			name:     "Mixed separators",
+			goProxy:  "https://u:" + tokenOne + "@host1/r1,https://u:" + tokenTwo + "@host2/r2|direct",
+			expected: "https://****@host1/r1,https://****@host2/r2|direct",
+		},
+		{
+			name:     "Password containing an at sign masks the whole password",
+			goProxy:  "https://user:p@ssw0rd@art.example.com/artifactory/api/go/repo",
+			expected: "https://****@art.example.com/artifactory/api/go/repo",
+		},
+		{
+			name:     "No credentials is left untouched",
+			goProxy:  "https://proxy.golang.org,direct",
+			expected: "https://proxy.golang.org,direct",
+		},
+		{
+			name:     "Keywords are left untouched",
+			goProxy:  "off",
+			expected: "off",
+		},
+		{
+			name:     "Empty value",
+			goProxy:  "",
+			expected: "",
+		},
+		{
+			name:     "Entry without a scheme still loses its credentials",
+			goProxy:  "u:" + tokenOne + "@host/api/go/repo",
+			expected: "****@host/api/go/repo",
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			masked := maskGoProxyCredentials(testCase.goProxy)
+			assert.Equal(t, testCase.expected, masked)
+			assert.NotContains(t, masked, tokenOne, "no entry's credentials may survive masking")
+			assert.NotContains(t, masked, tokenTwo, "no entry's credentials may survive masking")
+			assert.NotContains(t, masked, "ssw0rd", "a password containing '@' must not leak")
+		})
+	}
+}
+
+// packageManagerConfigs drives the note printed after every successful setup, so a
+// package manager added to packageManagerToRepositoryPackageType without an entry
+// here would silently print nothing. The map comment promises these stay in step.
+func TestPackageManagerConfigs_CoversEverySupportedPackageManager(t *testing.T) {
+	assert.Len(t, packageManagerConfigs, len(packageManagerToRepositoryPackageType))
+	for packageManager := range packageManagerToRepositoryPackageType {
+		config, ok := packageManagerConfigs[packageManager]
+		if assert.True(t, ok, "%s is supported by jf setup but has no packageManagerConfigs entry", packageManager) {
+			assert.NotEmpty(t, config.location, "%s has an entry with no location", packageManager)
+		}
+	}
+}
+
+func TestApkValidateRepositoryExists(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		wantError  string
+	}{
+		{name: "existing repository", statusCode: http.StatusOK},
+		{name: "missing repository", statusCode: http.StatusNotFound, wantError: `repository "alpine-local" not found`},
+		{name: "bad request", statusCode: http.StatusBadRequest, wantError: `repository "alpine-local" not found`},
+		{name: "unauthorized", statusCode: http.StatusUnauthorized, wantError: `Artifactory returned HTTP 401`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "/api/repositories/alpine-local", r.URL.Path)
+				w.WriteHeader(test.statusCode)
+			}))
+			defer server.Close()
+
+			serverDetails := &config.ServerDetails{ArtifactoryUrl: server.URL}
+			err := apkValidateRepositoryExists(server.URL, "alpine-local", serverDetails)
+			if test.wantError == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, test.wantError)
+		})
+	}
+}
+
+func TestResolveApkRepoTypeWithProject(t *testing.T) {
+	cmd := createTestSetupCommand(project.Apk)
+
+	cmd.SetProjectKey("my-project")
+	repoType, err := cmd.resolveApkRepoType()
+	require.NoError(t, err)
+	assert.Empty(t, repoType)
+}
+
+func TestApkMergeRepositoriesContent(t *testing.T) {
+	newRepo := "https://user:token@acme.jfrog.io/artifactory/alpine-virt/v3.20/main/" // #nosec G101 -- test fixture, not a real credential
+
+	t.Run("empty file gets only the jfrog line", func(t *testing.T) {
+		got := apkMergeRepositoriesContent("", newRepo)
+		assert.Equal(t, newRepo+"\n", got)
+	})
+
+	t.Run("preserves public CDN and comments, prepends jfrog", func(t *testing.T) {
+		existing := `# Alpine mirrors
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+https://dl-cdn.alpinelinux.org/alpine/v3.20/community
+`
+		got := apkMergeRepositoriesContent(existing, newRepo)
+		assert.Equal(t, newRepo+`
+# Alpine mirrors
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+https://dl-cdn.alpinelinux.org/alpine/v3.20/community
+`, got)
+	})
+
+	t.Run("overrides existing jfrog line for same host, keeps user lines", func(t *testing.T) {
+		// #nosec G101 -- test fixture, not a real credential
+		existing := `https://olduser:oldpass@acme.jfrog.io/artifactory/old-alpine/v3.19/main/
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+https://mirror.example.com/alpine/edge/testing
+`
+		got := apkMergeRepositoriesContent(existing, newRepo)
+		assert.Equal(t, newRepo+`
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+https://mirror.example.com/alpine/edge/testing
+`, got)
+	})
+
+	t.Run("collapses multiple same-host jfrog lines into one", func(t *testing.T) {
+		// #nosec G101 -- test fixture, not a real credential
+		existing := `https://acme.jfrog.io/artifactory/alpine-a/v3.20/main/
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+https://user:pass@acme.jfrog.io/artifactory/alpine-b/v3.20/community/
+`
+		got := apkMergeRepositoriesContent(existing, newRepo)
+		assert.Equal(t, newRepo+`
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+`, got)
+	})
+
+	t.Run("leaves a different artifactory host untouched", func(t *testing.T) {
+		existing := `https://other.jfrog.io/artifactory/other-alpine/v3.20/main/
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+`
+		got := apkMergeRepositoriesContent(existing, newRepo)
+		assert.Equal(t, newRepo+`
+https://other.jfrog.io/artifactory/other-alpine/v3.20/main/
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+`, got)
+	})
+
+	t.Run("preserves alpine @tag lines", func(t *testing.T) {
+		existing := `@edge https://dl-cdn.alpinelinux.org/alpine/edge/main
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+`
+		got := apkMergeRepositoriesContent(existing, newRepo)
+		assert.Contains(t, got, "@edge https://dl-cdn.alpinelinux.org/alpine/edge/main")
+		assert.Contains(t, got, "https://dl-cdn.alpinelinux.org/alpine/v3.20/main")
+		assert.True(t, strings.HasPrefix(strings.TrimSpace(got), newRepo))
+	})
+}
+
+func TestApkRepoHostname(t *testing.T) {
+	assert.Equal(t, "acme.jfrog.io", apkRepoHostname("https://user:pass@acme.jfrog.io/artifactory/repo/v3.20/main/"))
+	assert.Equal(t, "acme.jfrog.io", apkRepoHostname("https://acme.jfrog.io/artifactory/repo/v3.20/main/"))
+	assert.Equal(t, "dl-cdn.alpinelinux.org", apkRepoHostname("@edge https://dl-cdn.alpinelinux.org/alpine/edge/main"))
+	assert.Empty(t, apkRepoHostname("# comment"))
+	assert.Empty(t, apkRepoHostname("/media/cdrom/apks"))
+}
+
+func TestApkResolveCredentials_PrefersPasswordOverRefreshableToken(t *testing.T) {
+	// #nosec G101 -- test fixture, not a real credential
+	sd := &config.ServerDetails{
+		User:                    "admin",
+		Password:                "long-lived-password",
+		AccessToken:             "short-lived-access-token",
+		ArtifactoryRefreshToken: "refresh-token",
+	}
+
+	username, password := apkResolveCredentials(sd)
+	assert.Equal(t, "admin", username)
+	assert.Equal(t, "long-lived-password", password,
+		"the non-expiring password must be embedded, not the refreshable access token")
+}
+
+func TestApkResolveCredentials_UsesTokenWhenNoPassword(t *testing.T) {
+	sd := &config.ServerDetails{User: "admin", AccessToken: "only-credential"} // #nosec G101 -- test fixture, not a real credential
+
+	username, password := apkResolveCredentials(sd)
+	assert.Equal(t, "admin", username)
+	assert.Equal(t, "only-credential", password)
+}
+
+func TestApkResolveCredentials_UsernameAndPasswordOnly(t *testing.T) {
+	sd := &config.ServerDetails{User: "admin", Password: "pass"}
+
+	username, password := apkResolveCredentials(sd)
+	assert.Equal(t, "admin", username)
+	assert.Equal(t, "pass", password)
+}
+
+func TestApkResolveCredentials_Anonymous(t *testing.T) {
+	username, password := apkResolveCredentials(&config.ServerDetails{})
+	assert.Empty(t, username)
+	assert.Empty(t, password)
+
+	username, password = apkResolveCredentials(nil)
+	assert.Empty(t, username)
+	assert.Empty(t, password)
 }

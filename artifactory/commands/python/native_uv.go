@@ -17,6 +17,7 @@ import (
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/build-info-go/flexpack"
 	"github.com/jfrog/gofrog/crypto"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	coreConfig "github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -79,7 +80,7 @@ func (c *NativeUVCommand) Run() error {
 	// injection and Artifactory calls. Injecting credential env vars before calling uv
 	// causes uv to print them in its help output, exposing secrets.
 	if isHelpRequest(c.commandName, c.args) {
-		return runUvBinary(append([]string{c.commandName}, c.args...))
+		return runUvBinary(uvBinaryArgs(c.commandName, c.args))
 	}
 
 	workingDir, err := os.Getwd()
@@ -115,7 +116,7 @@ func (c *NativeUVCommand) Run() error {
 	}
 
 	log.Info(fmt.Sprintf("Running UV %s.", c.commandName))
-	if err := runUvBinary(append([]string{c.commandName}, args...)); err != nil {
+	if err := runUvBinary(uvBinaryArgs(c.commandName, args)); err != nil {
 		return fmt.Errorf("uv %s failed: %w", c.commandName, err)
 	}
 
@@ -402,12 +403,43 @@ func isHelpRequest(cmdName string, args []string) bool {
 	return false
 }
 
+// uvBinaryArgs builds the real argv to pass to the uv binary. uv has no plain
+// "install" sub-command (only "uv pip install"), but users coming from pip/poetry/npm
+// naturally expect "jf uv install <pkg>" to work like it does for those tools. This
+// translates that alias to "uv pip install ..." at the last moment, right before
+// exec — everywhere else (auth injection, dev-deps handling, the curation
+// post-failure trigger's supported-command check) keeps seeing "install" as-is.
+func uvBinaryArgs(cmdName string, args []string) []string {
+	switch cmdName {
+	case "":
+		// Bare "jf uv" — isHelpRequest routes it here so uv prints its own root help.
+		// Prepending "" would make uv reject it as an unknown empty sub-command.
+		return append([]string(nil), args...)
+	case "install":
+		return append([]string{"pip", "install"}, args...)
+	default:
+		return append([]string{cmdName}, args...)
+	}
+}
+
+// runUvBinary streams uv's output live to the terminal (as before), while also
+// teeing stderr into a buffer. uv reports failures (including Artifactory's 403s)
+// on stderr, but exec.Cmd only returns "exit status N" on failure with no output —
+// callers need the actual text to recognize curation-blocked errors and trigger the
+// post-failure curation audit (see WrapCmdWithCurationPostFailureRun upstream).
 func runUvBinary(args []string) error {
+	var stderrBuf strings.Builder
 	cmd := exec.Command("uv", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
+	if err := cmd.Run(); err != nil {
+		if stderrBuf.Len() > 0 {
+			return fmt.Errorf("%w: %s", err, strings.TrimSpace(stderrBuf.String()))
+		}
+		return err
+	}
+	return nil
 }
 
 // ── TOML types ───────────────────────────────────────────────────────────────
@@ -761,7 +793,7 @@ func uvGetBuildInfo(workingDir string, buildConfiguration *buildUtils.BuildConfi
 						bi.Modules[0].Artifacts = artifacts
 					}
 				}
-				if propErr := uvSetBuildProperties(sd, repoKey, buildName, buildNumber, buildConfiguration.GetProject(), bi); propErr != nil {
+				if propErr := uvSetBuildProperties(sd, repoKey, buildName, buildNumber, buildConfiguration.GetProject(), bi, workingDir); propErr != nil {
 					log.Warn("Failed to set build properties on artifacts: " + propErr.Error())
 				}
 			}
@@ -1106,7 +1138,7 @@ func uvAddArtifactsToBuildInfo(bi *buildinfo.BuildInfo, serverDetails *coreConfi
 }
 
 // uvSetBuildProperties sets build.name / build.number properties on uploaded Python dist artifacts.
-func uvSetBuildProperties(serverDetails *coreConfig.ServerDetails, targetRepo, buildName, buildNumber, project string, bi *buildinfo.BuildInfo) error {
+func uvSetBuildProperties(serverDetails *coreConfig.ServerDetails, targetRepo, buildName, buildNumber, project string, bi *buildinfo.BuildInfo, searchDir string) error {
 	servicesManager, err := utils.CreateServiceManager(serverDetails, -1, 0, false)
 	if err != nil {
 		return fmt.Errorf("failed to create services manager: %w", err)
@@ -1119,6 +1151,7 @@ func uvSetBuildProperties(serverDetails *coreConfig.ServerDetails, targetRepo, b
 	if err != nil {
 		return fmt.Errorf("CreateBuildProperties failed: %w", err)
 	}
+	buildProps = civcs.MergeWithUserProps(buildProps, searchDir)
 
 	if len(bi.Modules) == 0 || len(bi.Modules[0].Artifacts) == 0 {
 		return nil

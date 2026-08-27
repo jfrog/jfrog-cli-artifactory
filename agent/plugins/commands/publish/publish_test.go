@@ -15,6 +15,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/common/testutil"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -184,7 +185,8 @@ func TestZipPluginFolderSkipsExcluded(t *testing.T) {
 	for _, file := range zr.File {
 		names[file.Name] = true
 	}
-	if !names["README.md"] || !names[filepath.Join("src", "main.go")] {
+	// Zip entry names always use forward slashes, regardless of host OS.
+	if !names["README.md"] || !names["src/main.go"] {
 		t.Fatalf("expected included files, got %v", names)
 	}
 	for name := range names {
@@ -238,6 +240,11 @@ func TestResolveVersionCollision_NonInteractiveVersionAbsent(t *testing.T) {
 
 func TestResolveVersionCollision_InteractiveUnknownExistenceProceeds(t *testing.T) {
 	t.Setenv("CI", "")
+	revertStdout := log.SetIsTerminalFlagsWithCallback(true)
+	defer revertStdout()
+
+	revertStdin := common.SetIsStdinTerminal(true)
+	defer revertStdin()
 
 	orig := packageVersionExists
 	defer func() { packageVersionExists = orig }()
@@ -250,4 +257,67 @@ func TestResolveVersionCollision_InteractiveUnknownExistenceProceeds(t *testing.
 	version, err := pc.resolveVersionCollision("demo", "2.0.0")
 	require.NoError(t, err)
 	assert.Equal(t, "2.0.0", version)
+}
+
+func TestResolveMissingVersion_InteractiveWithExistingVersions(t *testing.T) {
+	origStdin := os.Stdin
+	defer func() { os.Stdin = origStdin }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	os.Stdin = r
+
+	go func() {
+		defer func() { _ = w.Close() }()
+		_, _ = w.WriteString("2.0.0\n")
+	}()
+
+	origListVersions := listPluginVersionsFunc
+	defer func() { listPluginVersionsFunc = origListVersions }()
+
+	listPluginVersionsFunc = func(*config.ServerDetails, string, string) ([]common.PluginVersion, error) {
+		return []common.PluginVersion{
+			{Version: "1.0.0"},
+			{Version: "1.5.0"},
+		}, nil
+	}
+
+	pc := NewPublishCommand()
+	version, err := pc.resolveMissingVersion("demo")
+	require.NoError(t, err)
+	assert.Equal(t, "2.0.0", version)
+}
+
+func TestResolveMissingVersion_QuietModeAutoIncrement(t *testing.T) {
+	origListVersions := listPluginVersionsFunc
+	defer func() { listPluginVersionsFunc = origListVersions }()
+
+	listPluginVersionsFunc = func(*config.ServerDetails, string, string) ([]common.PluginVersion, error) {
+		return []common.PluginVersion{
+			{Version: "1.2.3"},
+		}, nil
+	}
+
+	pc := NewPublishCommand().SetQuiet(true)
+	version, err := pc.resolveMissingVersion("demo")
+	require.NoError(t, err)
+	assert.Equal(t, "1.3.0", version) // Auto-incremented to next minor
+}
+
+func TestResolveMissingVersion_QuietModeDefault(t *testing.T) {
+	origListVersions := listPluginVersionsFunc
+	defer func() { listPluginVersionsFunc = origListVersions }()
+
+	listPluginVersionsFunc = func(*config.ServerDetails, string, string) ([]common.PluginVersion, error) {
+		return []common.PluginVersion{}, nil // No existing versions
+	}
+
+	pc := NewPublishCommand().SetQuiet(true)
+	version, err := pc.resolveMissingVersion("demo")
+	require.NoError(t, err)
+	assert.Equal(t, "0.1.0", version)
 }

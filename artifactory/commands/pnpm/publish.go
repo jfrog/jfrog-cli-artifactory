@@ -8,8 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/gofrog/version"
 	artCliUtils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	artCoreUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -26,6 +29,8 @@ const publishSummaryFile = "pnpm-publish-summary.json"
 
 type PnpmPublishCommand struct {
 	pnpmArgs           []string
+	executedArgs       []string
+	pnpmVersion        *version.Version
 	workingDirectory   string
 	buildConfiguration *buildUtils.BuildConfiguration
 	serverDetails      *config.ServerDetails
@@ -47,6 +52,11 @@ func (ppc *PnpmPublishCommand) SetBuildConfiguration(buildConfiguration *buildUt
 
 func (ppc *PnpmPublishCommand) SetServerDetails(serverDetails *config.ServerDetails) *PnpmPublishCommand {
 	ppc.serverDetails = serverDetails
+	return ppc
+}
+
+func (ppc *PnpmPublishCommand) SetPnpmVersion(pnpmVersion *version.Version) *PnpmPublishCommand {
+	ppc.pnpmVersion = pnpmVersion
 	return ppc
 }
 
@@ -304,6 +314,7 @@ func (ppc *PnpmPublishCommand) runPnpmPublishNative(flags publishFlags) error {
 	}
 	args = append(args, flags.filterArgs...)
 	args = append(args, flags.publishArgs...)
+	ppc.executedArgs = args
 	log.Debug("Running command: pnpm", strings.Join(args, " "))
 	cmd := exec.Command("pnpm", args...)
 	cmd.Dir = ppc.workingDirectory
@@ -321,6 +332,7 @@ func (ppc *PnpmPublishCommand) runPnpmPublishCaptured(flags publishFlags) ([]byt
 	args := []string{"publish"}
 	args = append(args, flags.filterArgs...)
 	args = append(args, flags.publishArgs...)
+	ppc.executedArgs = args
 	log.Debug("Running command: pnpm", strings.Join(args, " "))
 	cmd := exec.Command("pnpm", args...)
 	cmd.Dir = ppc.workingDirectory
@@ -355,7 +367,7 @@ func parseNpmPublishJson(data []byte) (*publishedPackage, error) {
 	if out.Name == "" {
 		return nil, nil
 	}
-	return &publishedPackage{Name: out.Name, Version: out.Version}, nil
+	return &publishedPackage{Name: out.Name, Version: normalizeVersion(out.Version)}, nil
 }
 
 type publishSummary struct {
@@ -383,8 +395,9 @@ func readPublishSummary(path string) ([]publishedPackage, error) {
 		return nil, errorutils.CheckErrorf("parsing publish summary: %s", err.Error())
 	}
 
-	for _, pkg := range summary.PublishedPackages {
-		log.Debug(fmt.Sprintf("Published: %s@%s", pkg.Name, pkg.Version))
+	for i, pkg := range summary.PublishedPackages {
+		summary.PublishedPackages[i].Version = normalizeVersion(pkg.Version)
+		log.Debug(fmt.Sprintf("Published: %s@%s", pkg.Name, summary.PublishedPackages[i].Version))
 	}
 	return summary.PublishedPackages, nil
 }
@@ -457,12 +470,8 @@ func computeChecksums(packages []pnpmPackResult) map[string]entities.Checksum {
 	return results
 }
 
-func (ppc *PnpmPublishCommand) saveBuildArtifacts(packages []pnpmPackResult, checksumResults map[string]entities.Checksum, published []publishedPackage, publishRepos map[string]string, fallbackRepos registryMap) error {
-	pnpmBuild, err := newBuild(ppc.buildConfiguration)
-	if err != nil {
-		return err
-	}
-
+func (ppc *PnpmPublishCommand) saveBuildArtifacts(pnpmBuild *build.Build, packages []pnpmPackResult, checksumResults map[string]entities.Checksum, published []publishedPackage, publishRepos map[string]string, fallbackRepos registryMap) error {
+	var err error
 	customModule := ppc.buildConfiguration.GetModule()
 
 	// Build lookup from package name to published package for deploy path computation
@@ -513,26 +522,32 @@ func (ppc *PnpmPublishCommand) saveBuildArtifacts(packages []pnpmPackResult, che
 
 // finalizePublishBuildInfo is the shared tail of both collectSinglePublishBuildInfo and
 // collectWorkspacePublishBuildInfo. It computes checksums, resolves repos (including
-// virtual → default deployment), saves build artifacts, and tags build properties.
+// virtual → default deployment), saves build artifacts, and tags published properties.
 func (ppc *PnpmPublishCommand) finalizePublishBuildInfo(packages []pnpmPackResult, published []publishedPackage) error {
 	checksumResults := computeChecksums(packages)
 	log.Debug(fmt.Sprintf("Checksums computed for %d/%d package(s).", len(checksumResults), len(packages)))
 
-	publishRepos := getPublishConfigRepos(ppc.workingDirectory, published)
-	fallbackRepos := getRegistryRepos(ppc.workingDirectory)
-	ppc.resolveVirtualRepos(publishRepos, &fallbackRepos)
-	if err := ppc.saveBuildArtifacts(packages, checksumResults, published, publishRepos, fallbackRepos); err != nil {
+	pnpmBuild, err := newBuild(ppc.buildConfiguration)
+	if err != nil {
 		return err
 	}
 
-	ppc.tagBuildProperties(published, publishRepos, fallbackRepos)
+	publishRepos := getPublishConfigRepos(ppc.workingDirectory, published)
+	fallbackRepos := getRegistryRepos(ppc.workingDirectory)
+	ppc.resolveVirtualRepos(publishRepos, &fallbackRepos)
+	if err := ppc.saveBuildArtifacts(pnpmBuild, packages, checksumResults, published, publishRepos, fallbackRepos); err != nil {
+		return err
+	}
+
+	ppc.tagPublishedProperties(published, publishRepos, fallbackRepos)
+	recordPnpmCommandMetadata(pnpmBuild, ppc.pnpmVersion, ppc.executedArgs)
 	log.Info(fmt.Sprintf("pnpm publish finished successfully. %d package(s) published with build info.", len(packages)))
 	return nil
 }
 
 // resolveVirtualRepos resolves any virtual repositories in publishRepos and fallbackRepos
 // to their default deployment repositories. This must be called before saveBuildArtifacts
-// and tagBuildProperties so that both use the actual local repo where artifacts land.
+// and tagPublishedProperties so that both use the actual local repo where artifacts land.
 func (ppc *PnpmPublishCommand) resolveVirtualRepos(publishRepos map[string]string, fallbackRepos *registryMap) {
 	if ppc.serverDetails == nil {
 		return
@@ -569,30 +584,33 @@ func (ppc *PnpmPublishCommand) resolveVirtualRepos(publishRepos map[string]strin
 	}
 }
 
-// tagBuildProperties sets build.name, build.number, build.timestamp on published
-// artifacts in Artifactory. Constructs the artifact path directly from the package
-// name/version and registry config, avoiding a SearchFiles API call.
-func (ppc *PnpmPublishCommand) tagBuildProperties(published []publishedPackage, publishRepos map[string]string, fallbackRepos registryMap) {
+// tagPublishedProperties sets build and detected VCS properties on published artifacts
+// in a single SetProps call. Constructs artifact paths from package name/version and
+// registry config, avoiding a SearchFiles API call.
+func (ppc *PnpmPublishCommand) tagPublishedProperties(published []publishedPackage, publishRepos map[string]string, fallbackRepos registryMap) {
 	if ppc.serverDetails == nil {
-		log.Debug("No server details configured. Skipping build property tagging.")
+		log.Debug("No server details configured. Skipping property tagging.")
 		return
 	}
-	servicesManager, err := artCoreUtils.CreateServiceManager(ppc.serverDetails, -1, 0, false)
-	if err != nil {
-		log.Warn("Unable to create service manager for build property tagging:", err.Error())
-		return
-	}
-
 	props, err := buildUtils.CreateBuildPropsFromConfiguration(ppc.buildConfiguration)
 	if err != nil {
 		log.Warn("Unable to create build properties:", err.Error())
 		return
 	}
+	props = civcs.MergeWithUserProps(props, ppc.workingDirectory)
 	if props == "" {
-		log.Debug("No build properties to set. Skipping.")
+		log.Debug("No properties to set on published artifacts. Skipping.")
 		return
 	}
+	items := ppc.buildPublishedResultItems(published, publishRepos, fallbackRepos)
+	if len(items) == 0 {
+		log.Debug("No artifacts to tag with build properties.")
+		return
+	}
+	ppc.setPropsOnPublishedItems(items, props)
+}
 
+func (ppc *PnpmPublishCommand) buildPublishedResultItems(published []publishedPackage, publishRepos map[string]string, fallbackRepos registryMap) []specutils.ResultItem {
 	var items []specutils.ResultItem
 	for _, pkg := range published {
 		repo := resolvePublishRepo(pkg.Name, publishRepos, fallbackRepos)
@@ -607,15 +625,27 @@ func (ppc *PnpmPublishCommand) tagBuildProperties(published []publishedPackage, 
 			Name: tarballName,
 		})
 	}
+	return items
+}
 
-	if len(items) == 0 {
-		log.Debug("No artifacts to tag with build properties.")
+func (ppc *PnpmPublishCommand) setPropsOnPublishedItems(items []specutils.ResultItem, props string) {
+	if props == "" || len(items) == 0 {
+		log.Debug("No properties to set on published artifacts. Skipping.")
+		return
+	}
+	if ppc.serverDetails == nil {
+		log.Debug("No server details configured. Skipping property tagging.")
+		return
+	}
+	servicesManager, err := artCoreUtils.CreateServiceManager(ppc.serverDetails, -1, 0, false)
+	if err != nil {
+		log.Warn("Unable to create service manager for property tagging:", err.Error())
 		return
 	}
 
 	pathToFile, err := artCliUtils.WriteResultItemsToFile(items)
 	if err != nil {
-		log.Warn("Unable to write result items for build property tagging:", err.Error())
+		log.Warn("Unable to write result items for properties tagging:", err.Error())
 		return
 	}
 	defer func() {
@@ -633,11 +663,11 @@ func (ppc *PnpmPublishCommand) tagBuildProperties(published []publishedPackage, 
 
 	_, err = servicesManager.SetProps(services.PropsParams{Reader: reader, Props: props, UseDebugLogs: true})
 	if err != nil {
-		log.Warn("Unable to set build properties on published artifacts:", err.Error(),
-			"\nThis may cause the build to not properly link with artifacts. You can add build properties manually.")
+		log.Warn("Unable to set properties on published artifacts:", err.Error(),
+			"\nThis may cause the build to not properly link with artifacts. You can add properties manually.")
 		return
 	}
-	log.Info(fmt.Sprintf("Build properties set on %d published artifact(s).", len(items)))
+	log.Info(fmt.Sprintf("Properties set on %d published artifact(s).", len(items)))
 }
 
 // buildNpmDeployPath constructs the Artifactory path and tarball name for an npm package.

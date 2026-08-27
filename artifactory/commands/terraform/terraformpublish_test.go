@@ -2,14 +2,17 @@ package terraform
 
 import (
 	"errors"
+	"path/filepath"
+	"testing"
+
+	biutils "github.com/jfrog/build-info-go/utils"
 	"github.com/jfrog/gofrog/parallel"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	clientServicesUtils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	clientUtils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/stretchr/testify/assert"
-	"path/filepath"
-	"testing"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPreparePrerequisites(t *testing.T) {
@@ -102,4 +105,20 @@ func getTaskMock(t *testing.T, expectedPaths []string) func(parallel.Runner, *co
 
 func mockEmptyModule(_ parallel.Runner, _ *config.ServerDetails, _ *[][]*clientServicesUtils.OperationSummary, _ *services.UploadParams, _ *clientUtils.ErrorsQueue) (int, error) {
 	return 0, errors.New("failed: testing empty directory. this function shouldn't be called. ")
+}
+
+func TestUploadParamsForTerraformPublish_MergesLocalGitVcsProps(t *testing.T) {
+	repoDir := t.TempDir()
+	src := filepath.Join("..", "testdata", "git_test_.git_suffix")
+	dst := filepath.Join(repoDir, ".git")
+	require.NoError(t, biutils.CopyDir(src, dst, true, nil))
+
+	tpc := &TerraformPublishCommand{
+		TerraformPublishCommandArgs: &TerraformPublishCommandArgs{
+			buildProps: "build.name=x;build.number=1",
+		},
+	}
+	params := tpc.uploadParamsForTerraformPublish("mymodule", repoDir)
+	assert.Contains(t, params.BuildProps, "vcs.url=")
+	assert.Contains(t, params.BuildProps, "vcs.revision=")
 }

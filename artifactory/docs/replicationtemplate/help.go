@@ -26,7 +26,18 @@ Gotchas:
 - Interactive only; cannot be scripted unattended.
 - Output is a literal template; add ${var} placeholders manually for reuse.
 
-Related: jf rt replication-create, jf rt replication-delete, jf rt repo-template`
+Related: jf rt replication-create, jf rt replication-delete, jf rt repo-template
+
+QA:
+Q: Could you guide me through the process of creating a replication template in Artifactory considering that the template path is 'template1.json'?
+A: jf rt rplt template1.json
+
+Q: Could you elucidate the approach for establishing a replication template in Artifactory provided the template path is 'template3.json'?
+A: jf rt rplt template3.json
+
+Q: Could you outline the procedure for forming a replication template in Artifactory with the template path being 'template5.json'?
+A: jf rt rplt template5.json
+`
 }
 
 func GetArguments() []components.Argument {

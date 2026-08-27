@@ -14,6 +14,7 @@ import (
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/build-info-go/flexpack"
 	gradle "github.com/jfrog/build-info-go/flexpack/gradle"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -145,6 +146,8 @@ func setGradleBuildPropertiesOnArtifacts(workingDir, buildName, buildNumber, pro
 	if projectKey != "" {
 		buildProps += fmt.Sprintf(";build.project=%s", projectKey)
 	}
+
+	buildProps = civcs.MergeWithUserProps(buildProps, workingDir)
 
 	writer, err := content.NewContentWriter(content.DefaultKey, true, false)
 	if err != nil {

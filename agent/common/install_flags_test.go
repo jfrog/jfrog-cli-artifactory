@@ -17,8 +17,8 @@ var testSkillsAgents = map[string]AgentConfig{
 }
 
 var testPluginsAgents = map[string]AgentConfig{
-	"claude": {GlobalDir: "~/.claude/plugins", ProjectDir: ".claude/plugins"},
-	"cursor": {GlobalDir: "~/.cursor/plugins", ProjectDir: ".cursor/plugins"},
+	"claude": {GlobalDir: "~/.claude/plugins/local/jfrog", ProjectDir: ".claude/plugins"},
+	"cursor": {GlobalDir: "~/.cursor/plugins/local", ProjectDir: ".cursor/plugins"},
 }
 
 var testSkillsHelp = AgentRegistryHelpExample{
@@ -174,7 +174,7 @@ func TestValidateInstallFlags_PluginsHarnessProjectOK(t *testing.T) {
 	c.AddStringFlag(InstallHarnessFlag, "claude")
 	c.AddStringFlag(InstallProjectDirFlag, projectDir)
 
-	flags, err := ValidateInstallFlags(c, testPluginsAgents, PluginsAgentsKey, testPluginsHelp)
+	flags, err := ValidateInstallFlags(c, testPluginsAgents, PluginsAgentsKey, testPluginsHelp, InstallFlagsOptions{DefaultGlobalScope: true})
 	require.NoError(t, err)
 	assert.False(t, flags.PathMode())
 	require.Len(t, flags.Specs, 1)
@@ -191,11 +191,35 @@ func TestValidateInstallFlags_PluginsHarnessGlobalOK(t *testing.T) {
 	c.AddStringFlag(InstallHarnessFlag, "cursor")
 	c.AddBoolFlag(InstallGlobalFlag, true)
 
-	flags, err := ValidateInstallFlags(c, testPluginsAgents, PluginsAgentsKey, testPluginsHelp)
+	flags, err := ValidateInstallFlags(c, testPluginsAgents, PluginsAgentsKey, testPluginsHelp, InstallFlagsOptions{DefaultGlobalScope: true})
 	require.NoError(t, err)
 	require.Len(t, flags.Specs, 1)
 	assert.Equal(t, "cursor", flags.Specs[0].Name)
 	assert.Empty(t, flags.ProjectDirAbs)
+	assert.True(t, flags.IsGlobal)
+}
+
+func TestValidateInstallFlags_PluginsHarnessDefaultGlobalWhenUnscoped(t *testing.T) {
+	testutil.WithJfrogHome(t)
+	c := testutil.NewCLIContext()
+	c.AddStringFlag(InstallHarnessFlag, "cursor")
+
+	flags, err := ValidateInstallFlags(c, testPluginsAgents, PluginsAgentsKey, testPluginsHelp, InstallFlagsOptions{DefaultGlobalScope: true})
+	require.NoError(t, err)
+	require.Len(t, flags.Specs, 1)
+	assert.Equal(t, "cursor", flags.Specs[0].Name)
+	assert.Empty(t, flags.ProjectDirAbs)
+	assert.True(t, flags.IsGlobal)
+}
+
+func TestValidateInstallFlags_PluginsHarnessDefaultGlobalForClaude(t *testing.T) {
+	testutil.WithJfrogHome(t)
+	c := testutil.NewCLIContext()
+	c.AddStringFlag(InstallHarnessFlag, "claude")
+
+	flags, err := ValidateInstallFlags(c, testPluginsAgents, PluginsAgentsKey, testPluginsHelp, InstallFlagsOptions{DefaultGlobalScope: true})
+	require.NoError(t, err)
+	require.Len(t, flags.Specs, 1)
 	assert.True(t, flags.IsGlobal)
 }
 
@@ -206,7 +230,7 @@ func TestValidateInstallFlags_PluginsCommaSeparatedHarnesses(t *testing.T) {
 	c.AddStringFlag(InstallHarnessFlag, "claude,cursor")
 	c.AddStringFlag(InstallProjectDirFlag, projectDir)
 
-	flags, err := ValidateInstallFlags(c, testPluginsAgents, PluginsAgentsKey, testPluginsHelp)
+	flags, err := ValidateInstallFlags(c, testPluginsAgents, PluginsAgentsKey, testPluginsHelp, InstallFlagsOptions{DefaultGlobalScope: true})
 	require.NoError(t, err)
 	require.Len(t, flags.Specs, 2)
 	assert.Equal(t, "claude", flags.Specs[0].Name)

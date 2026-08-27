@@ -152,7 +152,7 @@ func (pc *PushCommand) Run() error {
 		log.Debug("Using image SHA256 for validation: " + imageSha256)
 
 		// Use RemoteAgentBuildInfoBuilder for SHA-based validation
-		remoteBuilder, err := containerutils.NewRemoteAgentBuildInfoBuilder(pc.image, repo, buildName, buildNumber, pc.BuildConfiguration().GetProject(), serviceManager, imageSha256)
+		remoteBuilder, err := containerutils.NewRemoteAgentBuildInfoBuilder(pc.image, repo, buildName, buildNumber, pc.BuildConfiguration().GetProject(), serviceManager, imageSha256, pc.workingDirectory)
 		if err != nil {
 			return err
 		}
@@ -186,7 +186,7 @@ func (pc *PushCommand) Run() error {
 	}
 
 	// Standard path: use LocalAgentBuildInfoBuilder for tag-based validation
-	builder, err := containerutils.NewLocalAgentBuildInfoBuilder(pc.image, repo, buildName, buildNumber, pc.BuildConfiguration().GetProject(), serviceManager, containerutils.Push, cm)
+	builder, err := containerutils.NewLocalAgentBuildInfoBuilder(pc.image, repo, buildName, buildNumber, pc.BuildConfiguration().GetProject(), serviceManager, containerutils.Push, cm, pc.workingDirectory)
 	if err != nil {
 		return err
 	}
