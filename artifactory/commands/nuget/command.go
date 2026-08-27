@@ -428,7 +428,11 @@ func pushSinglePackage(client *http.Client, pushURL, pkgPath, user, password str
 	if err != nil {
 		return fmt.Errorf("open %q: %w", pkgPath, err)
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			log.Debug("Failed to close package file:", closeErr.Error())
+		}
+	}()
 
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
@@ -454,7 +458,11 @@ func pushSinglePackage(client *http.Client, pushURL, pkgPath, user, password str
 	if err != nil {
 		return fmt.Errorf("push request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Debug("Failed to close push response body:", closeErr.Error())
+		}
+	}()
 	respBody, _ := io.ReadAll(resp.Body)
 
 	switch resp.StatusCode {
