@@ -380,7 +380,11 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
 	}
 
 	rtURL := strings.TrimSuffix(c.serverDetails.ArtifactoryUrl, "/")
-	nupkgPushURL, snupkgPushURL, err := buildPushURLs(rtURL, c.repoDeploy)
+	rtBase, err := url.Parse(rtURL)
+	if err != nil {
+		return fmt.Errorf("parse Artifactory URL: %w", err)
+	}
+	nupkgPushURL, snupkgPushURL, err := buildPushURLs(rtBase, c.repoDeploy)
 	if err != nil {
 		return err
 	}
@@ -392,7 +396,7 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
 		Transport: &http.Transport{Proxy: http.ProxyFromEnvironment},
 	}
 
-	pushURL := func(pkgPath string) string {
+	pushURL := func(pkgPath string) *url.URL {
 		if strings.HasSuffix(strings.ToLower(pkgPath), ".snupkg") {
 			return snupkgPushURL
 		}
@@ -417,7 +421,7 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
 	return nil
 }
 
-func pushSinglePackage(client *http.Client, pushURL, pkgPath, user, password string, skipDuplicate bool) error {
+func pushSinglePackage(client *http.Client, pushURL *url.URL, pkgPath, user, password string, skipDuplicate bool) error {
 	f, err := os.Open(pkgPath)
 	if err != nil {
 		return fmt.Errorf("open %q: %w", pkgPath, err)
@@ -455,7 +459,7 @@ func pushSinglePackage(client *http.Client, pushURL, pkgPath, user, password str
 		writeErr <- nil
 	}()
 
-	req, err := http.NewRequest(http.MethodPut, pushURL, pr)
+	req, err := http.NewRequest(http.MethodPut, pushURL.String(), pr)
 	if err != nil {
 		_ = pr.CloseWithError(err)
 		<-writeErr
@@ -495,16 +499,17 @@ func pushSinglePackage(client *http.Client, pushURL, pkgPath, user, password str
 }
 
 // buildPushURLs returns the Artifactory NuGet gallery endpoints for .nupkg and .snupkg files.
-// url.JoinPath encodes repo path segments and guarantees the host cannot change regardless
-// of what characters appear in the repository name.
-func buildPushURLs(rtURL, repo string) (nupkgURL, snupkgURL string, err error) {
-	nupkgURL, err = url.JoinPath(rtURL, "api/nuget/v2", repo, "")
+// url.PathEscape encodes repo so slashes and other special characters cannot alter the URL host.
+// Parsing the result into *url.URL gives callers a struct whose Host field is locked to rtBase.
+func buildPushURLs(rtBase *url.URL, repo string) (nupkgURL, snupkgURL *url.URL, err error) {
+	base := strings.TrimSuffix(rtBase.String(), "/")
+	nupkgURL, err = url.Parse(base + "/api/nuget/v2/" + url.PathEscape(repo) + "/")
 	if err != nil {
-		return "", "", fmt.Errorf("build nupkg push URL: %w", err)
+		return nil, nil, fmt.Errorf("build nupkg push URL: %w", err)
 	}
-	snupkgURL, err = url.JoinPath(rtURL, "api/nuget/v2", repo, "symbolpackage")
+	snupkgURL, err = url.Parse(base + "/api/nuget/v2/" + url.PathEscape(repo) + "/symbolpackage")
 	if err != nil {
-		return "", "", fmt.Errorf("build snupkg push URL: %w", err)
+		return nil, nil, fmt.Errorf("build snupkg push URL: %w", err)
 	}
 	return
 }

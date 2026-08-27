@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -211,7 +212,9 @@ func TestPushSinglePackage(t *testing.T) {
 			tmpPkg := filepath.Join(t.TempDir(), "test.1.0.0.nupkg")
 			require.NoError(t, os.WriteFile(tmpPkg, []byte("fake nupkg content"), 0o600))
 
-			err := pushSinglePackage(srv.Client(), srv.URL+"/", tmpPkg, "user", "pass", tc.skipDuplicate)
+			srvURL, parseErr := url.Parse(srv.URL + "/")
+			require.NoError(t, parseErr)
+			err := pushSinglePackage(srv.Client(), srvURL, tmpPkg, "user", "pass", tc.skipDuplicate)
 			if tc.wantErr {
 				require.Error(t, err)
 				if tc.errContains != "" {
@@ -228,7 +231,9 @@ func TestPushSinglePackage(t *testing.T) {
 			w.WriteHeader(http.StatusCreated)
 		}))
 		defer srv.Close()
-		err := pushSinglePackage(srv.Client(), srv.URL+"/", "/nonexistent/path/pkg.nupkg", "user", "pass", false)
+		srvURL, parseErr := url.Parse(srv.URL + "/")
+		require.NoError(t, parseErr)
+		err := pushSinglePackage(srv.Client(), srvURL, "/nonexistent/path/pkg.nupkg", "user", "pass", false)
 		require.Error(t, err)
 	})
 }
@@ -301,10 +306,12 @@ func TestBuildPushURLs(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			gotNupkg, gotSnupkg, err := buildPushURLs(tc.rtURL, tc.repo)
+			rtBase, err := url.Parse(tc.rtURL)
+			require.NoError(t, err)
+			gotNupkg, gotSnupkg, err := buildPushURLs(rtBase, tc.repo)
 			assert.NoError(t, err)
-			assert.Equal(t, tc.wantNupkg, gotNupkg)
-			assert.Equal(t, tc.wantSnupkg, gotSnupkg)
+			assert.Equal(t, tc.wantNupkg, gotNupkg.String())
+			assert.Equal(t, tc.wantSnupkg, gotSnupkg.String())
 		})
 	}
 }
