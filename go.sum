@@ -384,8 +384,12 @@ github.com/jfrog/froggit-go v1.21.1 h1:I/XUOO6GQ1d/rmBlM361F8T654C3ohIWrpw23xNL9
 github.com/jfrog/froggit-go v1.21.1/go.mod h1:umBiakJB0CSPFfe0AHVaC3n9xsmUT7NGkDCny3bRchI=
 github.com/jfrog/gofrog v1.7.6 h1:QmfAiRzVyaI7JYGsB7cxfAJePAZTzFz0gRWZSE27c6s=
 github.com/jfrog/gofrog v1.7.6/go.mod h1:ntr1txqNOZtHplmaNd7rS4f8jpA5Apx8em70oYEe7+4=
+github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260827102637-b898f36ab1d3 h1:aYeO+x+nHsUAWWZiSHjTCLiC6ls5xLG5Rq1C3LNCERk=
+github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260827102637-b898f36ab1d3/go.mod h1:vuARjRZopsCqVcZmWzCgw5Pr9QD1FWvwFxijV4bvJJI=
 github.com/jfrog/jfrog-cli-evidence v0.9.0 h1:i9DhkQUxSZkhpp5oGR+N+SVAaqWDiUylbJcoDhM91uQ=
 github.com/jfrog/jfrog-cli-evidence v0.9.0/go.mod h1:R9faPfyQESBmKrdZCmHvlpmYSHmffswjNnFeT3RMq8I=
+github.com/jfrog/jfrog-client-go v1.55.1-0.20260827094947-e7a90ebc8049 h1:eogwWAzZFir1suYEgZ4ZrYrch8fhWs7ma2dxv06p/z8=
+github.com/jfrog/jfrog-client-go v1.55.1-0.20260827094947-e7a90ebc8049/go.mod h1:7B7eMRKuMhZ0rOdMItbJVpWjRUe1L//J3Jq+PgjiNxI=
 github.com/jmespath/go-jmespath v0.4.1-0.20220621161143-b0104c826a24 h1:liMMTbpW34dhU4az1GN0pTPADwNmvoRSeoZ6PItiqnY=
 github.com/jmespath/go-jmespath v0.4.1-0.20220621161143-b0104c826a24/go.mod h1:T8mJZnbsbmF+m6zOOFylbeCJqk5+pHWvzYPziyZiYoo=
 github.com/kevinburke/ssh_config v1.6.0 h1:J1FBfmuVosPHf5GRdltRLhPJtJpTlMdKTBjRgTaQBFY=
@@ -442,10 +446,6 @@ github.com/mitchellh/go-homedir v1.1.0/go.mod h1:SfyaCUpYCn1Vlf4IUYiD9fPX4A5wJrk
 github.com/mitchellh/mapstructure v1.1.2/go.mod h1:FVVH3fgwuzCH5S8UJGiWEs2h04kUh9fWfEaFds41c1Y=
 github.com/mitchellh/mapstructure v1.5.0 h1:jeMsZIYE/09sWLaz43PL7Gy6RuMjD2eJVyuac5Z2hdY=
 github.com/mitchellh/mapstructure v1.5.0/go.mod h1:bFUtVrKA4DC2yAKiSyO/QUcy7e+RRV2QTWOzhPopBRo=
-github.com/mnsboev/jfrog-cli-core/v2 v2.0.0-20260819075146-42103e9a7a81 h1:XQ1ZGeaFV8uUGFZWqy87Hv0PfVAblRPocMryD6b5/IY=
-github.com/mnsboev/jfrog-cli-core/v2 v2.0.0-20260819075146-42103e9a7a81/go.mod h1:Rd4+WI3PWIVIWkC2Mkf1mw3ktHrPFzZFYn/c2ouUpqU=
-github.com/mnsboev/jfrog-client-go v0.0.0-20260818132447-d5b984492757 h1:MkOsT6sKyjvU5XNix8vzTKEXaki83cytE4/XFcMLaa0=
-github.com/mnsboev/jfrog-client-go v0.0.0-20260818132447-d5b984492757/go.mod h1:7B7eMRKuMhZ0rOdMItbJVpWjRUe1L//J3Jq+PgjiNxI=
 github.com/moby/docker-image-spec v1.3.1 h1:jMKff3w6PgbfSa69GfNg+zN/XLhfXJGnEx3Nl2EsFP0=
 github.com/moby/docker-image-spec v1.3.1/go.mod h1:eKmb5VW8vQEh/BAr2yvVNvuiJuY6UIocYsFu/DxxRpo=
 github.com/moby/moby/api v1.54.0 h1:7kbUgyiKcoBhm0UrWbdrMs7RX8dnwzURKVbZGy2GnL0=

@@ -43,21 +43,23 @@ func ValidatePriorityFlag(c *components.Context) error {
 	if !c.IsFlagSet("priority") {
 		return nil
 	}
-	priority := strings.ToLower(strings.TrimSpace(c.GetStringFlagValue("priority")))
-	switch priority {
-	case "low", "medium", "high":
+	priority := c.GetStringFlagValue("priority")
+	if isValidPriority(priority) {
 		return nil
-	default:
-		return pluginsCommon.PrintHelpAndReturnError(
-			fmt.Sprintf("Invalid --priority value %q. Valid values: low, medium, high", c.GetStringFlagValue("priority")), c)
 	}
+	return pluginsCommon.PrintHelpAndReturnError(
+		fmt.Sprintf("Invalid --priority value %q. Valid values: low, medium, high", priority), c)
+}
+
+func isValidPriority(priority string) bool {
+	return strings.EqualFold(priority, "low") || strings.EqualFold(priority, "medium") || strings.EqualFold(priority, "high")
 }
 
 func GetPriorityFlagValue(c *components.Context) string {
 	if !c.IsFlagSet("priority") {
 		return ""
 	}
-	return strings.ToLower(strings.TrimSpace(c.GetStringFlagValue("priority")))
+	return c.GetStringFlagValue("priority")
 }
 
 func InitReleaseBundleDistributeCmd(c *components.Context) (distributionRules *spec.DistributionRules, maxWaitMinutes int, params distributionUtils.DistributionParams, err error) {

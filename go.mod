@@ -10,9 +10,9 @@ require (
 	github.com/jedib0t/go-pretty/v6 v6.8.3
 	github.com/jfrog/build-info-go v1.13.1-0.20260818195724-23e528d30b96
 	github.com/jfrog/gofrog v1.7.6
-	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260811051029-e2289bda7c64
+	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260827102637-b898f36ab1d3
 	github.com/jfrog/jfrog-cli-evidence v0.9.0
-	github.com/jfrog/jfrog-client-go v1.55.1-0.20260813100550-0f2168d02558
+	github.com/jfrog/jfrog-client-go v1.55.1-0.20260827094947-e7a90ebc8049
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
@@ -198,13 +198,6 @@ require (
 	k8s.io/client-go v0.34.0 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
-)
-
-// TODO: remove these replaces before merge
-// (after https://github.com/jfrog/jfrog-cli-core/pull/1612 and https://github.com/jfrog/jfrog-client-go/pull/1379)
-replace (
-	github.com/jfrog/jfrog-cli-core/v2 => github.com/mnsboev/jfrog-cli-core/v2 v2.0.0-20260819075146-42103e9a7a81
-	github.com/jfrog/jfrog-client-go => github.com/mnsboev/jfrog-client-go v0.0.0-20260818132447-d5b984492757
 )
 
 // replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260729061834-1c527b8abaa6
