@@ -2,12 +2,12 @@ package nuget
 
 import (
 	"bytes"
-	"crypto/tls"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -381,20 +381,17 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
 	// .snupkg flat when pushed to the symbol-package endpoint. Using the wrong endpoint
 	// causes Artifactory to rename the file (e.g. snupkg → nupkg), breaking path-based
 	// stamping and downstream artifact lookup.
-	nupkgPushURL := rtURL + "/api/nuget/v2/" + c.repoDeploy + "/"
-	snupkgPushURL := rtURL + "/api/nuget/v2/" + c.repoDeploy + "/symbolpackage"
+	// url.PathEscape prevents path-traversal via slashes in the repository name.
+	escapedRepo := url.PathEscape(c.repoDeploy)
+	nupkgPushURL := rtURL + "/api/nuget/v2/" + escapedRepo + "/"
+	snupkgPushURL := rtURL + "/api/nuget/v2/" + escapedRepo + "/symbolpackage"
 	skipDuplicate := hasSkipDuplicate(c.args)
 	noSymbols := hasNoSymbols(c.args)
 
-	// allowInsecureConnections controls whether plain-HTTP NuGet sources are accepted
-	// (NuGet 6.8+ allowInsecureConnections flag). It does NOT skip TLS certificate
-	// verification for HTTPS endpoints, which must always be enforced.
-	tlsCfg := &tls.Config{InsecureSkipVerify: false} //nolint:gosec
 	httpClient := &http.Client{
 		Timeout: 5 * time.Minute,
 		Transport: &http.Transport{
-			TLSClientConfig: tlsCfg,
-			Proxy:           http.ProxyFromEnvironment,
+			Proxy: http.ProxyFromEnvironment,
 		},
 	}
 
