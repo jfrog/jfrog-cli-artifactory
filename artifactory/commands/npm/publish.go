@@ -174,7 +174,7 @@ func (npc *NpmPublishCommand) Run() (err error) {
 		return err
 	}
 	var restoreResolution func() error
-	restoreResolution, _, err = npc.runXrayComponentHealingForPublish(context.Background(), "publish", npc.workingDirectory, npc.publishPath, npc.npmArgs)
+	restoreResolution, _, err = npc.runZeroTouchRemediationForPublish(context.Background(), "publish", npc.workingDirectory, npc.publishPath, npc.npmArgs)
 	if err != nil {
 		return err
 	}

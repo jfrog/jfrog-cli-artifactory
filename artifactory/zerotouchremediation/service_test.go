@@ -1,4 +1,4 @@
-package healcomponents
+package zerotouchremediation
 
 import (
 	"context"
@@ -30,10 +30,10 @@ func (m *mockClient) GetVersion() (string, error) {
 	if m.version != "" {
 		return m.version, nil
 	}
-	return HealComponentsMinVersion, nil
+	return ZeroTouchRemediationMinVersion, nil
 }
 
-func (m *mockClient) HealComponents(req services.ComponentResolutionRequest) (*services.ComponentResolutionResponse, bool, error) {
+func (m *mockClient) ZeroTouchRemediation(req services.ComponentResolutionRequest) (*services.ComponentResolutionResponse, bool, error) {
 	m.callCount++
 	m.lastReq = req
 	return &m.resp, m.disabled, nil
@@ -72,35 +72,41 @@ func (m mockTool) DiscoverLockfiles(_ string) ([]Lockfile, error) {
 	return m.lockfiles, nil
 }
 
-func TestIsComponentResolutionDisabled(t *testing.T) {
-	t.Run("enabled by default", func(t *testing.T) {
-		t.Setenv(HealComponentsDisabledEnvVar, "")
-		assert.False(t, IsComponentResolutionDisabled())
+func enableZTR(t *testing.T) {
+	t.Helper()
+	t.Setenv(ZtrComponentsEnabledEnvVar, "true")
+}
+
+func TestIsComponentResolutionEnabled(t *testing.T) {
+	t.Run("disabled by default", func(t *testing.T) {
+		t.Setenv(ZtrComponentsEnabledEnvVar, "")
+		assert.False(t, IsComponentResolutionEnabled())
 	})
-	t.Run("disabled when env true", func(t *testing.T) {
-		t.Setenv(HealComponentsDisabledEnvVar, "true")
-		assert.True(t, IsComponentResolutionDisabled())
+	t.Run("enabled when env true", func(t *testing.T) {
+		t.Setenv(ZtrComponentsEnabledEnvVar, "true")
+		assert.True(t, IsComponentResolutionEnabled())
 	})
-	t.Run("not disabled for other values", func(t *testing.T) {
-		t.Setenv(HealComponentsDisabledEnvVar, "false")
-		assert.False(t, IsComponentResolutionDisabled())
+	t.Run("not enabled for other values", func(t *testing.T) {
+		t.Setenv(ZtrComponentsEnabledEnvVar, "false")
+		assert.False(t, IsComponentResolutionEnabled())
 	})
 }
 
-func TestRunIfEnabled_WritesHealedLockfiles(t *testing.T) {
+func TestRunIfEnabled_WritesRemediatedLockfiles(t *testing.T) {
+	enableZTR(t)
 	dir := t.TempDir()
 	lockPath := filepath.Join(dir, "package-lock.json")
 	require.NoError(t, os.WriteFile(lockPath, []byte("orig"), 0644))
 
 	client := &mockClient{resp: services.ComponentResolutionResponse{
-		Lockfile: "healed",
+		Lockfile: "remediated",
 		Changes:  []services.Change{{Package: "lodash", BeforeIntegrity: "a", AfterIntegrity: "b"}},
 	}}
 	tool := mockTool{root: dir, lockfiles: []Lockfile{{Path: "package-lock.json", Content: []byte("orig")}}}
 
-	_, healed, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	_, remediated, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
 	require.NoError(t, err)
-	assert.True(t, healed)
+	assert.True(t, remediated)
 	assert.Equal(t, 1, client.callCount)
 	assert.Equal(t, "npm", client.lastReq.BuildTool)
 	assert.Equal(t, "npm-virtual", client.lastReq.Repo)
@@ -108,33 +114,35 @@ func TestRunIfEnabled_WritesHealedLockfiles(t *testing.T) {
 
 	data, err := os.ReadFile(lockPath)
 	require.NoError(t, err)
-	assert.Equal(t, "healed", string(data))
+	assert.Equal(t, "remediated", string(data))
 }
 
-func TestRunIfEnabled_WritesHealedNpmLockAsString(t *testing.T) {
+func TestRunIfEnabled_WritesRemediatedNpmLockAsString(t *testing.T) {
+	enableZTR(t)
 	dir := t.TempDir()
 	lockPath := filepath.Join(dir, "package-lock.json")
 	orig := `{"lockfileVersion":3,"name":"app"}`
 	require.NoError(t, os.WriteFile(lockPath, []byte(orig), 0644))
 
-	healed := `{"lockfileVersion":3,"name":"app","healed":true}`
+	remediated := `{"lockfileVersion":3,"name":"app","remediated":true}`
 	client := &mockClient{resp: services.ComponentResolutionResponse{
-		Lockfile: healed,
+		Lockfile: remediated,
 		Changes:  []services.Change{{Package: "lodash", BeforeIntegrity: "a", AfterIntegrity: "b"}},
 	}}
 	tool := mockTool{root: dir, lockfiles: []Lockfile{{Path: "package-lock.json", Content: []byte(orig)}}}
 
-	_, healedFlag, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	_, remediatedFlag, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
 	require.NoError(t, err)
-	assert.True(t, healedFlag)
+	assert.True(t, remediatedFlag)
 
 	data, err := os.ReadFile(lockPath)
 	require.NoError(t, err)
-	assert.JSONEq(t, healed, string(data))
+	assert.JSONEq(t, remediated, string(data))
 	assert.Equal(t, orig, client.lastReq.Lockfile)
 }
 
 func TestRunIfEnabled_SkipsWhenServiceDisabled(t *testing.T) {
+	enableZTR(t)
 	dir := t.TempDir()
 	lockPath := filepath.Join(dir, "package-lock.json")
 	require.NoError(t, os.WriteFile(lockPath, []byte("orig"), 0644))
@@ -142,9 +150,9 @@ func TestRunIfEnabled_SkipsWhenServiceDisabled(t *testing.T) {
 	client := &mockClient{disabled: true}
 	tool := mockTool{root: dir, lockfiles: []Lockfile{{Path: "package-lock.json", Content: []byte("orig")}}}
 
-	_, healed, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	_, remediated, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
 	require.NoError(t, err)
-	assert.False(t, healed)
+	assert.False(t, remediated)
 	assert.Equal(t, 1, client.callCount)
 
 	data, err := os.ReadFile(lockPath)
@@ -152,17 +160,18 @@ func TestRunIfEnabled_SkipsWhenServiceDisabled(t *testing.T) {
 	assert.Equal(t, "orig", string(data))
 }
 
-func TestRunIfEnabled_SkipsWhenDisabled(t *testing.T) {
-	t.Setenv(HealComponentsDisabledEnvVar, "true")
+func TestRunIfEnabled_SkipsWhenNotEnabled(t *testing.T) {
+	t.Setenv(ZtrComponentsEnabledEnvVar, "")
 	client := &mockClient{}
 	tool := mockTool{}
-	_, healed, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", t.TempDir(), nil)
+	_, remediated, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", t.TempDir(), nil)
 	require.NoError(t, err)
-	assert.False(t, healed)
+	assert.False(t, remediated)
 	assert.Equal(t, 0, client.callCount)
 }
 
 func TestRunIfEnabled_SkipsWhenNoChanges(t *testing.T) {
+	enableZTR(t)
 	dir := t.TempDir()
 	lockPath := filepath.Join(dir, "package-lock.json")
 	require.NoError(t, os.WriteFile(lockPath, []byte("orig"), 0644))
@@ -173,9 +182,9 @@ func TestRunIfEnabled_SkipsWhenNoChanges(t *testing.T) {
 	}}
 	tool := mockTool{root: dir, lockfiles: []Lockfile{{Path: "package-lock.json", Content: []byte("orig")}}}
 
-	_, healed, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	_, remediated, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
 	require.NoError(t, err)
-	assert.False(t, healed)
+	assert.False(t, remediated)
 
 	data, err := os.ReadFile(lockPath)
 	require.NoError(t, err)
@@ -183,6 +192,7 @@ func TestRunIfEnabled_SkipsWhenNoChanges(t *testing.T) {
 }
 
 func TestRunIfEnabled_LoopsPerDiscoveredFile(t *testing.T) {
+	enableZTR(t)
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.lock"), []byte("a"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "b.lock"), []byte("b"), 0644))
@@ -198,6 +208,7 @@ func TestRunIfEnabled_LoopsPerDiscoveredFile(t *testing.T) {
 }
 
 func TestRunIfEnabled_SkipsIrrelevantCommand(t *testing.T) {
+	enableZTR(t)
 	client := &mockClient{}
 	tool := mockTool{}
 	_, _, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "version", t.TempDir(), nil)
@@ -206,6 +217,7 @@ func TestRunIfEnabled_SkipsIrrelevantCommand(t *testing.T) {
 }
 
 func TestRunIfEnabled_PropagatesEnsureLockfilesError(t *testing.T) {
+	enableZTR(t)
 	client := &mockClient{}
 	tool := mockTool{ensureErr: errors.New("package-lock.json is required for npm ci")}
 	_, _, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "ci", t.TempDir(), nil)
@@ -215,16 +227,18 @@ func TestRunIfEnabled_PropagatesEnsureLockfilesError(t *testing.T) {
 }
 
 func TestRunIfEnabled_PropagatesGetVersionError(t *testing.T) {
+	enableZTR(t)
 	client := &mockClient{versionErr: errors.New("xray unavailable")}
 	tool := mockTool{root: t.TempDir(), lockfiles: []Lockfile{{Path: "package-lock.json", Content: []byte("orig")}}}
-	_, healed, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", t.TempDir(), nil)
+	_, remediated, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", t.TempDir(), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "xray unavailable")
-	assert.False(t, healed)
+	assert.False(t, remediated)
 	assert.Equal(t, 0, client.callCount)
 }
 
 func TestRunIfEnabled_SkipsWhenXrayVersionTooLow(t *testing.T) {
+	enableZTR(t)
 	dir := t.TempDir()
 	lockPath := filepath.Join(dir, "package-lock.json")
 	require.NoError(t, os.WriteFile(lockPath, []byte("orig"), 0644))
@@ -232,15 +246,15 @@ func TestRunIfEnabled_SkipsWhenXrayVersionTooLow(t *testing.T) {
 	client := &mockClient{
 		version: "3.100.0",
 		resp: services.ComponentResolutionResponse{
-			Lockfile: "healed",
+			Lockfile: "remediated",
 			Changes:  []services.Change{{Package: "lodash", BeforeIntegrity: "a", AfterIntegrity: "b"}},
 		},
 	}
 	tool := mockTool{root: dir, lockfiles: []Lockfile{{Path: "package-lock.json", Content: []byte("orig")}}}
 
-	_, healed, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	_, remediated, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
 	require.NoError(t, err)
-	assert.False(t, healed)
+	assert.False(t, remediated)
 	assert.Equal(t, 0, client.callCount)
 
 	data, err := os.ReadFile(lockPath)
@@ -249,6 +263,7 @@ func TestRunIfEnabled_SkipsWhenXrayVersionTooLow(t *testing.T) {
 }
 
 func TestRunIfEnabled_AllowsXrayDevVersion(t *testing.T) {
+	enableZTR(t)
 	dir := t.TempDir()
 	lockPath := filepath.Join(dir, "package-lock.json")
 	require.NoError(t, os.WriteFile(lockPath, []byte("orig"), 0644))
@@ -256,20 +271,20 @@ func TestRunIfEnabled_AllowsXrayDevVersion(t *testing.T) {
 	client := &mockClient{
 		version: "3.x-dev",
 		resp: services.ComponentResolutionResponse{
-			Lockfile: "healed",
+			Lockfile: "remediated",
 			Changes:  []services.Change{{Package: "lodash", BeforeIntegrity: "a", AfterIntegrity: "b"}},
 		},
 	}
 	tool := mockTool{root: dir, lockfiles: []Lockfile{{Path: "package-lock.json", Content: []byte("orig")}}}
 
-	_, healed, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	_, remediated, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
 	require.NoError(t, err)
-	assert.True(t, healed)
+	assert.True(t, remediated)
 	assert.Equal(t, 1, client.callCount)
 
 	data, err := os.ReadFile(lockPath)
 	require.NoError(t, err)
-	assert.Equal(t, "healed", string(data))
+	assert.Equal(t, "remediated", string(data))
 }
 
 func TestApplyLockfiles_WritesMultipleFiles(t *testing.T) {
@@ -279,16 +294,16 @@ func TestApplyLockfiles_WritesMultipleFiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "app/gradle.lockfile"), []byte("b"), 0644))
 
 	restore, err := ApplyLockfiles(dir, []Lockfile{
-		{Path: "package-lock.json", Content: []byte("a-healed")},
-		{Path: "app/gradle.lockfile", Content: []byte("b-healed")},
+		{Path: "package-lock.json", Content: []byte("a-remediated")},
+		{Path: "app/gradle.lockfile", Content: []byte("b-remediated")},
 	}, nil)
 	require.NoError(t, err)
 	defer testsutils.RemoveAllAndAssert(t, dir)
 
 	a, _ := os.ReadFile(filepath.Join(dir, "package-lock.json"))
 	b, _ := os.ReadFile(filepath.Join(dir, "app/gradle.lockfile"))
-	assert.Equal(t, "a-healed", string(a))
-	assert.Equal(t, "b-healed", string(b))
+	assert.Equal(t, "a-remediated", string(a))
+	assert.Equal(t, "b-remediated", string(b))
 
 	require.NoError(t, restore())
 }

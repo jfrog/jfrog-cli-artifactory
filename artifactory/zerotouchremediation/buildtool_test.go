@@ -1,4 +1,4 @@
-package healcomponents
+package zerotouchremediation
 
 import (
 	"context"

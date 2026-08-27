@@ -1,4 +1,4 @@
-package healcomponents
+package zerotouchremediation
 
 import (
 	"context"
@@ -11,16 +11,16 @@ import (
 	"github.com/jfrog/jfrog-client-go/xray/services"
 )
 
-// HealComponentsDisabledEnvVar disables Xray heal components when set to "true".
-// Feature is enabled by default; users run normal jf <build-tool> commands with no extra setup.
-const HealComponentsDisabledEnvVar = "JFROG_CLI_HEAL_COMPONENTS_DISABLED"
+// ZtrComponentsEnabledEnvVar enables Zero Touch Remediation when set to "true".
+// Feature is disabled by default.
+const ZtrComponentsEnabledEnvVar = "JFROG_CLI_ZTR_COMPONENTS_ENABLED"
 
-const HealComponentsMinVersion = "3.133.0"
+const ZeroTouchRemediationMinVersion = "3.154.0"
 
 var noopRestore = func() error { return nil }
 
-// SkipHealing logs and returns without error. Component healing is best-effort and must not fail the caller's build.
-func SkipHealing(message string, cause error) (func() error, bool, error) {
+// SkipRemediation logs and returns without error. Zero Touch Remediation is best-effort and must not fail the caller's build.
+func SkipRemediation(message string, cause error) (func() error, bool, error) {
 	if cause != nil {
 		log.Debug(message + cause.Error())
 	} else {
@@ -29,7 +29,7 @@ func SkipHealing(message string, cause error) (func() error, bool, error) {
 	return noopRestore, false, nil
 }
 
-func skipHealingWarn(message string, cause error) (func() error, bool, error) {
+func skipRemediationWarn(message string, cause error) (func() error, bool, error) {
 	if cause != nil {
 		log.Warn(message + cause.Error())
 	} else {
@@ -38,8 +38,8 @@ func skipHealingWarn(message string, cause error) (func() error, bool, error) {
 	return noopRestore, false, nil
 }
 
-func IsComponentResolutionDisabled() bool {
-	return os.Getenv(HealComponentsDisabledEnvVar) == "true"
+func IsComponentResolutionEnabled() bool {
+	return os.Getenv(ZtrComponentsEnabledEnvVar) == "true"
 }
 
 // Lockfile is a CLI-side lock artifact. Path is relative to project root (read/write only — not sent to Xray).
@@ -56,14 +56,14 @@ type lockfileBackup struct {
 // ComponentResolutionClient resolves a single lockfile via Xray.
 type ComponentResolutionClient interface {
 	GetVersion() (string, error)
-	HealComponents(req services.ComponentResolutionRequest) (*services.ComponentResolutionResponse, bool, error)
+	ZeroTouchRemediation(req services.ComponentResolutionRequest) (*services.ComponentResolutionResponse, bool, error)
 }
 
-// RunIfEnabled ensures lockfiles exist, discovers them, calls Xray once per file, writes healed lockfiles when changes returned.
-// Returns a restore function to revert lockfile writes if the subsequent build-tool command fails, and healed=true when at least one lockfile was updated.
-func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo string, tool BuildTool, command, workingDir string, runner CommandRunner, bootstrapArgs ...string) (restore func() error, healed bool, err error) {
-	if IsComponentResolutionDisabled() || !IsRelevantCommand(tool, command) {
-		log.Debug("Xray heal components disabled or not relevant command: ", command)
+// RunIfEnabled ensures lockfiles exist, discovers them, calls Xray once per file, writes remediated lockfiles when changes returned.
+// Returns a restore function to revert lockfile writes if the subsequent build-tool command fails, and remediated=true when at least one lockfile was updated.
+func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo string, tool BuildTool, command, workingDir string, runner CommandRunner, bootstrapArgs ...string) (restore func() error, remediated bool, err error) {
+	if !IsComponentResolutionEnabled() || !IsRelevantCommand(tool, command) {
+		log.Debug("Zero Touch Remediation disabled or not relevant command: ", command)
 		return noopRestore, false, nil
 	}
 	version, err := client.GetVersion()
@@ -71,10 +71,10 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 		return noopRestore, false, err
 	}
 	log.Debug("Xray version: ", version)
-	if versionErr := clientutils.ValidateMinimumVersion(clientutils.Xray, version, HealComponentsMinVersion); versionErr != nil {
-		return skipHealingWarn("Xray heal components are not supported on the current Xray version. ", versionErr)
+	if versionErr := clientutils.ValidateMinimumVersion(clientutils.Xray, version, ZeroTouchRemediationMinVersion); versionErr != nil {
+		return skipRemediationWarn("Zero Touch Remediation is not supported on the current Xray version. ", versionErr)
 	}
-	log.Debug("Running Xray heal components at '"+repo+"' RT repository for tool:", tool.ToolName())
+	log.Debug("Running Zero Touch Remediation at '"+repo+"' RT repository for tool:", tool.ToolName())
 	projectRoot, err := tool.ProjectRoot(workingDir)
 	if err != nil {
 		return noopRestore, false, err
@@ -92,7 +92,7 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 	var toWrite []Lockfile
 	var totalChanges int
 	for _, lf := range lockfiles {
-		resp, disabled, err := client.HealComponents(services.ComponentResolutionRequest{
+		resp, disabled, err := client.ZeroTouchRemediation(services.ComponentResolutionRequest{
 			BuildTool: tool.ToolName(),
 			Repo:      repo,
 			Lockfile:  string(lf.Content),
@@ -101,7 +101,7 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 			return noopRestore, false, errorutils.CheckError(err)
 		}
 		if disabled {
-			log.Debug("Xray component healing skipped: self-heal is disabled on the server")
+			log.Debug("Zero Touch Remediation skipped: the service is disabled on the server")
 			return noopRestore, false, nil
 		}
 		if len(resp.Changes) == 0 {
@@ -110,7 +110,7 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 		}
 		toWrite = append(toWrite, Lockfile{Path: lf.Path, Content: []byte(resp.Lockfile)})
 		totalChanges += len(resp.Changes)
-		log.Debug("Healed", lf.Path, "with", len(resp.Changes), "package change(s)")
+		log.Debug("Remediated", lf.Path, "with", len(resp.Changes), "package change(s)")
 		for _, ch := range resp.Changes {
 			log.Debug("  ", ch.Package, ":", ch.BeforeIntegrity, "→", ch.AfterIntegrity)
 		}
@@ -118,12 +118,12 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 	if len(toWrite) == 0 {
 		return noopRestore, false, nil
 	}
-	log.Debug("Applying", len(toWrite), "healed lockfile(s)...")
+	log.Debug("Applying", len(toWrite), "remediated lockfile(s)...")
 	restore, err = ApplyLockfiles(projectRoot, toWrite, bootstrapped)
 	if err != nil {
 		return noopRestore, false, err
 	}
-	log.Info("Xray component resolution healed", totalChanges, "package change(s) across", len(toWrite), "lockfile(s)")
+	log.Info("Zero Touch Remediation applied", totalChanges, "package change(s) across", len(toWrite), "lockfile(s)")
 	return restore, true, nil
 }
 

@@ -5,27 +5,27 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/healcomponents"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/zerotouchremediation"
 )
 
-func TestRunComponentResolution_RespectsDisabledEnv(t *testing.T) {
-	t.Setenv(healcomponents.HealComponentsDisabledEnvVar, "true")
+func TestRunZeroTouchRemediation_DisabledByDefault(t *testing.T) {
+	t.Setenv(zerotouchremediation.ZtrComponentsEnabledEnvVar, "")
 	ca := &CommonArgs{}
 	ca.SetRepo("npm-virtual").SetServerDetails(nil)
-	_, healed, err := ca.runXrayComponentHealing(t.Context(), "install", t.TempDir(), nil)
+	_, remediated, err := ca.runZeroTouchRemediation(t.Context(), "install", t.TempDir(), nil)
 	assert.NoError(t, err)
-	assert.False(t, healed)
+	assert.False(t, remediated)
 }
 
-func TestEffectiveNpmCommandAfterHeal(t *testing.T) {
-	nc := &NpmCommand{cmdName: "install", healedLockfile: true}
+func TestEffectiveNpmCommandAfterRemediation(t *testing.T) {
+	nc := &NpmCommand{cmdName: "install", remediatedLockfile: true}
 	assert.Equal(t, "ci", nc.effectiveNpmCommand())
 
-	nc.healedLockfile = false
+	nc.remediatedLockfile = false
 	assert.Equal(t, "install", nc.effectiveNpmCommand())
 
 	nc.cmdName = "ci"
-	nc.healedLockfile = true
+	nc.remediatedLockfile = true
 	assert.Equal(t, "ci", nc.effectiveNpmCommand())
 }
 

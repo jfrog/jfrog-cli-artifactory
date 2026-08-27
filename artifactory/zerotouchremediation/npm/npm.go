@@ -8,7 +8,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/healcomponents"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/zerotouchremediation"
 )
 
 const toolName = "npm"
@@ -44,7 +44,7 @@ func (t BuildTool) ProjectRoot(workingDir string) (string, error) {
 	return discoverProjectRootWithOptions(workingDir, t.opts)
 }
 
-func (t BuildTool) EnsureLockfiles(ctx context.Context, projectRoot, command string, runner healcomponents.CommandRunner, bootstrapArgs ...string) ([]string, error) {
+func (t BuildTool) EnsureLockfiles(ctx context.Context, projectRoot, command string, runner zerotouchremediation.CommandRunner, bootstrapArgs ...string) ([]string, error) {
 	if _, err := os.Stat(filepath.Join(projectRoot, shrinkwrapFileName)); err == nil {
 		return nil, nil
 	} else if !os.IsNotExist(err) {
@@ -58,12 +58,12 @@ func (t BuildTool) EnsureLockfiles(ctx context.Context, projectRoot, command str
 	}
 	switch command {
 	case "ci":
-		return nil, errorutils.CheckErrorf("component resolution requires %s or %s for npm ci (generate with npm install first)", lockfileName, shrinkwrapFileName)
+		return nil, errorutils.CheckErrorf("Zero Touch Remediation requires %s or %s for npm ci (generate with npm install first)", lockfileName, shrinkwrapFileName)
 	case "install", "publish":
 		if runner == nil {
 			return nil, errorutils.CheckErrorf("npm runner required to bootstrap %s", lockfileName)
 		}
-		log.Info("Component resolution: generating ", lockfileName, " (lockfile was missing)")
+		log.Info("Zero Touch Remediation: generating ", lockfileName, " (lockfile was missing)")
 		args := append([]string{"install", "--package-lock-only"}, bootstrapArgs...)
 		if err := runner(ctx, projectRoot, args...); err != nil {
 			return nil, errorutils.CheckError(err)
@@ -74,7 +74,7 @@ func (t BuildTool) EnsureLockfiles(ctx context.Context, projectRoot, command str
 	}
 }
 
-func (t BuildTool) DiscoverLockfiles(workingDir string) ([]healcomponents.Lockfile, error) {
+func (t BuildTool) DiscoverLockfiles(workingDir string) ([]zerotouchremediation.Lockfile, error) {
 	root, err := discoverProjectRootWithOptions(workingDir, t.opts)
 	if err != nil {
 		return nil, err
@@ -87,5 +87,5 @@ func (t BuildTool) DiscoverLockfiles(workingDir string) ([]healcomponents.Lockfi
 	if err != nil {
 		return nil, errorutils.CheckError(err)
 	}
-	return []healcomponents.Lockfile{{Path: name, Content: data}}, nil
+	return []zerotouchremediation.Lockfile{{Path: name, Content: data}}, nil
 }

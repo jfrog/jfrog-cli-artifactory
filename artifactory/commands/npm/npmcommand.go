@@ -73,8 +73,8 @@ type NpmCommand struct {
 	collectBuildInfo    bool
 	buildInfoModule     *build.NpmModule
 	installHandler      *NpmInstallStrategy
-	// When true, the subsequent install uses npm ci to honor healed lockfile integrity.
-	healedLockfile bool
+	// When true, the subsequent install uses npm ci to honor remediated lockfile integrity.
+	remediatedLockfile bool
 	// When true, skips the 404 error handling that checks if packages are blocked by curation
 	disableCVSCheck bool
 }
@@ -351,7 +351,7 @@ func (nc *NpmCommand) Run() (err error) {
 		return
 	}
 	var restoreResolution func() error
-	restoreResolution, nc.healedLockfile, err = nc.runXrayComponentHealing(context.Background(), nc.cmdName, nc.workingDirectory, nc.npmArgs)
+	restoreResolution, nc.remediatedLockfile, err = nc.runZeroTouchRemediation(context.Background(), nc.cmdName, nc.workingDirectory, nc.npmArgs)
 	if err != nil {
 		return err
 	}
@@ -521,7 +521,7 @@ func (nc *NpmCommand) prepareBuildInfoModule() error {
 }
 
 func (nc *NpmCommand) effectiveNpmCommand() string {
-	if nc.healedLockfile && nc.cmdName == "install" {
+	if nc.remediatedLockfile && nc.cmdName == "install" {
 		return "ci"
 	}
 	return nc.cmdName
@@ -530,7 +530,7 @@ func (nc *NpmCommand) effectiveNpmCommand() string {
 func (nc *NpmCommand) collectDependencies() error {
 	npmCommand := nc.effectiveNpmCommand()
 	if npmCommand != nc.cmdName {
-		log.Info("Using npm ci after component resolution to install from the healed lockfile")
+		log.Info("Using npm ci after Zero Touch Remediation to install from the remediated lockfile")
 	}
 	nc.buildInfoModule.SetNpmArgs(append([]string{npmCommand}, nc.npmArgs...))
 	return errorutils.CheckError(nc.buildInfoModule.Build())
