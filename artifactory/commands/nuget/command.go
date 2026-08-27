@@ -389,7 +389,7 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
 		Proxy: http.ProxyFromEnvironment,
 	}
 	if c.allowInsecureConnections {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // #nosec G402 -- opt-in via --allow-insecure-connections flag, mirrors dotnet/nuget existing behaviour
 	}
 	httpClient := &http.Client{
 		Timeout:   5 * time.Minute,
