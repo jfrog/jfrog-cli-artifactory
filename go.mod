@@ -204,5 +204,3 @@ require (
 // replace github.com/gfleury/go-bitbucket-v1 => github.com/gfleury/go-bitbucket-v1 v0.0.0-20230825095122-9bc1711434ab
 
 // replace github.com/ktrysmt/go-bitbucket => github.com/ktrysmt/go-bitbucket v0.9.80
-
-// replace github.com/jfrog/build-info-go => github.com/bhanurp/build-info-go v1.10.10-0.20260820072515-bd3fffb4622c

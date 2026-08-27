@@ -2,6 +2,7 @@ package nuget
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -156,17 +157,15 @@ func (c *NuGetFlexPackCommand) Run() error {
 				}
 				defer cleanup()
 			} else if c.toolchainType != dotnetutils.Nuget && isRestoreCommand(c.subCommand) {
-				// dotnet CLI restore/install/update: inject --source <url-with-Basic-Auth>.
-				// Push is excluded: the bypass below handles all push cases (both nuget.exe
-				// and dotnet CLI) via a direct HTTP PUT to Artifactory using Basic Auth, which
-				// avoids the service-index 401 that occurs when dotnet tries to load a V3
-				// index.json from a URL with embedded JWT credentials.
-				// Note: dotnet CLI uses --source / -s (POSIX style); nuget.exe uses -Source.
-				authenticatedURL, err := SourceURLWithCredentials(c.serverDetails, repo, c.useNugetV2)
+				// dotnet CLI restore: use a temp nuget.config (same approach as nuget.exe) to
+				// avoid embedding credentials in the --source process argument, which is visible
+				// to all local users via /proc/<pid>/cmdline or ps aux.
+				// dotnet restore supports --configfile (double-dash, POSIX style).
+				cleanup, err := c.injectCredentialsViaTempConfig(repo)
 				if err != nil {
 					return err
 				}
-				c.args = append(c.args, "--source", authenticatedURL)
+				defer cleanup()
 			}
 		}
 	}
@@ -283,7 +282,7 @@ func (c *NuGetFlexPackCommand) injectCredentialsViaTempConfig(repo string) (func
 	// NuGet 6.8+ rejects HTTP sources unless allowInsecureConnections="true" is set.
 	// Local Artifactory instances in CI typically run on plain HTTP.
 	allowInsecure := ""
-	if strings.HasPrefix(strings.ToLower(sourceURL), "http://") {
+	if c.allowInsecureConnections || strings.HasPrefix(strings.ToLower(sourceURL), "http://") {
 		allowInsecure = ` allowInsecureConnections="true"`
 	}
 
@@ -316,7 +315,12 @@ func (c *NuGetFlexPackCommand) injectCredentialsViaTempConfig(repo string) (func
 		return nil, fmt.Errorf("close temp nuget.config: %w", err)
 	}
 
-	c.args = append(c.args, "-ConfigFile", tmpFile.Name())
+	// nuget.exe uses single-dash POSIX style; dotnet CLI uses double-dash POSIX style.
+	configFlag := "-ConfigFile"
+	if c.toolchainType != dotnetutils.Nuget {
+		configFlag = "--configfile"
+	}
+	c.args = append(c.args, configFlag, tmpFile.Name())
 
 	return func() { _ = os.Remove(tmpFile.Name()) }, nil
 }
@@ -377,22 +381,19 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
 	}
 
 	rtURL := strings.TrimSuffix(c.serverDetails.ArtifactoryUrl, "/")
-	// Artifactory stores .nupkg flat when pushed to the standard package endpoint and
-	// .snupkg flat when pushed to the symbol-package endpoint. Using the wrong endpoint
-	// causes Artifactory to rename the file (e.g. snupkg → nupkg), breaking path-based
-	// stamping and downstream artifact lookup.
-	// url.PathEscape prevents path-traversal via slashes in the repository name.
-	escapedRepo := url.PathEscape(c.repoDeploy)
-	nupkgPushURL := rtURL + "/api/nuget/v2/" + escapedRepo + "/"
-	snupkgPushURL := rtURL + "/api/nuget/v2/" + escapedRepo + "/symbolpackage"
+	nupkgPushURL, snupkgPushURL := buildPushURLs(rtURL, c.repoDeploy)
 	skipDuplicate := hasSkipDuplicate(c.args)
 	noSymbols := hasNoSymbols(c.args)
 
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+	}
+	if c.allowInsecureConnections {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
+	}
 	httpClient := &http.Client{
-		Timeout: 5 * time.Minute,
-		Transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-		},
+		Timeout:   5 * time.Minute,
+		Transport: transport,
 	}
 
 	pushURL := func(pkgPath string) string {
@@ -431,39 +432,55 @@ func pushSinglePackage(client *http.Client, pushURL, pkgPath, user, password str
 		}
 	}()
 
-	var body bytes.Buffer
-	mw := multipart.NewWriter(&body)
-	part, err := mw.CreateFormFile("package", filepath.Base(pkgPath))
-	if err != nil {
-		return fmt.Errorf("create form file: %w", err)
-	}
-	if _, err := io.Copy(part, f); err != nil {
-		return fmt.Errorf("buffer package: %w", err)
-	}
-	if err := mw.Close(); err != nil {
-		return fmt.Errorf("close multipart writer: %w", err)
-	}
+	// Stream the multipart body directly into the request using io.Pipe so the entire
+	// package is never buffered in memory — large .nupkg files (100+ MB) would OOM otherwise.
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
+	writeErr := make(chan error, 1)
+	go func() {
+		defer pw.Close()
+		part, err := mw.CreateFormFile("package", filepath.Base(pkgPath))
+		if err != nil {
+			writeErr <- fmt.Errorf("create form file: %w", err)
+			return
+		}
+		if _, err := io.Copy(part, f); err != nil {
+			writeErr <- fmt.Errorf("stream package: %w", err)
+			return
+		}
+		if err := mw.Close(); err != nil {
+			writeErr <- fmt.Errorf("close multipart writer: %w", err)
+			return
+		}
+		writeErr <- nil
+	}()
 
-	req, err := http.NewRequest(http.MethodPut, pushURL, &body)
+	req, err := http.NewRequest(http.MethodPut, pushURL, pr)
 	if err != nil {
+		_ = pr.CloseWithError(err)
+		<-writeErr
 		return fmt.Errorf("build push request: %w", err)
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	req.SetBasicAuth(user, password)
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("push request: %w", err)
+	resp, doErr := client.Do(req)
+	if werr := <-writeErr; werr != nil && doErr == nil {
+		doErr = werr
+	}
+	if doErr != nil {
+		return fmt.Errorf("push request: %w", doErr)
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
 			log.Debug("Failed to close push response body:", closeErr.Error())
 		}
 	}()
-	respBody, _ := io.ReadAll(resp.Body)
+	// Cap response body read to avoid unbounded memory on large error responses.
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 
 	switch resp.StatusCode {
-	case http.StatusCreated, http.StatusOK:
+	case http.StatusCreated, http.StatusOK, http.StatusNoContent:
 		log.Info(fmt.Sprintf("Package %q pushed successfully", filepath.Base(pkgPath)))
 		return nil
 	case http.StatusConflict:
@@ -475,6 +492,39 @@ func pushSinglePackage(client *http.Client, pushURL, pkgPath, user, password str
 	default:
 		return fmt.Errorf("push failed: HTTP %d — %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
+}
+
+// buildPushURLs returns the Artifactory NuGet gallery endpoints for .nupkg and .snupkg files.
+// url.PathEscape on repo prevents path-traversal via slashes in the repository name.
+func buildPushURLs(rtURL, repo string) (nupkgURL, snupkgURL string) {
+	escapedRepo := url.PathEscape(repo)
+	nupkgURL = rtURL + "/api/nuget/v2/" + escapedRepo + "/"
+	snupkgURL = rtURL + "/api/nuget/v2/" + escapedRepo + "/symbolpackage"
+	return
+}
+
+// searchWithRetry calls searchFn up to maxAttempts times with exponential backoff starting
+// at initialDelay, returning the first positive count. Used to tolerate Artifactory's
+// asynchronous NuGet indexing. Pass initialDelay=0 in tests to skip sleeping.
+func searchWithRetry(maxAttempts int, initialDelay time.Duration, patterns []string, searchFn func() (int, error)) (int, error) {
+	delay := initialDelay
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		n, err := searchFn()
+		if err != nil {
+			return 0, err
+		}
+		if n > 0 {
+			return n, nil
+		}
+		if attempt < maxAttempts {
+			log.Debug(fmt.Sprintf("NuGet artifacts not yet indexed (attempt %d/%d); retrying in %s", attempt, maxAttempts, delay))
+			if delay > 0 {
+				time.Sleep(delay)
+				delay *= 2
+			}
+		}
+	}
+	return 0, fmt.Errorf("no uploaded NuGet artifacts found at the expected paths after %d attempts: %s", maxAttempts, strings.Join(patterns, ", "))
 }
 
 // resolvePackagePaths returns all .nupkg and .snupkg file paths from args, expanding
@@ -696,34 +746,26 @@ func (c *NuGetFlexPackCommand) stampBuildProperties(artifacts []entities.Artifac
 	}
 	// Artifactory indexes NuGet packages asynchronously after upload. Retry the search with
 	// exponential backoff so a briefly-empty index does not cause a spurious error.
-	const maxAttempts = 5
-	retryDelay := 2 * time.Second
-	var length int
 	var reader *content.ContentReader
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	length, retryErr := searchWithRetry(5, 2*time.Second, patterns, func() (int, error) {
 		r, searchErr := generic.SearchItems(specFiles, servicesManager)
 		if searchErr != nil {
-			return fmt.Errorf("resolve uploaded NuGet artifacts for property stamping: %w", searchErr)
+			return 0, fmt.Errorf("resolve uploaded NuGet artifacts for property stamping: %w", searchErr)
 		}
 		n, lenErr := r.Length()
 		if lenErr != nil {
 			_ = r.Close()
-			return fmt.Errorf("read search result length for NuGet property stamping: %w", lenErr)
+			return 0, fmt.Errorf("read search result length for NuGet property stamping: %w", lenErr)
 		}
 		if n > 0 {
 			reader = r
-			length = n
-			break
+		} else {
+			_ = r.Close()
 		}
-		_ = r.Close()
-		if attempt < maxAttempts {
-			log.Debug(fmt.Sprintf("NuGet artifacts not yet indexed (attempt %d/%d); retrying in %s", attempt, maxAttempts, retryDelay))
-			time.Sleep(retryDelay)
-			retryDelay *= 2
-		}
-	}
-	if reader == nil {
-		return fmt.Errorf("no uploaded NuGet artifacts found at the expected paths after %d attempts: %s", maxAttempts, strings.Join(patterns, ", "))
+		return n, nil
+	})
+	if retryErr != nil {
+		return retryErr
 	}
 	defer func() {
 		if closeErr := reader.Close(); closeErr != nil {
