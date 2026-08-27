@@ -390,10 +390,13 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
 	// (NuGet 6.8+ allowInsecureConnections flag). It does NOT skip TLS certificate
 	// verification for HTTPS endpoints, which must always be enforced.
 	tlsCfg := &tls.Config{InsecureSkipVerify: false} //nolint:gosec
-	httpClient := &http.Client{Transport: &http.Transport{
-		TLSClientConfig: tlsCfg,
-		Proxy:           http.ProxyFromEnvironment,
-	}}
+	httpClient := &http.Client{
+		Timeout: 5 * time.Minute,
+		Transport: &http.Transport{
+			TLSClientConfig: tlsCfg,
+			Proxy:           http.ProxyFromEnvironment,
+		},
+	}
 
 	pushURL := func(pkgPath string) string {
 		if strings.HasSuffix(strings.ToLower(pkgPath), ".snupkg") {
@@ -793,9 +796,12 @@ func restoreOptionTakesValue(arg string) bool {
 	}
 	switch strings.ToLower(arg) {
 	case "-a", "--arch",
+		"-c", "--configuration",
 		"--configfile", "-configfile",
+		"-f", "--framework",
 		"--lock-file-path",
 		"-msbuildpath", "-msbuildversion",
+		"-o", "--output",
 		"--os",
 		"-outputdirectory",
 		"--packages", "-packagesavemode", "-packagesdirectory",
