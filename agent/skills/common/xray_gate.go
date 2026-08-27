@@ -63,7 +63,7 @@ func CheckXrayGate(params XrayGateParams) error {
 		log.Info(fmt.Sprintf("Xray scanning is disabled for repository '%s'. Skipping scan.", params.RepoKey))
 		return nil
 	case services.SkillXrayStatusApproved:
-		log.Info(fmt.Sprintf("No Xray violations found so far for skill \"%s\" v%s. Security scan may still be pending.", params.Slug, params.Version))
+		log.Info(fmt.Sprintf("[SCAN PENDING] Skill \"%s\" v%s: no violations found yet.", params.Slug, params.Version))
 		return nil
 	case services.SkillXrayStatusBlocked:
 		return handleBlocked(params)
@@ -136,7 +136,7 @@ func pollUntilDone(sm artifactory.ArtifactoryServicesManager, params XrayGatePar
 			switch resp.Status {
 			case services.SkillXrayStatusApproved:
 				stopSpinner()
-				log.Info(fmt.Sprintf("No Xray violations found so far for skill \"%s\" v%s. Security scan may still be pending.", params.Slug, params.Version))
+				log.Info(fmt.Sprintf("[SCAN PENDING] Skill \"%s\" v%s: no violations found yet.", params.Slug, params.Version))
 				return nil
 			case services.SkillXrayStatusBlocked:
 				stopSpinner()
