@@ -20,6 +20,7 @@ import (
 	buildinfoflex "github.com/jfrog/build-info-go/flexpack"
 	nugetflex "github.com/jfrog/build-info-go/flexpack/nuget"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
+	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	rtutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
@@ -685,19 +686,42 @@ func (c *NuGetFlexPackCommand) stampBuildProperties(artifacts []entities.Artifac
 	for _, pattern := range patterns {
 		specFiles.Files = append(specFiles.Files, spec.File{Pattern: pattern})
 	}
-	reader, err := generic.SearchItems(specFiles, servicesManager)
-	if err != nil {
-		return fmt.Errorf("resolve uploaded NuGet artifacts for property stamping: %w", err)
+	// Artifactory indexes NuGet packages asynchronously after upload. Retry the search with
+	// exponential backoff so a briefly-empty index does not cause a spurious error.
+	const maxAttempts = 5
+	retryDelay := 2 * time.Second
+	var length int
+	var reader *content.ContentReader
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		r, searchErr := generic.SearchItems(specFiles, servicesManager)
+		if searchErr != nil {
+			return fmt.Errorf("resolve uploaded NuGet artifacts for property stamping: %w", searchErr)
+		}
+		n, lenErr := r.Length()
+		if lenErr != nil {
+			_ = r.Close()
+			return fmt.Errorf("read search result length for NuGet property stamping: %w", lenErr)
+		}
+		if n > 0 {
+			reader = r
+			length = n
+			break
+		}
+		_ = r.Close()
+		if attempt < maxAttempts {
+			log.Debug(fmt.Sprintf("NuGet artifacts not yet indexed (attempt %d/%d); retrying in %s", attempt, maxAttempts, retryDelay))
+			time.Sleep(retryDelay)
+			retryDelay *= 2
+		}
+	}
+	if reader == nil {
+		return fmt.Errorf("no uploaded NuGet artifacts found at the expected paths after %d attempts: %s", maxAttempts, strings.Join(patterns, ", "))
 	}
 	defer func() {
 		if closeErr := reader.Close(); closeErr != nil {
 			log.Debug("Failed to close search reader:", closeErr.Error())
 		}
 	}()
-	length, _ := reader.Length()
-	if length == 0 {
-		return fmt.Errorf("no uploaded NuGet artifacts found at the expected paths for property stamping: %s", strings.Join(patterns, ", "))
-	}
 	if _, err := servicesManager.SetProps(services.PropsParams{Reader: reader, Props: props}); err != nil {
 		return fmt.Errorf("stamp build properties on uploaded NuGet artifacts: %w", err)
 	}
