@@ -301,7 +301,8 @@ func TestBuildPushURLs(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			gotNupkg, gotSnupkg := buildPushURLs(tc.rtURL, tc.repo)
+			gotNupkg, gotSnupkg, err := buildPushURLs(tc.rtURL, tc.repo)
+			assert.NoError(t, err)
 			assert.Equal(t, tc.wantNupkg, gotNupkg)
 			assert.Equal(t, tc.wantSnupkg, gotSnupkg)
 		})

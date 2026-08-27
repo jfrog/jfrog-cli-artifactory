@@ -2,7 +2,6 @@ package nuget
 
 import (
 	"bytes"
-	"crypto/tls"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -381,19 +380,16 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
 	}
 
 	rtURL := strings.TrimSuffix(c.serverDetails.ArtifactoryUrl, "/")
-	nupkgPushURL, snupkgPushURL := buildPushURLs(rtURL, c.repoDeploy)
+	nupkgPushURL, snupkgPushURL, err := buildPushURLs(rtURL, c.repoDeploy)
+	if err != nil {
+		return err
+	}
 	skipDuplicate := hasSkipDuplicate(c.args)
 	noSymbols := hasNoSymbols(c.args)
 
-	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-	}
-	if c.allowInsecureConnections {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // #nosec G402 -- opt-in via --allow-insecure-connections flag, mirrors dotnet/nuget existing behaviour
-	}
 	httpClient := &http.Client{
 		Timeout:   5 * time.Minute,
-		Transport: transport,
+		Transport: &http.Transport{Proxy: http.ProxyFromEnvironment},
 	}
 
 	pushURL := func(pkgPath string) string {
@@ -499,11 +495,17 @@ func pushSinglePackage(client *http.Client, pushURL, pkgPath, user, password str
 }
 
 // buildPushURLs returns the Artifactory NuGet gallery endpoints for .nupkg and .snupkg files.
-// url.PathEscape on repo prevents path-traversal via slashes in the repository name.
-func buildPushURLs(rtURL, repo string) (nupkgURL, snupkgURL string) {
-	escapedRepo := url.PathEscape(repo)
-	nupkgURL = rtURL + "/api/nuget/v2/" + escapedRepo + "/"
-	snupkgURL = rtURL + "/api/nuget/v2/" + escapedRepo + "/symbolpackage"
+// url.JoinPath encodes repo path segments and guarantees the host cannot change regardless
+// of what characters appear in the repository name.
+func buildPushURLs(rtURL, repo string) (nupkgURL, snupkgURL string, err error) {
+	nupkgURL, err = url.JoinPath(rtURL, "api/nuget/v2", repo, "")
+	if err != nil {
+		return "", "", fmt.Errorf("build nupkg push URL: %w", err)
+	}
+	snupkgURL, err = url.JoinPath(rtURL, "api/nuget/v2", repo, "symbolpackage")
+	if err != nil {
+		return "", "", fmt.Errorf("build snupkg push URL: %w", err)
+	}
 	return
 }
 
