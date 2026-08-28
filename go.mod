@@ -8,15 +8,14 @@ require (
 	github.com/forPelevin/gomoji v1.4.1
 	github.com/google/go-containerregistry v0.21.3
 	github.com/jedib0t/go-pretty/v6 v6.8.3
-	github.com/jfrog/build-info-go v1.13.1-0.20260818195724-23e528d30b96
+	github.com/jfrog/build-info-go v1.13.1-0.20260828071122-bb92ab7ba69b
 	github.com/jfrog/gofrog v1.7.6
-	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260827102637-b898f36ab1d3
+	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260827111619-bee4d60fbdc7
 	github.com/jfrog/jfrog-cli-evidence v0.9.0
 	github.com/jfrog/jfrog-client-go v1.55.1-0.20260827094947-e7a90ebc8049
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
-	go.uber.org/mock v0.6.0
 	golang.org/x/exp v0.0.0-20260527015227-08cc5374adb3
 	golang.org/x/mod v0.37.0
 	golang.org/x/term v0.45.0
