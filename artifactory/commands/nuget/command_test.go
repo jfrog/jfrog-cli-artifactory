@@ -308,8 +308,7 @@ func TestBuildPushURLs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rtBase, err := url.Parse(tc.rtURL)
 			require.NoError(t, err)
-			gotNupkg, gotSnupkg, err := buildPushURLs(rtBase, tc.repo)
-			assert.NoError(t, err)
+			gotNupkg, gotSnupkg := buildPushURLs(rtBase, tc.repo)
 			assert.Equal(t, tc.wantNupkg, gotNupkg.String())
 			assert.Equal(t, tc.wantSnupkg, gotSnupkg.String())
 		})
