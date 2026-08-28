@@ -3,6 +3,7 @@ package cargo
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -98,10 +99,14 @@ func TestConfigureNativeRegistry_WritesConfigAndCredentials(t *testing.T) {
 	// "Bearer " + access token — the scheme Artifactory's Cargo index requires.
 	assert.Equal(t, "Bearer tok123", credJfrog["token"])
 
-	// credentials.toml must be 0600.
-	info, err := os.Stat(filepath.Join(home, "credentials.toml"))
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	// credentials.toml must be 0600 on POSIX. Windows does not use Unix permission bits
+	// (os.Stat reports 0666 regardless of the mode passed to os.WriteFile), so the assertion
+	// only holds off-Windows.
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(filepath.Join(home, "credentials.toml"))
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	}
 }
 
 func TestConfigureNativeRegistry_WithDeployRepo(t *testing.T) {
