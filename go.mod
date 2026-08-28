@@ -10,9 +10,9 @@ require (
 	github.com/jedib0t/go-pretty/v6 v6.8.3
 	github.com/jfrog/build-info-go v1.13.1-0.20260828051808-4a2e4939ca36
 	github.com/jfrog/gofrog v1.7.6
-	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260811051029-e2289bda7c64
+	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260827102637-b898f36ab1d3
 	github.com/jfrog/jfrog-cli-evidence v0.9.0
-	github.com/jfrog/jfrog-client-go v1.55.1-0.20260508101905-a17af78a38d7
+	github.com/jfrog/jfrog-client-go v1.55.1-0.20260827094947-e7a90ebc8049
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
@@ -111,7 +111,7 @@ require (
 	github.com/in-toto/attestation v1.2.0 // indirect
 	github.com/in-toto/in-toto-golang v0.10.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
-	github.com/jfrog/archiver/v3 v3.6.3 // indirect
+	github.com/jfrog/archiver/v3 v3.6.4 // indirect
 	github.com/jfrog/froggit-go v1.21.1 // indirect
 	github.com/kevinburke/ssh_config v1.6.0 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
