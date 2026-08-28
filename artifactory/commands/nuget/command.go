@@ -400,8 +400,9 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
 		return nupkgPushURL
 	}
 
+	allowedHost := rtBase.Host
 	for _, pkgPath := range packages {
-		if err := pushSinglePackage(httpClient, pushURL(pkgPath), pkgPath, user, password, skipDuplicate); err != nil {
+		if err := pushSinglePackage(httpClient, pushURL(pkgPath), allowedHost, pkgPath, user, password, skipDuplicate); err != nil {
 			return err
 		}
 		// Replicate nuget.exe behaviour: when pushing a .nupkg, also push the sibling
@@ -409,7 +410,7 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
 		if !noSymbols && strings.HasSuffix(strings.ToLower(pkgPath), ".nupkg") {
 			snupkgPath := pkgPath[:len(pkgPath)-len(".nupkg")] + ".snupkg"
 			if _, statErr := os.Stat(snupkgPath); statErr == nil {
-				if err := pushSinglePackage(httpClient, snupkgPushURL, snupkgPath, user, password, skipDuplicate); err != nil {
+				if err := pushSinglePackage(httpClient, snupkgPushURL, allowedHost, snupkgPath, user, password, skipDuplicate); err != nil {
 					return err
 				}
 			}
@@ -418,7 +419,12 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
 	return nil
 }
 
-func pushSinglePackage(client *http.Client, pushURL *url.URL, pkgPath, user, password string, skipDuplicate bool) error {
+func pushSinglePackage(client *http.Client, pushURL *url.URL, allowedHost, pkgPath, user, password string, skipDuplicate bool) error {
+	// Allowlist check: guard against any URL manipulation causing the request to reach
+	// a host other than the configured Artifactory server.
+	if pushURL.Host != allowedHost {
+		return fmt.Errorf("security: push URL host %q does not match Artifactory host %q", pushURL.Host, allowedHost)
+	}
 	f, err := os.Open(pkgPath)
 	if err != nil {
 		return fmt.Errorf("open %q: %w", pkgPath, err)

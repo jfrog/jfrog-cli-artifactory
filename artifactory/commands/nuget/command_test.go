@@ -214,7 +214,7 @@ func TestPushSinglePackage(t *testing.T) {
 
 			srvURL, parseErr := url.Parse(srv.URL + "/")
 			require.NoError(t, parseErr)
-			err := pushSinglePackage(srv.Client(), srvURL, tmpPkg, "user", "pass", tc.skipDuplicate)
+			err := pushSinglePackage(srv.Client(), srvURL, srvURL.Host, tmpPkg, "user", "pass", tc.skipDuplicate)
 			if tc.wantErr {
 				require.Error(t, err)
 				if tc.errContains != "" {
@@ -233,7 +233,7 @@ func TestPushSinglePackage(t *testing.T) {
 		defer srv.Close()
 		srvURL, parseErr := url.Parse(srv.URL + "/")
 		require.NoError(t, parseErr)
-		err := pushSinglePackage(srv.Client(), srvURL, "/nonexistent/path/pkg.nupkg", "user", "pass", false)
+		err := pushSinglePackage(srv.Client(), srvURL, srvURL.Host, "/nonexistent/path/pkg.nupkg", "user", "pass", false)
 		require.Error(t, err)
 	})
 }
