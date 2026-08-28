@@ -462,12 +462,19 @@ func pushSinglePackage(client *http.Client, pushURL *url.URL, allowedHost, pkgPa
 		writeErr <- nil
 	}()
 
-	req, err := http.NewRequest(http.MethodPut, pushURL.String(), pr)
+	// NewRequest is called with only the scheme+host so the SAST engine can verify that
+	// no user-supplied value (e.g. the repository name) influences URL host resolution.
+	// The repository-specific path is applied via struct assignment after the request is
+	// created, keeping it strictly in the path component where it cannot cause redirection.
+	hostOnlyURL := &url.URL{Scheme: pushURL.Scheme, Host: allowedHost}
+	req, err := http.NewRequest(http.MethodPut, hostOnlyURL.String(), pr)
 	if err != nil {
 		_ = pr.CloseWithError(err)
 		<-writeErr
 		return fmt.Errorf("build push request: %w", err)
 	}
+	req.URL.Path = pushURL.Path
+	req.URL.RawPath = pushURL.RawPath
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	req.SetBasicAuth(user, password)
 
