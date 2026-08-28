@@ -15,13 +15,32 @@ import (
 )
 
 // jfrogRegistryName is the cargo registry name written by `jf setup cargo` for dependency
-// resolution. A fixed name keeps setup idempotent and is the single target of the
-// [source.crates-io] redirect (which can only point at one source).
+// resolution.
+//
+// Why a fixed name (not the Artifactory repo name)?
+//   - Cargo's `[source.crates-io] replace-with = "<name>"` can point at ONE source only. The
+//     redirect target has to be stable so we (and the user's docs, editor tooling, CI scripts)
+//     know it up front. A repo-name-derived registry would make `--registry jfrog` unavailable
+//     and force users to remember whichever repo happens to be configured today.
+//   - Repo names may contain characters cargo's registry-name grammar rejects, and can be renamed
+//     on the Artifactory side without the user re-running setup — stale registry sections would
+//     linger in `config.toml`.
+//   - Idempotency: the same fixed name means re-running `jf setup cargo` REPLACES the previous
+//     JFrog registry entry in-place, rather than accumulating one per past repo. If the user
+//     switches from `repoA` to `repoB`, the second setup overwrites `[registries.jfrog].index`
+//     (and its credentials.toml token) so the environment reflects the current choice — no stale
+//     entries pointing at the old repo. Unrelated `[registries.foo]` blocks the user configured
+//     manually are left alone (see mergeTomlFile).
 const jfrogRegistryName = "jfrog"
 
-// jfrogDeployRegistryName is the cargo registry name written for publishing. Cargo can only redirect
-// crates.io resolution to one source (jfrogRegistryName, a remote), so the publish target — a local
-// repo — is written as a second named registry. Users publish with `cargo publish --registry jfrog-local`.
+// jfrogDeployRegistryName is the cargo registry name written for publishing. Cargo can only
+// redirect crates.io resolution to one source (jfrogRegistryName, a remote), so the publish
+// target — a local repo — is written as a second named registry. Users publish with
+// `cargo publish --registry jfrog-local`.
+//
+// Same fixed-name rationale as jfrogRegistryName above: stable target for CI/scripts, and
+// re-running setup overwrites the previous local-repo entry rather than accumulating one per
+// past choice.
 const jfrogDeployRegistryName = "jfrog-local"
 
 // cargoHome returns the cargo home directory: $CARGO_HOME if set, else ~/.cargo.
@@ -60,6 +79,22 @@ func cargoSparseIndexURL(artifactoryURL, repoName string) (string, error) {
 // user-level cargo config, so that plain `cargo` (not just `jf cargo`) resolves and authenticates
 // against Artifactory. This is the persistent counterpart to the per-run env-var injection
 // (resolveAuthEnv); the two are complementary.
+//
+// Why we edit the TOML files directly instead of driving native cargo commands:
+//
+//   - cargo has no native command that edits `config.toml`. `cargo config get` exists (unstable,
+//     read-only); there is no `cargo config set`. Every managed-config solution — the setup flows
+//     for npm/pip/gradle/etc. — reaches into the tool's own config file for the same reason.
+//   - `cargo login` writes ONE token, is interactive (prompts on stdin), targets a single registry
+//     specified by `--registry`, and does not touch `config.toml` at all. We need to write
+//     credentials for the resolution registry AND (optionally) the deploy registry in one go,
+//     non-interactively, without introducing a stdin dance for a CI flow.
+//   - Even for the credential half, direct writes let us guarantee `0600` from creation (no chmod
+//     race window where the file is world-readable), atomic rename, and preservation of unrelated
+//     `[registries.<user-repo>]` entries — none of which a native command promises.
+//
+// This is exactly what other jf setup commands do (nix's config edit, npm's `.npmrc` edit,
+// pip's `pip.conf` edit, etc.). Cargo just happens to lack any managed alternative.
 //
 // ~/.cargo/config.toml gets a full crates.io redirect — every `cargo build` resolves via Artifactory:
 //

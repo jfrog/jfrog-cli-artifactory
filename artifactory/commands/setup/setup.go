@@ -255,11 +255,21 @@ func (sc *SetupCommand) promptUserToSelectRepository() error {
 	return nil
 }
 
-// promptUserToSelectCargoRepositories selects the two repositories Cargo needs when --repo is not
-// given: a REMOTE for resolving dependencies (crates.io is redirected to it) and a LOCAL for
-// publishing. Artifactory has no virtual Cargo repositories, so — unlike the generic flow — this
-// lists local/remote repos directly. The remote is required (falls back to a manual name prompt if
-// none is found); the local is optional (setup configures resolution-only if none is selected).
+// promptUserToSelectCargoRepositories selects the repositories Cargo needs when --repo is not
+// given. Cargo has two orthogonal roles that map to two different Artifactory repo types:
+//
+//   - REMOTE (required)  — the *resolution / download* registry. Every crate cargo pulls in
+//     (`cargo build`, `install`, `update`, `fetch`, transitive deps of `publish`, …) is downloaded
+//     from here. crates.io is redirected onto this repo, so it is the sole source of third-party
+//     dependencies. Downloads NEVER go through the local repo.
+//   - LOCAL  (optional)  — the *publish / upload* registry. `cargo publish --registry jfrog-local`
+//     uploads the user's own crate to this repo. It is upload-only. Skipping this prompt is a
+//     valid "I don't publish from this machine" choice; nothing is written for publish and cargo
+//     will refuse `cargo publish` until the user either re-runs `jf setup cargo` with a local
+//     repo selected or adds a `[registries.…]` entry themselves.
+//
+// Artifactory has no virtual Cargo repositories, so — unlike the generic flow — this lists
+// local/remote repos directly. The remote falls back to a manual name prompt when none exists.
 func (sc *SetupCommand) promptUserToSelectCargoRepositories() error {
 	packageType := packageManagerToRepositoryPackageType[sc.packageManager]
 
@@ -708,11 +718,21 @@ func (sc *SetupCommand) configureHelm() error {
 // resolution and publishing, by writing the user-level cargo config and credentials files.
 // It writes:
 //
-//	~/.cargo/config.toml     — [registries.jfrog] index, [registry] default, [source.crates-io] replace-with
+//	~/.cargo/config.toml      — [registries.jfrog] index, [registry] default, [source.crates-io] replace-with
 //	~/.cargo/credentials.toml — [registries.jfrog] token
 //
-// After setup, plain `cargo build` resolves crates through Artifactory (crates.io is redirected)
-// and `cargo publish --registry jfrog` uploads to it.
+// These are cargo's OWN persistent config files: after `jf setup cargo` returns, plain `cargo`
+// (not just `jf cargo`) reads them on every invocation. So `cargo build`, `cargo update`,
+// `cargo fetch`, `cargo publish --registry jfrog-local`, `cargo install <crate>` etc. all resolve
+// through Artifactory and authenticate with the written token — no `jf` prefix required. This is
+// the persistent counterpart to per-run env-var injection in `jf cargo <cmd>`; the two are
+// complementary (env vars win for jf-run commands, files apply everywhere else).
+//
+// Coverage lives in artifactory/commands/cargo/setup_test.go: TestConfigureNativeRegistry_*
+// asserts config.toml + credentials.toml are written with the correct registries, that
+// re-running is idempotent and preserves unrelated user keys, and that anonymous setup skips
+// credentials. The end-to-end path (setup → native `cargo publish` → uploaded artifact + build
+// info) is exercised against a live Artifactory tenant in the jfrog-cli integration suite.
 func (sc *SetupCommand) configureCargo() error {
 	return cargo.ConfigureNativeRegistry(sc.serverDetails, sc.repoName, sc.deployRepoName)
 }

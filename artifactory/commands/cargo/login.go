@@ -100,10 +100,34 @@ func commandBucket(cmd string) string {
 	}
 }
 
-// needsRemoteAccess reports whether jf should inject registry auth for the command. The three
-// build-info-collecting commands (install, build, publish) are jf-integrated and get token
-// injection so they can resolve/upload against Artifactory. All other commands are pass-throughs
-// and rely on the user's cargo credentials (e.g. from `jf setup cargo`).
+// needsRemoteAccess reports whether jf should inject registry auth (as CARGO_REGISTRIES_*_TOKEN
+// env vars) for the command. There are two layers of authentication a cargo command can use:
+//
+//  1. Per-run env-var injection — what this function gates. jf reads the server details it
+//     was configured with (`jf c add`) and, for the command being run, exports the matching
+//     `CARGO_REGISTRIES_<NAME>_TOKEN` env var to the child cargo process. Enabled ONLY for
+//     the three build-info-collecting commands (install, build, publish) because those are the
+//     jf-integrated ones — jf actually needs to know the auth to attribute build info.
+//
+//  2. Persistent files — `~/.cargo/config.toml` + `~/.cargo/credentials.toml` written by
+//     `jf setup cargo` (see ConfigureNativeRegistry). Once these exist, EVERY cargo invocation
+//     — `cargo update`, `cargo search`, `cargo fetch`, `cargo add`, `cargo yank`, and yes,
+//     even plain `cargo` outside of `jf cargo` — authenticates from those files. The pass-through
+//     `jf cargo <cmd>` commands (that get `needsRemoteAccess == false`) do not skip auth: they
+//     rely on this layer instead of the env-var layer.
+//
+// So the answer to "what about `jf cargo update` / `search` / `fetch`?" is: they authenticate
+// exactly the same way the plain `cargo` binary does. If the user has run `jf setup cargo` (or
+// otherwise has credentials in `~/.cargo/credentials.toml`), those commands work. If they haven't,
+// those commands fail with cargo's own auth error — which is the expected UX ("please log in
+// first") and matches how every other package-manager CLI in this repo behaves.
+//
+// We deliberately do NOT export `CARGO_REGISTRIES_*_TOKEN` for pass-through commands because:
+//   - Doing so would silently override the user's `credentials.toml` (env wins over file), which
+//     hides misconfiguration when they run the same command outside jf.
+//   - Cargo's credential-provider gating means an injected token without also injecting
+//     `CARGO_REGISTRY_GLOBAL_CREDENTIAL_PROVIDERS=cargo:token` is ignored anyway; adding both for
+//     every pass-through would layer env noise on top of a config that already works.
 func needsRemoteAccess(cmd string) bool {
 	switch commandBucket(cmd) {
 	case "deps", "publish":
