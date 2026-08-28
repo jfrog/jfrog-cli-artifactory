@@ -58,17 +58,10 @@ var CodexExec = func(args ...string) error {
 	return nil
 }
 
-// codexPostInstall writes the plugin into the Codex marketplace manifest and
-// registers it with the native codex CLI (if available).
-// Returns an error if the marketplace write fails or if native registration fails when the CLI is found.
-// Returns a WarningError if the CLI is not found on PATH.
-//
-// Directory layout produced by agents.go (GlobalDir = ~/.agents/plugins/local/jfrog):
-//
-//	~/.agents/plugins/local/jfrog/          ← marketplace root
-//	  .agents/plugins/
-//	    marketplace.json                       ← written here
-//	  <slug>/                                  ← installDir (plugin files copied by jf)
+// codexPostInstall writes the plugin into the Codex marketplace manifest (under
+// installDir's parent, GlobalDir = ~/.agents/plugins/local/jfrog) and registers it with
+// the native codex CLI if available. Returns an error on write/registration failure, or a
+// WarningError if the CLI isn't on PATH.
 func codexPostInstall(slug, version, installDir, repoKey string) error {
 	manifestPath := codexMarketplaceManifestPath(installDir)
 	log.Info(fmt.Sprintf("[codex] writing marketplace entry for '%s' → %s", slug, manifestPath))
@@ -94,6 +87,41 @@ func codexPostInstall(slug, version, installDir, repoKey string) error {
 			fmt.Sprintf("codex CLI not found on PATH; skipping native marketplace registration. "+
 				"Run: codex plugin marketplace add %s", codexMarketplaceRoot(installDir)),
 		)
+	}
+	return nil
+}
+
+// codexPostUpdate refreshes the marketplace manifest entry to the new version and asks
+// the native codex CLI to pick it up. Unlike Claude, Codex has no plugin-level "update"
+// verb (plugin add is also the resync verb) — only `marketplace upgrade` to refresh the
+// catalog, so that's used for the marketplace step instead of re-`add`ing it.
+func codexPostUpdate(slug, version, installDir, repoKey string) error {
+	manifestPath := codexMarketplaceManifestPath(installDir)
+	log.Info(fmt.Sprintf("[codex] refreshing marketplace entry for '%s' -> %s (v%s)", slug, manifestPath, version))
+	if err := upsertCodexMarketplaceEntry(manifestPath, slug, repoKey); err != nil {
+		return err
+	}
+	_, err := LookPathCodex()
+	if err != nil {
+		// CLI not found, log warning but continue (not a fatal error)
+		log.Warn("[codex] codex CLI not found on PATH; skipping native marketplace refresh. " +
+			"Run: codex plugin marketplace add " + codexMarketplaceRoot(installDir))
+		return nil //nolint:nilerr // deliberate: missing CLI is non-fatal, not an error to propagate
+	}
+	// CLI found, proceed with marketplace refresh + plugin resync.
+	log.Info(fmt.Sprintf("[codex] refreshing marketplace: codex plugin marketplace upgrade %s", repoKey))
+	if execErr := CodexExec("plugin", "marketplace", "upgrade", repoKey); execErr != nil {
+		// Cosmetic: only refreshes the catalog view (and always fails for jf's local
+		// marketplaces — codex's upgrade verb expects a Git marketplace). The plugin
+		// resync call below is what actually matters for native state.
+		log.Warn(fmt.Sprintf("[codex] marketplace refresh failed: %v", execErr))
+	}
+	log.Info(fmt.Sprintf("[codex] updating plugin: codex plugin add %s@%s", slug, repoKey))
+	if execErr := CodexExec("plugin", "add", slug+"@"+repoKey); execErr != nil {
+		// Plugin files on disk are already updated; only native re-registration failed.
+		// Surface as a warning (not swallowed) so the row doesn't misreport "ok" while
+		// codex's own registry is left stale/unregistered.
+		return agentcommon.NewWarningError(fmt.Sprintf("native plugin resync failed: %v", execErr))
 	}
 	return nil
 }
@@ -128,9 +156,9 @@ func upsertCodexMarketplaceEntry(path, slug, marketplaceName string) error {
 		Policy: codexPolicy{Installation: "AVAILABLE"},
 	}
 	found := false
-	for i, p := range m.Plugins {
-		if strings.EqualFold(p.Name, slug) {
-			m.Plugins[i] = entry
+	for index, plugin := range m.Plugins {
+		if strings.EqualFold(plugin.Name, slug) {
+			m.Plugins[index] = entry
 			found = true
 			break
 		}

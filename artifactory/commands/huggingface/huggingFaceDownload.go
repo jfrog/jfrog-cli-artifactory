@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/jfrog/build-info-go/entities"
-	coreUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -43,15 +42,6 @@ func (hfd *HuggingFaceDownload) Run() error {
 	if hfd.repoId == "" {
 		return errorutils.CheckErrorf("repo_id cannot be empty")
 	}
-	serviceManager, err := coreUtils.CreateServiceManager(hfd.serverDetails, -1, 0, false)
-	if err != nil {
-		return fmt.Errorf("failed to create services manager: %w", err)
-	}
-	repo, err := handleRepositoryResolution(serviceManager, hfd.serverDetails, "download")
-	if err != nil {
-		return err
-	}
-	hfd.repo = repo
 	pythonPath, err := GetPythonPath()
 	if err != nil {
 		return err

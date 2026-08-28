@@ -42,9 +42,17 @@ type marketplace struct {
 	Plugins []marketplaceEntry `json:"plugins"`
 }
 
+// genericMarketplaceFileName is the harness-agnostic marketplace index at the repo root.
+const genericMarketplaceFileName = "marketplace.json"
+
 // MarketplaceFileName returns "<harness>-marketplace.json".
+// For vscode it returns the generic marketplace.json.
 func MarketplaceFileName(harness string) string {
-	return strings.ToLower(strings.TrimSpace(harness)) + "-marketplace.json"
+	name := strings.ToLower(strings.TrimSpace(harness))
+	if name == "vscode" {
+		return genericMarketplaceFileName
+	}
+	return name + "-marketplace.json"
 }
 
 // downloadMarketplace downloads <harness>-marketplace.json from the repository root into a temp dir.

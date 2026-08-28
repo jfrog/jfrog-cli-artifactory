@@ -39,7 +39,18 @@ Gotchas:
 - Transitive download (across remote-repo virtuals) requires JFROG_CLI_TRANSITIVE_DOWNLOAD=true.
 - Default --recursive=true; set --recursive=false for shallow matches only.
 
-Related: jf rt upload, jf rt direct-download, jf rt search, jf rt copy`
+Related: jf rt upload, jf rt direct-download, jf rt search, jf rt copy
+
+QA:
+Q: How to download "project.jar" from "MavenRepo" to my local directory?
+A: jf rt dl "MavenRepo/project.jar" "/Users/john/Documents/project.jar"
+
+Q: How to Download the latest file uploaded to the all-my-frogs folder in the my-local-repo repository.
+A: jf rt dl 'my-local-repo/all-my-frogs/*' --sort-by=created --sort-order=desc --limit=1
+
+Q: Can I download "report.pdf" from "DocsRepo" to my local directory?
+A: jf rt dl "DocsRepo/report.pdf" "/var/www/html/report.pdf"
+`
 }
 
 func GetArguments() []components.Argument {

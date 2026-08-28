@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/gofrog/version"
 	artCliUtils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	artCoreUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -27,6 +29,8 @@ const publishSummaryFile = "pnpm-publish-summary.json"
 
 type PnpmPublishCommand struct {
 	pnpmArgs           []string
+	executedArgs       []string
+	pnpmVersion        *version.Version
 	workingDirectory   string
 	buildConfiguration *buildUtils.BuildConfiguration
 	serverDetails      *config.ServerDetails
@@ -48,6 +52,11 @@ func (ppc *PnpmPublishCommand) SetBuildConfiguration(buildConfiguration *buildUt
 
 func (ppc *PnpmPublishCommand) SetServerDetails(serverDetails *config.ServerDetails) *PnpmPublishCommand {
 	ppc.serverDetails = serverDetails
+	return ppc
+}
+
+func (ppc *PnpmPublishCommand) SetPnpmVersion(pnpmVersion *version.Version) *PnpmPublishCommand {
+	ppc.pnpmVersion = pnpmVersion
 	return ppc
 }
 
@@ -305,6 +314,7 @@ func (ppc *PnpmPublishCommand) runPnpmPublishNative(flags publishFlags) error {
 	}
 	args = append(args, flags.filterArgs...)
 	args = append(args, flags.publishArgs...)
+	ppc.executedArgs = args
 	log.Debug("Running command: pnpm", strings.Join(args, " "))
 	cmd := exec.Command("pnpm", args...)
 	cmd.Dir = ppc.workingDirectory
@@ -322,6 +332,7 @@ func (ppc *PnpmPublishCommand) runPnpmPublishCaptured(flags publishFlags) ([]byt
 	args := []string{"publish"}
 	args = append(args, flags.filterArgs...)
 	args = append(args, flags.publishArgs...)
+	ppc.executedArgs = args
 	log.Debug("Running command: pnpm", strings.Join(args, " "))
 	cmd := exec.Command("pnpm", args...)
 	cmd.Dir = ppc.workingDirectory
@@ -356,7 +367,7 @@ func parseNpmPublishJson(data []byte) (*publishedPackage, error) {
 	if out.Name == "" {
 		return nil, nil
 	}
-	return &publishedPackage{Name: out.Name, Version: out.Version}, nil
+	return &publishedPackage{Name: out.Name, Version: normalizeVersion(out.Version)}, nil
 }
 
 type publishSummary struct {
@@ -384,8 +395,9 @@ func readPublishSummary(path string) ([]publishedPackage, error) {
 		return nil, errorutils.CheckErrorf("parsing publish summary: %s", err.Error())
 	}
 
-	for _, pkg := range summary.PublishedPackages {
-		log.Debug(fmt.Sprintf("Published: %s@%s", pkg.Name, pkg.Version))
+	for i, pkg := range summary.PublishedPackages {
+		summary.PublishedPackages[i].Version = normalizeVersion(pkg.Version)
+		log.Debug(fmt.Sprintf("Published: %s@%s", pkg.Name, summary.PublishedPackages[i].Version))
 	}
 	return summary.PublishedPackages, nil
 }
@@ -458,12 +470,8 @@ func computeChecksums(packages []pnpmPackResult) map[string]entities.Checksum {
 	return results
 }
 
-func (ppc *PnpmPublishCommand) saveBuildArtifacts(packages []pnpmPackResult, checksumResults map[string]entities.Checksum, published []publishedPackage, publishRepos map[string]string, fallbackRepos registryMap) error {
-	pnpmBuild, err := newBuild(ppc.buildConfiguration)
-	if err != nil {
-		return err
-	}
-
+func (ppc *PnpmPublishCommand) saveBuildArtifacts(pnpmBuild *build.Build, packages []pnpmPackResult, checksumResults map[string]entities.Checksum, published []publishedPackage, publishRepos map[string]string, fallbackRepos registryMap) error {
+	var err error
 	customModule := ppc.buildConfiguration.GetModule()
 
 	// Build lookup from package name to published package for deploy path computation
@@ -519,14 +527,20 @@ func (ppc *PnpmPublishCommand) finalizePublishBuildInfo(packages []pnpmPackResul
 	checksumResults := computeChecksums(packages)
 	log.Debug(fmt.Sprintf("Checksums computed for %d/%d package(s).", len(checksumResults), len(packages)))
 
+	pnpmBuild, err := newBuild(ppc.buildConfiguration)
+	if err != nil {
+		return err
+	}
+
 	publishRepos := getPublishConfigRepos(ppc.workingDirectory, published)
 	fallbackRepos := getRegistryRepos(ppc.workingDirectory)
 	ppc.resolveVirtualRepos(publishRepos, &fallbackRepos)
-	if err := ppc.saveBuildArtifacts(packages, checksumResults, published, publishRepos, fallbackRepos); err != nil {
+	if err := ppc.saveBuildArtifacts(pnpmBuild, packages, checksumResults, published, publishRepos, fallbackRepos); err != nil {
 		return err
 	}
 
 	ppc.tagPublishedProperties(published, publishRepos, fallbackRepos)
+	recordPnpmCommandMetadata(pnpmBuild, ppc.pnpmVersion, ppc.executedArgs)
 	log.Info(fmt.Sprintf("pnpm publish finished successfully. %d package(s) published with build info.", len(packages)))
 	return nil
 }

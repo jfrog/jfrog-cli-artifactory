@@ -93,6 +93,19 @@ func TestGetArtifactoryRemoteRepoUrl(t *testing.T) {
 	repoUrl, err := GetArtifactoryRemoteRepoUrl(server, repoName, GoProxyUrlParams{})
 	assert.NoError(t, err)
 	assert.Equal(t, "https://testuser:"+testFakeToken+"@server.com/artifactory/api/go/test-repo", repoUrl)
+
+	// The exact parameters `jf setup go` passes. Asserted here because the only
+	// other coverage of this shape is TestSetupCommand_Go, which needs the `go`
+	// binary and writes a global env var, so it cannot run everywhere.
+	repoUrl, err = GetArtifactoryRemoteRepoUrl(server, repoName, GoProxyUrlParams{Direct: true, FallbackOnlyIfNotFound: true})
+	assert.NoError(t, err)
+	assert.Equal(t, "https://testuser:"+testFakeToken+"@server.com/artifactory/api/go/test-repo,direct", repoUrl)
+	assert.NotContains(t, repoUrl, "|direct", "a pipe would fall back on any error, including a Curation 403")
+
+	// The parameters `jf go` passes must keep falling back on any error.
+	repoUrl, err = GetArtifactoryRemoteRepoUrl(server, repoName, GoProxyUrlParams{Direct: true})
+	assert.NoError(t, err)
+	assert.Equal(t, "https://testuser:"+testFakeToken+"@server.com/artifactory/api/go/test-repo|direct", repoUrl)
 }
 
 func TestGetArtifactoryApiUrl(t *testing.T) {
@@ -117,6 +130,12 @@ func TestGetArtifactoryApiUrl(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "https://frog:testpass@test.com/artifactory/test/api/go/test-repo|direct", url)
 
+	// Same, but with the fallback limited to 404/410 - the credentials must still
+	// be embedded and the comma must survive alongside the endpoint prefix.
+	url, err = getArtifactoryApiUrl("test-repo", details, GoProxyUrlParams{EndpointPrefix: "test", Direct: true, FallbackOnlyIfNotFound: true})
+	assert.NoError(t, err)
+	assert.Equal(t, "https://frog:testpass@test.com/artifactory/test/api/go/test-repo,direct", url)
+
 	// Test access token
 	// Set fake access token with username "test"
 	details.SetUser("testuser")
@@ -135,13 +154,33 @@ func TestGetArtifactoryApiUrl(t *testing.T) {
 	assert.Equal(t, "https://frog:"+testFakeToken+"@test.com/artifactory/api/go/test-repo", url)
 }
 
+func TestGoProxyUrlParams_AddDirectIsIdempotentForBothSeparators(t *testing.T) {
+	testCases := []struct {
+		name                   string
+		url                    string
+		FallbackOnlyIfNotFound bool
+	}{
+		{name: "Pipe fallback is not appended twice", url: "https://test/api/go/go|direct"},
+		{name: "Comma fallback is not appended twice", url: "https://test/api/go/go,direct", FallbackOnlyIfNotFound: true},
+		{name: "Comma fallback is left alone when a pipe was requested", url: "https://test/api/go/go,direct"},
+		{name: "Pipe fallback is left alone when a comma was requested", url: "https://test/api/go/go|direct", FallbackOnlyIfNotFound: true},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			gdu := &GoProxyUrlParams{Direct: true, FallbackOnlyIfNotFound: testCase.FallbackOnlyIfNotFound}
+			assert.Equal(t, testCase.url, gdu.addDirect(testCase.url))
+		})
+	}
+}
+
 func TestGoProxyUrlParams_BuildUrl(t *testing.T) {
 	testCases := []struct {
-		name           string
-		RepoName       string
-		Direct         bool
-		EndpointPrefix string
-		ExpectedUrl    string
+		name                   string
+		RepoName               string
+		Direct                 bool
+		FallbackOnlyIfNotFound bool
+		EndpointPrefix         string
+		ExpectedUrl            string
 	}{
 		{
 			name:        "Url Without direct or Prefix",
@@ -160,14 +199,43 @@ func TestGoProxyUrlParams_BuildUrl(t *testing.T) {
 			EndpointPrefix: "prefix",
 			ExpectedUrl:    "https://test/prefix/api/go/go",
 		},
+		{
+			name:                   "Zero value keeps the any-error pipe for existing callers",
+			RepoName:               "go",
+			Direct:                 true,
+			FallbackOnlyIfNotFound: false,
+			ExpectedUrl:            "https://test/api/go/go|direct",
+		},
+		{
+			name:                   "FallbackOnlyIfNotFound limits the fallback to 404/410",
+			RepoName:               "go",
+			Direct:                 true,
+			FallbackOnlyIfNotFound: true,
+			ExpectedUrl:            "https://test/api/go/go,direct",
+		},
+		{
+			name:                   "Ignored when Direct is false",
+			RepoName:               "go",
+			FallbackOnlyIfNotFound: true,
+			ExpectedUrl:            "https://test/api/go/go",
+		},
+		{
+			name:                   "Comma fallback together with an endpoint prefix",
+			RepoName:               "go",
+			Direct:                 true,
+			FallbackOnlyIfNotFound: true,
+			EndpointPrefix:         "prefix",
+			ExpectedUrl:            "https://test/prefix/api/go/go,direct",
+		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			remoteUrl, err := url.Parse("https://test")
 			require.NoError(t, err)
 			gdu := &GoProxyUrlParams{
-				Direct:         testCase.Direct,
-				EndpointPrefix: testCase.EndpointPrefix,
+				Direct:                 testCase.Direct,
+				FallbackOnlyIfNotFound: testCase.FallbackOnlyIfNotFound,
+				EndpointPrefix:         testCase.EndpointPrefix,
 			}
 			assert.Equalf(t, testCase.ExpectedUrl, gdu.BuildUrl(remoteUrl, testCase.RepoName), "BuildUrl(%v, %v)", remoteUrl, testCase.RepoName)
 		})

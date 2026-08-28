@@ -38,7 +38,27 @@ Gotchas:
 - Wildcards behave differently than --regexp; mixing them is invalid. Pick one mode.
 - --flat=true (default for some patterns) flattens directory structure; set --flat=false to preserve hierarchy.
 
-Related: jf rt download, jf rt copy, jf rt search, jf rt set-props`
+Related: jf rt download, jf rt copy, jf rt search, jf rt set-props
+
+QA:
+Q: How to upload "project.jar" to "MavenCentral"?
+A: jf rt u "/local/path/to/project.jar" "MavenCentral/"
+
+Q: What's the JFrog CLI command to upload all .tgz files from my local directory to a corresponding directory in my Artifactory repo?
+A: jf rt u "(*.tgz)" "my-local-repo/{1}/" --recursive=false
+
+Q: How can I upload 'myapp.war' to 'webapps-local/' with properties 'version=1.0' and 'release=stable'?
+A: jf rt u myapp.war webapps-local/ --target-props='version=1.0;release=stable'
+
+Q: How can I upload 'myapp.war' to 'webapps-local/' and pack it into a ZIP archive?
+A: jf rt u myapp.war webapps-local/ --archive=zip
+
+Q: What is the command to upload 'myapp.war' to 'webapps-local/' with a retry wait time of 6000 milliseconds?
+A: jf rt u myapp.war webapps-local/ --retry-wait-time=6000ms
+
+Q: How can I upload a Debian package 'mypackage.deb' to 'debian-local/' with distribution 'buster' and component 'main' using JFrog CLI?
+A: jf rt u --deb=buster/main/amd64 mypackage.deb debian-local/
+`
 }
 
 func GetArguments() []components.Argument {

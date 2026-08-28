@@ -14,17 +14,10 @@ import (
 
 const claudeNativeCmdTimeout = 30 * time.Second
 
-// claudePostInstall writes the plugin into the JFrog marketplace file and
-// registers it with the native claude CLI (if available).
-// Returns an error if the marketplace write fails or if native registration fails when the CLI is found.
-// Returns a WarningError if the CLI is not found on PATH.
-//
-// Directory layout produced by agents.go (GlobalDir = ~/.claude/plugins/local/jfrog):
-//
-//	~/.claude/plugins/local/jfrog/
-//	  .claude-plugin/
-//	    marketplace.json          ← written here
-//	  <slug>/                     ← installDir (plugin files copied by jf)
+// claudePostInstall writes the plugin into the JFrog marketplace file (under installDir's
+// parent, GlobalDir = ~/.claude/plugins/local/jfrog) and registers it with the native
+// claude CLI if available. Returns an error on write/registration failure, or a
+// WarningError if the CLI isn't on PATH.
 func claudePostInstall(slug, version, installDir, repoKey string) error {
 	marketplacePath := claudeMarketplacePath(installDir)
 	log.Info(fmt.Sprintf("[claude] writing marketplace entry for '%s' → %s", slug, marketplacePath))
@@ -50,6 +43,41 @@ func claudePostInstall(slug, version, installDir, repoKey string) error {
 			fmt.Sprintf("claude CLI not found on PATH; skipping native marketplace registration. "+
 				"Install the Claude CLI to complete native plugin registration at %s", marketplaceDir),
 		)
+	}
+	return nil
+}
+
+// claudePostUpdate refreshes the marketplace entry to the new version and asks the native
+// claude CLI to pull that update into its local plugin cache. `claude plugin install` is a
+// no-op on an already-installed plugin, so it won't refresh a stale cached copy — this uses
+// `claude plugin update <plugin>` instead (see plugins-reference#plugin-update).
+func claudePostUpdate(slug, version, installDir, repoKey string) error {
+	marketplacePath := claudeMarketplacePath(installDir)
+	log.Info(fmt.Sprintf("[claude] refreshing marketplace entry for '%s' -> %s (v%s)", slug, marketplacePath, version))
+	if err := upsertLocalMarketplaceEntry(marketplacePath, slug, version, repoKey); err != nil {
+		return err
+	}
+	_, err := LookPathClaude()
+	if err != nil {
+		// CLI not found, log warning but continue (not a fatal error)
+		log.Warn("[claude] claude CLI not found on PATH; skipping native marketplace refresh. " +
+			"Install the Claude CLI to complete the native plugin update.")
+		return nil //nolint:nilerr // deliberate: missing CLI is non-fatal, not an error to propagate
+	}
+	// CLI found, proceed with marketplace refresh + plugin update.
+	log.Info(fmt.Sprintf("[claude] refreshing marketplace: claude plugin marketplace update %s", repoKey))
+	if execErr := ClaudeExec("plugin", "marketplace", "update", repoKey); execErr != nil {
+		// Cosmetic: only refreshes the catalog view. The plugin update call below is what
+		// actually matters for native state, so this alone doesn't warrant a warning row.
+		log.Warn(fmt.Sprintf("[claude] marketplace refresh failed: %v", execErr))
+	}
+	log.Info(fmt.Sprintf("[claude] updating plugin: claude plugin update %s@%s", slug, repoKey))
+	// Include the @<repoKey> qualifier so Claude resolves the correct marketplace source.
+	if execErr := ClaudeExec("plugin", "update", slug+"@"+repoKey); execErr != nil {
+		// Plugin files on disk are already updated; only native re-registration failed.
+		// Surface as a warning (not swallowed) so the row doesn't misreport "ok" while
+		// claude's own registry is left stale/unregistered.
+		return agentcommon.NewWarningError(fmt.Sprintf("native plugin update failed: %v", execErr))
 	}
 	return nil
 }

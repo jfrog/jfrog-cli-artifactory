@@ -356,12 +356,29 @@ func logGoVersion() error {
 	return nil
 }
 
+// The "direct" GOPROXY entry tells the go command to fetch the module from its own
+// source. The separator in front of it decides when that happens: a pipe falls back
+// on any proxy error, a comma only on 404/410 - so with a comma a Curation 403 is a
+// hard failure instead of being quietly satisfied from the module's public source.
+const (
+	directFallbackEntry           = "direct"
+	anyErrorFallbackSeparator     = "|"
+	notFoundOnlyFallbackSeparator = ","
+)
+
 type GoProxyUrlParams struct {
 	// Fallback to retrieve the modules directly from the source if
 	// the module failed to be retrieved from the proxy.
 	// add |direct to the end of the url.
 	// example: https://gocenter.io|direct
+	// Set FallbackOnlyIfNotFound to use a comma instead of a pipe, limiting the
+	// fallback to 404/410 rather than any error.
 	Direct bool
+	// FallbackOnlyIfNotFound joins the "direct" entry with a comma instead of a
+	// pipe, so the go command falls through to the module's public source only
+	// after a 404/410. The zero value keeps the previous any-error (pipe)
+	// behavior for existing callers. Ignored when Direct is false.
+	FallbackOnlyIfNotFound bool
 	// The path from baseUrl to the standard Go repository path
 	// URL structure: <baseUrl>/<EndpointPrefix>/api/go/<repoName>
 	EndpointPrefix string
@@ -374,10 +391,20 @@ func (gdu *GoProxyUrlParams) BuildUrl(url *url.URL, repoName string) string {
 }
 
 func (gdu *GoProxyUrlParams) addDirect(url string) string {
-	if gdu.Direct && !strings.HasSuffix(url, "|direct") {
-		return url + "|direct"
+	if !gdu.Direct || hasDirectFallback(url) {
+		return url
 	}
-	return url
+	if gdu.FallbackOnlyIfNotFound {
+		return url + notFoundOnlyFallbackSeparator + directFallbackEntry
+	}
+	return url + anyErrorFallbackSeparator + directFallbackEntry
+}
+
+// hasDirectFallback reports whether the url already ends with a "direct" entry, with
+// either separator, so that an already-configured fallback is never appended twice.
+func hasDirectFallback(url string) bool {
+	return strings.HasSuffix(url, anyErrorFallbackSeparator+directFallbackEntry) ||
+		strings.HasSuffix(url, notFoundOnlyFallbackSeparator+directFallbackEntry)
 }
 
 func GetArtifactoryRemoteRepoUrl(serverDetails *config.ServerDetails, repo string, goProxyParams GoProxyUrlParams) (string, error) {
