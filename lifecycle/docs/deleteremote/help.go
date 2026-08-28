@@ -22,11 +22,13 @@ Prerequisites:
 Common patterns:
   $ jf release-bundle-delete-remote my-bundle 1.0.0 --site="edge-eu" --quiet
   $ jf release-bundle-delete-remote my-bundle 1.0.0 --dist-rules=./rules.json --sync --max-wait-minutes=30
+  $ jf release-bundle-delete-remote my-bundle 1.0.0 --site="edge-eu" --priority=high --quiet
 
 Gotchas:
 - Does NOT affect the local copy; use jf release-bundle-delete-local for that.
 - Interactive confirmation by default; --quiet for CI.
 - --dist-rules conflicts with --site/--city/--country-code.
+- --priority accepts low, medium, or high; omitted defaults to medium on the server.
 
 Related: jf release-bundle-delete-local, jf release-bundle-distribute`
 }

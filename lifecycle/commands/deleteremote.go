@@ -27,6 +27,7 @@ type ReleaseBundleRemoteDeleteCommand struct {
 	dryRun            bool
 	quiet             bool
 	maxWaitMinutes    int
+	priority          string
 }
 
 func NewReleaseBundleRemoteDeleteCommand() *ReleaseBundleRemoteDeleteCommand {
@@ -78,6 +79,11 @@ func (rbd *ReleaseBundleRemoteDeleteCommand) SetMaxWaitMinutes(maxWaitMinutes in
 	return rbd
 }
 
+func (rbd *ReleaseBundleRemoteDeleteCommand) SetPriority(priority string) *ReleaseBundleRemoteDeleteCommand {
+	rbd.priority = priority
+	return rbd
+}
+
 func (rbd *ReleaseBundleRemoteDeleteCommand) CommandName() string {
 	return "rb_remote_delete"
 }
@@ -113,6 +119,7 @@ func (rbd *ReleaseBundleRemoteDeleteCommand) deleteRemote(servicesManager *lifec
 		DistributionRules:         aggregatedRules,
 		DryRun:                    rbd.dryRun,
 		MaxWaitMinutes:            rbd.maxWaitMinutes,
+		Priority:                  rbd.priority,
 		CommonOptionalQueryParams: queryParams,
 	})
 }
@@ -138,6 +145,7 @@ func (rbd *ReleaseBundleRemoteDeleteCommand) confirmDelete() (bool, error) {
 				SiteName:     rule.SiteName,
 				CityName:     rule.CityName,
 				CountryCodes: rule.CountryCodes,
+				Priority:     rule.Priority,
 			})
 		}
 		bytes, err := json.Marshal(distributionRulesBodies)
