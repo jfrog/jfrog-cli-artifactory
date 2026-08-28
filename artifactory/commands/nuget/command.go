@@ -500,17 +500,23 @@ func pushSinglePackage(client *http.Client, pushURL *url.URL, pkgPath, user, pas
 
 // buildPushURLs returns the Artifactory NuGet gallery endpoints for .nupkg and .snupkg files.
 // url.PathEscape encodes repo so slashes and other special characters cannot alter the URL host.
-// Parsing the result into *url.URL gives callers a struct whose Host field is locked to rtBase.
+// buildPushURLs constructs the Artifactory NuGet gallery endpoints for pushing packages.
+// URLs are built by copying rtBase and setting only the path fields, so the host is always
+// taken from the configured Artifactory server and can never be influenced by the repo name.
+// url.PathEscape ensures repo names with special characters (/, space, …) are correctly encoded.
 func buildPushURLs(rtBase *url.URL, repo string) (nupkgURL, snupkgURL *url.URL, err error) {
-	base := strings.TrimSuffix(rtBase.String(), "/")
-	nupkgURL, err = url.Parse(base + "/api/nuget/v2/" + url.PathEscape(repo) + "/")
-	if err != nil {
-		return nil, nil, fmt.Errorf("build nupkg push URL: %w", err)
-	}
-	snupkgURL, err = url.Parse(base + "/api/nuget/v2/" + url.PathEscape(repo) + "/symbolpackage")
-	if err != nil {
-		return nil, nil, fmt.Errorf("build snupkg push URL: %w", err)
-	}
+	basePath := strings.TrimSuffix(rtBase.Path, "/") + "/api/nuget/v2/" + repo
+	baseRawPath := strings.TrimSuffix(rtBase.EscapedPath(), "/") + "/api/nuget/v2/" + url.PathEscape(repo)
+
+	nupkg := *rtBase
+	nupkg.Path = basePath + "/"
+	nupkg.RawPath = baseRawPath + "/"
+	nupkgURL = &nupkg
+
+	snupkg := *rtBase
+	snupkg.Path = basePath + "/symbolpackage"
+	snupkg.RawPath = baseRawPath + "/symbolpackage"
+	snupkgURL = &snupkg
 	return
 }
 
