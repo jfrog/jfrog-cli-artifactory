@@ -111,6 +111,10 @@ var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
 	// configureRuby writes ~/.gemrc and ~/.bundle/config directly, always under the user's
 	// home directory, and honours no override variable of its own.
 	project.Ruby: {location: "your user-level RubyGems and Bundler configuration (.gemrc and .bundle/config)"},
+	// `jf setup cargo` writes config.toml and credentials.toml under $CARGO_HOME (default ~/.cargo).
+	// Both cargoHome() in commands/cargo/setup.go and cargo itself honour CARGO_HOME, so setting it
+	// redirects the whole configuration off its user-level default.
+	project.Cargo: {location: "your user-level Cargo configuration (config.toml and credentials.toml in your Cargo home)", overrideEnv: "CARGO_HOME"},
 }
 
 // configScopeNote describes what the command changed and how widely it applies, or

@@ -1438,6 +1438,9 @@ func TestPackageManagerConfigs_OverridesAreExactlyTheVerifiedSet(t *testing.T) {
 		project.UV:     "UV_CONFIG_FILE",
 		project.Go:     "GOENV",
 		project.Gradle: "GRADLE_USER_HOME",
+		// cargoHome() in commands/cargo/setup.go reads CARGO_HOME and jf setup cargo writes
+		// config.toml + credentials.toml under that directory, so the redirect is real.
+		project.Cargo: "CARGO_HOME",
 	}
 	assert.Equal(t, expected, packageManagersWithConfigOverride())
 }
