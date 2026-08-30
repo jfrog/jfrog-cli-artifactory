@@ -57,27 +57,27 @@ func TestDerivedModuleID(t *testing.T) {
 		assert.Equal(t, "my-package:1.2.3", derivedModuleID(manifestPath))
 	})
 
-	t.Run("no manifest file -> falls back to directory name", func(t *testing.T) {
+	t.Run("no manifest file -> empty, matching npm/yarn's BuildInfoModuleId() convention", func(t *testing.T) {
 		tempDir := t.TempDir()
 		manifestPath := filepath.Join(tempDir, ApmManifestName)
 
-		assert.Equal(t, filepath.Base(tempDir), derivedModuleID(manifestPath))
+		assert.Equal(t, "", derivedModuleID(manifestPath))
 	})
 
-	t.Run("manifest missing version -> falls back to directory name", func(t *testing.T) {
+	t.Run("manifest missing version -> empty, matching npm/yarn's BuildInfoModuleId() convention", func(t *testing.T) {
 		tempDir := t.TempDir()
 		manifestPath := filepath.Join(tempDir, ApmManifestName)
 		require.NoError(t, os.WriteFile(manifestPath, []byte("name: my-package\n"), 0o644))
 
-		assert.Equal(t, filepath.Base(tempDir), derivedModuleID(manifestPath))
+		assert.Equal(t, "", derivedModuleID(manifestPath))
 	})
 
-	t.Run("manifest missing name -> falls back to directory name", func(t *testing.T) {
+	t.Run("manifest missing name -> empty, matching npm/yarn's BuildInfoModuleId() convention", func(t *testing.T) {
 		tempDir := t.TempDir()
 		manifestPath := filepath.Join(tempDir, ApmManifestName)
 		require.NoError(t, os.WriteFile(manifestPath, []byte("version: 1.2.3\n"), 0o644))
 
-		assert.Equal(t, filepath.Base(tempDir), derivedModuleID(manifestPath))
+		assert.Equal(t, "", derivedModuleID(manifestPath))
 	})
 }
 

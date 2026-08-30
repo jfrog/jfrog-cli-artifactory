@@ -9,6 +9,7 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 )
 
 // GetSubCommands returns the leaf commands for `jf agent apm`. Commands not listed here (e.g.
@@ -46,8 +47,9 @@ func GetSubCommands() []components.Command {
 }
 
 // RunApmPassthroughDefault handles any `jf agent apm <subcmd>` not among install/publish/update.
-// Auth always comes from the default configured JFrog server; passthrough takes no flags of its
-// own, so nothing is extracted from c.Arguments beyond the subcommand.
+// Passthrough takes exactly one jf-level flag of its own, --server-id (falling back to the
+// default configured JFrog server when absent); everything else in c.Arguments is forwarded to
+// apm untouched.
 func RunApmPassthroughDefault(c *components.Context) error {
 	if len(c.Arguments) == 0 {
 		return apmcommon.RunApmCommand(nil, apmcommon.HelpFlag, nil)
@@ -57,20 +59,29 @@ func RunApmPassthroughDefault(c *components.Context) error {
 	if apmcommon.IsHelpRequest([]string{subcmd}) {
 		return apmcommon.RunApmCommand(nil, apmcommon.HelpFlag, nil)
 	}
-	// Show help without resolving server/auth, which a help request never needs. Forward the
-	// full remaining arg tail so nested commands like "deps why" get their own help, not "deps"'s.
-	if apmcommon.IsHelpRequest(c.Arguments[1:]) {
-		return apmcommon.RunApmCommand(nil, subcmd, c.Arguments[1:])
+
+	// Strip --server-id before anything else touches the remaining args, so it never leaks
+	// through to the native apm binary (which has no such option of its own) - the same
+	// pattern jf nix's own passthrough fallback uses via coreutils.ExtractServerIdFromCommand.
+	remainingArgs, serverID, err := coreutils.ExtractServerIdFromCommand(c.Arguments[1:])
+	if err != nil {
+		return err
 	}
 
-	serverDetails, err := agentcommon.GetServerDetails(c)
+	// Show help without resolving server/auth, which a help request never needs. Forward the
+	// full remaining arg tail so nested commands like "deps why" get their own help, not "deps"'s.
+	if apmcommon.IsHelpRequest(remainingArgs) {
+		return apmcommon.RunApmCommand(nil, subcmd, remainingArgs)
+	}
+
+	serverDetails, err := agentcommon.GetServerDetailsByID(serverID)
 	if err != nil {
 		return err
 	}
 
 	cmd := &apmcommon.PassthroughCommand{
 		Subcmd: subcmd,
-		Args:   c.Arguments[1:],
+		Args:   remainingArgs,
 		Server: serverDetails,
 	}
 

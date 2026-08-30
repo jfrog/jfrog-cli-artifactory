@@ -199,8 +199,12 @@ func SavePublishBuildInfo(owner, moduleName, packageName, version string, checks
 		return errorutils.CheckErrorf(errBuildInfoNotEnabled)
 	}
 
+	// Same convention as npm's BuildInfoModuleId(): "" unless BOTH name and version are set,
+	// never a partial "name:" or ":version". An empty moduleID isn't special-cased further -
+	// it flows to build-info-go's generic partial-merge fallback (module.Id = build name), same
+	// as install/update's derivedModuleID and same as npm's own AddNpmModule.
 	moduleID := buildConfig.GetModule()
-	if moduleID == "" {
+	if moduleID == "" && moduleName != "" && version != "" {
 		moduleID = moduleName + ":" + version
 	}
 
@@ -302,10 +306,10 @@ func CollectAndSavePublishBuildInfo(manifestPath, owner, packageName, repoName, 
 	if err != nil {
 		return err
 	}
-	if manifest.Name == "" || manifest.Version == "" {
-		log.Debug("APM manifest missing name or version; skipping publish build-info.")
-		return nil
-	}
+	// No skip-on-missing-name/version check here, matching npm's own publish path: npm never
+	// special-cases an incomplete package.json before computing its module id/deploy path
+	// either - an empty name/version just flows through to whatever moduleID/artifact path
+	// that produces (see SavePublishBuildInfo's own moduleID fallback below).
 	if packageName == "" {
 		packageName = manifest.Name
 	}
@@ -380,19 +384,19 @@ func localPackedArtifactChecksum(zipPath string) (entities.Checksum, error) {
 // derivedModuleID returns the default module ID for the install-side build-info module: manifest
 // name:version, matching how npm and yarn derive their module ID (packageInfo.BuildInfoModuleId(),
 // always "name:version") for every module they create, install or publish alike. Falls back to
-// the project directory name if apm.yml can't be read or its name/version are empty, so a project
-// that's mid-authoring (no name/version yet) still gets a stable, non-empty module ID.
+// matching npm/yarn's own BuildInfoModuleId() convention exactly - including returning "" (not
+// a fallback of our own) when apm.yml can't be read or its name/version are empty. An empty
+// module ID isn't a special case this package needs to handle: like npm's AddNpmModule, it flows
+// through to build-info-go's generic partial-merge fallback (module.Id = build name), the same
+// path every other package manager's empty module ID takes.
 func derivedModuleID(manifestPath string) string {
 	manifest, err := LoadManifest(manifestPath)
 	if err != nil {
 		log.Debug("apm.yml parsing failed while deriving install module ID:", err.Error())
-	} else if manifest.Name != "" && manifest.Version != "" {
-		return manifest.Name + ":" + manifest.Version
+		return ""
 	}
-	dir := filepath.Dir(manifestPath)
-	base := filepath.Base(dir)
-	if base == "." || base == "" {
-		return "apm-project"
+	if manifest.Name == "" || manifest.Version == "" {
+		return ""
 	}
-	return base
+	return manifest.Name + ":" + manifest.Version
 }
