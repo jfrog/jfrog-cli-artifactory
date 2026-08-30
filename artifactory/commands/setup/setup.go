@@ -16,6 +16,7 @@ import (
 
 	bidotnet "github.com/jfrog/build-info-go/build/utils/dotnet"
 	biutils "github.com/jfrog/build-info-go/utils"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/cargo"
 	aptcommand "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/apt"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/golang"
@@ -110,6 +111,10 @@ var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
 	// configureRuby writes ~/.gemrc and ~/.bundle/config directly, always under the user's
 	// home directory, and honours no override variable of its own.
 	project.Ruby: {location: "your user-level RubyGems and Bundler configuration (.gemrc and .bundle/config)"},
+	// `jf setup cargo` writes config.toml and credentials.toml under $CARGO_HOME (default ~/.cargo).
+	// Both cargoHome() in commands/cargo/setup.go and cargo itself honour CARGO_HOME, so setting it
+	// redirects the whole configuration off its user-level default.
+	project.Cargo: {location: "your user-level Cargo configuration (config.toml and credentials.toml in your Cargo home)", overrideEnv: "CARGO_HOME"},
 }
 
 // configScopeNote describes what the command changed and how widely it applies, or
@@ -165,6 +170,8 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	project.Gradle: repository.Gradle,
 	project.Maven:  repository.Maven,
 
+	project.Cargo: repository.Cargo,
+
 	project.Ruby: repository.Gems,
 
 	project.Apk: repository.Alpine,
@@ -176,6 +183,10 @@ type SetupCommand struct {
 	packageManager project.ProjectType
 	// repoName is the name of the repository used for configuration.
 	repoName string
+	// deployRepoName is the name of the repository used for publishing/deploying, when the package
+	// manager separates resolution and deployment repos (currently only Cargo, whose remote resolves
+	// crates.io and whose local is the publish target). Empty for single-repo package managers.
+	deployRepoName string
 	// projectKey is the JFrog Project key in JFrog Platform.
 	projectKey string
 	// serverDetails contains Artifactory server configuration.
@@ -260,8 +271,14 @@ func (sc *SetupCommand) Run() (err error) {
 	// Docker and Podman do not require a repository name as they authenticate directly with the platform and require the repository name as part of the image name.
 	// Alpine (Apk) handles its own repo-type-first interactive flow inside configureApk().
 	if sc.repoName == "" && sc.packageManager != project.Docker && sc.packageManager != project.Podman && sc.packageManager != project.Apk {
-		// Prompt the user to select a virtual repository that matches the package manager.
-		if err = sc.promptUserToSelectRepository(); err != nil {
+		// Cargo has no virtual repositories and separates resolution (remote) from deployment
+		// (local), so it selects both instead of a single virtual repo.
+		if sc.packageManager == project.Cargo {
+			if err = sc.promptUserToSelectCargoRepositories(); err != nil {
+				return err
+			}
+		} else if err = sc.promptUserToSelectRepository(); err != nil {
+			// Prompt the user to select a virtual repository that matches the package manager.
 			return err
 		}
 	}
@@ -292,6 +309,8 @@ func (sc *SetupCommand) Run() (err error) {
 		err = sc.configureMaven()
 	case project.UV:
 		err = sc.configureUV()
+	case project.Cargo:
+		err = sc.configureCargo()
 	case project.Ruby:
 		err = sc.configureRuby()
 	case project.Apt:
@@ -315,11 +334,22 @@ func (sc *SetupCommand) Run() (err error) {
 	return nil
 }
 
+// noMatchingRepositoriesErrSubstring matches the error returned by utils.SelectRepositoryInteractively
+// when no repository satisfies the filter (see jfrog-cli-core/artifactory/utils/repositoryutils.go).
+// Used to detect that case and fall back to a manual repository name prompt, e.g. for Cargo, which
+// Artifactory doesn't support as a virtual package type - a virtual-repo filter always returns zero results.
+const noMatchingRepositoriesErrSubstring = "no repositories were found that match"
+
 // promptUserToSelectRepository prompts the user to select a compatible virtual repository.
+// If none is found, falls back to asking the user to type an existing repository name directly.
 func (sc *SetupCommand) promptUserToSelectRepository() (err error) {
 	return sc.promptUserToSelectRepositoryFiltered(utils.Virtual.String())
 }
 
+// promptUserToSelectRepositoryFiltered prompts for a repository of the given type
+// (virtual/local/remote, or "" for any). Falls back to a manual-name prompt when no
+// matching repository is found — needed for package managers whose projects may not
+// have a matching Artifactory repo configured yet at setup time.
 func (sc *SetupCommand) promptUserToSelectRepositoryFiltered(repoType string) (err error) {
 	repoFilterParams := services.RepositoriesFilterParams{
 		RepoType:    repoType,
@@ -333,12 +363,93 @@ func (sc *SetupCommand) promptUserToSelectRepositoryFiltered(repoType string) (e
 	}
 
 	// Prompt for repository selection based on filter parameters.
-	sc.repoName, err = utils.SelectRepositoryInteractively(
-		sc.serverDetails,
-		repoFilterParams,
-		promptMessage)
+	repoName, err := utils.SelectRepositoryInteractively(sc.serverDetails, repoFilterParams, promptMessage)
+	if err == nil {
+		sc.repoName = repoName
+		return nil
+	}
+	if !strings.Contains(err.Error(), noMatchingRepositoriesErrSubstring) {
+		return err
+	}
 
-	return err
+	// No matching repository was found — fall back to asking the user to type an existing name.
+	if repoType != "" {
+		log.Info(fmt.Sprintf("No %s %s repository was found.", repoType, repoFilterParams.PackageType))
+	} else {
+		log.Info(fmt.Sprintf("No %s repository was found.", repoFilterParams.PackageType))
+	}
+	repoName = ioutils.AskString("", "Please enter the name of an existing repository to use", false, false)
+	serviceDetails, err := sc.serverDetails.CreateArtAuthConfig()
+	if err != nil {
+		return err
+	}
+	if err = utils.ValidateRepoExists(repoName, serviceDetails); err != nil {
+		return err
+	}
+	sc.repoName = repoName
+	return nil
+}
+
+
+// promptUserToSelectCargoRepositories selects the repositories Cargo needs when --repo is not
+// given. Cargo has two orthogonal roles that map to two different Artifactory repo types:
+//
+//   - REMOTE (required)  — the *resolution / download* registry. Every crate cargo pulls in
+//     (`cargo build`, `install`, `update`, `fetch`, transitive deps of `publish`, …) is downloaded
+//     from here. crates.io is redirected onto this repo, so it is the sole source of third-party
+//     dependencies. Downloads NEVER go through the local repo.
+//   - LOCAL  (optional)  — the *publish / upload* registry. `cargo publish --registry jfrog-local`
+//     uploads the user's own crate to this repo. It is upload-only. Skipping this prompt is a
+//     valid "I don't publish from this machine" choice; nothing is written for publish and cargo
+//     will refuse `cargo publish` until the user either re-runs `jf setup cargo` with a local
+//     repo selected or adds a `[registries.…]` entry themselves.
+//
+// Artifactory has no virtual Cargo repositories, so — unlike the generic flow — this lists
+// local/remote repos directly. The remote falls back to a manual name prompt when none exists.
+func (sc *SetupCommand) promptUserToSelectCargoRepositories() error {
+	packageType := packageManagerToRepositoryPackageType[sc.packageManager]
+
+	// Resolution repository — a remote Cargo repo (proxies crates.io).
+	remote, err := utils.SelectRepositoryInteractively(
+		sc.serverDetails,
+		services.RepositoriesFilterParams{RepoType: utils.Remote.String(), PackageType: packageType, ProjectKey: sc.projectKey},
+		"To configure cargo, select a remote repository for resolving dependencies:")
+	if err != nil {
+		if !strings.Contains(err.Error(), noMatchingRepositoriesErrSubstring) {
+			return err
+		}
+		log.Info(fmt.Sprintf("No remote %s repository was found.", packageType))
+		remote = ioutils.AskString("", "Please enter the name of an existing repository to resolve dependencies from", false, false)
+		serviceDetails, sErr := sc.serverDetails.CreateArtAuthConfig()
+		if sErr != nil {
+			return sErr
+		}
+		if vErr := utils.ValidateRepoExists(remote, serviceDetails); vErr != nil {
+			return vErr
+		}
+	}
+	sc.repoName = remote
+
+	// Deployment repository — a local Cargo repo (publish target). Optional.
+	// Ask up-front so the user can skip publishing even when local repos exist —
+	// SelectRepositoryInteractively has no "none" entry and would otherwise force a choice.
+	if !coreutils.AskYesNo("Configure a local repository for publishing crates?", false) {
+		log.Info("Skipping publish configuration; configuring resolution only.")
+		return nil
+	}
+	local, err := utils.SelectRepositoryInteractively(
+		sc.serverDetails,
+		services.RepositoriesFilterParams{RepoType: utils.Local.String(), PackageType: packageType, ProjectKey: sc.projectKey},
+		"Select a local repository for publishing crates:")
+	if err != nil {
+		if !strings.Contains(err.Error(), noMatchingRepositoriesErrSubstring) {
+			return err
+		}
+		log.Info(fmt.Sprintf("No local %s repository was found; configuring resolution only (publishing not configured).", packageType))
+		return nil
+	}
+	sc.deployRepoName = local
+	return nil
 }
 
 // configurePip sets the global index-url for pip and pipenv to use the Artifactory PyPI repository.
@@ -1118,6 +1229,29 @@ func (sc *SetupCommand) configureHelm() error {
 	cmdLogin.Stderr = os.Stderr
 
 	return cmdLogin.Run()
+}
+
+// configureCargo configures Cargo (Rust) to use the Artifactory repository for both dependency
+// resolution and publishing, by writing the user-level cargo config and credentials files.
+// It writes:
+//
+//	~/.cargo/config.toml      — [registries.jfrog] index, [registry] default, [source.crates-io] replace-with
+//	~/.cargo/credentials.toml — [registries.jfrog] token
+//
+// These are cargo's OWN persistent config files: after `jf setup cargo` returns, plain `cargo`
+// (not just `jf cargo`) reads them on every invocation. So `cargo build`, `cargo update`,
+// `cargo fetch`, `cargo publish --registry jfrog-local`, `cargo install <crate>` etc. all resolve
+// through Artifactory and authenticate with the written token — no `jf` prefix required. This is
+// the persistent counterpart to per-run env-var injection in `jf cargo <cmd>`; the two are
+// complementary (env vars win for jf-run commands, files apply everywhere else).
+//
+// Coverage lives in artifactory/commands/cargo/setup_test.go: TestConfigureNativeRegistry_*
+// asserts config.toml + credentials.toml are written with the correct registries, that
+// re-running is idempotent and preserves unrelated user keys, and that anonymous setup skips
+// credentials. The end-to-end path (setup → native `cargo publish` → uploaded artifact + build
+// info) is exercised against a live Artifactory tenant in the jfrog-cli integration suite.
+func (sc *SetupCommand) configureCargo() error {
+	return cargo.ConfigureNativeRegistry(sc.serverDetails, sc.repoName, sc.deployRepoName)
 }
 
 // configureApt interactively prompts for repo, dist, component, and GPG mode,

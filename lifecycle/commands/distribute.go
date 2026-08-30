@@ -15,6 +15,7 @@ type ReleaseBundleDistributeCommand struct {
 	pathMappingPattern string
 	pathMappingTarget  string
 	maxWaitMinutes     int
+	priority           string
 	outputFormat       coreformat.OutputFormat
 }
 
@@ -77,6 +78,11 @@ func (rbd *ReleaseBundleDistributeCommand) SetMaxWaitMinutes(maxWaitMinutes int)
 	return rbd
 }
 
+func (rbd *ReleaseBundleDistributeCommand) SetPriority(priority string) *ReleaseBundleDistributeCommand {
+	rbd.priority = priority
+	return rbd
+}
+
 func (rbd *ReleaseBundleDistributeCommand) SetOutputFormat(format coreformat.OutputFormat) *ReleaseBundleDistributeCommand {
 	rbd.outputFormat = format
 	return rbd
@@ -104,6 +110,7 @@ func (rbd *ReleaseBundleDistributeCommand) Run() error {
 		DistributionRules: getAggregatedDistRules(rbd.distributionRules),
 		PathMappings:      []services.PathMapping{pathMapping},
 		ProjectKey:        rbd.rbProjectKey,
+		Priority:          rbd.priority,
 	}
 
 	if err := servicesManager.DistributeReleaseBundle(rbDetails, distributeParams); err != nil {
