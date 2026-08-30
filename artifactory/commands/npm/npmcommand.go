@@ -75,6 +75,8 @@ type NpmCommand struct {
 	installHandler      *NpmInstallStrategy
 	// When true, skips the 404 error handling that checks if packages are blocked by curation
 	disableCVSCheck bool
+	// When true, fails the build if a dependency's tarball can't be resolved from the npm cache
+	failOnMissingDeps bool
 }
 
 func NewNpmCommand(cmdName string, collectBuildInfo bool) *NpmCommand {
@@ -128,6 +130,15 @@ func (nc *NpmCommand) SetDisableCVSCheck(disable bool) *NpmCommand {
 	return nc
 }
 
+func (nc *NpmCommand) SetFailOnMissingDeps(fail bool) *NpmCommand {
+	nc.failOnMissingDeps = fail
+	return nc
+}
+
+func (nc *NpmCommand) GetBuildInfoModule() *build.NpmModule {
+	return nc.buildInfoModule
+}
+
 func (nc *NpmCommand) Init() error {
 	if nc.configFilePath != "" {
 		log.Debug("Preparing to read the config file", nc.configFilePath)
@@ -164,8 +175,14 @@ func (nc *NpmCommand) Init() error {
 	if err != nil {
 		return err
 	}
+	// Extract --fail-on-missing-deps flag
+	filteredNpmArgs, failOnMissingDeps, err := coreutils.ExtractBoolFlagFromArgs(filteredNpmArgs, "fail-on-missing-deps")
+	if err != nil {
+		return err
+	}
 	nc.SetArgs(filteredNpmArgs).SetBuildConfiguration(buildConfiguration)
 	nc.SetDisableCVSCheck(disableCVSCheck)
+	nc.SetFailOnMissingDeps(failOnMissingDeps)
 	return nil
 }
 
@@ -502,6 +519,7 @@ func (nc *NpmCommand) prepareBuildInfoModule() error {
 		return errorutils.CheckError(err)
 	}
 	nc.buildInfoModule.SetCollectBuildInfo(nc.collectBuildInfo)
+	nc.buildInfoModule.SetFailOnMissingDeps(nc.failOnMissingDeps)
 	if nc.buildConfiguration.GetModule() != "" {
 		nc.buildInfoModule.SetName(nc.buildConfiguration.GetModule())
 	}

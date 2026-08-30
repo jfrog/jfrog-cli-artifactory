@@ -371,6 +371,7 @@ const (
 	runNative          = "run-native"
 	npmWorkspaces      = "workspaces"
 	disableCVSCheck    = "disable-cvs-check"
+	failOnMissingDeps  = "fail-on-missing-deps"
 
 	// Unique nuget/dotnet config flags
 	nugetV2                  = "nuget-v2"
@@ -752,7 +753,7 @@ var commandFlags = map[string][]string{
 		global, serverIdResolve, serverIdDeploy, repoResolve, repoDeploy,
 	},
 	NpmInstallCi: {
-		BuildName, BuildNumber, module, Project, runNative, disableCVSCheck,
+		BuildName, BuildNumber, module, Project, runNative, disableCVSCheck, failOnMissingDeps,
 	},
 	NpmPublish: {
 		BuildName, BuildNumber, module, Project, npmDetailedSummary, xrayScan, xrOutput, runNative, npmWorkspaces,
@@ -1148,6 +1149,7 @@ var flagsMap = map[string]components.Flag{
 	npmDetailedSummary:       components.NewBoolFlag(detailedSummary, "Set to true to include a list of the affected files in the command summary.", components.WithBoolDefaultValueFalse()),
 	nugetV2:                  components.NewBoolFlag(nugetV2, "Set to true if you'd like to use the NuGet V2 protocol when restoring packages from Artifactory.", components.WithBoolDefaultValueFalse()),
 	disableCVSCheck:          components.NewBoolFlag(disableCVSCheck, "Set to true to disable the CVS check that verifies if 404 errors are due to blocked packages.", components.WithBoolDefaultValueFalse()),
+	failOnMissingDeps:        components.NewBoolFlag(failOnMissingDeps, "Set to true to fail the build if a dependency's tarball can't be resolved from the npm cache. Only applies when collecting build-info with --build-name and --build-number.", components.WithBoolDefaultValueFalse()),
 
 	// GoPublish specific commands flags
 	goPublishExclusions: components.NewStringFlag(exclusions, "List of semicolon-separated(;) exclusions. Exclusions can include the * and the ? wildcards.", components.SetMandatoryFalse()),
