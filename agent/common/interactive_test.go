@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -19,31 +20,82 @@ func TestIsNonInteractive_CIOne(t *testing.T) {
 
 func TestIsNonInteractive_CIFalse(t *testing.T) {
 	t.Setenv("CI", "false")
-	// When CI is not truthy, result depends on whether stdin is a terminal.
-	_ = IsNonInteractive()
+	t.Run("stdout and stdin are terminals", func(t *testing.T) {
+		revertStdout := log.SetIsTerminalFlagsWithCallback(true)
+		defer revertStdout()
+
+		revertStdin := SetIsStdinTerminal(true)
+		defer revertStdin()
+
+		assert.False(t, IsNonInteractive())
+	})
+
+	t.Run("stdout is terminal, stdin is not", func(t *testing.T) {
+		revertStdout := log.SetIsTerminalFlagsWithCallback(true)
+		defer revertStdout()
+
+		revertStdin := SetIsStdinTerminal(false)
+		defer revertStdin()
+
+		assert.True(t, IsNonInteractive())
+	})
+
+	t.Run("stdout is not terminal", func(t *testing.T) {
+		revertStdout := log.SetIsTerminalFlagsWithCallback(false)
+		defer revertStdout()
+		assert.True(t, IsNonInteractive())
+	})
 }
 
 func TestIsNonInteractive_CIEmpty(t *testing.T) {
 	t.Setenv("CI", "")
-	_ = IsNonInteractive()
+	t.Run("stdout and stdin are terminals", func(t *testing.T) {
+		revertStdout := log.SetIsTerminalFlagsWithCallback(true)
+		defer revertStdout()
+
+		revertStdin := SetIsStdinTerminal(true)
+		defer revertStdin()
+
+		assert.False(t, IsNonInteractive())
+	})
+
+	t.Run("stdout is terminal, stdin is not", func(t *testing.T) {
+		revertStdout := log.SetIsTerminalFlagsWithCallback(true)
+		defer revertStdout()
+
+		revertStdin := SetIsStdinTerminal(false)
+		defer revertStdin()
+
+		assert.True(t, IsNonInteractive())
+	})
+
+	t.Run("stdout is not terminal", func(t *testing.T) {
+		revertStdout := log.SetIsTerminalFlagsWithCallback(false)
+		defer revertStdout()
+		assert.True(t, IsNonInteractive())
+	})
 }
 
 func TestIsNonInteractive_PipedStdin(t *testing.T) {
 	t.Setenv("CI", "")
+	revertStdout := log.SetIsTerminalFlagsWithCallback(false)
+	defer revertStdout()
 
-	origStdin := os.Stdin
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("failed to create pipe: %v", err)
-	}
-	defer func() {
-		os.Stdin = origStdin
-		_ = r.Close() // test teardown
-		_ = w.Close() // test teardown
-	}()
+	revertStdin := SetIsStdinTerminal(false)
+	defer revertStdin()
 
-	os.Stdin = r
 	assert.True(t, IsNonInteractive(), "piped stdin should be non-interactive")
+}
+
+func TestIsNonInteractive_StdinNotTerminal(t *testing.T) {
+	t.Setenv("CI", "")
+	revertStdout := log.SetIsTerminalFlagsWithCallback(true)
+	defer revertStdout()
+
+	revertStdin := SetIsStdinTerminal(false)
+	defer revertStdin()
+
+	assert.True(t, IsNonInteractive(), "non-terminal stdin should be non-interactive even if stdout is terminal")
 }
 
 func TestIsNonInteractive_CIOverridesTTY(t *testing.T) {

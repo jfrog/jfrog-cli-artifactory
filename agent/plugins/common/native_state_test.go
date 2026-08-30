@@ -135,6 +135,12 @@ func TestIsRegisteredWithNativeAgent_CursorAlwaysTrue(t *testing.T) {
 	assert.True(t, ok, "agents with no native registry (cursor, --path) have nothing to invalidate against")
 }
 
+func TestIsRegisteredWithNativeAgent_VSCodeAlwaysTrue(t *testing.T) {
+	ok, err := IsRegisteredWithNativeAgent("vscode", "web", "repo")
+	require.NoError(t, err)
+	assert.True(t, ok, "agents with no native registry (cursor, vscode, --path) have nothing to invalidate against")
+}
+
 func TestIsRegisteredWithNativeAgent_DispatchesByAgentCaseInsensitive(t *testing.T) {
 	withClaudePluginListJSON(t, func() ([]byte, error) {
 		return []byte(`[{"id": "web@repo", "version": "1.0.0"}]`), nil

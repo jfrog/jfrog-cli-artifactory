@@ -438,6 +438,7 @@ const (
 	sync           = "sync"
 	maxWaitMinutes = "max-wait-minutes"
 	CreateRepo     = "create-repo"
+	Priority       = "priority"
 
 	// Unique offline-update flags
 	target = "target"
@@ -588,14 +589,14 @@ var commandFlags = map[string][]string{
 	},
 	cmddefs.ReleaseBundleDistribute: {
 		platformUrl, user, password, accessToken, serverId, lcProject, DistRules, site, city, countryCodes,
-		lcDryRun, CreateRepo, lcPathMappingPattern, lcPathMappingTarget, lcSync, maxWaitMinutes,
+		lcDryRun, CreateRepo, lcPathMappingPattern, lcPathMappingTarget, lcSync, maxWaitMinutes, Priority,
 	},
 	cmddefs.ReleaseBundleDeleteLocal: {
 		platformUrl, user, password, accessToken, serverId, deleteQuiet, lcSync, lcProject,
 	},
 	cmddefs.ReleaseBundleDeleteRemote: {
 		platformUrl, user, password, accessToken, serverId, deleteQuiet, lcDryRun, DistRules, site, city, countryCodes,
-		lcSync, maxWaitMinutes, lcProject,
+		lcSync, maxWaitMinutes, lcProject, Priority,
 	},
 	cmddefs.ReleaseBundleExport: {
 		platformUrl, user, password, accessToken, serverId, lcPathMappingTarget, lcPathMappingPattern, Project,
@@ -1208,6 +1209,7 @@ var flagsMap = map[string]components.Flag{
 	maxWaitMinutes:       components.NewStringFlag(maxWaitMinutes, "Max minutes to wait for sync distribution."),
 	deleteFromDist:       components.NewBoolFlag(deleteFromDist, "Set to true to delete release bundle version in JFrog Distribution itself after deletion is complete.", components.WithBoolDefaultValueFalse()),
 	CreateRepo:           components.NewBoolFlag(CreateRepo, "Set to true to create the repository on the edge if it does not exist.", components.WithBoolDefaultValueFalse()),
+	Priority:             components.NewStringFlag(Priority, "Distribution priority. Valid values: low, medium, high. Defaults to medium on the server when omitted.", components.SetMandatoryFalse()),
 	lcSync:               components.NewBoolFlag(Sync, "Set to false to run asynchronously.", components.WithBoolDefaultValueTrue()),
 	lcProject:            components.NewStringFlag(Project, "Project key associated with the Release Bundle version.", components.SetMandatoryFalse()),
 	lcBuilds:             components.NewStringFlag(Builds, "Path to a JSON file containing information of the source builds from which to create a release bundle.", components.SetHiddenStrFlag(), components.SetMandatoryFalse()),
@@ -1246,7 +1248,7 @@ var flagsMap = map[string]components.Flag{
 	propSearch:          components.NewBoolFlag(propSearch, "Use Artifactory property search (skill.name) instead of Skills API search.", components.WithBoolDefaultValueFalse()),
 	skipScan:            components.NewBoolFlag(skipScan, "Skip Xray security scan after publish. Can also be set via JFROG_CLI_SKIP_SKILLS_SCAN=true.", components.WithBoolDefaultValueFalse()),
 	autoDeleteOnFailure: components.NewBoolFlag(autoDeleteOnFailure, "Automatically delete the artifact if Xray scan identifies it as malicious.", components.WithBoolDefaultValueFalse()),
-	harness:             components.NewStringFlag(harness, "Comma-separated harness names for install or update; a single name for list (e.g. cursor, claude-code). Resolved from ~/.jfrog/agents/agent-config.json first, then built-in fallbacks.", components.SetMandatoryFalse()),
+	harness:             components.NewStringFlag(harness, "Comma-separated harness names for install or update; a single name for list (e.g. cursor, claude-code, vscode). Resolved from ~/.jfrog/agents/agent-config.json first, then built-in fallbacks.", components.SetMandatoryFalse()),
 	projectDir:          components.NewStringFlag(projectDir, "Project root directory combined with each agent's project path from config. Default: current directory when --global is not set. Mutually exclusive with --global.", components.SetMandatoryFalse()),
 	agentGlobal:         components.NewBoolFlag(global, "Install, update, or list under each agent's global directory from config instead of under the project root. Mutually exclusive with --project-dir.", components.WithBoolDefaultValueFalse()),
 	agentLimit:          components.NewStringFlag(limit, "Maximum number of skills to return. Fetches all by default.", components.SetMandatoryFalse()),
