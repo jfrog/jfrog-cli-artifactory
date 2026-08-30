@@ -107,7 +107,7 @@ var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
 	project.Docker: {location: "your Docker credential store", credentialsOnly: true},
 	project.Podman: {location: "your Podman credential store", credentialsOnly: true},
 	project.Helm:   {location: "your Helm registry credential store", credentialsOnly: true},
-	project.AgentApm: {location: "your user-level apm configuration (~/.apm/config.json)"},
+	project.Apm: {location: "your user-level apm configuration (~/.apm/config.json)"},
 	project.Apt:    {location: "your apt configuration"},
 	project.Apk:    {location: "your apk configuration"},
 	// configureRuby writes ~/.gemrc and ~/.bundle/config directly, always under the user's
@@ -154,7 +154,7 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	project.Poetry:   repository.Pypi,
 	project.Twine:    repository.Pypi,
 	project.UV:       repository.Pypi,
-	project.AgentApm: repository.AgentPackages,
+	project.Apm: repository.AgentPackages,
 
 	// Nuget package managers
 	project.Nuget:  repository.Nuget,
@@ -312,7 +312,7 @@ func (sc *SetupCommand) Run() (err error) {
 		err = sc.configureMaven()
 	case project.UV:
 		err = sc.configureUV()
-	case project.AgentApm:
+	case project.Apm:
 		err = sc.configureAgentApm()
 	case project.Cargo:
 		err = sc.configureCargo()
@@ -346,13 +346,13 @@ func (sc *SetupCommand) Run() (err error) {
 const noMatchingRepositoriesErrSubstring = "no repositories were found that match"
 
 // promptUserToSelectRepository prompts the user to select a compatible repository - virtual for
-// every package manager except AgentApm, which is local-only (agentpackages has no remote/virtual
+// every package manager except Apm, which is local-only (agentpackages has no remote/virtual
 // support in Artifactory at all, so a virtual-repo search can never find a match for it). If none
 // is found (e.g. for Cargo, which also has no virtual package type in Artifactory), falls back to
 // asking the user to type an existing repository name directly.
 func (sc *SetupCommand) promptUserToSelectRepository() (err error) {
 	repoType := utils.Virtual.String()
-	if sc.packageManager == project.AgentApm {
+	if sc.packageManager == project.Apm {
 		repoType = utils.Local.String()
 	}
 	return sc.promptUserToSelectRepositoryFiltered(repoType)
