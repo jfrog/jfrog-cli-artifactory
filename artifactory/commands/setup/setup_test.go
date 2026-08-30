@@ -127,6 +127,52 @@ func TestSetupCommand_NotSupported(t *testing.T) {
 	assert.ErrorContains(t, err, "unsupported package manager")
 }
 
+func TestSetupCommand_Cargo(t *testing.T) {
+	// Cargo must be recognized as a supported package manager.
+	assert.True(t, IsSupportedPackageManager(project.Cargo))
+	assert.Contains(t, GetSupportedPackageManagersList(), "cargo")
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Point CARGO_HOME at a temp dir so we write config there, not the real ~/.cargo.
+			cargoHomeDir := t.TempDir()
+			t.Setenv("CARGO_HOME", cargoHomeDir)
+
+			loginCmd := createTestSetupCommand(project.Cargo)
+			loginCmd.serverDetails.SetUser(testCase.user)
+			loginCmd.serverDetails.SetPassword(testCase.password)
+			loginCmd.serverDetails.SetAccessToken(testCase.accessToken)
+
+			require.NoError(t, loginCmd.Run())
+
+			// config.toml: registry index + crates.io redirect, regardless of auth mode.
+			configContent, err := os.ReadFile(filepath.Join(cargoHomeDir, "config.toml"))
+			require.NoError(t, err)
+			cfg := string(configContent)
+			assert.Contains(t, cfg, "sparse+https://acme.jfrog.io/artifactory/api/cargo/test-repo/index/")
+			assert.Contains(t, cfg, `default = "jfrog"`)
+			assert.Contains(t, cfg, `replace-with = "jfrog"`)
+
+			credsPath := filepath.Join(cargoHomeDir, "credentials.toml")
+			switch {
+			case testCase.accessToken != "":
+				credsContent, cerr := os.ReadFile(credsPath)
+				require.NoError(t, cerr)
+				assert.Contains(t, string(credsContent), `token = "Bearer `+testCredential()+`"`)
+			case testCase.password != "":
+				credsContent, cerr := os.ReadFile(credsPath)
+				require.NoError(t, cerr)
+				// Basic auth: "Basic base64(user:password)". base64("myUser:myPassword") = bXlVc2VyOm15UGFzc3dvcmQ=
+				assert.Contains(t, string(credsContent), `token = "Basic bXlVc2VyOm15UGFzc3dvcmQ="`)
+			default:
+				// Anonymous — no credentials file is written.
+				_, statErr := os.Stat(credsPath)
+				assert.True(t, os.IsNotExist(statErr), "credentials.toml should not exist for anonymous access")
+			}
+		})
+	}
+}
+
 func TestSetupCommand_Npm(t *testing.T) {
 	testSetupCommandNpmPnpm(t, project.Npm)
 }
@@ -1392,6 +1438,9 @@ func TestPackageManagerConfigs_OverridesAreExactlyTheVerifiedSet(t *testing.T) {
 		project.UV:     "UV_CONFIG_FILE",
 		project.Go:     "GOENV",
 		project.Gradle: "GRADLE_USER_HOME",
+		// cargoHome() in commands/cargo/setup.go reads CARGO_HOME and jf setup cargo writes
+		// config.toml + credentials.toml under that directory, so the redirect is real.
+		project.Cargo: "CARGO_HOME",
 	}
 	assert.Equal(t, expected, packageManagersWithConfigOverride())
 }
