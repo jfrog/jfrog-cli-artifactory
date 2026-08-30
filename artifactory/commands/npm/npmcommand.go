@@ -350,20 +350,27 @@ func (nc *NpmCommand) Run() (err error) {
 	if err = nc.PreparePrerequisites(nc.repo); err != nil {
 		return
 	}
+	defer func() {
+		err = errors.Join(err, nc.installHandler.RestoreNpmrc())
+	}()
+	if !nc.UseNative() {
+		if err = nc.CreateTempNpmrc(); err != nil {
+			return
+		}
+	}
 	var restoreResolution func() error
 	restoreResolution, nc.remediatedLockfile, err = nc.runZeroTouchRemediation(context.Background(), nc.cmdName, nc.workingDirectory, nc.npmArgs)
 	if err != nil {
 		return err
 	}
+	var installErr error
 	defer func() {
-		if err != nil && restoreResolution != nil {
+		if installErr != nil && restoreResolution != nil {
 			err = errors.Join(err, restoreResolution())
 		}
 	}()
-	defer func() {
-		err = errors.Join(err, nc.installHandler.RestoreNpmrc())
-	}()
-	err = nc.installHandler.Install()
+	installErr = nc.installHandler.Install()
+	err = installErr
 	if err != nil {
 		if !nc.disableCVSCheck && (nc.cmdName == "install" || nc.cmdName == "ci") {
 			if blockedErr := nc.handle404Errors(err); blockedErr != nil {

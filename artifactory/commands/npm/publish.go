@@ -174,15 +174,17 @@ func (npc *NpmPublishCommand) Run() (err error) {
 		return err
 	}
 	var restoreResolution func() error
-	restoreResolution, _, err = npc.runZeroTouchRemediationForPublish(context.Background(), "publish", npc.workingDirectory, npc.publishPath, npc.npmArgs)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err != nil && restoreResolution != nil {
-			err = errors.Join(err, restoreResolution())
+	if !npc.tarballProvided {
+		restoreResolution, _, err = npc.runZeroTouchRemediationForPublish(context.Background(), "publish", npc.workingDirectory, npc.publishPath, npc.npmArgs)
+		if err != nil {
+			return err
 		}
-	}()
+		defer func() {
+			if err != nil && restoreResolution != nil {
+				err = errors.Join(err, restoreResolution())
+			}
+		}()
+	}
 
 	var npmBuild *build.Build
 	var buildName, buildNumber, projectKey string

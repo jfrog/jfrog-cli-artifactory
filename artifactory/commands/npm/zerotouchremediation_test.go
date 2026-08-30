@@ -36,5 +36,7 @@ func TestIsSinglePackageInstall(t *testing.T) {
 	assert.False(t, isSinglePackageInstall([]string{"-w", "app"}))
 	assert.False(t, isSinglePackageInstall([]string{"--workspace", "@scope/pkg"}))
 	assert.False(t, isSinglePackageInstall([]string{"--prefix", "packages/app"}))
+	assert.False(t, isSinglePackageInstall([]string{"--registry", "https://registry.example"}))
+	assert.False(t, isSinglePackageInstall([]string{"--tag", "next"}))
 	assert.False(t, isSinglePackageInstall(nil))
 }

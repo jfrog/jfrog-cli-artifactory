@@ -98,4 +98,9 @@ func TestHasPackageOperands(t *testing.T) {
 	assert.False(t, HasPackageOperands([]string{"-w", "app"}))
 	assert.False(t, HasPackageOperands([]string{"--workspace", "@scope/pkg"}))
 	assert.False(t, HasPackageOperands(nil))
+	assert.False(t, HasPackageOperands([]string{"--registry", "https://registry.example"}))
+	assert.False(t, HasPackageOperands([]string{"--registry=https://registry.example"}))
+	assert.False(t, HasPackageOperands([]string{"--tag", "next"}))
+	assert.False(t, HasPackageOperands([]string{"--tag=next"}))
+	assert.True(t, HasPackageOperands([]string{"--registry", "https://registry.example", "lodash"}))
 }

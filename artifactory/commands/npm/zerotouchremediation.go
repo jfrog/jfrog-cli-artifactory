@@ -11,21 +11,20 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/xray"
 
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/zerotouchremediation"
-	cnpm "github.com/jfrog/jfrog-cli-artifactory/artifactory/zerotouchremediation/npm"
 )
 
 func (ca *CommonArgs) runZeroTouchRemediation(ctx context.Context, command, workingDir string, npmArgs []string) (restore func() error, remediated bool, err error) {
 	if command == "install" && isSinglePackageInstall(npmArgs) {
 		return func() error { return nil }, false, nil
 	}
-	return ca.runZeroTouchRemediationWithTool(ctx, command, workingDir, cnpm.NewBuildToolWithArgs(npmArgs), cnpm.BootstrapArgsFrom(npmArgs)...)
+	return ca.runZeroTouchRemediationWithTool(ctx, command, workingDir, NewBuildToolWithArgs(npmArgs), BootstrapArgsFrom(npmArgs)...)
 }
 
 func (ca *CommonArgs) runZeroTouchRemediationForPublish(ctx context.Context, command, workingDir, publishPath string, npmArgs []string) (restore func() error, remediated bool, err error) {
-	return ca.runZeroTouchRemediationWithTool(ctx, command, workingDir, cnpm.NewBuildToolForPublish(workingDir, publishPath, npmArgs), cnpm.BootstrapArgsFrom(npmArgs)...)
+	return ca.runZeroTouchRemediationWithTool(ctx, command, workingDir, NewBuildToolForPublish(workingDir, publishPath, npmArgs), BootstrapArgsFrom(npmArgs)...)
 }
 
-func (ca *CommonArgs) runZeroTouchRemediationWithTool(ctx context.Context, command, workingDir string, tool cnpm.BuildTool, bootstrapArgs ...string) (restore func() error, remediated bool, err error) {
+func (ca *CommonArgs) runZeroTouchRemediationWithTool(ctx context.Context, command, workingDir string, tool zerotouchremediation.BuildTool, bootstrapArgs ...string) (restore func() error, remediated bool, err error) {
 	if !zerotouchremediation.IsComponentResolutionEnabled() {
 		return zerotouchremediation.SkipRemediation("Zero Touch Remediation is not enabled", nil)
 	}
@@ -103,5 +102,5 @@ func runNpmAt(_ context.Context, executablePath, projectRoot string, args ...str
 }
 
 func isSinglePackageInstall(npmArgs []string) bool {
-	return cnpm.HasPackageOperands(npmArgs)
+	return HasPackageOperands(npmArgs)
 }

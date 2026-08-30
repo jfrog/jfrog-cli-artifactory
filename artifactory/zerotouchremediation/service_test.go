@@ -15,12 +15,13 @@ import (
 )
 
 type mockClient struct {
-	callCount  int
-	lastReq    services.ComponentResolutionRequest
-	resp       services.ComponentResolutionResponse
-	disabled   bool
-	version    string
-	versionErr error
+	callCount    int
+	lastReq      services.ComponentResolutionRequest
+	resp         services.ComponentResolutionResponse
+	disabled     bool
+	version      string
+	versionErr   error
+	remediateErr error
 }
 
 func (m *mockClient) GetVersion() (string, error) {
@@ -36,6 +37,9 @@ func (m *mockClient) GetVersion() (string, error) {
 func (m *mockClient) ZeroTouchRemediation(req services.ComponentResolutionRequest) (*services.ComponentResolutionResponse, bool, error) {
 	m.callCount++
 	m.lastReq = req
+	if m.remediateErr != nil {
+		return nil, false, m.remediateErr
+	}
 	return &m.resp, m.disabled, nil
 }
 
@@ -216,25 +220,42 @@ func TestRunIfEnabled_SkipsIrrelevantCommand(t *testing.T) {
 	assert.Equal(t, 0, client.callCount)
 }
 
-func TestRunIfEnabled_PropagatesEnsureLockfilesError(t *testing.T) {
+func TestRunIfEnabled_SkipsEnsureLockfilesError(t *testing.T) {
 	enableZTR(t)
 	client := &mockClient{}
 	tool := mockTool{ensureErr: errors.New("package-lock.json is required for npm ci")}
-	_, _, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "ci", t.TempDir(), nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "package-lock.json")
+	_, remediated, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "ci", t.TempDir(), nil)
+	require.NoError(t, err)
+	assert.False(t, remediated)
 	assert.Equal(t, 0, client.callCount)
 }
 
-func TestRunIfEnabled_PropagatesGetVersionError(t *testing.T) {
+func TestRunIfEnabled_SkipsGetVersionError(t *testing.T) {
 	enableZTR(t)
 	client := &mockClient{versionErr: errors.New("xray unavailable")}
 	tool := mockTool{root: t.TempDir(), lockfiles: []Lockfile{{Path: "package-lock.json", Content: []byte("orig")}}}
 	_, remediated, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", t.TempDir(), nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "xray unavailable")
+	require.NoError(t, err)
 	assert.False(t, remediated)
 	assert.Equal(t, 0, client.callCount)
+}
+
+func TestRunIfEnabled_SkipsRemediateError(t *testing.T) {
+	enableZTR(t)
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "package-lock.json")
+	require.NoError(t, os.WriteFile(lockPath, []byte("orig"), 0644))
+
+	client := &mockClient{remediateErr: errors.New("connection refused")}
+	tool := mockTool{root: dir, lockfiles: []Lockfile{{Path: "package-lock.json", Content: []byte("orig")}}}
+	_, remediated, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	require.NoError(t, err)
+	assert.False(t, remediated)
+	assert.Equal(t, 1, client.callCount)
+
+	data, readErr := os.ReadFile(lockPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, "orig", string(data))
 }
 
 func TestRunIfEnabled_SkipsWhenXrayVersionTooLow(t *testing.T) {
@@ -308,6 +329,32 @@ func TestApplyLockfiles_WritesMultipleFiles(t *testing.T) {
 	require.NoError(t, restore())
 }
 
+func TestApplyLockfiles_RestoresWhenWriteTruncatesThenFails(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "package-lock.json")
+	require.NoError(t, os.WriteFile(lockPath, []byte("original-lock"), 0644))
+
+	origWrite := writeFile
+	t.Cleanup(func() { writeFile = origWrite })
+	writeFile = func(name string, data []byte, perm os.FileMode) error {
+		if err := origWrite(name, nil, perm); err != nil {
+			return err
+		}
+		return errors.New("disk full")
+	}
+
+	restore, err := ApplyLockfiles(dir, []Lockfile{
+		{Path: "package-lock.json", Content: []byte("remediated")},
+	}, nil)
+	require.Error(t, err)
+	assert.Nil(t, restore)
+	assert.Contains(t, err.Error(), "disk full")
+
+	data, readErr := os.ReadFile(lockPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, "original-lock", string(data))
+}
+
 func TestApplyLockfiles_RollsBackOnLaterWriteFailure(t *testing.T) {
 	dir := t.TempDir()
 	firstPath := filepath.Join(dir, "package-lock.json")
@@ -325,4 +372,35 @@ func TestApplyLockfiles_RollsBackOnLaterWriteFailure(t *testing.T) {
 	data, readErr := os.ReadFile(firstPath)
 	require.NoError(t, readErr)
 	assert.Equal(t, "original-first", string(data))
+}
+
+func TestApplyLockfiles_RejectsPathEscapingProjectRoot(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(filepath.Dir(dir), "escaped.lock")
+	t.Cleanup(func() { _ = os.Remove(outside) })
+
+	restore, err := ApplyLockfiles(dir, []Lockfile{
+		{Path: "../escaped.lock", Content: []byte("pwned")},
+	}, nil)
+	require.Error(t, err)
+	assert.Nil(t, restore)
+	assert.NoFileExists(t, outside)
+}
+
+func TestApplyLockfiles_RejectsSymlinkLockfile(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "target.lock")
+	require.NoError(t, os.WriteFile(outside, []byte("secret"), 0644))
+	lockPath := filepath.Join(dir, "package-lock.json")
+	require.NoError(t, os.Symlink(outside, lockPath))
+
+	restore, err := ApplyLockfiles(dir, []Lockfile{
+		{Path: "package-lock.json", Content: []byte("remediated")},
+	}, nil)
+	require.Error(t, err)
+	assert.Nil(t, restore)
+
+	data, readErr := os.ReadFile(outside)
+	require.NoError(t, readErr)
+	assert.Equal(t, "secret", string(data))
 }
