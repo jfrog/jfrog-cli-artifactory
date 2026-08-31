@@ -108,7 +108,7 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 		}
 		if disabled {
 			log.Debug("Zero Touch Remediation skipped: the service is disabled on the server")
-			return noopRestore, false, nil
+			return restoreAbsentLockfiles(projectRoot, bootstrapped), false, nil
 		}
 		if len(resp.Changes) == 0 {
 			log.Debug("No changes for ", lf.Path)
@@ -122,15 +122,63 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 		}
 	}
 	if len(toWrite) == 0 {
-		return noopRestore, false, nil
+		return restoreAbsentLockfiles(projectRoot, bootstrapped), false, nil
 	}
 	log.Debug("Applying", len(toWrite), "remediated lockfile(s)...")
 	restore, err = ApplyLockfiles(projectRoot, toWrite, bootstrapped)
 	if err != nil {
 		return skipRemediationWarn("Zero Touch Remediation skipped: failed to apply remediated lockfiles: ", err)
 	}
+	restore = composeRestore(restore, restoreAbsentLockfiles(projectRoot, bootstrappedNotWritten(bootstrapped, toWrite)))
 	log.Info("Zero Touch Remediation applied", totalChanges, "package change(s) across", len(toWrite), "lockfile(s)")
 	return restore, true, nil
+}
+
+func bootstrappedNotWritten(bootstrapped []string, written []Lockfile) []string {
+	inWritten := make(map[string]bool, len(written))
+	for _, lf := range written {
+		inWritten[lf.Path] = true
+	}
+	var leftover []string
+	for _, path := range bootstrapped {
+		if !inWritten[path] {
+			leftover = append(leftover, path)
+		}
+	}
+	return leftover
+}
+
+func restoreAbsentLockfiles(projectRoot string, relPaths []string) func() error {
+	if len(relPaths) == 0 {
+		return noopRestore
+	}
+	return func() error {
+		var restoreErr error
+		for _, rel := range relPaths {
+			fullPath, pathErr := containedLockfilePath(projectRoot, rel)
+			if pathErr != nil {
+				restoreErr = errors.Join(restoreErr, pathErr)
+				continue
+			}
+			if rbErr := restoreLockfileBackup(lockfileBackup{path: fullPath}); rbErr != nil {
+				restoreErr = errors.Join(restoreErr, rbErr)
+			}
+		}
+		return restoreErr
+	}
+}
+
+func composeRestore(fns ...func() error) func() error {
+	return func() error {
+		var restoreErr error
+		for _, fn := range fns {
+			if fn == nil {
+				continue
+			}
+			restoreErr = errors.Join(restoreErr, fn())
+		}
+		return restoreErr
+	}
 }
 
 func getLockfilePaths(lockfiles []Lockfile) []string {
@@ -175,7 +223,7 @@ func ApplyLockfiles(projectRoot string, lockfiles []Lockfile, treatAsAbsent []st
 		if pathErr != nil {
 			return fail(pathErr)
 		}
-		if linkErr := rejectSymlink(fullPath); linkErr != nil {
+		if linkErr := rejectSymlinksUnderRoot(projectRoot, fullPath); linkErr != nil {
 			return fail(linkErr)
 		}
 		backup := lockfileBackup{path: fullPath}
@@ -227,6 +275,31 @@ func containedLockfilePath(projectRoot, rel string) (string, error) {
 		return "", errorutils.CheckErrorf("lockfile path %q escapes project root", rel)
 	}
 	return full, nil
+}
+
+// rejectSymlinksUnderRoot Lstats each path component from projectRoot to fullPath,
+// not including projectRoot itself. Walking above the root would reject macOS
+// TempDirs whose prefix is /var → /private/var.
+func rejectSymlinksUnderRoot(projectRoot, fullPath string) error {
+	root, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	rel, err := filepath.Rel(root, fullPath)
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	current := root
+	for _, part := range strings.Split(rel, string(os.PathSeparator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		if linkErr := rejectSymlink(current); linkErr != nil {
+			return linkErr
+		}
+	}
+	return nil
 }
 
 func rejectSymlink(path string) error {

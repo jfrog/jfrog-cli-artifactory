@@ -44,11 +44,12 @@ func (m *mockClient) ZeroTouchRemediation(req services.ComponentResolutionReques
 }
 
 type mockTool struct {
-	name      string
-	commands  []string
-	root      string
-	lockfiles []Lockfile
-	ensureErr error
+	name         string
+	commands     []string
+	root         string
+	lockfiles    []Lockfile
+	ensureErr    error
+	bootstrapped []string
 }
 
 func (m mockTool) ToolName() string {
@@ -70,7 +71,7 @@ func (m mockTool) EnsureLockfiles(_ context.Context, _, _ string, _ CommandRunne
 	if m.ensureErr != nil {
 		return nil, m.ensureErr
 	}
-	return nil, nil
+	return m.bootstrapped, nil
 }
 func (m mockTool) DiscoverLockfiles(_ string) ([]Lockfile, error) {
 	return m.lockfiles, nil
@@ -385,6 +386,97 @@ func TestApplyLockfiles_RejectsPathEscapingProjectRoot(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, restore)
 	assert.NoFileExists(t, outside)
+}
+
+func TestRunIfEnabled_RestoresBootstrappedLockfileWhenNoChanges(t *testing.T) {
+	enableZTR(t)
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "package-lock.json")
+	require.NoError(t, os.WriteFile(lockPath, []byte("generated"), 0644))
+
+	client := &mockClient{resp: services.ComponentResolutionResponse{Lockfile: "generated", Changes: nil}}
+	tool := mockTool{
+		root:         dir,
+		lockfiles:    []Lockfile{{Path: "package-lock.json", Content: []byte("generated")}},
+		bootstrapped: []string{"package-lock.json"},
+	}
+
+	restore, remediated, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	require.NoError(t, err)
+	assert.False(t, remediated)
+	assert.FileExists(t, lockPath)
+	require.NoError(t, restore())
+	assert.NoFileExists(t, lockPath)
+}
+
+func TestRunIfEnabled_RestoresUnchangedBootstrappedLockfile(t *testing.T) {
+	enableZTR(t)
+	dir := t.TempDir()
+	changedPath := filepath.Join(dir, "package-lock.json")
+	unchangedPath := filepath.Join(dir, "npm-shrinkwrap.json")
+	require.NoError(t, os.WriteFile(changedPath, []byte("generated-a"), 0644))
+	require.NoError(t, os.WriteFile(unchangedPath, []byte("generated-b"), 0644))
+
+	client := &selectingClient{
+		resps: map[string]services.ComponentResolutionResponse{
+			"generated-a": {Lockfile: "remediated-a", Changes: []services.Change{{Package: "lodash", BeforeIntegrity: "a", AfterIntegrity: "b"}}},
+			"generated-b": {Lockfile: "generated-b"},
+		},
+	}
+	tool := mockTool{
+		root: dir,
+		lockfiles: []Lockfile{
+			{Path: "package-lock.json", Content: []byte("generated-a")},
+			{Path: "npm-shrinkwrap.json", Content: []byte("generated-b")},
+		},
+		bootstrapped: []string{"package-lock.json", "npm-shrinkwrap.json"},
+	}
+
+	restore, remediated, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	require.NoError(t, err)
+	assert.True(t, remediated)
+	assert.Equal(t, []byte("remediated-a"), mustRead(t, changedPath))
+	assert.Equal(t, []byte("generated-b"), mustRead(t, unchangedPath))
+	require.NoError(t, restore())
+	assert.NoFileExists(t, changedPath)
+	assert.NoFileExists(t, unchangedPath)
+}
+
+type selectingClient struct {
+	resps map[string]services.ComponentResolutionResponse
+}
+
+func (s *selectingClient) GetVersion() (string, error) {
+	return ZeroTouchRemediationMinVersion, nil
+}
+
+func (s *selectingClient) ZeroTouchRemediation(req services.ComponentResolutionRequest) (*services.ComponentResolutionResponse, bool, error) {
+	resp := s.resps[req.Lockfile]
+	return &resp, false, nil
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return data
+}
+
+func TestApplyLockfiles_RejectsSymlinkParentDir(t *testing.T) {
+	dir := t.TempDir()
+	outside := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "package-lock.json"), []byte("secret"), 0644))
+	require.NoError(t, os.Symlink(outside, filepath.Join(dir, "module")))
+
+	restore, err := ApplyLockfiles(dir, []Lockfile{
+		{Path: filepath.Join("module", "package-lock.json"), Content: []byte("remediated")},
+	}, nil)
+	require.Error(t, err)
+	assert.Nil(t, restore)
+
+	data, readErr := os.ReadFile(filepath.Join(outside, "package-lock.json"))
+	require.NoError(t, readErr)
+	assert.Equal(t, "secret", string(data))
 }
 
 func TestApplyLockfiles_RejectsSymlinkLockfile(t *testing.T) {
