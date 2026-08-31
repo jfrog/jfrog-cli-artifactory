@@ -21,12 +21,13 @@ func (e statusCodeError) StatusCode() int { return e.code }
 
 var err404 = statusCodeError{code: 404}
 
-// mockSkillsServicesManager mocks ListSkillVersions, SkillVersionExists, and FolderInfo for testing.
+// mockSkillsServicesManager mocks ListSkillVersions, SkillVersionExists, SkillExists, and FolderInfo for testing.
 type mockSkillsServicesManager struct {
 	artifactory.EmptyArtifactoryServicesManager
 	listSkillVersionsFunc  func(repoKey, slug string, limit int, cursor string) ([]services.SkillVersion, string, error)
 	folderInfoFunc         func(path string) (*servicesutils.FolderInfo, error)
 	skillVersionExistsFunc func(repoKey, slug, version string) (bool, error)
+	skillExistsFunc        func(repoKey, slug string) (bool, error)
 }
 
 func (m *mockSkillsServicesManager) ListSkillVersions(repoKey, slug string, limit int, cursor string) ([]services.SkillVersion, string, error) {
@@ -35,6 +36,10 @@ func (m *mockSkillsServicesManager) ListSkillVersions(repoKey, slug string, limi
 
 func (m *mockSkillsServicesManager) SkillVersionExists(repoKey, slug, version string) (bool, error) {
 	return m.skillVersionExistsFunc(repoKey, slug, version)
+}
+
+func (m *mockSkillsServicesManager) SkillExists(repoKey, slug string) (bool, error) {
+	return m.skillExistsFunc(repoKey, slug)
 }
 
 func (m *mockSkillsServicesManager) FolderInfo(path string) (*servicesutils.FolderInfo, error) {
@@ -51,7 +56,7 @@ func TestListVersionsFromManager_SinglePage_OneCall(t *testing.T) {
 			calls++
 			assert.Equal(t, "my-repo", repoKey)
 			assert.Equal(t, "my-skill", slug)
-			assert.Equal(t, skillVersionsPageSize, limit)
+			assert.Equal(t, skillsAPIPageSize, limit)
 			assert.Equal(t, "", cursor)
 			return []services.SkillVersion{{Version: "1.0.1"}}, "", nil
 		},
@@ -241,6 +246,56 @@ func TestVersionExists_ValidationErrors(t *testing.T) {
 
 	t.Run("empty slug", func(t *testing.T) {
 		_, err := VersionExists(&config.ServerDetails{Url: "https://example.com/"}, "repo", "  ", "1.0.0")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "skill name is required")
+	})
+}
+
+func TestSkillExistsFromManager(t *testing.T) {
+	t.Run("exists", func(t *testing.T) {
+		mock := &mockSkillsServicesManager{
+			skillExistsFunc: func(repoKey, slug string) (bool, error) { return true, nil },
+		}
+		exists, err := skillExistsFromManager(mock, "repo", "my-skill")
+		require.NoError(t, err)
+		assert.True(t, exists)
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		mock := &mockSkillsServicesManager{
+			skillExistsFunc: func(repoKey, slug string) (bool, error) { return false, nil },
+		}
+		exists, err := skillExistsFromManager(mock, "repo", "missing-skill")
+		require.NoError(t, err)
+		assert.False(t, exists)
+	})
+
+	t.Run("error propagated", func(t *testing.T) {
+		boom := errors.New("network exploded")
+		mock := &mockSkillsServicesManager{
+			skillExistsFunc: func(repoKey, slug string) (bool, error) { return false, boom },
+		}
+		_, err := skillExistsFromManager(mock, "repo", "my-skill")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, boom)
+	})
+}
+
+func TestSkillExists_ValidationErrors(t *testing.T) {
+	t.Run("nil server details", func(t *testing.T) {
+		_, err := SkillExists(nil, "repo", "slug")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "server details are required")
+	})
+
+	t.Run("empty repo key", func(t *testing.T) {
+		_, err := SkillExists(&config.ServerDetails{Url: "https://example.com/"}, "  ", "slug")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "repository is required")
+	})
+
+	t.Run("empty slug", func(t *testing.T) {
+		_, err := SkillExists(&config.ServerDetails{Url: "https://example.com/"}, "repo", "  ")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "skill name is required")
 	})

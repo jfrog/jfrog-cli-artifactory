@@ -70,10 +70,14 @@ func (dc *DeleteCommand) Run() error {
 				return fmt.Errorf("failed to verify skill existence: %w", err)
 			}
 			if !exists {
-				// VersionExists doesn't say why. Get the precise reason (repo/skill
-				// missing vs just this version) via ListVersions, which disambiguates.
-				if _, err := common.ListVersions(dc.serverDetails, dc.repoKey, dc.slug); err != nil {
-					return err
+				// VersionExists doesn't say why. Check the skill itself with one more
+				// targeted request instead of paginating ListVersions.
+				skillExists, err := common.SkillExists(dc.serverDetails, dc.repoKey, dc.slug)
+				if err != nil {
+					return fmt.Errorf("failed to verify skill existence: %w", err)
+				}
+				if !skillExists {
+					return fmt.Errorf("repository '%s' or skill '%s' not found", dc.repoKey, dc.slug)
 				}
 				return fmt.Errorf("skill '%s' v%s not found in repository '%s'", dc.slug, dc.version, dc.repoKey)
 			}

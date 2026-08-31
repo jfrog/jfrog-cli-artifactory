@@ -12,9 +12,10 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-// skillVersionsPageSize is the limit we request per Skills API versions call. Kept as our own constant
-// (rather than relying on services.DefaultSkillVersionsLimit) so this repo controls its own page size independently.
-const skillVersionsPageSize = 200
+// skillsAPIPageSize is the limit we request per page for any paginated Skills API list
+// call (ListSkills, ListVersions). Kept as our own constant (rather than relying on
+// services.DefaultSkillVersionsLimit) so this repo controls its own page size independently.
+const skillsAPIPageSize = 200
 
 func ListSkills(serverDetails *config.ServerDetails, repoKey string, limit int, sortBy string) ([]services.SkillListItem, error) {
 	serviceManager, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
@@ -24,7 +25,7 @@ func ListSkills(serverDetails *config.ServerDetails, repoKey string, limit int, 
 	var allItems []services.SkillListItem
 	cursor := ""
 	for {
-		items, nextCursor, err := serviceManager.ListSkills(repoKey, skillVersionsPageSize, cursor, sortBy)
+		items, nextCursor, err := serviceManager.ListSkills(repoKey, skillsAPIPageSize, cursor, sortBy)
 		if err != nil {
 			return nil, err
 		}
@@ -32,7 +33,7 @@ func ListSkills(serverDetails *config.ServerDetails, repoKey string, limit int, 
 		if limit > 0 && len(allItems) >= limit {
 			return allItems[:limit], nil
 		}
-		if nextCursor == "" || len(items) < skillVersionsPageSize {
+		if nextCursor == "" || len(items) < skillsAPIPageSize {
 			break
 		}
 		cursor = nextCursor
@@ -43,7 +44,7 @@ func ListSkills(serverDetails *config.ServerDetails, repoKey string, limit int, 
 // ListVersions returns the versions published for <repoKey>/<slug> via the Skills API
 // (api/skills/{repoKey}/api/v1/skills/{slug}/versions).
 //
-// It requests skillVersionsPageSize versions per call and follows nextCursor for as many additional calls as needed
+// It requests skillsAPIPageSize versions per page and follows nextCursor for as many additional calls as needed
 // (verified against live instance: nextCursor is omitted entirely when last page is served), ensuring a skill with
 // more versions than one page is listed in full. On 404, it disambiguates between missing repo and missing skill.
 func ListVersions(serverDetails *config.ServerDetails, repoKey, slug string) ([]services.SkillVersion, error) {
@@ -74,7 +75,7 @@ func listVersionsFromManager(serviceManager artifactory.ArtifactoryServicesManag
 	cursor := ""
 	for {
 		log.Debug(fmt.Sprintf("list skill versions: calling ListSkillVersions for skill '%s' in repo '%s' with cursor '%s'", slug, repoKey, cursor))
-		versions, nextCursor, err := serviceManager.ListSkillVersions(repoKey, slug, skillVersionsPageSize, cursor)
+		versions, nextCursor, err := serviceManager.ListSkillVersions(repoKey, slug, skillsAPIPageSize, cursor)
 		if err != nil {
 			// Only disambiguate on the first page: a 404 mid-pagination means the skill
 			// was deleted concurrently, not that the repo/skill never existed.
@@ -136,6 +137,37 @@ func versionExistsFromManager(serviceManager artifactory.ArtifactoryServicesMana
 	exists, err := serviceManager.SkillVersionExists(repoKey, slug, version)
 	if err != nil {
 		return false, fmt.Errorf("check skill version existence: %w", err)
+	}
+	return exists, nil
+}
+
+// SkillExists reports whether slug is published in repoKey, via a single skill-metadata
+// request. Used to get a precise not-found reason without paginating ListVersions.
+func SkillExists(serverDetails *config.ServerDetails, repoKey, slug string) (bool, error) {
+	if serverDetails == nil {
+		return false, fmt.Errorf("server details are required to check skill existence")
+	}
+	repoKey = strings.TrimSpace(repoKey)
+	if repoKey == "" {
+		return false, fmt.Errorf("repository is required to check skill existence")
+	}
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return false, fmt.Errorf("skill name is required to check skill existence")
+	}
+
+	serviceManager, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
+	if err != nil {
+		return false, err
+	}
+	return skillExistsFromManager(serviceManager, repoKey, slug)
+}
+
+// skillExistsFromManager takes the ArtifactoryServicesManager interface directly so it can be unit tested with a mock.
+func skillExistsFromManager(serviceManager artifactory.ArtifactoryServicesManager, repoKey, slug string) (bool, error) {
+	exists, err := serviceManager.SkillExists(repoKey, slug)
+	if err != nil {
+		return false, fmt.Errorf("check skill existence: %w", err)
 	}
 	return exists, nil
 }
