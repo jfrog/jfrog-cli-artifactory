@@ -306,12 +306,20 @@ func CollectAndSavePublishBuildInfo(manifestPath, owner, packageName, repoName, 
 	if err != nil {
 		return err
 	}
-	// No skip-on-missing-name/version check here, matching npm's own publish path: npm never
-	// special-cases an incomplete package.json before computing its module id/deploy path
-	// either - an empty name/version just flows through to whatever moduleID/artifact path
-	// that produces (see SavePublishBuildInfo's own moduleID fallback below).
+	// No skip-on-missing-name check here, matching npm's own publish path for module id
+	// purposes: an empty name just flows through to whatever moduleID that produces (see
+	// SavePublishBuildInfo's own moduleID fallback below). Version is different, though - unlike
+	// npm (which derives its deploy path from a package.json already validated to have one),
+	// apm's artifact path is only ever ours to construct, so a missing version would produce a
+	// malformed "<packageName>-.zip" that can't exist in the repository; skip artifact recording
+	// entirely rather than record a path guaranteed to be wrong.
 	if packageName == "" {
 		packageName = manifest.Name
+	}
+	if manifest.Version == "" {
+		log.Warn("apm publish: apm.yml has no version; skipping artifact build-info recording " +
+			"because the published artifact path cannot be derived.")
+		return nil
 	}
 
 	// Best-effort confirmation that the assumed agentpackages path actually holds the file

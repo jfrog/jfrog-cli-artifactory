@@ -107,7 +107,7 @@ var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
 	project.Docker: {location: "your Docker credential store", credentialsOnly: true},
 	project.Podman: {location: "your Podman credential store", credentialsOnly: true},
 	project.Helm:   {location: "your Helm registry credential store", credentialsOnly: true},
-	project.Apm: {location: "your user-level apm configuration (~/.apm/config.json)"},
+	project.Apm:    {location: "your user-level apm configuration (~/.apm/config.json)"},
 	project.Apt:    {location: "your apt configuration"},
 	project.Apk:    {location: "your apk configuration"},
 	// configureRuby writes ~/.gemrc and ~/.bundle/config directly, always under the user's
@@ -149,12 +149,12 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	project.Yarn: repository.Npm,
 
 	// Python (pypi) package managers
-	project.Pip:      repository.Pypi,
-	project.Pipenv:   repository.Pypi,
-	project.Poetry:   repository.Pypi,
-	project.Twine:    repository.Pypi,
-	project.UV:       repository.Pypi,
-	project.Apm: repository.AgentPackages,
+	project.Pip:    repository.Pypi,
+	project.Pipenv: repository.Pypi,
+	project.Poetry: repository.Pypi,
+	project.Twine:  repository.Pypi,
+	project.UV:     repository.Pypi,
+	project.Apm:    repository.AgentPackages,
 
 	// Nuget package managers
 	project.Nuget:  repository.Nuget,
@@ -401,7 +401,6 @@ func (sc *SetupCommand) promptUserToSelectRepositoryFiltered(repoType string) (e
 	sc.repoName = repoName
 	return nil
 }
-
 
 // promptUserToSelectCargoRepositories selects the repositories Cargo needs when --repo is not
 // given. Cargo has two orthogonal roles that map to two different Artifactory repo types:
