@@ -230,7 +230,8 @@ func TestBuildRegistryEntry(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			url, token := BuildRegistryEntry(tt.serverDetails, tt.repoName)
+			url, token, err := BuildRegistryEntry(tt.serverDetails, tt.repoName)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectURL, url)
 			assert.Equal(t, tt.expectToken, token)
 		})
@@ -241,33 +242,30 @@ func TestGenerateAccessToken_NoAuth(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverDetails *config.ServerDetails
-		expectToken   string
 	}{
 		{
 			name:          "empty user and password",
 			serverDetails: &config.ServerDetails{},
-			expectToken:   "",
 		},
 		{
 			name: "user without password",
 			serverDetails: &config.ServerDetails{
 				User: "admin",
 			},
-			expectToken: "",
 		},
 		{
 			name: "password without user",
 			serverDetails: &config.ServerDetails{
 				Password: "secret",
 			},
-			expectToken: "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			token := generateAccessToken(tt.serverDetails)
-			assert.Equal(t, tt.expectToken, token, "generateAccessToken should return empty for incomplete credentials")
+			token, err := generateAccessToken(tt.serverDetails)
+			assert.Error(t, err, "generateAccessToken should error for incomplete credentials")
+			assert.Empty(t, token, "generateAccessToken should return empty token for incomplete credentials")
 		})
 	}
 }

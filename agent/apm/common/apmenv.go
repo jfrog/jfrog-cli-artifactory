@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	rtUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -31,6 +32,13 @@ const (
 	// apmConfigDirName and apmConfigFileName make up ~/.apm/config.json.
 	apmConfigDirName  = ".apm"
 	apmConfigFileName = "config.json"
+
+	// apmAccessTokenExpirySeconds bounds the lifetime of tokens this package mints for APM
+	// registry auth. Matches cliutils/flagkit.ArtifactoryTokenExpiry, the same default `jf
+	// access token-create` already uses - the only other place in this repo that mints an
+	// access token itself. A non-expiring (expires_in=0) token left no way to bound how long a
+	// credential written into ~/.apm/config.json stays valid.
+	apmAccessTokenExpirySeconds = 3600
 )
 
 // AgentPackagesBaseURL returns the Artifactory agentpackages base URL for a repo.
@@ -43,129 +51,126 @@ func AgentPackagesBaseURL(serverDetails *config.ServerDetails, repoName string) 
 // Strategy: Check for AccessToken first, else generate token from User+Password.
 // Never embed plaintext credentials in URL - always use token field.
 // AccessToken set → use it.
-// User+Password set → generate token via Artifactory API.
-// Neither → return URL only (caller must handle auth separately).
-func BuildRegistryEntry(serverDetails *config.ServerDetails, repoName string) (registryURL, token string) {
+// User+Password set → generate token via Artifactory API; a generation failure is returned as
+// an error rather than silently falling back to an unauthenticated URL-only entry.
+// Neither → return URL only (caller must handle auth separately) - a legitimate
+// anonymous/public-registry case, not a failure.
+func BuildRegistryEntry(serverDetails *config.ServerDetails, repoName string) (registryURL, token string, err error) {
 	base := AgentPackagesBaseURL(serverDetails, repoName)
 
 	// Priority 1: Use existing access token
 	if serverDetails.AccessToken != "" {
-		return base, serverDetails.AccessToken
+		return base, serverDetails.AccessToken, nil
 	}
 
 	// Priority 2: Generate token from username/password (secure - no plaintext in config)
 	if serverDetails.User != "" && serverDetails.Password != "" {
-		generatedToken := generateAccessToken(serverDetails)
-		if generatedToken != "" {
-			return base, generatedToken
+		generatedToken, genErr := generateAccessToken(serverDetails)
+		if genErr != nil {
+			return "", "", fmt.Errorf("apm: failed to generate access token for registry %q: %w", repoName, genErr)
 		}
-		// No fallback auth mechanism exists here - token generation failing means this
-		// registry entry is returned without credentials (see "no token available" below).
-		log.Debug(fmt.Sprintf("apm: failed to generate access token for %s; registry %q will be configured without credentials", base, repoName))
+		return base, generatedToken, nil
 	}
 
-	// No token available - return URL only
-	return base, ""
+	// No credentials configured at all - return URL only. Not an error: a legitimate
+	// anonymous/public-registry case.
+	return base, "", nil
 }
 
 // generateAccessToken creates an access token from username/password. It tries
 // jfrog-client-go's access TokenService first (the same ServiceManager-based path used
 // elsewhere in this repo, e.g. jfrog-cli-core's AccessTokenCreateCommand), falling back to a
 // direct call against Artifactory's older, deprecated token endpoint only if that fails - some
-// Artifactory instances still don't expose (or allow) the modern Access service. Returns empty
-// string if both paths fail.
-func generateAccessToken(serverDetails *config.ServerDetails) string {
+// Artifactory instances still don't expose (or allow) the modern Access service. Returns an
+// error, combining both attempts' failures, only if both paths fail.
+func generateAccessToken(serverDetails *config.ServerDetails) (string, error) {
 	if serverDetails.User == "" || serverDetails.Password == "" {
-		return ""
+		return "", fmt.Errorf("username and password are required to generate an access token")
 	}
 
-	if token := generateAccessTokenViaAccessAPI(serverDetails); token != "" {
-		return token
+	token, accessAPIErr := generateAccessTokenViaAccessAPI(serverDetails)
+	if accessAPIErr == nil {
+		return token, nil
 	}
+	log.Debug(fmt.Sprintf("apm: modern access-token API failed (%s); falling back to the deprecated Artifactory token endpoint", accessAPIErr.Error()))
 
-	log.Debug("apm: modern access-token API failed; falling back to the deprecated Artifactory token endpoint")
-	return generateAccessTokenLegacy(serverDetails)
+	token, legacyErr := generateAccessTokenLegacy(serverDetails)
+	if legacyErr == nil {
+		return token, nil
+	}
+	return "", fmt.Errorf("access API: %w; legacy endpoint: %w", accessAPIErr, legacyErr)
 }
 
 // generateAccessTokenViaAccessAPI is the primary token-generation path, described above.
-func generateAccessTokenViaAccessAPI(serverDetails *config.ServerDetails) string {
+func generateAccessTokenViaAccessAPI(serverDetails *config.ServerDetails) (string, error) {
 	accessManager, err := rtUtils.CreateAccessServiceManager(serverDetails, false)
 	if err != nil {
-		log.Debug("Failed to create access service manager for token generation:", err.Error())
-		return ""
+		return "", fmt.Errorf("failed to create access service manager for token generation: %w", err)
 	}
 
-	nonExpiring := uint(0)
+	expiresIn := uint(apmAccessTokenExpirySeconds)
 	tokenParams := services.CreateTokenParams{Username: serverDetails.User}
 	tokenParams.Scope = "applied-permissions/user"
-	tokenParams.ExpiresIn = &nonExpiring
+	tokenParams.ExpiresIn = &expiresIn
 
 	tokenResponse, err := accessManager.CreateAccessToken(tokenParams)
 	if err != nil {
-		log.Debug("Failed to generate access token via the access API:", err.Error())
-		return ""
+		return "", fmt.Errorf("failed to generate access token via the access API: %w", err)
 	}
 	if tokenResponse.AccessToken == "" {
-		log.Debug("Access API token generation returned no access_token")
-		return ""
+		return "", fmt.Errorf("access API token generation returned no access_token")
 	}
 
 	log.Debug("Access token generated for APM registry via the access API")
-	return tokenResponse.AccessToken
+	return tokenResponse.AccessToken, nil
 }
 
 // generateAccessTokenLegacy calls Artifactory's deprecated token generation API (POST
 // /artifactory/api/security/token, form-urlencoded - the JSON, plural "/tokens" endpoint
 // returns 405) to create an access token from username/password. Fallback only - see
-// generateAccessToken. Returns empty string if generation fails.
-func generateAccessTokenLegacy(serverDetails *config.ServerDetails) string {
+// generateAccessToken. Returns an error if generation fails.
+func generateAccessTokenLegacy(serverDetails *config.ServerDetails) (string, error) {
 	tokenURL := strings.TrimSuffix(serverDetails.ArtifactoryUrl, "/") + "/api/security/token"
 
 	form := url.Values{}
 	form.Set("username", serverDetails.User)
 	form.Set("scope", "applied-permissions/user")
-	form.Set("expires_in", "0")
+	form.Set("expires_in", strconv.Itoa(apmAccessTokenExpirySeconds))
 
 	req, err := http.NewRequest(http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
-		log.Debug("Failed to build legacy access token request:", err.Error())
-		return ""
+		return "", fmt.Errorf("failed to build legacy access token request: %w", err)
 	}
 	req.SetBasicAuth(serverDetails.User, serverDetails.Password)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Debug("Failed to generate legacy access token:", err.Error())
-		return ""
+		return "", fmt.Errorf("failed to generate legacy access token: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }() // read-side close on an already fully-read response
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Debug("Failed to read legacy access token response:", err.Error())
-		return ""
+		return "", fmt.Errorf("failed to read legacy access token response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		log.Debug(fmt.Sprintf("Legacy access token generation returned status %d: %s", resp.StatusCode, string(body)))
-		return ""
+		return "", fmt.Errorf("legacy access token generation returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Response field is "access_token", not "token".
 	var response map[string]any
 	if err := json.Unmarshal(body, &response); err != nil {
-		log.Debug("Failed to parse legacy token response:", err.Error())
-		return ""
+		return "", fmt.Errorf("failed to parse legacy token response: %w", err)
 	}
 
 	token, ok := response["access_token"].(string)
 	if !ok || token == "" {
-		log.Debug("No access_token in legacy API response")
-		return ""
+		return "", fmt.Errorf("no access_token in legacy API response")
 	}
 
 	log.Debug("Access token generated for APM registry via the legacy endpoint")
-	return token
+	return token, nil
 }
 
 // apmConfigJSON models ~/.apm/config.json. Extra preserves top-level keys this code doesn't
@@ -518,7 +523,10 @@ func ConfigureApmRegistryPersistent(serverDetails *config.ServerDetails, repoNam
 		return fmt.Errorf("enable experimental registries: %w", err)
 	}
 
-	registryURL, token := BuildRegistryEntry(serverDetails, repoName)
+	registryURL, token, err := BuildRegistryEntry(serverDetails, repoName)
+	if err != nil {
+		return fmt.Errorf("build registry entry: %w", err)
+	}
 	if err := RunApmCommand(nil, "config", []string{"set", fmt.Sprintf("registry.%s.url", repoName), registryURL}); err != nil {
 		return fmt.Errorf("set registry url: %w", err)
 	}
