@@ -4,7 +4,6 @@ import (
 	apmcommon "github.com/jfrog/jfrog-cli-artifactory/agent/apm/common"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/apm/commands/install"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/apm/commands/publish"
-	"github.com/jfrog/jfrog-cli-artifactory/agent/apm/commands/update"
 	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
@@ -13,7 +12,8 @@ import (
 )
 
 // GetSubCommands returns the leaf commands for `jf agent apm`. Commands not listed here (e.g.
-// "lock", which resolves but deploys nothing) fall through to the parent's passthrough handler.
+// "update" and "lock", which resolve but don't collect build-info) fall through to the parent's
+// passthrough handler.
 func GetSubCommands() []components.Command {
 	return []components.Command{
 		{
@@ -35,18 +35,11 @@ func GetSubCommands() []components.Command {
 			AIDescription:   publish.GetAIDescription(),
 			Action:          publish.RunPublish,
 		},
-		{
-			Name:            "update",
-			Flags:           flagkit.GetCommandFlags(flagkit.AgentApm),
-			SkipFlagParsing: true,
-			Description:     "Refresh APM dependencies to their latest matching refs, with build-info collection.",
-			AIDescription:   update.GetAIDescription(),
-			Action:          update.RunUpdate,
-		},
 	}
 }
 
-// RunApmPassthroughDefault handles any `jf agent apm <subcmd>` not among install/publish/update.
+// RunApmPassthroughDefault handles any `jf agent apm <subcmd>` not among install/publish -
+// including "update", which is now a plain native passthrough (no build-info collection).
 // Passthrough takes exactly one jf-level flag of its own, --server-id (falling back to the
 // default configured JFrog server when absent); everything else in c.Arguments is forwarded to
 // apm untouched.

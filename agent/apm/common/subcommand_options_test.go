@@ -11,7 +11,7 @@ import (
 func TestExtractApmSubcommandOptions_PreservesApmNativeFlags(t *testing.T) {
 	testutil.WithJfrogHome(t)
 
-	// install/publish/update don't declare --repo or direct-credential flags as jf's own - a
+	// install/publish don't declare --repo or direct-credential flags as jf's own - a
 	// registry must already be declared/configured, so those flow through untouched like any
 	// other apm-native flag. --server-id IS jf's own flag (selects which configured JFrog
 	// server to use) and is extracted here, not forwarded.

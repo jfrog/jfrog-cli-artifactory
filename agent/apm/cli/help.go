@@ -5,11 +5,11 @@ func GetDescription() string {
 }
 
 func GetAIDescription() string {
-	return `Run apm against Artifactory-backed registries with credentials injected automatically. Dedicated subcommands install, publish, and update also collect build-info when --build-name and --build-number are set; every other apm command is forwarded with the same authenticated registry access but no build-info collection.
+	return `Run apm against Artifactory-backed registries with credentials injected automatically. Dedicated subcommands install and publish also collect build-info when --build-name and --build-number are set; every other apm command (including update) is forwarded with the same authenticated registry access but no build-info collection.
 
 When to use:
-- Running apm install / publish / update with Artifactory auth and optional build-info.
-- Running any other apm command (lock, outdated, audit, doctor, view, marketplace, mcp, ...) through jf for authenticated registry access.
+- Running apm install / publish with Artifactory auth and optional build-info.
+- Running any other apm command (update, lock, outdated, audit, doctor, view, marketplace, mcp, ...) through jf for authenticated registry access.
 
 Prerequisites:
 - apm CLI installed and on PATH.
@@ -19,13 +19,14 @@ Prerequisites:
 Common patterns:
   $ jf agent apm install --build-name=my-build --build-number=1
   $ jf agent apm publish --package my-org/my-package --build-name=my-build --build-number=1
-  $ jf agent apm update --yes --build-name=my-build --build-number=1
+  $ jf agent apm update --yes
   $ jf agent apm lock
   $ jf agent apm outdated
 
 Gotchas:
-- Build-info is collected only by install, publish, and update, and only when both --build-name and --build-number are provided; publish it afterwards with 'jf rt build-publish'.
+- Build-info is collected only by install and publish, and only when both --build-name and --build-number are provided; publish it afterwards with 'jf rt build-publish'.
+- 'jf agent apm update' is a plain passthrough - it refreshes apm.yml/apm.lock.yaml like the native CLI always did, but does not collect build-info.
 - 'jf agent apm <command> --help' shows that command's own help; 'apm --help' lists every native apm command reachable this way.
 
-Related: jf setup apm, jf agent apm install, jf agent apm publish, jf agent apm update, jf rt build-publish`
+Related: jf setup apm, jf agent apm install, jf agent apm publish, jf rt build-publish`
 }

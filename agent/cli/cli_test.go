@@ -44,7 +44,7 @@ func TestGetCommands_HasPluginsAndSkillsNamespaces(t *testing.T) {
 		assert.NotNil(t, sub.Action, "apm subcommand %q must have an Action", sub.Name)
 		apmNames = append(apmNames, sub.Name)
 	}
-	assert.ElementsMatch(t, []string{"install", "publish", "update"}, apmNames)
+	assert.ElementsMatch(t, []string{"install", "publish"}, apmNames)
 }
 
 func TestGetCommands_PluginsPublishDescription(t *testing.T) {

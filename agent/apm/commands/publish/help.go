@@ -29,5 +29,5 @@ Gotchas:
 - --dry-run previews the upload without publishing and skips build-info.
 - Build-info is collected only when both --build-name and --build-number are provided; optional --module groups packages under one module. Publish afterwards with 'jf rt build-publish'.
 
-Related: jf agent apm install, jf agent apm update, jf setup apm, jf rt build-publish`
+Related: jf agent apm install, jf setup apm, jf rt build-publish`
 }

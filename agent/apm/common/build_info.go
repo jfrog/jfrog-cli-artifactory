@@ -33,7 +33,7 @@ const apmPackageFileExtension = "zip"
 const errBuildInfoNotEnabled = "build info collection is not enabled"
 
 // ShouldCollectBuildInfo reports whether the user enabled build-info collection
-// (--build-name/--build-number or JFROG_CLI_BUILD_*). Used by install/update/publish to avoid
+// (--build-name/--build-number or JFROG_CLI_BUILD_*). Used by install/publish to avoid
 // "skipping build-info" noise when collection was never requested.
 func ShouldCollectBuildInfo(buildConfig *buildUtils.BuildConfiguration) (bool, error) {
 	if buildConfig == nil {
@@ -202,7 +202,7 @@ func SavePublishBuildInfo(owner, moduleName, packageName, version string, checks
 	// Same convention as npm's BuildInfoModuleId(): "" unless BOTH name and version are set,
 	// never a partial "name:" or ":version". An empty moduleID isn't special-cased further -
 	// it flows to build-info-go's generic partial-merge fallback (module.Id = build name), same
-	// as install/update's derivedModuleID and same as npm's own AddNpmModule.
+	// as install's derivedModuleID and same as npm's own AddNpmModule.
 	moduleID := buildConfig.GetModule()
 	if moduleID == "" && moduleName != "" && version != "" {
 		moduleID = moduleName + ":" + version

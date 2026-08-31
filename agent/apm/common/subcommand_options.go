@@ -18,7 +18,7 @@ type ApmSubcommandOptions struct {
 	ServerID string
 }
 
-// ExtractApmSubcommandOptions extracts install/publish/update's own flags (--build-name,
+// ExtractApmSubcommandOptions extracts install/publish's own flags (--build-name,
 // --build-number, --module, --project, --server-id) from args and resolves the build-info
 // ones into a BuildConfiguration. Needed because those commands set SkipFlagParsing (so
 // apm-native flags reach apm unrejected), which means urfave/cli parses none of jf's own
