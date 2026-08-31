@@ -35,12 +35,19 @@ func SkipRemediation(message string, cause error) (func() error, bool, error) {
 }
 
 func skipRemediationWarn(message string, cause error) (func() error, bool, error) {
+	return skipWithRestore(noopRestore, message, cause)
+}
+
+func skipWithRestore(restore func() error, message string, cause error) (func() error, bool, error) {
 	if cause != nil {
 		log.Warn(message + cause.Error())
 	} else {
 		log.Warn(message)
 	}
-	return noopRestore, false, nil
+	if restore == nil {
+		restore = noopRestore
+	}
+	return restore, false, nil
 }
 
 func IsComponentResolutionEnabled() bool {
@@ -90,9 +97,12 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 	if err != nil {
 		return skipRemediationWarn("Zero Touch Remediation skipped: ", err)
 	}
+	skipAfterBootstrap := func(message string, cause error) (func() error, bool, error) {
+		return skipWithRestore(restoreAbsentLockfiles(projectRoot, bootstrapped), message, cause)
+	}
 	lockfiles, err := tool.DiscoverLockfiles(workingDir)
 	if err != nil {
-		return skipRemediationWarn("Zero Touch Remediation skipped: could not discover lockfiles: ", err)
+		return skipAfterBootstrap("Zero Touch Remediation skipped: could not discover lockfiles: ", err)
 	}
 	log.Debug("Discovered lockfiles: ", getLockfilePaths(lockfiles))
 	var toWrite []Lockfile
@@ -104,7 +114,7 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 			Lockfile:  string(lf.Content),
 		})
 		if err != nil {
-			return skipRemediationWarn("Zero Touch Remediation skipped: ", err)
+			return skipAfterBootstrap("Zero Touch Remediation skipped: ", err)
 		}
 		if disabled {
 			log.Debug("Zero Touch Remediation skipped: the service is disabled on the server")
@@ -127,7 +137,7 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 	log.Debug("Applying", len(toWrite), "remediated lockfile(s)...")
 	restore, err = ApplyLockfiles(projectRoot, toWrite, bootstrapped)
 	if err != nil {
-		return skipRemediationWarn("Zero Touch Remediation skipped: failed to apply remediated lockfiles: ", err)
+		return skipAfterBootstrap("Zero Touch Remediation skipped: failed to apply remediated lockfiles: ", err)
 	}
 	restore = composeRestore(restore, restoreAbsentLockfiles(projectRoot, bootstrappedNotWritten(bootstrapped, toWrite)))
 	log.Info("Zero Touch Remediation applied", totalChanges, "package change(s) across", len(toWrite), "lockfile(s)")

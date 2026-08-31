@@ -49,6 +49,7 @@ type mockTool struct {
 	root         string
 	lockfiles    []Lockfile
 	ensureErr    error
+	discoverErr  error
 	bootstrapped []string
 }
 
@@ -74,6 +75,9 @@ func (m mockTool) EnsureLockfiles(_ context.Context, _, _ string, _ CommandRunne
 	return m.bootstrapped, nil
 }
 func (m mockTool) DiscoverLockfiles(_ string) ([]Lockfile, error) {
+	if m.discoverErr != nil {
+		return nil, m.discoverErr
+	}
 	return m.lockfiles, nil
 }
 
@@ -257,6 +261,81 @@ func TestRunIfEnabled_SkipsRemediateError(t *testing.T) {
 	data, readErr := os.ReadFile(lockPath)
 	require.NoError(t, readErr)
 	assert.Equal(t, "orig", string(data))
+}
+
+func TestRunIfEnabled_DiscoverErrorRestoresBootstrapped(t *testing.T) {
+	enableZTR(t)
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "package-lock.json")
+	require.NoError(t, os.WriteFile(lockPath, []byte("generated"), 0644))
+
+	client := &mockClient{}
+	tool := mockTool{
+		root:         dir,
+		discoverErr:  errors.New("discover failed"),
+		bootstrapped: []string{"package-lock.json"},
+	}
+	restore, remediated, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	require.NoError(t, err)
+	assert.False(t, remediated)
+	assert.Equal(t, 0, client.callCount)
+	assert.FileExists(t, lockPath)
+	require.NoError(t, restore())
+	assert.NoFileExists(t, lockPath)
+}
+
+func TestRunIfEnabled_RemediateErrorRestoresBootstrapped(t *testing.T) {
+	enableZTR(t)
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "package-lock.json")
+	require.NoError(t, os.WriteFile(lockPath, []byte("generated"), 0644))
+
+	client := &mockClient{remediateErr: errors.New("connection refused")}
+	tool := mockTool{
+		root:         dir,
+		lockfiles:    []Lockfile{{Path: "package-lock.json", Content: []byte("generated")}},
+		bootstrapped: []string{"package-lock.json"},
+	}
+	restore, remediated, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	require.NoError(t, err)
+	assert.False(t, remediated)
+	assert.FileExists(t, lockPath)
+	require.NoError(t, restore())
+	assert.NoFileExists(t, lockPath)
+}
+
+func TestRunIfEnabled_ApplyErrorRestoresLeftoverBootstrapped(t *testing.T) {
+	enableZTR(t)
+	dir := t.TempDir()
+	changedPath := filepath.Join(dir, "package-lock.json")
+	leftoverPath := filepath.Join(dir, "npm-shrinkwrap.json")
+	require.NoError(t, os.WriteFile(changedPath, []byte("generated-a"), 0644))
+	require.NoError(t, os.WriteFile(leftoverPath, []byte("generated-b"), 0644))
+
+	origWrite := writeFile
+	t.Cleanup(func() { writeFile = origWrite })
+	writeFile = func(string, []byte, os.FileMode) error {
+		return errors.New("disk full")
+	}
+
+	client := &mockClient{resp: services.ComponentResolutionResponse{
+		Lockfile: "remediated-a",
+		Changes:  []services.Change{{Package: "lodash", BeforeIntegrity: "a", AfterIntegrity: "b"}},
+	}}
+	tool := mockTool{
+		root: dir,
+		lockfiles: []Lockfile{
+			{Path: "package-lock.json", Content: []byte("generated-a")},
+		},
+		bootstrapped: []string{"package-lock.json", "npm-shrinkwrap.json"},
+	}
+	restore, remediated, err := RunIfEnabled(context.Background(), client, "npm-virtual", tool, "install", dir, nil)
+	require.NoError(t, err)
+	assert.False(t, remediated)
+	assert.FileExists(t, leftoverPath)
+	require.NoError(t, restore())
+	assert.NoFileExists(t, leftoverPath)
+	assert.NoFileExists(t, changedPath)
 }
 
 func TestRunIfEnabled_SkipsWhenXrayVersionTooLow(t *testing.T) {
