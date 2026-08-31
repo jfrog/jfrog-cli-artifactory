@@ -12,6 +12,10 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
+// skillVersionsPageSize is the limit we request per Skills API versions call. Kept as our own constant
+// (rather than relying on services.DefaultSkillVersionsLimit) so this repo controls its own page size independently.
+const skillVersionsPageSize = 200
+
 func ListSkills(serverDetails *config.ServerDetails, repoKey string, limit int, sortBy string) ([]services.SkillListItem, error) {
 	serviceManager, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
 	if err != nil {
@@ -35,10 +39,6 @@ func ListSkills(serverDetails *config.ServerDetails, repoKey string, limit int, 
 	}
 	return allItems, nil
 }
-
-// skillVersionsPageSize is the limit we request per Skills API versions call. Kept as our own constant
-// (rather than relying on services.DefaultSkillVersionsLimit) so this repo controls its own page size independently.
-const skillVersionsPageSize = 200
 
 // ListVersions returns the versions published for <repoKey>/<slug> via the Skills API
 // (api/skills/{repoKey}/api/v1/skills/{slug}/versions).
@@ -107,17 +107,37 @@ func SearchSkills(serverDetails *config.ServerDetails, repoKey, query string, li
 	return serviceManager.SearchSkills(repoKey, query, limit)
 }
 
+// VersionExists reports whether version is published for repoKey/slug, via a single
+// version-detail request instead of paginating ListVersions. A "false" result doesn't
+// say why (version missing vs skill/repo missing) - callers that need that, like
+// `skills delete --dry-run`, should follow up with ListVersions instead.
 func VersionExists(serverDetails *config.ServerDetails, repoKey, slug, version string) (bool, error) {
-	versions, err := ListVersions(serverDetails, repoKey, slug)
+	if serverDetails == nil {
+		return false, fmt.Errorf("server details are required to check skill version existence")
+	}
+	repoKey = strings.TrimSpace(repoKey)
+	if repoKey == "" {
+		return false, fmt.Errorf("repository is required to check skill version existence")
+	}
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return false, fmt.Errorf("skill name is required to check skill version existence")
+	}
+
+	serviceManager, err := utils.CreateServiceManager(serverDetails, 3, 0, false)
 	if err != nil {
 		return false, err
 	}
-	for _, v := range versions {
-		if v.Version == version {
-			return true, nil
-		}
+	return versionExistsFromManager(serviceManager, repoKey, slug, version)
+}
+
+// versionExistsFromManager takes the ArtifactoryServicesManager interface directly so it can be unit tested with a mock.
+func versionExistsFromManager(serviceManager artifactory.ArtifactoryServicesManager, repoKey, slug, version string) (bool, error) {
+	exists, err := serviceManager.SkillVersionExists(repoKey, slug, version)
+	if err != nil {
+		return false, fmt.Errorf("check skill version existence: %w", err)
 	}
-	return false, nil
+	return exists, nil
 }
 
 func SearchSkillsByProperty(serverDetails *config.ServerDetails, query, repoKey string) ([]services.SkillPropertySearchResult, error) {

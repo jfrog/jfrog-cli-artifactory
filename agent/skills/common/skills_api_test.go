@@ -21,15 +21,20 @@ func (e statusCodeError) StatusCode() int { return e.code }
 
 var err404 = statusCodeError{code: 404}
 
-// mockSkillsServicesManager mocks ListSkillVersions and FolderInfo for testing.
+// mockSkillsServicesManager mocks ListSkillVersions, SkillVersionExists, and FolderInfo for testing.
 type mockSkillsServicesManager struct {
 	artifactory.EmptyArtifactoryServicesManager
-	listSkillVersionsFunc func(repoKey, slug string, limit int, cursor string) ([]services.SkillVersion, string, error)
-	folderInfoFunc        func(path string) (*servicesutils.FolderInfo, error)
+	listSkillVersionsFunc  func(repoKey, slug string, limit int, cursor string) ([]services.SkillVersion, string, error)
+	folderInfoFunc         func(path string) (*servicesutils.FolderInfo, error)
+	skillVersionExistsFunc func(repoKey, slug, version string) (bool, error)
 }
 
 func (m *mockSkillsServicesManager) ListSkillVersions(repoKey, slug string, limit int, cursor string) ([]services.SkillVersion, string, error) {
 	return m.listSkillVersionsFunc(repoKey, slug, limit, cursor)
+}
+
+func (m *mockSkillsServicesManager) SkillVersionExists(repoKey, slug, version string) (bool, error) {
+	return m.skillVersionExistsFunc(repoKey, slug, version)
 }
 
 func (m *mockSkillsServicesManager) FolderInfo(path string) (*servicesutils.FolderInfo, error) {
@@ -186,6 +191,56 @@ func TestListVersions_ValidationErrors(t *testing.T) {
 
 	t.Run("empty slug", func(t *testing.T) {
 		_, err := ListVersions(&config.ServerDetails{Url: "https://example.com/"}, "repo", "  ")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "skill name is required")
+	})
+}
+
+func TestVersionExistsFromManager(t *testing.T) {
+	t.Run("exists", func(t *testing.T) {
+		mock := &mockSkillsServicesManager{
+			skillVersionExistsFunc: func(repoKey, slug, version string) (bool, error) { return true, nil },
+		}
+		exists, err := versionExistsFromManager(mock, "repo", "my-skill", "1.0.1")
+		require.NoError(t, err)
+		assert.True(t, exists)
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		mock := &mockSkillsServicesManager{
+			skillVersionExistsFunc: func(repoKey, slug, version string) (bool, error) { return false, nil },
+		}
+		exists, err := versionExistsFromManager(mock, "repo", "my-skill", "9.9.9")
+		require.NoError(t, err)
+		assert.False(t, exists)
+	})
+
+	t.Run("error propagated", func(t *testing.T) {
+		boom := errors.New("network exploded")
+		mock := &mockSkillsServicesManager{
+			skillVersionExistsFunc: func(repoKey, slug, version string) (bool, error) { return false, boom },
+		}
+		_, err := versionExistsFromManager(mock, "repo", "my-skill", "1.0.1")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, boom)
+	})
+}
+
+func TestVersionExists_ValidationErrors(t *testing.T) {
+	t.Run("nil server details", func(t *testing.T) {
+		_, err := VersionExists(nil, "repo", "slug", "1.0.0")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "server details are required")
+	})
+
+	t.Run("empty repo key", func(t *testing.T) {
+		_, err := VersionExists(&config.ServerDetails{Url: "https://example.com/"}, "  ", "slug", "1.0.0")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "repository is required")
+	})
+
+	t.Run("empty slug", func(t *testing.T) {
+		_, err := VersionExists(&config.ServerDetails{Url: "https://example.com/"}, "repo", "  ", "1.0.0")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "skill name is required")
 	})

@@ -392,6 +392,8 @@ github.com/jfrog/jfrog-cli-evidence v0.9.0 h1:i9DhkQUxSZkhpp5oGR+N+SVAaqWDiUylbJ
 github.com/jfrog/jfrog-cli-evidence v0.9.0/go.mod h1:R9faPfyQESBmKrdZCmHvlpmYSHmffswjNnFeT3RMq8I=
 github.com/jfrog/jfrog-client-go v1.55.1-0.20260508101905-a17af78a38d7 h1:o8fk4yWLqNMldarXyh/4NbmdbYbuM+lKYobdJK7shqM=
 github.com/jfrog/jfrog-client-go v1.55.1-0.20260508101905-a17af78a38d7/go.mod h1:sCE06+GngPoyrGO0c+vmhgMoVSP83UMNiZnIuNPzU8U=
+github.com/jfrog/jfrog-client-go v1.55.1-0.20260831180834-6a912962f0c1 h1:J5SqAbrp8fNeNW0wNsa84OQ5MYWunWYUfj8dbct6jLc=
+github.com/jfrog/jfrog-client-go v1.55.1-0.20260831180834-6a912962f0c1/go.mod h1:7B7eMRKuMhZ0rOdMItbJVpWjRUe1L//J3Jq+PgjiNxI=
 github.com/jmespath/go-jmespath v0.4.1-0.20220621161143-b0104c826a24 h1:liMMTbpW34dhU4az1GN0pTPADwNmvoRSeoZ6PItiqnY=
 github.com/jmespath/go-jmespath v0.4.1-0.20220621161143-b0104c826a24/go.mod h1:T8mJZnbsbmF+m6zOOFylbeCJqk5+pHWvzYPziyZiYoo=
 github.com/kevinburke/ssh_config v1.6.0 h1:J1FBfmuVosPHf5GRdltRLhPJtJpTlMdKTBjRgTaQBFY=
