@@ -498,7 +498,7 @@ func (t *tailBuffer) String() string {
 // perform dependency validation and can exit 0 while still having failed it.
 func isValidationCheckedSubcommand(subcmd string) bool {
 	switch subcmd {
-	case "install", "update", "publish":
+	case "install", "publish":
 		return true
 	default:
 		return false
@@ -676,8 +676,8 @@ func IsHelpRequest(args []string) bool {
 	return false
 }
 
-// IsDryRunArg returns true if the args include --dry-run. install, update, and publish all
-// support it, and none of them change anything on disk when it's set.
+// IsDryRunArg returns true if the args include --dry-run. install and publish both support it,
+// and neither changes anything on disk when it's set.
 func IsDryRunArg(args []string) bool {
 	return slices.Contains(args, "--dry-run")
 }
@@ -685,7 +685,7 @@ func IsDryRunArg(args []string) bool {
 // PassthroughCommand runs an arbitrary apm subcommand with auth environment injected - no
 // build-info collection, unlike install/publish. It satisfies jfrog-cli-core's Command interface
 // (CommandName/ServerDetails/Run) on its own, so `jf agent apm <subcmd>` for any subcommand not
-// covered by install/publish (including update) needs no command-specific type of its own.
+// covered by install/publish needs no command-specific type of its own.
 type PassthroughCommand struct {
 	Subcmd string
 	Args   []string

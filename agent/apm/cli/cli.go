@@ -12,7 +12,7 @@ import (
 )
 
 // GetSubCommands returns the leaf commands for `jf agent apm`. Commands not listed here (e.g.
-// "update" and "lock", which resolve but don't collect build-info) fall through to the parent's
+// "lock", which resolves but doesn't collect build-info) fall through to the parent's
 // passthrough handler.
 func GetSubCommands() []components.Command {
 	return []components.Command{
@@ -38,8 +38,7 @@ func GetSubCommands() []components.Command {
 	}
 }
 
-// RunApmPassthroughDefault handles any `jf agent apm <subcmd>` not among install/publish -
-// including "update", which is now a plain native passthrough (no build-info collection).
+// RunApmPassthroughDefault handles any `jf agent apm <subcmd>` not among install/publish.
 // Passthrough takes exactly one jf-level flag of its own, --server-id (falling back to the
 // default configured JFrog server when absent); everything else in c.Arguments is forwarded to
 // apm untouched.

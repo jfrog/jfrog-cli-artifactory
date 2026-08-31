@@ -25,7 +25,7 @@ Common patterns:
   $ jf agent apm install --dry-run
 
 Gotchas:
-- A bare tag (#1.0.0) is an exact pin: 'jf agent apm update' never moves it. Use a semver range (#^1.0.0, #~1.0.0) if later updates should pick up newer matching versions.
+- A bare tag (#1.0.0) is an exact pin and never moves on re-resolution. Use a semver range (#^1.0.0, #~1.0.0) if later runs should pick up newer matching versions.
 - --dry-run previews the install without changing anything and skips build-info (nothing real to record).
 - Build-info is collected only when both --build-name and --build-number are provided; publish it afterwards with 'jf rt build-publish'.
 
