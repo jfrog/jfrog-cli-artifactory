@@ -35,6 +35,18 @@ func TestNpmBuildTool_DiscoverLockfiles_Shrinkwrap(t *testing.T) {
 	assert.Equal(t, "npm-shrinkwrap.json", files[0].Path)
 }
 
+func TestNpmBuildTool_DiscoverLockfiles_RejectsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.lock")
+	require.NoError(t, os.WriteFile(outside, []byte("secret-from-outside"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"app"}`), 0644))
+	require.NoError(t, os.Symlink(outside, filepath.Join(dir, "package-lock.json")))
+
+	files, err := NewBuildTool().DiscoverLockfiles(dir)
+	require.Error(t, err)
+	assert.Empty(t, files)
+}
+
 func TestNpmBuildTool_EnsureLockfiles_SkipsWhenShrinkwrapExists(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"a"}`), 0644))

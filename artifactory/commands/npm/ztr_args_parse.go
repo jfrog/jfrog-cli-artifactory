@@ -45,7 +45,7 @@ func parseNpmCLIArgs(args []string) npmCLIArgs {
 			out.bootstrapArgs = append(out.bootstrapArgs, arg)
 		case strings.HasPrefix(arg, "-w=") && len(arg) > 3:
 			out.bootstrapArgs = append(out.bootstrapArgs, arg)
-		case arg == "--registry" || arg == "--tag":
+		case arg == "--registry" || arg == "--tag" || arg == "--omit":
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				i++
 			}

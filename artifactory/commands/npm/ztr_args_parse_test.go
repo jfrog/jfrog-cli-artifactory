@@ -102,5 +102,8 @@ func TestHasPackageOperands(t *testing.T) {
 	assert.False(t, HasPackageOperands([]string{"--registry=https://registry.example"}))
 	assert.False(t, HasPackageOperands([]string{"--tag", "next"}))
 	assert.False(t, HasPackageOperands([]string{"--tag=next"}))
+	assert.False(t, HasPackageOperands([]string{"--omit", "dev"}))
+	assert.False(t, HasPackageOperands([]string{"--omit=dev"}))
 	assert.True(t, HasPackageOperands([]string{"--registry", "https://registry.example", "lodash"}))
+	assert.True(t, HasPackageOperands([]string{"--omit", "dev", "lodash"}))
 }

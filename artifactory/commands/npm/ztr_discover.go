@@ -58,11 +58,18 @@ func discoverProjectRootWithOptions(workingDir string, opts discoveryOptions) (s
 }
 
 func lockfileNameInDir(dir string) (string, error) {
-	if _, err := os.Stat(filepath.Join(dir, shrinkwrapFileName)); err == nil {
-		return shrinkwrapFileName, nil
-	}
-	if _, err := os.Stat(filepath.Join(dir, lockfileName)); err == nil {
-		return lockfileName, nil
+	for _, name := range []string{shrinkwrapFileName, lockfileName} {
+		info, err := os.Lstat(filepath.Join(dir, name))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", errorutils.CheckError(err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		return name, nil
 	}
 	return "", errorutils.CheckErrorf("no %s or %s under %s", shrinkwrapFileName, lockfileName, dir)
 }
