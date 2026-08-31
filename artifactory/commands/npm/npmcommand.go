@@ -2,6 +2,7 @@ package npm
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -56,9 +57,8 @@ var (
 
 type NpmCommand struct {
 	CommonArgs
-	cmdName        string
-	jsonOutput     bool
-	executablePath string
+	cmdName    string
+	jsonOutput bool
 	// Function to be called to restore the user's old npmrc and delete the one we created.
 	restoreNpmrcFunc func() error
 	workingDirectory string
@@ -73,6 +73,8 @@ type NpmCommand struct {
 	collectBuildInfo    bool
 	buildInfoModule     *build.NpmModule
 	installHandler      *NpmInstallStrategy
+	// When true, the subsequent install uses npm ci to honor remediated lockfile integrity.
+	remediatedLockfile bool
 	// When true, skips the 404 error handling that checks if packages are blocked by curation
 	disableCVSCheck bool
 }
@@ -351,7 +353,24 @@ func (nc *NpmCommand) Run() (err error) {
 	defer func() {
 		err = errors.Join(err, nc.installHandler.RestoreNpmrc())
 	}()
-	err = nc.installHandler.Install()
+	if !nc.UseNative() {
+		if err = nc.CreateTempNpmrc(); err != nil {
+			return
+		}
+	}
+	var restoreResolution func() error
+	restoreResolution, nc.remediatedLockfile, err = nc.runZeroTouchRemediation(context.Background(), nc.cmdName, nc.workingDirectory, nc.npmArgs)
+	if err != nil {
+		return err
+	}
+	var installErr error
+	defer func() {
+		if installErr != nil && restoreResolution != nil {
+			err = errors.Join(err, restoreResolution())
+		}
+	}()
+	installErr = nc.installHandler.Install()
+	err = installErr
 	if err != nil {
 		if !nc.disableCVSCheck && (nc.cmdName == "install" || nc.cmdName == "ci") {
 			if blockedErr := nc.handle404Errors(err); blockedErr != nil {
@@ -508,8 +527,19 @@ func (nc *NpmCommand) prepareBuildInfoModule() error {
 	return nil
 }
 
+func (nc *NpmCommand) effectiveNpmCommand() string {
+	if nc.remediatedLockfile && nc.cmdName == "install" {
+		return "ci"
+	}
+	return nc.cmdName
+}
+
 func (nc *NpmCommand) collectDependencies() error {
-	nc.buildInfoModule.SetNpmArgs(append([]string{nc.cmdName}, nc.npmArgs...))
+	npmCommand := nc.effectiveNpmCommand()
+	if npmCommand != nc.cmdName {
+		log.Info("Using npm ci after Zero Touch Remediation to install from the remediated lockfile")
+	}
+	nc.buildInfoModule.SetNpmArgs(append([]string{npmCommand}, nc.npmArgs...))
 	return errorutils.CheckError(nc.buildInfoModule.Build())
 }
 
