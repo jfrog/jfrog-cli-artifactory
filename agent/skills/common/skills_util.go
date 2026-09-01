@@ -8,7 +8,8 @@ import (
 )
 
 // ResolveSkillVersion lists remote versions then applies SelectPackageVersion rules.
-// Uses the fixed ListVersions() which queries raw storage, bypassing the Skills API filter.
+// Uses ListVersions(), which is backed by the indexed Skills API (not raw storage) - so a
+// stale or missing index correctly blocks resolution here, before any zip is downloaded.
 // ListVersions() already disambiguates between missing repo vs missing skill on 404 errors.
 func ResolveSkillVersion(serverDetails *config.ServerDetails, repoKey, slug, requested string, quiet bool) (string, error) {
 	versions, err := ListVersions(serverDetails, repoKey, slug)
