@@ -360,7 +360,10 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create services manager for NuGet push: %w", err)
 	}
-	if err := validateNuGetDeployRepo(servicesManager, c.repoDeploy); err != nil {
+	// Validate the target and resolve a virtual repo to the local repo artifacts land in, so the
+	// upload target and the OriginalDeploymentRepo in build-info both name the local repository.
+	deployRepo, err := resolveAndValidateDeployRepo(servicesManager, c.repoDeploy)
+	if err != nil {
 		return nil, err
 	}
 
@@ -368,13 +371,13 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() ([]string, error) {
 	// collectAndStampPushArtifacts uses, so the upload target and the later property-stamping
 	// path can never diverge: .nupkg lands flat at the repository root, .snupkg under
 	// symbolpackage/<id>.<version>.nupkg.
-	artifacts, err := nugetflex.CollectPushArtifacts(c.workingDir, packages, c.repoDeploy)
+	artifacts, err := nugetflex.CollectPushArtifacts(c.workingDir, packages, deployRepo)
 	if err != nil {
 		return nil, fmt.Errorf("resolve NuGet storage paths: %w", err)
 	}
 	targetByName := make(map[string]string, len(artifacts))
 	for _, a := range artifacts {
-		targetByName[a.Name] = c.repoDeploy + "/" + strings.TrimPrefix(a.Path, "/")
+		targetByName[a.Name] = deployRepo + "/" + strings.TrimPrefix(a.Path, "/")
 	}
 
 	skipDuplicate := hasSkipDuplicate(c.args)
@@ -390,23 +393,35 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() ([]string, error) {
 	return packages, nil
 }
 
-// validateNuGetDeployRepo rejects a deploy target that is not a NuGet local or virtual repo.
-// Packages are uploaded through the generic artifact API, which would otherwise silently accept
-// a .nupkg into, say, a Maven repository. The NuGet gallery endpoint previously rejected this
-// implicitly (it does not exist for non-NuGet repos); the check is now explicit so the failure
-// is a clear message rather than a bare HTTP status.
-func validateNuGetDeployRepo(servicesManager artifactory.ArtifactoryServicesManager, repoKey string) error {
-	var params services.RepositoryBaseParams
+// resolveAndValidateDeployRepo validates that repoKey is a NuGet local or virtual repository and
+// returns the local repository key that artifacts actually land in.
+//
+// Validation is explicit because packages are uploaded through the generic artifact API, which
+// would otherwise silently accept a .nupkg into, say, a Maven repository. The NuGet gallery
+// endpoint used to reject that implicitly (it does not exist for non-NuGet repos).
+//
+// For a virtual repository the returned key is its defaultDeploymentRepo, so both the upload
+// target and the OriginalDeploymentRepo recorded in build-info name the local repository.
+// Recording the virtual key would make downstream tools 404 when they try to locate the artifact.
+func resolveAndValidateDeployRepo(servicesManager artifactory.ArtifactoryServicesManager, repoKey string) (string, error) {
+	var params services.VirtualRepositoryBaseParams
 	if err := servicesManager.GetRepository(repoKey, &params); err != nil {
-		return fmt.Errorf("resolve repository %q: %w", repoKey, err)
+		return "", fmt.Errorf("resolve repository %q: %w", repoKey, err)
 	}
 	if !strings.EqualFold(params.PackageType, "nuget") {
-		return fmt.Errorf("repository %q is of type %q, not NuGet; NuGet packages cannot be pushed to it", repoKey, params.PackageType)
+		return "", fmt.Errorf("repository %q is of type %q, not NuGet; NuGet packages cannot be pushed to it", repoKey, params.PackageType)
 	}
 	if strings.EqualFold(params.Rclass, "remote") {
-		return fmt.Errorf("repository %q is a remote repository; NuGet packages can only be pushed to a local or virtual repository", repoKey)
+		return "", fmt.Errorf("repository %q is a remote repository; NuGet packages can only be pushed to a local or virtual repository", repoKey)
 	}
-	return nil
+	if !strings.EqualFold(params.Rclass, "virtual") {
+		return repoKey, nil
+	}
+	if params.DefaultDeploymentRepo == "" {
+		return "", fmt.Errorf("virtual repo %q has no defaultDeploymentRepo configured; cannot determine the local repo to push to", repoKey)
+	}
+	log.Debug(fmt.Sprintf("Resolved virtual repo %q → local repo %q for push", repoKey, params.DefaultDeploymentRepo))
+	return params.DefaultDeploymentRepo, nil
 }
 
 // appendSiblingSymbolPackages returns packages plus the sibling .snupkg of every .nupkg that
