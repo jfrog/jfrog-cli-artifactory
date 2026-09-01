@@ -273,6 +273,25 @@ func TestSearchWithRetry(t *testing.T) {
 	})
 }
 
+func TestIsPushCommand(t *testing.T) {
+	tests := []struct {
+		sub      string
+		wantPush bool
+	}{
+		{"push", true},
+		{"nuget push", true},  // dotnet CLI two-word form
+		{"restore", false},
+		{"pack", false},
+		{"build", false},
+		{"", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.sub, func(t *testing.T) {
+			assert.Equal(t, tc.wantPush, isPushCommand(tc.sub))
+		})
+	}
+}
+
 func TestBuildPushURLs(t *testing.T) {
 	tests := []struct {
 		name        string

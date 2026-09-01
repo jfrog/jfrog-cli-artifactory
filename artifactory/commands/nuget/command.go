@@ -137,35 +137,18 @@ func (c *NuGetFlexPackCommand) Run() error {
 		if isPushCommand(c.subCommand) {
 			repo = c.repoDeploy
 		}
-		if repo != "" {
-			if c.toolchainType == dotnetutils.Nuget && isRestoreCommand(c.subCommand) {
-				// nuget.exe (mono) re-embeds credentials into MSBuild's /p:RestoreSources=
-				// regardless of whether they come from -Source or a -ConfigFile config. MSBuild
-				// can authenticate V2 feeds with embedded Basic Auth but fails to load a V3
-				// service index (index.json) the same way, causing NU1301. Use a temp nuget.config
-				// with a V2 source URL so MSBuild sees a V2 feed URL with embedded credentials.
-				//
-				// Push is excluded: nuget.exe push always sends credentials as X-NuGet-ApiKey
-				// regardless of the credential source; Artifactory rejects access tokens via that
-				// header with 403. pushNupkgToArtifactory handles push directly via Basic Auth.
-				// Pack and passthrough commands are also excluded: they are local-only and do not
-				// need a NuGet source.
-				cleanup, err := c.injectCredentialsViaTempConfig(repo)
-				if err != nil {
-					return err
-				}
-				defer cleanup()
-			} else if c.toolchainType != dotnetutils.Nuget && isRestoreCommand(c.subCommand) {
-				// dotnet CLI restore: use a temp nuget.config (same approach as nuget.exe) to
-				// avoid embedding credentials in the --source process argument, which is visible
-				// to all local users via /proc/<pid>/cmdline or ps aux.
-				// dotnet restore supports --configfile (double-dash, POSIX style).
-				cleanup, err := c.injectCredentialsViaTempConfig(repo)
-				if err != nil {
-					return err
-				}
-				defer cleanup()
+		if repo != "" && isRestoreCommand(c.subCommand) {
+			// Inject credentials via a temp nuget.config for all restore-family commands.
+			// Both nuget.exe and dotnet CLI use -ConfigFile / --configfile so credentials
+			// are never embedded in the process argv (invisible to ps/proc); the flag style
+			// is selected inside injectCredentialsViaTempConfig based on toolchainType.
+			// Push, pack, and passthrough commands are excluded: push goes through
+			// pushPackagesToArtifactory (Basic Auth), and pack/passthrough are local-only.
+			cleanup, err := c.injectCredentialsViaTempConfig(repo)
+			if err != nil {
+				return err
 			}
+			defer cleanup()
 		}
 	}
 
