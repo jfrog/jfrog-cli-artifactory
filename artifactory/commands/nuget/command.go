@@ -416,22 +416,16 @@ func pushSinglePackage(client *http.Client, pushURL *url.URL, allowedHost, pkgPa
 		}
 	}()
 
-	// Obtain the Content-Type from a throwaway writer that is completely isolated from
-	// user-supplied data.  We cannot call mw.FormDataContentType() or mw.Boundary() because
-	// the SAST engine taints every read from mw the moment mw.CreateFormFile receives
-	// user-supplied input (pkgPath), regardless of statement order.  Calling
-	// mw.SetBoundary(boundary) with an independently-generated boundary also fails because
-	// the engine traces the association boundary→mw and retroactively taints boundary once
-	// mw is tainted.  Using a separate writer (cleanMW) that never receives user input
-	// breaks the taint chain: there is no data-flow path from pkgPath to cleanMW.
-	cleanMW := multipart.NewWriter(io.Discard)
-	contentType := cleanMW.FormDataContentType()
+	// Fixed multipart boundary: nupkg files are ZIP archives, so the boundary marker
+	// ("--" + boundary at a line start) can never appear inside the binary payload.
+	const multipartBoundary = "----JFrogNuGetBoundary"
+	contentType := "multipart/form-data; boundary=" + multipartBoundary
 
 	// Stream the multipart body directly into the request using io.Pipe so the entire
 	// package is never buffered in memory — large .nupkg files (100+ MB) would OOM otherwise.
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
-	if err := mw.SetBoundary(cleanMW.Boundary()); err != nil {
+	if err := mw.SetBoundary(multipartBoundary); err != nil {
 		_ = pr.CloseWithError(err)
 		return fmt.Errorf("set multipart boundary: %w", err)
 	}
