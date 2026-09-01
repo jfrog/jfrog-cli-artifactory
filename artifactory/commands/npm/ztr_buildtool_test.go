@@ -118,9 +118,13 @@ func TestNpmBuildTool_EnsureLockfiles_PassesWorkspaceFlags(t *testing.T) {
 	}
 
 	tool := NewBuildTool()
-	_, err := tool.EnsureLockfiles(context.Background(), dir, "publish", runner, "--workspaces")
+	_, err := tool.EnsureLockfiles(context.Background(), dir, "install", runner, "--workspaces")
 	require.NoError(t, err)
 	assert.Contains(t, ran[0], "--workspaces")
+}
+
+func TestNpmBuildTool_RelevantCommands(t *testing.T) {
+	assert.Equal(t, []string{"install", "ci"}, NewBuildTool().RelevantCommands())
 }
 
 func TestNewBuildToolWithArgs_Prefix(t *testing.T) {

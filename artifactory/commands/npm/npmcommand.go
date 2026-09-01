@@ -26,6 +26,8 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/spf13/viper"
+
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/zerotouchremediation"
 )
 
 const (
@@ -355,14 +357,18 @@ func (nc *NpmCommand) Run() (err error) {
 	defer func() {
 		err = errors.Join(err, nc.installHandler.RestoreNpmrc())
 	}()
-	var installErr error
-	defer func() {
-		if installErr != nil && nc.restoreResolution != nil {
-			err = errors.Join(err, nc.restoreResolution())
-		}
-	}()
-	installErr = nc.installHandler.Install()
-	err = installErr
+	if !zerotouchremediation.IsComponentResolutionEnabled() {
+		err = nc.installHandler.Install()
+	} else {
+		var installErr error
+		defer func() {
+			if installErr != nil && nc.restoreResolution != nil {
+				err = errors.Join(err, nc.restoreResolution())
+			}
+		}()
+		installErr = nc.installHandler.Install()
+		err = installErr
+	}
 	if err != nil {
 		if !nc.disableCVSCheck && (nc.cmdName == "install" || nc.cmdName == "ci") {
 			if blockedErr := nc.handle404Errors(err); blockedErr != nil {

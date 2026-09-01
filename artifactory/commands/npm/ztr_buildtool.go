@@ -26,18 +26,10 @@ func NewBuildToolWithArgs(npmArgs []string) BuildTool {
 	return BuildTool{opts: discoveryOptions{prefixDir: parsed.prefixDir}}
 }
 
-func NewBuildToolForPublish(workingDir, publishPath string, npmArgs []string) BuildTool {
-	parsed := parseNpmCLIArgs(npmArgs)
-	return BuildTool{opts: discoveryOptions{
-		prefixDir:   parsed.prefixDir,
-		publishPath: publishPath,
-	}}
-}
-
 func (BuildTool) ToolName() string { return toolName }
 
 func (BuildTool) RelevantCommands() []string {
-	return []string{"install", "ci", "publish"}
+	return []string{"install", "ci"}
 }
 
 func (t BuildTool) ProjectRoot(workingDir string) (string, error) {
@@ -59,7 +51,7 @@ func (t BuildTool) EnsureLockfiles(ctx context.Context, projectRoot, command str
 	switch command {
 	case "ci":
 		return nil, errorutils.CheckErrorf("Zero Touch Remediation requires %s or %s for npm ci (generate with npm install first)", lockfileName, shrinkwrapFileName)
-	case "install", "publish":
+	case "install":
 		if runner == nil {
 			return nil, errorutils.CheckErrorf("npm runner required to bootstrap %s", lockfileName)
 		}

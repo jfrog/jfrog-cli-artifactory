@@ -43,6 +43,16 @@ func TestParseNpmCLIArgs_WorkspacesBooleanUnchanged(t *testing.T) {
 	assert.Equal(t, []string{"--workspaces"}, opts.bootstrapArgs)
 }
 
+func TestParseNpmCLIArgs_RegistryOverride(t *testing.T) {
+	opts := parseNpmCLIArgs([]string{"--registry", "https://acme.jfrog.io/artifactory/api/npm/libs-npm/"})
+	assert.Equal(t, "https://acme.jfrog.io/artifactory/api/npm/libs-npm/", opts.registryURL)
+	assert.Equal(t, []string{"--registry", "https://acme.jfrog.io/artifactory/api/npm/libs-npm/"}, opts.bootstrapArgs)
+
+	opts = parseNpmCLIArgs([]string{"--registry=https://acme.jfrog.io/artifactory/api/npm/libs-npm/"})
+	assert.Equal(t, "https://acme.jfrog.io/artifactory/api/npm/libs-npm/", opts.registryURL)
+	assert.Equal(t, []string{"--registry=https://acme.jfrog.io/artifactory/api/npm/libs-npm/"}, opts.bootstrapArgs)
+}
+
 func TestParseNpmCLIArgs_PackageOperandsSkipOptionValues(t *testing.T) {
 	opts := parseNpmCLIArgs([]string{"--save", "lodash"})
 	assert.Equal(t, []string{"lodash"}, opts.packageOperands)
@@ -53,22 +63,6 @@ func TestParseNpmCLIArgs_PackageOperandsSkipOptionValues(t *testing.T) {
 
 	opts = parseNpmCLIArgs([]string{"--verbose"})
 	assert.Empty(t, opts.packageOperands)
-}
-
-func TestEffectiveStartDir_PublishPathOverridesCwd(t *testing.T) {
-	root := t.TempDir()
-	publishPath := filepath.Join(root, "packages", "foo")
-	got, err := effectiveStartDir(root, discoveryOptions{publishPath: publishPath})
-	assert.NoError(t, err)
-	assert.Equal(t, publishPath, got)
-}
-
-func TestEffectiveStartDir_PublishPathUnixAbsolute(t *testing.T) {
-	got, err := effectiveStartDir("/repo", discoveryOptions{publishPath: "/repo/packages/foo"})
-	assert.NoError(t, err)
-	want, err := filepath.Abs("/repo/packages/foo")
-	assert.NoError(t, err)
-	assert.Equal(t, want, got)
 }
 
 func TestEffectiveStartDir_PrefixFromArgs(t *testing.T) {

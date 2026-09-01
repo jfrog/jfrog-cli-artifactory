@@ -38,6 +38,26 @@ func TestApplyZeroTouchRemediation_DisabledByDefault(t *testing.T) {
 	assert.Nil(t, nc.restoreResolution)
 }
 
+func TestResolverRepoForResolution_PrefersCliRegistryOverNpmConfig(t *testing.T) {
+	nc := &NpmCommand{
+		cmdName:        "install",
+		executablePath: "/bin/false",
+	}
+	nc.SetNpmArgs([]string{"--registry", "https://acme.jfrog.io/artifactory/api/npm/libs-npm/"})
+	got, err := nc.resolverRepoForResolution()
+	require.NoError(t, err)
+	assert.Equal(t, "libs-npm", got)
+}
+
+func TestResolverRepoForResolution_RepoWinsOverCliRegistry(t *testing.T) {
+	nc := &NpmCommand{cmdName: "install"}
+	nc.SetNpmArgs([]string{"--registry", "https://acme.jfrog.io/artifactory/api/npm/libs-npm/"})
+	nc.SetRepo("from-config")
+	got, err := nc.resolverRepoForResolution()
+	require.NoError(t, err)
+	assert.Equal(t, "from-config", got)
+}
+
 func TestEffectiveNpmCommandAfterRemediation(t *testing.T) {
 	nc := &NpmCommand{cmdName: "install", remediatedLockfile: true}
 	assert.Equal(t, "ci", nc.effectiveNpmCommand())

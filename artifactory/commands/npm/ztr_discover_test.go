@@ -79,18 +79,6 @@ func TestDiscoverProjectRoot_IgnoresStrayPackageJSONWhenLockAbove(t *testing.T) 
 	assert.Equal(t, svc, got)
 }
 
-func TestDiscoverProjectRoot_PublishPath(t *testing.T) {
-	root := t.TempDir()
-	pkg := filepath.Join(root, "packages", "lib")
-	require.NoError(t, os.MkdirAll(pkg, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(pkg, "package.json"), []byte(`{"name":"lib"}`), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(pkg, "package-lock.json"), []byte(`{}`), 0644))
-
-	got, err := discoverProjectRootWithOptions(root, discoveryOptions{publishPath: filepath.Join("packages", "lib")})
-	require.NoError(t, err)
-	assert.Equal(t, pkg, got)
-}
-
 func TestParsePackageJSON_WorkspacesArray(t *testing.T) {
 	p, err := parsePackageJSON([]byte(`{"workspaces":["packages/*"]}`))
 	require.NoError(t, err)

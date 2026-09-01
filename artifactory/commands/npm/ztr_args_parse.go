@@ -8,12 +8,12 @@ import (
 )
 
 type discoveryOptions struct {
-	prefixDir   string
-	publishPath string
+	prefixDir string
 }
 
 type npmCLIArgs struct {
 	prefixDir       string
+	registryURL     string
 	bootstrapArgs   []string
 	packageOperands []string
 }
@@ -45,7 +45,16 @@ func parseNpmCLIArgs(args []string) npmCLIArgs {
 			out.bootstrapArgs = append(out.bootstrapArgs, arg)
 		case strings.HasPrefix(arg, "-w=") && len(arg) > 3:
 			out.bootstrapArgs = append(out.bootstrapArgs, arg)
-		case arg == "--registry" || arg == "--tag" || arg == "--omit":
+		case arg == "--registry":
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++
+				out.registryURL = args[i]
+				out.bootstrapArgs = append(out.bootstrapArgs, arg, args[i])
+			}
+		case strings.HasPrefix(arg, "--registry="):
+			out.registryURL = strings.TrimPrefix(arg, "--registry=")
+			out.bootstrapArgs = append(out.bootstrapArgs, arg)
+		case arg == "--tag" || arg == "--omit":
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				i++
 			}
@@ -72,9 +81,6 @@ func effectiveStartDir(workingDir string, opts discoveryOptions) (string, error)
 	abs, err := filepath.Abs(workingDir)
 	if err != nil {
 		return "", errorutils.CheckError(err)
-	}
-	if opts.publishPath != "" {
-		return resolveDiscoveryPath(abs, opts.publishPath)
 	}
 	if opts.prefixDir != "" {
 		return resolveDiscoveryPath(abs, opts.prefixDir)

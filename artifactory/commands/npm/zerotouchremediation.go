@@ -34,7 +34,7 @@ func (nc *NpmCommand) runZeroTouchRemediation(ctx context.Context, command, work
 }
 
 func (nc *NpmCommand) runZeroTouchRemediationWithTool(ctx context.Context, command, workingDir string, tool zerotouchremediation.BuildTool, bootstrapArgs ...string) (restore func() error, remediated bool, err error) {
-	resolverRepo, resolverErr := nc.resolverRepoForResolution(command)
+	resolverRepo, resolverErr := nc.resolverRepoForResolution()
 	if resolverErr != nil {
 		return zerotouchremediation.SkipRemediation("Zero Touch Remediation skipped: could not determine resolver repo: ", resolverErr)
 	}
@@ -53,8 +53,8 @@ func (nc *NpmCommand) runZeroTouchRemediationWithTool(ctx context.Context, comma
 }
 
 // resolverRepoForResolution returns the Artifactory virtual repo for dependency policy scope.
-func (nc *NpmCommand) resolverRepoForResolution(command string) (string, error) {
-	if command != "publish" && nc.repo != "" {
+func (nc *NpmCommand) resolverRepoForResolution() (string, error) {
+	if nc.repo != "" {
 		return nc.repo, nil
 	}
 	if nc.configFilePath != "" {
@@ -79,6 +79,9 @@ func (nc *NpmCommand) resolverRepoForResolution(command string) (string, error) 
 }
 
 func (nc *NpmCommand) getNpmRegistryURL() (string, error) {
+	if parsed := parseNpmCLIArgs(nc.npmArgs); parsed.registryURL != "" {
+		return parsed.registryURL, nil
+	}
 	configCommand := gofrogcmd.Command{
 		Executable: nc.executablePath,
 		CmdName:    "config",
