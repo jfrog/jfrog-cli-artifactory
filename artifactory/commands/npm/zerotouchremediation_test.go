@@ -19,7 +19,7 @@ type countingZTRClient struct {
 }
 
 func (c *countingZTRClient) GetVersion() (string, error) {
-	return zerotouchremediation.ZeroTouchRemediationMinVersion, nil
+	return zerotouchremediation.ZeroTouchRemediationMinXrayVersion, nil
 }
 
 func (c *countingZTRClient) ZeroTouchRemediation(_ services.ComponentResolutionRequest) (*services.ComponentResolutionResponse, bool, error) {
@@ -29,13 +29,13 @@ func (c *countingZTRClient) ZeroTouchRemediation(_ services.ComponentResolutionR
 	}, false, nil
 }
 
-func TestRunZeroTouchRemediation_DisabledByDefault(t *testing.T) {
+func TestApplyZeroTouchRemediation_DisabledByDefault(t *testing.T) {
 	t.Setenv(zerotouchremediation.ZtrComponentsEnabledEnvVar, "")
-	ca := &CommonArgs{}
-	ca.SetRepo("npm-virtual").SetServerDetails(nil)
-	_, remediated, err := ca.runZeroTouchRemediation(t.Context(), "install", t.TempDir(), nil)
-	assert.NoError(t, err)
-	assert.False(t, remediated)
+	nc := &NpmCommand{cmdName: "install", workingDirectory: t.TempDir()}
+	nc.SetRepo("npm-virtual").SetServerDetails(nil)
+	assert.NoError(t, nc.applyZeroTouchRemediation())
+	assert.False(t, nc.remediatedLockfile)
+	assert.Nil(t, nc.restoreResolution)
 }
 
 func TestEffectiveNpmCommandAfterRemediation(t *testing.T) {

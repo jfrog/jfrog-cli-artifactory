@@ -13,22 +13,28 @@ import (
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/zerotouchremediation"
 )
 
-func (ca *CommonArgs) runZeroTouchRemediation(ctx context.Context, command, workingDir string, npmArgs []string) (restore func() error, remediated bool, err error) {
+func (nc *NpmCommand) applyZeroTouchRemediation() error {
+	if !zerotouchremediation.IsComponentResolutionEnabled() {
+		return nil
+	}
+	restore, remediated, err := nc.runZeroTouchRemediation(context.Background(), nc.cmdName, nc.workingDirectory, nc.npmArgs)
+	if err != nil {
+		return err
+	}
+	nc.restoreResolution = restore
+	nc.remediatedLockfile = remediated
+	return nil
+}
+
+func (nc *NpmCommand) runZeroTouchRemediation(ctx context.Context, command, workingDir string, npmArgs []string) (restore func() error, remediated bool, err error) {
 	if command == "install" && isSinglePackageInstall(npmArgs) {
 		return func() error { return nil }, false, nil
 	}
-	return ca.runZeroTouchRemediationWithTool(ctx, command, workingDir, NewBuildToolWithArgs(npmArgs), BootstrapArgsFrom(npmArgs)...)
+	return nc.runZeroTouchRemediationWithTool(ctx, command, workingDir, NewBuildToolWithArgs(npmArgs), BootstrapArgsFrom(npmArgs)...)
 }
 
-func (ca *CommonArgs) runZeroTouchRemediationForPublish(ctx context.Context, command, workingDir, publishPath string, npmArgs []string) (restore func() error, remediated bool, err error) {
-	return ca.runZeroTouchRemediationWithTool(ctx, command, workingDir, NewBuildToolForPublish(workingDir, publishPath, npmArgs), BootstrapArgsFrom(npmArgs)...)
-}
-
-func (ca *CommonArgs) runZeroTouchRemediationWithTool(ctx context.Context, command, workingDir string, tool zerotouchremediation.BuildTool, bootstrapArgs ...string) (restore func() error, remediated bool, err error) {
-	if !zerotouchremediation.IsComponentResolutionEnabled() {
-		return zerotouchremediation.SkipRemediation("Zero Touch Remediation is not enabled", nil)
-	}
-	resolverRepo, resolverErr := ca.resolverRepoForResolution(command)
+func (nc *NpmCommand) runZeroTouchRemediationWithTool(ctx context.Context, command, workingDir string, tool zerotouchremediation.BuildTool, bootstrapArgs ...string) (restore func() error, remediated bool, err error) {
+	resolverRepo, resolverErr := nc.resolverRepoForResolution(command)
 	if resolverErr != nil {
 		return zerotouchremediation.SkipRemediation("Zero Touch Remediation skipped: could not determine resolver repo: ", resolverErr)
 	}
@@ -36,45 +42,45 @@ func (ca *CommonArgs) runZeroTouchRemediationWithTool(ctx context.Context, comma
 		return zerotouchremediation.SkipRemediation("Zero Touch Remediation skipped: resolver repo is empty", nil)
 	}
 	var projectKey string
-	if ca.buildConfiguration != nil {
-		projectKey = ca.buildConfiguration.GetProject()
+	if nc.buildConfiguration != nil {
+		projectKey = nc.buildConfiguration.GetProject()
 	}
-	xrayManager, xrayErr := xray.CreateXrayServiceManager(ca.serverDetails, xray.WithScopedProjectKey(projectKey))
+	xrayManager, xrayErr := xray.CreateXrayServiceManager(nc.serverDetails, xray.WithScopedProjectKey(projectKey))
 	if xrayErr != nil {
 		return zerotouchremediation.SkipRemediation("Zero Touch Remediation skipped: could not create Xray service manager: ", xrayErr)
 	}
-	return zerotouchremediation.RunIfEnabled(ctx, xrayManager, resolverRepo, tool, command, workingDir, ca.npmBootstrapRunner(), bootstrapArgs...)
+	return zerotouchremediation.RunIfEnabled(ctx, xrayManager, resolverRepo, tool, command, workingDir, nc.npmBootstrapRunner(), bootstrapArgs...)
 }
 
 // resolverRepoForResolution returns the Artifactory virtual repo for dependency policy scope.
-func (ca *CommonArgs) resolverRepoForResolution(command string) (string, error) {
-	if command != "publish" && ca.repo != "" {
-		return ca.repo, nil
+func (nc *NpmCommand) resolverRepoForResolution(command string) (string, error) {
+	if command != "publish" && nc.repo != "" {
+		return nc.repo, nil
 	}
-	if ca.configFilePath != "" {
-		vConfig, err := project.ReadConfigFile(ca.configFilePath, project.YAML)
+	if nc.configFilePath != "" {
+		vConfig, err := project.ReadConfigFile(nc.configFilePath, project.YAML)
 		if err != nil {
 			return "", fmt.Errorf("failed to read config file: %w", err)
 		}
-		resolverConfig, err := project.GetRepoConfigByPrefix(ca.configFilePath, project.ProjectConfigResolverPrefix, vConfig)
+		resolverConfig, err := project.GetRepoConfigByPrefix(nc.configFilePath, project.ProjectConfigResolverPrefix, vConfig)
 		if err != nil {
 			return "", fmt.Errorf("failed to get resolver config: %w", err)
 		}
 		return resolverConfig.TargetRepo(), nil
 	}
-	if ca.executablePath != "" {
-		registryURL, err := ca.getNpmRegistryURL()
+	if nc.executablePath != "" {
+		registryURL, err := nc.getNpmRegistryURL()
 		if err != nil {
 			return "", fmt.Errorf("failed to get registry URL: %w", err)
 		}
 		return extractRepoName(registryURL)
 	}
-	return ca.repo, nil
+	return nc.repo, nil
 }
 
-func (ca *CommonArgs) getNpmRegistryURL() (string, error) {
+func (nc *NpmCommand) getNpmRegistryURL() (string, error) {
 	configCommand := gofrogcmd.Command{
-		Executable: ca.executablePath,
+		Executable: nc.executablePath,
 		CmdName:    "config",
 		CmdArgs:    []string{"get", "registry"},
 	}
@@ -85,9 +91,9 @@ func (ca *CommonArgs) getNpmRegistryURL() (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-func (ca *CommonArgs) npmBootstrapRunner() zerotouchremediation.CommandRunner {
+func (nc *NpmCommand) npmBootstrapRunner() zerotouchremediation.CommandRunner {
 	return func(ctx context.Context, projectRoot string, args ...string) error {
-		return runNpmAt(ctx, ca.executablePath, projectRoot, args...)
+		return runNpmAt(ctx, nc.executablePath, projectRoot, args...)
 	}
 }
 

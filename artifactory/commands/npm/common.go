@@ -14,8 +14,6 @@ type CommonArgs struct {
 	npmArgs            []string
 	serverDetails      *config.ServerDetails
 	useNative          bool
-	configFilePath     string
-	executablePath     string
 }
 
 func (ca *CommonArgs) SetServerDetails(serverDetails *config.ServerDetails) *CommonArgs {
@@ -44,16 +42,6 @@ func (ca *CommonArgs) UseNative() bool {
 
 func (ca *CommonArgs) SetUseNative(useNpmRc bool) *CommonArgs {
 	ca.useNative = useNpmRc
-	return ca
-}
-
-func (ca *CommonArgs) SetConfigFilePath(configFilePath string) *CommonArgs {
-	ca.configFilePath = configFilePath
-	return ca
-}
-
-func (ca *CommonArgs) SetExecutablePath(executablePath string) *CommonArgs {
-	ca.executablePath = executablePath
 	return ca
 }
 

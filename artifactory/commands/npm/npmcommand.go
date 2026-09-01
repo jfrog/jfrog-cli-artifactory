@@ -2,7 +2,6 @@ package npm
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -57,8 +56,9 @@ var (
 
 type NpmCommand struct {
 	CommonArgs
-	cmdName    string
-	jsonOutput bool
+	cmdName        string
+	jsonOutput     bool
+	executablePath string
 	// Function to be called to restore the user's old npmrc and delete the one we created.
 	restoreNpmrcFunc func() error
 	workingDirectory string
@@ -75,6 +75,8 @@ type NpmCommand struct {
 	installHandler      *NpmInstallStrategy
 	// When true, the subsequent install uses npm ci to honor remediated lockfile integrity.
 	remediatedLockfile bool
+	// Restores lockfiles written by Zero Touch Remediation if the install command fails.
+	restoreResolution func() error
 	// When true, skips the 404 error handling that checks if packages are blocked by curation
 	disableCVSCheck bool
 }
@@ -353,20 +355,10 @@ func (nc *NpmCommand) Run() (err error) {
 	defer func() {
 		err = errors.Join(err, nc.installHandler.RestoreNpmrc())
 	}()
-	if !nc.UseNative() {
-		if err = nc.CreateTempNpmrc(); err != nil {
-			return
-		}
-	}
-	var restoreResolution func() error
-	restoreResolution, nc.remediatedLockfile, err = nc.runZeroTouchRemediation(context.Background(), nc.cmdName, nc.workingDirectory, nc.npmArgs)
-	if err != nil {
-		return err
-	}
 	var installErr error
 	defer func() {
-		if installErr != nil && restoreResolution != nil {
-			err = errors.Join(err, restoreResolution())
+		if installErr != nil && nc.restoreResolution != nil {
+			err = errors.Join(err, nc.restoreResolution())
 		}
 	}()
 	installErr = nc.installHandler.Install()
@@ -536,7 +528,7 @@ func (nc *NpmCommand) effectiveNpmCommand() string {
 
 func (nc *NpmCommand) collectDependencies() error {
 	npmCommand := nc.effectiveNpmCommand()
-	if npmCommand != nc.cmdName {
+	if nc.remediatedLockfile {
 		log.Info("Using npm ci after Zero Touch Remediation to install from the remediated lockfile")
 	}
 	nc.buildInfoModule.SetNpmArgs(append([]string{npmCommand}, nc.npmArgs...))
