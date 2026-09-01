@@ -360,6 +360,9 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create services manager for NuGet push: %w", err)
 	}
+	if err := validateNuGetDeployRepo(servicesManager, c.repoDeploy); err != nil {
+		return nil, err
+	}
 
 	// Derive each package's Artifactory storage path with the same build-info logic that
 	// collectAndStampPushArtifacts uses, so the upload target and the later property-stamping
@@ -385,6 +388,25 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() ([]string, error) {
 		}
 	}
 	return packages, nil
+}
+
+// validateNuGetDeployRepo rejects a deploy target that is not a NuGet local or virtual repo.
+// Packages are uploaded through the generic artifact API, which would otherwise silently accept
+// a .nupkg into, say, a Maven repository. The NuGet gallery endpoint previously rejected this
+// implicitly (it does not exist for non-NuGet repos); the check is now explicit so the failure
+// is a clear message rather than a bare HTTP status.
+func validateNuGetDeployRepo(servicesManager artifactory.ArtifactoryServicesManager, repoKey string) error {
+	var params services.RepositoryBaseParams
+	if err := servicesManager.GetRepository(repoKey, &params); err != nil {
+		return fmt.Errorf("resolve repository %q: %w", repoKey, err)
+	}
+	if !strings.EqualFold(params.PackageType, "nuget") {
+		return fmt.Errorf("repository %q is of type %q, not NuGet; NuGet packages cannot be pushed to it", repoKey, params.PackageType)
+	}
+	if strings.EqualFold(params.Rclass, "remote") {
+		return fmt.Errorf("repository %q is a remote repository; NuGet packages can only be pushed to a local or virtual repository", repoKey)
+	}
+	return nil
 }
 
 // appendSiblingSymbolPackages returns packages plus the sibling .snupkg of every .nupkg that
