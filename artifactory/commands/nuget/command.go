@@ -177,10 +177,16 @@ func (c *NuGetFlexPackCommand) Run() error {
 	// When targeting a known Artifactory repo (and the user hasn't overridden the source or
 	// API key flags), bypass the native tool entirely and push directly via the NuGet gallery
 	// REST endpoint using Basic Auth — which Artifactory accepts for both toolchains.
+	// resolvedPushPaths is set when the Artifactory bypass handles the push so that
+	// collectAndStampPushArtifacts can reuse the already-resolved paths instead of
+	// re-expanding globs from c.args a second time.
+	var resolvedPushPaths []string
 	if isPushCommand(c.subCommand) && c.serverDetails != nil && c.repoDeploy != "" && !hasNativeAuthOverride(c.args) {
 		log.Info("Pushing NuGet package to Artifactory...")
-		if err := c.pushPackagesToArtifactory(); err != nil {
-			return fmt.Errorf("nuget push: %w", err)
+		var pushErr error
+		resolvedPushPaths, pushErr = c.pushPackagesToArtifactory()
+		if pushErr != nil {
+			return fmt.Errorf("nuget push: %w", pushErr)
 		}
 	} else {
 		log.Info(fmt.Sprintf("Running %s %s", c.toolchainType, c.subCommand))
@@ -209,7 +215,7 @@ func (c *NuGetFlexPackCommand) Run() error {
 	case isRestoreCommand(c.subCommand):
 		return c.collectDependencies(buildName, buildNumber)
 	case isPushCommand(c.subCommand):
-		return c.collectAndStampPushArtifacts(buildName, buildNumber)
+		return c.collectAndStampPushArtifacts(buildName, buildNumber, resolvedPushPaths)
 	case isPackCommand(c.subCommand):
 		return c.collectPackArtifacts(buildName, buildNumber, packSnapshot, packOutputDir)
 	}
@@ -217,8 +223,7 @@ func (c *NuGetFlexPackCommand) Run() error {
 }
 
 // buildCmd builds the exec.Cmd for the native nuget.exe or dotnet CLI.
-// Credentials are already injected into c.args (via -Source <url> or -ConfigFile) and
-// into the process environment (via NuGetPackageSourceCredentials_) before this is called.
+// Credentials are already injected into c.args (via -ConfigFile) before this is called.
 func (c *NuGetFlexPackCommand) buildCmd() *exec.Cmd {
 	if c.toolchainType == dotnetutils.DotnetCore {
 		return exec.Command("dotnet", append(strings.Fields(c.subCommand), c.args...)...)
@@ -226,34 +231,18 @@ func (c *NuGetFlexPackCommand) buildCmd() *exec.Cmd {
 	return exec.Command("nuget", append([]string{c.subCommand}, c.args...)...)
 }
 
-// injectCredentialsViaTempConfig handles credential injection for nuget.exe. It writes a
-// temporary nuget.config with a V2 source URL and <packageSourceCredentials>.
+// injectCredentialsViaTempConfig writes a temporary nuget.config with the Artifactory
+// source URL and <packageSourceCredentials>, then appends -ConfigFile / --configfile to
+// c.args so the native tool reads it. The returned cleanup func removes the temp file
+// and restores c.args to its original value. The caller must defer it immediately after
+// a nil-error return.
 //
-// V2 is required because nuget.exe (mono) re-embeds credentials from any source — including
-// a -ConfigFile config — into MSBuild's /p:RestoreSources property. MSBuild can load a V2
-// feed with embedded Basic Auth but fails on V3 (index.json) URLs (NU1301). Using
-// ClearTextPassword (not Password) because nuget.exe's encrypted Password storage is
-// Windows DPAPI-only; ClearTextPassword works on all platforms including mono/macOS.
-//
-// For restore: only -ConfigFile is appended (no -Source). MSBuild's RestoreTask reads
-// sources from the config file directly via /p:RestoreConfigFile. Adding -Source <name>
-// would cause nuget.exe to pass /p:RestoreSources=<name> to MSBuild, which then
-// resolves the name as a local filesystem path instead of a named source — breaking
-// restore for SDK-style (.csproj) projects whenever the global packages cache is empty.
-//
-// For push: -Source <name> is also appended because push is handled by nuget.exe directly
-// (not MSBuild), so it CAN look up named sources from the config file.
-//
-// The returned cleanup func removes the temp file. The caller must defer it immediately
-// after a nil-error return.
+// A V3 source URL is used. nuget.exe (mono) re-embeds -Source values into MSBuild's
+// /p:RestoreSources, but sources read from /p:RestoreConfigFile are NOT re-embedded, so
+// the V3 index.json URL in the config file is passed as-is and NU1301 is avoided.
+// ClearTextPassword is used (not Password) because nuget.exe's encrypted Password
+// storage is Windows DPAPI-only; ClearTextPassword works on all platforms including mono/macOS.
 func (c *NuGetFlexPackCommand) injectCredentialsViaTempConfig(repo string) (func(), error) {
-	// Only called for non-push nuget.exe commands (restore, update, install).
-	// Push is handled by pushPackagesToArtifactory which uses Basic Auth directly.
-	//
-	// restore delegates to MSBuild (for SDK-style projects), so it:
-	//   - must NOT receive -Source <name> (MSBuild resolves names as filesystem paths)
-	//   - reads sources directly from /p:RestoreConfigFile — V3 URL is safe here because
-	//     the URL is in the config file, not re-embedded by nuget.exe into RestoreSources
 	sourceURL, user, password, err := NuGetExeV3SourceDetails(c.serverDetails, repo)
 	if err != nil {
 		return nil, fmt.Errorf("get NuGet source details: %w", err)
@@ -302,9 +291,13 @@ func (c *NuGetFlexPackCommand) injectCredentialsViaTempConfig(repo string) (func
 	if c.toolchainType != dotnetutils.Nuget {
 		configFlag = "--configfile"
 	}
+	origArgs := c.args
 	c.args = append(c.args, configFlag, tmpFile.Name())
 
-	return func() { _ = os.Remove(tmpFile.Name()) }, nil
+	return func() {
+		c.args = origArgs
+		_ = os.Remove(tmpFile.Name())
+	}, nil
 }
 
 // pushPackagesToArtifactory resolves all .nupkg/.snupkg paths from push args (expanding
@@ -313,7 +306,9 @@ func (c *NuGetFlexPackCommand) injectCredentialsViaTempConfig(repo string) (func
 // push tool (nuget.exe or dotnet) to avoid authentication issues: nuget.exe sends
 // X-NuGet-ApiKey which Artifactory rejects for access tokens (403), and dotnet nuget push
 // cannot authenticate against a V3 index.json with embedded URL credentials (401).
-func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
+// It returns the resolved absolute paths of all packages that were pushed so callers can
+// reuse them without re-expanding globs from c.args.
+func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() ([]string, error) {
 	// Warn about flags that the native tool would have honoured but the bypass cannot
 	// forward. Flags in this list are silently accepted (or handled below); any unrecognised
 	// flag produces a visible warning. Includes both nuget.exe style (single-dash) and dotnet
@@ -351,21 +346,21 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
 
 	packages, err := resolvePackagePaths(c.workingDir, c.args)
 	if err != nil {
-		return fmt.Errorf("resolve package paths: %w", err)
+		return nil, fmt.Errorf("resolve package paths: %w", err)
 	}
 	if len(packages) == 0 {
-		return fmt.Errorf("no .nupkg or .snupkg files found in push arguments: %v", c.args)
+		return nil, fmt.Errorf("no .nupkg or .snupkg files found in push arguments: %v", c.args)
 	}
 
 	_, user, password, err := NuGetExeV2SourceDetails(c.serverDetails, c.repoDeploy)
 	if err != nil {
-		return fmt.Errorf("get credentials: %w", err)
+		return nil, fmt.Errorf("get credentials: %w", err)
 	}
 
 	rtURL := strings.TrimSuffix(c.serverDetails.ArtifactoryUrl, "/")
 	rtBase, err := url.Parse(rtURL)
 	if err != nil {
-		return fmt.Errorf("parse Artifactory URL: %w", err)
+		return nil, fmt.Errorf("parse Artifactory URL: %w", err)
 	}
 	nupkgPushURL, snupkgPushURL := buildPushURLs(rtBase, c.repoDeploy)
 	skipDuplicate := hasSkipDuplicate(c.args)
@@ -386,7 +381,7 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
 	allowedHost := rtBase.Host
 	for _, pkgPath := range packages {
 		if err := pushSinglePackage(httpClient, pushURL(pkgPath), allowedHost, pkgPath, user, password, skipDuplicate); err != nil {
-			return err
+			return nil, err
 		}
 		// Replicate nuget.exe behaviour: when pushing a .nupkg, also push the sibling
 		// .snupkg if one exists alongside it (unless -NoSymbols was passed).
@@ -394,12 +389,12 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() error {
 			snupkgPath := pkgPath[:len(pkgPath)-len(".nupkg")] + ".snupkg"
 			if _, statErr := os.Stat(snupkgPath); statErr == nil {
 				if err := pushSinglePackage(httpClient, snupkgPushURL, allowedHost, snupkgPath, user, password, skipDuplicate); err != nil {
-					return err
+					return nil, err
 				}
 			}
 		}
 	}
-	return nil
+	return packages, nil
 }
 
 func pushSinglePackage(client *http.Client, pushURL *url.URL, allowedHost, pkgPath, user, password string, skipDuplicate bool) error {
@@ -634,11 +629,14 @@ func (c *NuGetFlexPackCommand) collectDependencies(buildName, buildNumber string
 	return saveBuildInfoLocally(bi, c.buildConfiguration.GetProject())
 }
 
-// collectAndStampPushArtifacts identifies the exact packages a push uploaded (from the
-// explicit push arguments), stamps build properties on their exact Artifactory paths, and
-// records them in local build-info. The native push has already succeeded at this point, so
-// it is never re-run; a stamping failure is surfaced as an error without masking the push.
-func (c *NuGetFlexPackCommand) collectAndStampPushArtifacts(buildName, buildNumber string) error {
+// collectAndStampPushArtifacts identifies the exact packages a push uploaded, stamps
+// build properties on their exact Artifactory paths, and records them in local build-info.
+// The native push has already succeeded at this point, so it is never re-run; a stamping
+// failure is surfaced as an error without masking the push.
+//
+// resolvedPaths contains the absolute package paths already resolved by pushPackagesToArtifactory
+// (Artifactory bypass path). When nil (native-tool push path), paths are re-resolved from c.args.
+func (c *NuGetFlexPackCommand) collectAndStampPushArtifacts(buildName, buildNumber string, resolvedPaths []string) error {
 	log.Info(fmt.Sprintf("Collecting NuGet artifact info for %s/%s", buildName, buildNumber))
 	// Resolve the actual local repo so OriginalDeploymentRepo is always a local repo key.
 	// When the user pushes to a virtual repo, Artifactory routes to its defaultDeploymentRepo;
@@ -647,7 +645,13 @@ func (c *NuGetFlexPackCommand) collectAndStampPushArtifacts(buildName, buildNumb
 	if err != nil {
 		return fmt.Errorf("resolve deployment repo: %w", err)
 	}
-	artifacts, err := nugetflex.CollectPushArtifacts(c.workingDir, c.args, deployRepo)
+	// Use pre-resolved paths when available (Artifactory bypass) to avoid re-expanding globs.
+	// Pass them as pushArgs: resolvePushPackagePaths handles absolute literal paths correctly.
+	pushArgs := c.args
+	if len(resolvedPaths) > 0 {
+		pushArgs = resolvedPaths
+	}
+	artifacts, err := nugetflex.CollectPushArtifacts(c.workingDir, pushArgs, deployRepo)
 	if err != nil {
 		return fmt.Errorf("collect pushed NuGet artifacts: %w", err)
 	}
