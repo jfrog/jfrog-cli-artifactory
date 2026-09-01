@@ -2,10 +2,6 @@ package nuget
 
 import (
 	"errors"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -181,63 +177,6 @@ func TestRestoreTarget(t *testing.T) {
 	}
 }
 
-func TestPushSinglePackage(t *testing.T) {
-	tests := []struct {
-		name          string
-		statusCode    int
-		responseBody  string
-		skipDuplicate bool
-		wantErr       bool
-		errContains   string
-	}{
-		{name: "201 created", statusCode: http.StatusCreated},
-		{name: "200 ok", statusCode: http.StatusOK},
-		{name: "204 no content", statusCode: http.StatusNoContent},
-		{name: "409 skip duplicate false", statusCode: http.StatusConflict, skipDuplicate: false, wantErr: true, errContains: "409"},
-		{name: "409 skip duplicate true", statusCode: http.StatusConflict, skipDuplicate: true},
-		{name: "500 server error", statusCode: http.StatusInternalServerError, responseBody: "internal error", wantErr: true, errContains: "500"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(tc.statusCode)
-				if tc.responseBody != "" {
-					_, _ = fmt.Fprint(w, tc.responseBody)
-				}
-			}))
-			defer srv.Close()
-
-			// create a minimal temp .nupkg file
-			tmpPkg := filepath.Join(t.TempDir(), "test.1.0.0.nupkg")
-			require.NoError(t, os.WriteFile(tmpPkg, []byte("fake nupkg content"), 0o600))
-
-			srvURL, parseErr := url.Parse(srv.URL + "/")
-			require.NoError(t, parseErr)
-			err := pushSinglePackage(srv.Client(), srvURL, srvURL.Host, tmpPkg, "user", "pass", tc.skipDuplicate)
-			if tc.wantErr {
-				require.Error(t, err)
-				if tc.errContains != "" {
-					assert.True(t, strings.Contains(err.Error(), tc.errContains), "expected %q in error: %v", tc.errContains, err)
-				}
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-
-	t.Run("file not found", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusCreated)
-		}))
-		defer srv.Close()
-		srvURL, parseErr := url.Parse(srv.URL + "/")
-		require.NoError(t, parseErr)
-		err := pushSinglePackage(srv.Client(), srvURL, srvURL.Host, "/nonexistent/path/pkg.nupkg", "user", "pass", false)
-		require.Error(t, err)
-	})
-}
-
 func TestSearchWithRetry(t *testing.T) {
 	t.Run("succeeds on third attempt", func(t *testing.T) {
 		attempt := 0
@@ -279,7 +218,7 @@ func TestIsPushCommand(t *testing.T) {
 		wantPush bool
 	}{
 		{"push", true},
-		{"nuget push", true},  // dotnet CLI two-word form
+		{"nuget push", true}, // dotnet CLI two-word form
 		{"restore", false},
 		{"pack", false},
 		{"build", false},
@@ -292,44 +231,30 @@ func TestIsPushCommand(t *testing.T) {
 	}
 }
 
-func TestBuildPushURLs(t *testing.T) {
-	tests := []struct {
-		name        string
-		rtURL       string
-		repo        string
-		wantNupkg   string
-		wantSnupkg  string
-	}{
-		{
-			name:       "simple repo",
-			rtURL:      "https://example.jfrog.io/artifactory",
-			repo:       "nuget-local",
-			wantNupkg:  "https://example.jfrog.io/artifactory/api/nuget/v2/nuget-local/",
-			wantSnupkg: "https://example.jfrog.io/artifactory/api/nuget/v2/nuget-local/symbolpackage",
-		},
-		{
-			name:       "repo with slash",
-			rtURL:      "https://example.jfrog.io/artifactory",
-			repo:       "org/nuget-local",
-			wantNupkg:  "https://example.jfrog.io/artifactory/api/nuget/v2/org%2Fnuget-local/",
-			wantSnupkg: "https://example.jfrog.io/artifactory/api/nuget/v2/org%2Fnuget-local/symbolpackage",
-		},
-		{
-			name:       "repo with spaces",
-			rtURL:      "https://example.jfrog.io/artifactory",
-			repo:       "my repo",
-			wantNupkg:  "https://example.jfrog.io/artifactory/api/nuget/v2/my%20repo/",
-			wantSnupkg: "https://example.jfrog.io/artifactory/api/nuget/v2/my%20repo/symbolpackage",
-		},
+func TestAppendSiblingSymbolPackages(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name string) string {
+		p := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(p, []byte("pkg"), 0o600))
+		return p
 	}
+	nupkg := write("Foo.1.0.0.nupkg")
+	snupkg := write("Foo.1.0.0.snupkg")
+	lonely := write("Bar.2.0.0.nupkg")
 
+	tests := []struct {
+		name     string
+		input    []string
+		expected []string
+	}{
+		{name: "adds sibling snupkg", input: []string{nupkg}, expected: []string{nupkg, snupkg}},
+		{name: "no sibling on disk", input: []string{lonely}, expected: []string{lonely}},
+		{name: "does not duplicate an explicit snupkg", input: []string{nupkg, snupkg}, expected: []string{nupkg, snupkg}},
+		{name: "snupkg input is left alone", input: []string{snupkg}, expected: []string{snupkg}},
+	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			rtBase, err := url.Parse(tc.rtURL)
-			require.NoError(t, err)
-			gotNupkg, gotSnupkg := buildPushURLs(rtBase, tc.repo)
-			assert.Equal(t, tc.wantNupkg, gotNupkg.String())
-			assert.Equal(t, tc.wantSnupkg, gotSnupkg.String())
+			assert.Equal(t, tc.expected, appendSiblingSymbolPackages(tc.input))
 		})
 	}
 }

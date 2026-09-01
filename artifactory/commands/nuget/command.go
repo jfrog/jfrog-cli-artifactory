@@ -4,10 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
-	"io"
-	"mime/multipart"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,12 +17,14 @@ import (
 	buildinfoflex "github.com/jfrog/build-info-go/flexpack"
 	nugetflex "github.com/jfrog/build-info-go/flexpack/nuget"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
-	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	rtutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
+	specutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -351,164 +350,104 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() ([]string, error) {
 	if len(packages) == 0 {
 		return nil, fmt.Errorf("no .nupkg or .snupkg files found in push arguments: %v", c.args)
 	}
-
-	_, user, password, err := NuGetExeV2SourceDetails(c.serverDetails, c.repoDeploy)
-	if err != nil {
-		return nil, fmt.Errorf("get credentials: %w", err)
+	// Replicate nuget.exe behaviour: when pushing a .nupkg, also push the sibling .snupkg
+	// if one exists alongside it (unless -NoSymbols was passed).
+	if !hasNoSymbols(c.args) {
+		packages = appendSiblingSymbolPackages(packages)
 	}
 
-	rtURL := strings.TrimSuffix(c.serverDetails.ArtifactoryUrl, "/")
-	rtBase, err := url.Parse(rtURL)
+	servicesManager, err := rtutils.CreateServiceManager(c.serverDetails, -1, 0, false)
 	if err != nil {
-		return nil, fmt.Errorf("parse Artifactory URL: %w", err)
+		return nil, fmt.Errorf("create services manager for NuGet push: %w", err)
 	}
-	nupkgPushURL, snupkgPushURL := buildPushURLs(rtBase, c.repoDeploy)
+
+	// Derive each package's Artifactory storage path with the same build-info logic that
+	// collectAndStampPushArtifacts uses, so the upload target and the later property-stamping
+	// path can never diverge: .nupkg lands flat at the repository root, .snupkg under
+	// symbolpackage/<id>.<version>.nupkg.
+	artifacts, err := nugetflex.CollectPushArtifacts(c.workingDir, packages, c.repoDeploy)
+	if err != nil {
+		return nil, fmt.Errorf("resolve NuGet storage paths: %w", err)
+	}
+	targetByName := make(map[string]string, len(artifacts))
+	for _, a := range artifacts {
+		targetByName[a.Name] = c.repoDeploy + "/" + strings.TrimPrefix(a.Path, "/")
+	}
+
 	skipDuplicate := hasSkipDuplicate(c.args)
-	noSymbols := hasNoSymbols(c.args)
-
-	httpClient := &http.Client{
-		Timeout:   5 * time.Minute,
-		Transport: &http.Transport{Proxy: http.ProxyFromEnvironment},
-	}
-
-	pushURL := func(pkgPath string) *url.URL {
-		if strings.HasSuffix(strings.ToLower(pkgPath), ".snupkg") {
-			return snupkgPushURL
-		}
-		return nupkgPushURL
-	}
-
-	allowedHost := rtBase.Host
 	for _, pkgPath := range packages {
-		if err := pushSinglePackage(httpClient, pushURL(pkgPath), allowedHost, pkgPath, user, password, skipDuplicate); err != nil {
-			return nil, err
+		target, ok := targetByName[filepath.Base(pkgPath)]
+		if !ok {
+			return nil, fmt.Errorf("could not resolve the Artifactory path for %q", pkgPath)
 		}
-		// Replicate nuget.exe behaviour: when pushing a .nupkg, also push the sibling
-		// .snupkg if one exists alongside it (unless -NoSymbols was passed).
-		if !noSymbols && strings.HasSuffix(strings.ToLower(pkgPath), ".nupkg") {
-			snupkgPath := pkgPath[:len(pkgPath)-len(".nupkg")] + ".snupkg"
-			if _, statErr := os.Stat(snupkgPath); statErr == nil {
-				if err := pushSinglePackage(httpClient, snupkgPushURL, allowedHost, snupkgPath, user, password, skipDuplicate); err != nil {
-					return nil, err
-				}
-			}
+		if err := uploadPackage(servicesManager, pkgPath, target, skipDuplicate); err != nil {
+			return nil, err
 		}
 	}
 	return packages, nil
 }
 
-func pushSinglePackage(client *http.Client, pushURL *url.URL, allowedHost, pkgPath, user, password string, skipDuplicate bool) error {
-	// Validate host using the SAST-recognised sanitiser pattern: parse the target URL
-	// string, verify its host matches the configured Artifactory server, then use that
-	// same string for the HTTP request — preventing user-controlled repo path data from
-	// influencing the host of the outgoing request.
-	urlStr := pushURL.String()
-	if validated, parseErr := url.Parse(urlStr); parseErr != nil || validated.Host != allowedHost {
-		return fmt.Errorf("security: push URL host %q does not match Artifactory host %q", pushURL.Host, allowedHost)
+// appendSiblingSymbolPackages returns packages plus the sibling .snupkg of every .nupkg that
+// has one on disk, preserving order and skipping any path already present.
+func appendSiblingSymbolPackages(packages []string) []string {
+	seen := make(map[string]bool, len(packages))
+	for _, p := range packages {
+		seen[p] = true
 	}
-	f, err := os.Open(pkgPath)
-	if err != nil {
-		return fmt.Errorf("open %q: %w", pkgPath, err)
-	}
-	defer func() {
-		if closeErr := f.Close(); closeErr != nil {
-			log.Debug("Failed to close package file:", closeErr.Error())
+	withSymbols := packages
+	for _, pkgPath := range packages {
+		if !strings.HasSuffix(strings.ToLower(pkgPath), ".nupkg") {
+			continue
 		}
-	}()
-
-	// Fixed multipart boundary: nupkg files are ZIP archives, so the boundary marker
-	// ("--" + boundary at a line start) can never appear inside the binary payload.
-	const multipartBoundary = "----JFrogNuGetBoundary"
-	contentType := "multipart/form-data; boundary=" + multipartBoundary
-
-	// Stream the multipart body directly into the request using io.Pipe so the entire
-	// package is never buffered in memory — large .nupkg files (100+ MB) would OOM otherwise.
-	pr, pw := io.Pipe()
-	mw := multipart.NewWriter(pw)
-	if err := mw.SetBoundary(multipartBoundary); err != nil {
-		_ = pr.CloseWithError(err)
-		return fmt.Errorf("set multipart boundary: %w", err)
+		snupkgPath := pkgPath[:len(pkgPath)-len(".nupkg")] + ".snupkg"
+		if seen[snupkgPath] {
+			continue
+		}
+		if _, statErr := os.Stat(snupkgPath); statErr == nil {
+			seen[snupkgPath] = true
+			withSymbols = append(withSymbols, snupkgPath)
+		}
 	}
-	writeErr := make(chan error, 1)
-	go func() {
-		defer func() {
-			if closeErr := pw.Close(); closeErr != nil {
-				log.Debug("Failed to close pipe writer:", closeErr.Error())
-			}
-		}()
-		part, err := mw.CreateFormFile("package", filepath.Base(pkgPath))
+	return withSymbols
+}
+
+// uploadPackage deploys a single package file to target ("<repo>/<path>") using the shared
+// Artifactory upload service, which handles authentication, proxies, retries and checksum
+// optimisation. When skipDuplicate is set, an existing artifact at target is left untouched.
+func uploadPackage(servicesManager artifactory.ArtifactoryServicesManager, pkgPath, target string, skipDuplicate bool) error {
+	if skipDuplicate {
+		exists, err := artifactExists(servicesManager, target)
 		if err != nil {
-			writeErr <- fmt.Errorf("create form file: %w", err)
-			return
+			return err
 		}
-		if _, err := io.Copy(part, f); err != nil {
-			writeErr <- fmt.Errorf("stream package: %w", err)
-			return
-		}
-		if err := mw.Close(); err != nil {
-			writeErr <- fmt.Errorf("close multipart writer: %w", err)
-			return
-		}
-		writeErr <- nil
-	}()
-
-	req, err := http.NewRequest(http.MethodPut, urlStr, pr)
-	if err != nil {
-		_ = pr.CloseWithError(err)
-		<-writeErr
-		return fmt.Errorf("build push request: %w", err)
-	}
-	req.Header.Set("Content-Type", contentType)
-	req.SetBasicAuth(user, password)
-
-	resp, doErr := client.Do(req)
-	if werr := <-writeErr; werr != nil && doErr == nil {
-		doErr = werr
-	}
-	if doErr != nil {
-		return fmt.Errorf("push request: %w", doErr)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			log.Debug("Failed to close push response body:", closeErr.Error())
-		}
-	}()
-	// Cap response body read to avoid unbounded memory on large error responses.
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-
-	switch resp.StatusCode {
-	case http.StatusCreated, http.StatusOK, http.StatusNoContent:
-		log.Info(fmt.Sprintf("Package %q pushed successfully", filepath.Base(pkgPath)))
-		return nil
-	case http.StatusConflict:
-		if skipDuplicate {
+		if exists {
 			log.Warn(fmt.Sprintf("Package %q already exists — skipping duplicate", filepath.Base(pkgPath)))
 			return nil
 		}
-		return fmt.Errorf("package already exists (409 Conflict); use -SkipDuplicate to skip")
-	default:
-		return fmt.Errorf("push failed: HTTP %d — %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
+	up := services.NewUploadParams()
+	up.CommonParams = &specutils.CommonParams{Pattern: pkgPath, Target: target}
+	up.Flat = true
+	_, totalFailed, err := servicesManager.UploadFiles(artifactory.UploadServiceOptions{}, up)
+	if err != nil {
+		return fmt.Errorf("push %q: %w", filepath.Base(pkgPath), err)
+	}
+	if totalFailed > 0 {
+		return fmt.Errorf("failed to push %q to Artifactory; see the Artifactory logs for details", filepath.Base(pkgPath))
+	}
+	log.Info(fmt.Sprintf("Package %q pushed successfully", filepath.Base(pkgPath)))
+	return nil
 }
 
-// buildPushURLs constructs the Artifactory NuGet gallery endpoints for pushing packages.
-// URLs are built by copying rtBase and setting only the path fields, so the host is always
-// taken from the configured Artifactory server and can never be influenced by the repo name.
-// url.PathEscape ensures repo names with special characters (/, space, …) are correctly encoded.
-func buildPushURLs(rtBase *url.URL, repo string) (nupkgURL, snupkgURL *url.URL) {
-	basePath := strings.TrimSuffix(rtBase.Path, "/") + "/api/nuget/v2/" + repo
-	baseRawPath := strings.TrimSuffix(rtBase.EscapedPath(), "/") + "/api/nuget/v2/" + url.PathEscape(repo)
-
-	nupkg := *rtBase
-	nupkg.Path = basePath + "/"
-	nupkg.RawPath = baseRawPath + "/"
-	nupkgURL = &nupkg
-
-	snupkg := *rtBase
-	snupkg.Path = basePath + "/symbolpackage"
-	snupkg.RawPath = baseRawPath + "/symbolpackage"
-	snupkgURL = &snupkg
-	return
+// artifactExists reports whether repoPath ("<repo>/<path>") already exists in Artifactory.
+func artifactExists(servicesManager artifactory.ArtifactoryServicesManager, repoPath string) (bool, error) {
+	httpDetails := servicesManager.GetConfig().GetServiceDetails().CreateHttpClientDetails()
+	itemURL := strings.TrimSuffix(servicesManager.GetConfig().GetServiceDetails().GetUrl(), "/") + "/" + repoPath
+	resp, _, err := servicesManager.Client().SendHead(itemURL, &httpDetails)
+	if err != nil {
+		return false, fmt.Errorf("check whether %q already exists: %w", repoPath, err)
+	}
+	return resp.StatusCode == http.StatusOK, nil
 }
 
 // searchWithRetry calls searchFn up to maxAttempts times with exponential backoff starting
