@@ -167,7 +167,15 @@ func (c *AptSetupCommand) Run() error {
 
 	log.Output(fmt.Sprintf("Wrote %s", targetFile))
 
-	updateCmd := exec.Command("apt-get", "update")
+	// Verify against ONLY the source just written. A bare `apt-get update` refreshes
+	// every configured source and exits 100 if any one of them fails, so an unrelated
+	// broken entry elsewhere in sources.list.d would make a perfectly good setup
+	// report failure. Dir::Etc::sourcelist points at our file and
+	// Dir::Etc::sourceparts=- disables sources.list.d/, scoping the check.
+	updateCmd := exec.Command("apt-get",
+		"-o", "Dir::Etc::sourcelist="+targetFile,
+		"-o", "Dir::Etc::sourceparts=-",
+		"update")
 	var stderrBuf bytes.Buffer
 	updateCmd.Stdout = os.Stdout
 	updateCmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
@@ -180,6 +188,18 @@ func (c *AptSetupCommand) Run() error {
 			return fmt.Errorf("apt-get update failed — you may need to run with sudo: %w", err)
 		}
 		return fmt.Errorf("apt-get update failed — check connectivity and credentials: %w", err)
+	}
+
+	// The scoped check above populates the index for this repo only. Refresh the
+	// full set so the configured repo is immediately usable alongside everything
+	// else; failures here belong to other sources, so report them without failing
+	// a setup that already verified successfully.
+	fullUpdate := exec.Command("apt-get", "update")
+	fullUpdate.Stdout = os.Stdout
+	fullUpdate.Stderr = os.Stderr
+	if err := fullUpdate.Run(); err != nil {
+		log.Warn("Repository '" + c.repoName + "' was configured and verified successfully, but refreshing " +
+			"the other configured apt sources reported an error. Check the output above for which source failed.")
 	}
 
 	log.Output(fmt.Sprintf("Successfully configured apt to use JFrog Artifactory repository '%s'.", c.repoName))
