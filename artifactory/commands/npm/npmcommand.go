@@ -549,6 +549,7 @@ func isValidKey(key string) bool {
 		!strings.HasPrefix(key, "@") && // Scoped configurations
 		key != "registry" &&
 		key != "metrics-registry" &&
+		key != "email" && // npm 12+ rejects bare email; must be registry-scoped (//registry/:email)
 		key != "json" // Handled separately because 'npm c ls' should run with json=false
 }
 
