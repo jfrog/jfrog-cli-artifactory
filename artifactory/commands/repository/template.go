@@ -163,7 +163,6 @@ const (
 	Swift     = "swift"
 	Terraform = "terraform"
 	Cargo     = "cargo"
-
 	AgentPackages = "agentpackages"
 
 	// Repo layout Refs
