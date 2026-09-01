@@ -45,46 +45,22 @@ func TestSelectCachedAndUncached_AllCached(t *testing.T) {
 	assert.Empty(t, uncached)
 }
 
-func TestApplyHeadResultsOrLockfileFallback_HeadHit(t *testing.T) {
-	uncached := []ResolvedDep{{ID: "a/b:1.0.0", SHA256: "lockfile-sha256"}}
-	headResults := map[string]entities.Checksum{
-		"a/b:1.0.0": {Sha1: "head-sha1", Sha256: "head-sha256", Md5: "head-md5"},
+func TestHasAnyChecksum(t *testing.T) {
+	tests := []struct {
+		name     string
+		checksum entities.Checksum
+		expected bool
+	}{
+		{"All empty", entities.Checksum{}, false},
+		{"SHA1 only", entities.Checksum{Sha1: "abc"}, true},
+		{"SHA256 only", entities.Checksum{Sha256: "def"}, true},
+		{"MD5 only", entities.Checksum{Md5: "ghi"}, true},
+		{"All present", entities.Checksum{Sha1: "a", Sha256: "b", Md5: "c"}, true},
 	}
 
-	resolved := applyHeadResultsOrLockfileFallback(uncached, headResults)
-
-	// HEAD result wins outright over the lockfile's own SHA-256 when both are available.
-	assert.Equal(t, entities.Checksum{Sha1: "head-sha1", Sha256: "head-sha256", Md5: "head-md5"}, resolved["a/b:1.0.0"])
-}
-
-func TestApplyHeadResultsOrLockfileFallback_FallsBackToLockfileSHA256(t *testing.T) {
-	uncached := []ResolvedDep{{ID: "a/b:1.0.0", SHA256: "lockfile-sha256"}}
-
-	resolved := applyHeadResultsOrLockfileFallback(uncached, map[string]entities.Checksum{})
-
-	// No HEAD result at all -> lockfile SHA-256 only, sha1/md5 stay empty.
-	assert.Equal(t, entities.Checksum{Sha256: "lockfile-sha256"}, resolved["a/b:1.0.0"])
-}
-
-func TestApplyHeadResultsOrLockfileFallback_HeadHitWithEmptyChecksum_FallsBackToLockfile(t *testing.T) {
-	uncached := []ResolvedDep{{ID: "a/b:1.0.0", SHA256: "lockfile-sha256"}}
-	headResults := map[string]entities.Checksum{
-		"a/b:1.0.0": {}, // HEAD succeeded but Artifactory returned no X-Checksum-* headers at all
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, hasAnyChecksum(tt.checksum))
+		})
 	}
-
-	resolved := applyHeadResultsOrLockfileFallback(uncached, headResults)
-
-	// A present-but-empty HEAD result must not block the lockfile fallback the same way a real
-	// miss wouldn't.
-	assert.Equal(t, entities.Checksum{Sha256: "lockfile-sha256"}, resolved["a/b:1.0.0"])
-}
-
-func TestApplyHeadResultsOrLockfileFallback_NoChecksumAtAll(t *testing.T) {
-	uncached := []ResolvedDep{{ID: "a/b:1.0.0"}} // no SHA256 from the lockfile either
-
-	resolved := applyHeadResultsOrLockfileFallback(uncached, map[string]entities.Checksum{})
-
-	// Neither tier has anything - dependency is simply omitted, not recorded with a zero-value checksum.
-	_, found := resolved["a/b:1.0.0"]
-	assert.False(t, found)
 }

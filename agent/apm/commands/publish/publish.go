@@ -95,7 +95,7 @@ func (c *ApmPublishCommand) Run() error {
 			artifactoryRepoKey := apmcommon.ResolveRepoNameFromRegistry(c.serverDetails, manifestPath, c.args)
 			zipPath := zipPathFromArgs(c.args)
 			if biErr := apmcommon.CollectAndSavePublishBuildInfo(manifestPath, owner, packageName, artifactoryRepoKey, zipPath, c.serverDetails, c.buildConfiguration); biErr != nil {
-				log.Warn("apm publish completed, but build info recording failed:", biErr.Error())
+				return biErr
 			}
 		}
 	}

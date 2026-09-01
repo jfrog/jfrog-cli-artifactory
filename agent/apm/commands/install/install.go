@@ -81,7 +81,7 @@ func (c *ApmInstallCommand) Run() error {
 			lockfilePath := filepath.Join(lockfileDir, apmcommon.ApmLockfileName)
 			manifestPath := filepath.Join(workingDir, apmcommon.ApmManifestName)
 			if biErr := apmcommon.CollectAndSaveInstallBuildInfo(lockfilePath, manifestPath, c.serverDetails, c.buildConfiguration); biErr != nil {
-				log.Warn("apm install completed, but build info collection failed:", biErr.Error())
+				return biErr
 			}
 		}
 	}
