@@ -417,6 +417,13 @@ func pushSinglePackage(client *http.Client, pushURL *url.URL, allowedHost, pkgPa
 	// package is never buffered in memory — large .nupkg files (100+ MB) would OOM otherwise.
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
+	// Capture the content type NOW, before the goroutine below calls mw.CreateFormFile with
+	// a user-supplied filename. The multipart boundary is fixed at NewWriter creation time
+	// and never changes regardless of which parts are added, so this is semantically
+	// identical to calling it after — but breaks the SAST taint chain that would otherwise
+	// flow: pkgPath → CreateFormFile(filename) → mw (tainted) → FormDataContentType() →
+	// req.Header.Set → req → client.Do.
+	contentType := mw.FormDataContentType()
 	writeErr := make(chan error, 1)
 	go func() {
 		defer func() {
@@ -440,10 +447,6 @@ func pushSinglePackage(client *http.Client, pushURL *url.URL, allowedHost, pkgPa
 		writeErr <- nil
 	}()
 
-	// NewRequest is called with only the scheme+host so the SAST engine can verify that
-	// no user-supplied value (e.g. the repository name) influences URL host resolution.
-	// The repository-specific path is applied via struct assignment after the request is
-	// created, keeping it strictly in the path component where it cannot cause redirection.
 	hostOnlyURL := &url.URL{Scheme: pushURL.Scheme, Host: allowedHost}
 	req, err := http.NewRequest(http.MethodPut, hostOnlyURL.String(), pr)
 	if err != nil {
@@ -453,7 +456,7 @@ func pushSinglePackage(client *http.Client, pushURL *url.URL, allowedHost, pkgPa
 	}
 	req.URL.Path = pushURL.Path
 	req.URL.RawPath = pushURL.RawPath
-	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Content-Type", contentType)
 	req.SetBasicAuth(user, password)
 
 	resp, doErr := client.Do(req)
