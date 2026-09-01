@@ -26,7 +26,7 @@ Common patterns:
 
 Gotchas:
 - A bare tag (#1.0.0) is an exact pin and never moves on re-resolution. Use a semver range (#^1.0.0, #~1.0.0) if later runs should pick up newer matching versions.
-- --dry-run previews the install without changing anything and skips build-info (nothing real to record).
+- --dry-run previews the install without changing anything and skips build-info (nothing real to record). Note: APM environment setup may persist the experimental registries flag to ~/.apm/config.json even during dry runs.
 - Build-info is collected only when both --build-name and --build-number are provided; publish it afterwards with 'jf rt build-publish'.
 
 Related: jf agent apm publish, jf setup apm, jf rt build-publish`

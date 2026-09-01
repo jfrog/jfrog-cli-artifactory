@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -23,6 +24,7 @@ const aqlWorkerCount = 15
 // aqlResult is the subset of the AQL response we consume.
 type aqlResult struct {
 	Results []struct {
+		Path       string `json:"path"`
 		Name       string `json:"name"`
 		ActualSha1 string `json:"actual_sha1"`
 		Sha256     string `json:"sha256"`
@@ -106,14 +108,20 @@ func batchedAQLFetch(deps []ResolvedDep, servicesManager artifactory.Artifactory
 		}
 	}
 
+	checksumMap := make(map[string]entities.Checksum)
+
+	if len(batches) == 0 {
+		log.Debug("No valid dependencies with resolvable repositories; skipping AQL.")
+		return checksumMap
+	}
+
 	log.Debug(fmt.Sprintf("Created %d AQL batch(es) (batch size: %d, workers: %d).", len(batches), aqlBatchSize, aqlWorkerCount))
 
 	var (
-		mu          sync.Mutex
-		checksumMap = make(map[string]entities.Checksum)
-		wg          sync.WaitGroup
-		sem         = make(chan struct{}, aqlWorkerCount)
-		errCh       = make(chan error, len(batches))
+		mu    sync.Mutex
+		wg    sync.WaitGroup
+		sem   = make(chan struct{}, aqlWorkerCount)
+		errCh = make(chan error, len(batches))
 	)
 
 	for _, batch := range batches {
@@ -156,46 +164,122 @@ type aqlBatch struct {
 }
 
 // groupDepsByRepo groups dependencies by their repository (extracted from their resolved_url).
+// Dependencies with empty or malformed ResolvedURL are grouped under empty key; batchedAQLFetch
+// will skip them with a warning.
 func groupDepsByRepo(deps []ResolvedDep) map[string][]ResolvedDep {
 	groups := make(map[string][]ResolvedDep)
 	for _, dep := range deps {
+		if dep.ResolvedURL == "" {
+			log.Debug(fmt.Sprintf("Skipping dependency %s: empty ResolvedURL", dep.ID))
+			continue
+		}
 		repo := extractRepoFromURL(dep.ResolvedURL)
+		if repo == "" {
+			log.Warn(fmt.Sprintf("Could not extract repository from ResolvedURL for %s: %s", dep.ID, dep.ResolvedURL))
+			continue
+		}
 		groups[repo] = append(groups[repo], dep)
 	}
 	return groups
 }
 
+// agentPackagesURLPattern matches an APM agentpackages download URL and captures the
+// repository, package owner, package name, and version. Every ResolvedDep.ResolvedURL in
+// this package has this exact shape (it comes straight from apm.lock.yaml's resolved_url),
+// so there is no other format to account for:
+//
+//	https://<host>/artifactory/api/agentpackages/<repo>/v1/packages/<owner>/<name>/versions/<version>/download
+var agentPackagesURLPattern = regexp.MustCompile(`/artifactory/api/agentpackages/([^/]+)/v1/packages/([^/]+)/([^/]+)/versions/([^/]+)/download`)
+
+// parseAgentPackagesURL extracts (owner, name, version) from an APM resolved_url.
+// ok is false if the URL doesn't match the agentpackages download shape.
+func parseAgentPackagesURL(url string) (owner, name, version string, ok bool) {
+	m := agentPackagesURLPattern.FindStringSubmatch(url)
+	if m == nil {
+		return "", "", "", false
+	}
+	return m[2], m[3], m[4], true
+}
+
 // extractRepoFromURL extracts the repository name from an Artifactory resolved_url.
-// Expected format: https://artifactory.example.com/artifactory/repo-name/...
+// Handles both classic and APM URL formats:
+// - Classic: https://artifactory.example.com/artifactory/repo-name/...
+// - APM: https://artifactory.example.com/artifactory/api/agentpackages/repo-name/...
 func extractRepoFromURL(url string) string {
 	if url == "" {
 		return ""
 	}
-	// Split by /artifactory/ and take the part after it
-	parts := strings.Split(url, "/artifactory/")
-	if len(parts) < 2 {
-		return ""
+
+	// Try APM format first: /artifactory/api/agentpackages/repo-name/
+	apmPrefix := "/artifactory/api/agentpackages/"
+	if idx := strings.Index(url, apmPrefix); idx != -1 {
+		remainder := url[idx+len(apmPrefix):]
+		if slash := strings.Index(remainder, "/"); slash != -1 {
+			repo := remainder[:slash]
+			if repo != "" {
+				return repo
+			}
+		}
 	}
-	// Extract the repo name (first segment after /artifactory/)
-	repoParts := strings.Split(parts[1], "/")
-	if len(repoParts) > 0 {
-		return repoParts[0]
+
+	// Fall back to classic format: /artifactory/repo-name/
+	classicPrefix := "/artifactory/"
+	if idx := strings.Index(url, classicPrefix); idx != -1 {
+		remainder := url[idx+len(classicPrefix):]
+		if slash := strings.Index(remainder, "/"); slash != -1 {
+			repo := remainder[:slash]
+			if repo != "" {
+				return repo
+			}
+		}
 	}
+
 	return ""
 }
 
+// extractArtifactPath extracts the path within the repository for an APM package.
+// For APM URLs, this is: /owner/package-name (used for deduplication with path+name).
+func extractArtifactPath(url string) string {
+	owner, name, _, ok := parseAgentPackagesURL(url)
+	if !ok {
+		return ""
+	}
+	return owner + "/" + name
+}
+
+// extractArtifactFilename returns the real artifact filename Artifactory stores the package
+// under: <name>-<version>.zip. The download URL itself ends in "/download", which is not
+// a real filename, so it cannot be derived by taking the URL's last path segment.
+func extractArtifactFilename(url string) string {
+	_, name, version, ok := parseAgentPackagesURL(url)
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf("%s-%s.zip", name, version)
+}
+
 // buildBatchAQLQuery constructs an AQL query for a batch of dependencies in a specific repo.
-// Query looks for items by their full path: /owner/repo/version/archive
+// Queries by artifact filename (name) since path-based queries don't work reliably for APM packages.
 func buildBatchAQLQuery(repo string, deps []ResolvedDep) string {
 	var clauses []string
 	for _, dep := range deps {
-		// Use the dependency ID as the search key (owner/repo:version)
-		// AQL queries by path/name, so we build a clause for the archive name
-		clause := fmt.Sprintf(`{"name":%q}`, dep.ID)
+		// Extract the real artifact filename from the ResolvedURL
+		// For APM URLs, this parses the path to extract name and version
+		artifactFilename := extractArtifactFilename(dep.ResolvedURL)
+		if artifactFilename == "" {
+			log.Debug(fmt.Sprintf("Could not extract artifact filename from ResolvedURL for %s: %s", dep.ID, dep.ResolvedURL))
+			continue
+		}
+		// Query by name in the repository
+		clause := fmt.Sprintf(`{"name":%q}`, artifactFilename)
 		clauses = append(clauses, clause)
 	}
+	if len(clauses) == 0 {
+		// Return a query that will return no results if we can't extract any filenames
+		return fmt.Sprintf(`items.find({"repo":%q,"name":"/NEVER_MATCHES/"}).include("name","actual_sha1","sha256","actual_md5")`, repo)
+	}
 	return fmt.Sprintf(
-		`items.find({"repo":%q,"$or":[%s]}).include("name","actual_sha1","sha256","actual_md5")`,
+		`items.find({"repo":%q,"$or":[%s]}).include("path","name","actual_sha1","sha256","actual_md5")`,
 		repo, strings.Join(clauses, ","),
 	)
 }
@@ -231,26 +315,49 @@ func parseAQLResults(r io.Reader) ([]servicesUtils.ResultItem, error) {
 	var results []servicesUtils.ResultItem
 	for _, it := range res.Results {
 		results = append(results, servicesUtils.ResultItem{
-			Name:         it.Name,
-			Actual_Sha1:  it.ActualSha1,
-			Sha256:       it.Sha256,
-			Actual_Md5:   it.ActualMd5,
+			Path:        it.Path,
+			Name:        it.Name,
+			Actual_Sha1: it.ActualSha1,
+			Sha256:      it.Sha256,
+			Actual_Md5:  it.ActualMd5,
 		})
 	}
 	return results, nil
 }
 
-// mapAQLResults maps AQL results to the checksumMap by matching dependency IDs.
+// mapAQLResults maps AQL results to the checksumMap by matching dependency artifact paths.
+// Results are keyed by path+name to handle owner collisions (e.g., owner-a/tool and owner-b/tool both produce tool-1.0.0.zip).
 func mapAQLResults(deps []ResolvedDep, results []servicesUtils.ResultItem, checksumMap map[string]entities.Checksum) {
-	resultsByKey := make(map[string]servicesUtils.ResultItem)
+	// Build a map of (path+name) to results for matching
+	resultsByPathAndName := make(map[string]servicesUtils.ResultItem)
 	for _, r := range results {
-		resultsByKey[r.Name] = r
+		// Combine path and name to create unique key (handles owner collisions).
+		// Normalize path: remove leading slash if present (AQL returns "/owner/name", we need "owner/name").
+		path := strings.TrimPrefix(r.Path, "/")
+		key := path + "/" + r.Name
+		resultsByPathAndName[key] = r
 	}
 
 	matched := 0
 	var resolvedIDs, missedIDs []string
 	for _, dep := range deps {
-		if r, ok := resultsByKey[dep.ID]; ok {
+		// Extract artifact path from the ResolvedURL for matching
+		artifactPath := extractArtifactPath(dep.ResolvedURL)
+		if artifactPath == "" {
+			missedIDs = append(missedIDs, dep.ID)
+			continue
+		}
+
+		// Extract filename for composite key matching
+		artifactFilename := extractArtifactFilename(dep.ResolvedURL)
+		if artifactFilename == "" {
+			missedIDs = append(missedIDs, dep.ID)
+			continue
+		}
+
+		// Look up by path+name (path from URL includes owner, prevents collisions)
+		key := artifactPath + "/" + artifactFilename
+		if r, ok := resultsByPathAndName[key]; ok {
 			checksumMap[dep.ID] = entities.Checksum{
 				Sha1:   r.Actual_Sha1,
 				Md5:    r.Actual_Md5,

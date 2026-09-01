@@ -130,6 +130,9 @@ func generateAccessTokenViaAccessAPI(serverDetails *config.ServerDetails) (strin
 // returns 405) to create an access token from username/password. Fallback only - see
 // generateAccessToken. Returns an error if generation fails.
 func generateAccessTokenLegacy(serverDetails *config.ServerDetails) (string, error) {
+	if serverDetails.ArtifactoryUrl == "" {
+		return "", fmt.Errorf("artifactory URL is required for legacy access token generation")
+	}
 	tokenURL := strings.TrimSuffix(serverDetails.ArtifactoryUrl, "/") + "/api/security/token"
 
 	form := url.Values{}

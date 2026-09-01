@@ -1,9 +1,9 @@
 package cli
 
 import (
-	apmcommon "github.com/jfrog/jfrog-cli-artifactory/agent/apm/common"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/apm/commands/install"
 	"github.com/jfrog/jfrog-cli-artifactory/agent/apm/commands/publish"
+	apmcommon "github.com/jfrog/jfrog-cli-artifactory/agent/apm/common"
 	agentcommon "github.com/jfrog/jfrog-cli-artifactory/agent/common"
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
 	"github.com/jfrog/jfrog-cli-core/v2/common/commands"
