@@ -16,8 +16,10 @@ type BuildTool interface {
 	ProjectRoot(workingDir string) (string, error)
 	// EnsureLockfiles materializes expected lock artifacts when absent and the command allows it.
 	// Returns paths (relative to project root) that were bootstrapped and did not exist before.
+	// Tools without lockfiles (for example Maven) return a nil/empty slice.
 	EnsureLockfiles(ctx context.Context, projectRoot, command string, runner CommandRunner, bootstrapArgs ...string) (bootstrapped []string, err error)
-	// DiscoverLockfiles returns all lockfiles (paths relative to project root).
+	// DiscoverLockfiles returns lock artifacts relative to project root.
+	// Tools without lockfiles return a nil/empty slice; the generic flow then skips apply.
 	DiscoverLockfiles(workingDir string) ([]Lockfile, error)
 }
 

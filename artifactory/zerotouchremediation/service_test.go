@@ -31,7 +31,7 @@ func (m *mockClient) GetVersion() (string, error) {
 	if m.version != "" {
 		return m.version, nil
 	}
-	return ZeroTouchRemediationMinVersion, nil
+	return ZeroTouchRemediationMinXrayVersion, nil
 }
 
 func (m *mockClient) ZeroTouchRemediation(req services.ComponentResolutionRequest) (*services.ComponentResolutionResponse, bool, error) {
@@ -95,8 +95,16 @@ func TestIsComponentResolutionEnabled(t *testing.T) {
 		t.Setenv(ZtrComponentsEnabledEnvVar, "true")
 		assert.True(t, IsComponentResolutionEnabled())
 	})
+	t.Run("enabled for ParseBool truthy values", func(t *testing.T) {
+		for _, v := range []string{"TRUE", "True", "1", "t", "T"} {
+			t.Setenv(ZtrComponentsEnabledEnvVar, v)
+			assert.True(t, IsComponentResolutionEnabled(), v)
+		}
+	})
 	t.Run("not enabled for other values", func(t *testing.T) {
 		t.Setenv(ZtrComponentsEnabledEnvVar, "false")
+		assert.False(t, IsComponentResolutionEnabled())
+		t.Setenv(ZtrComponentsEnabledEnvVar, "yes")
 		assert.False(t, IsComponentResolutionEnabled())
 	})
 }
@@ -526,7 +534,7 @@ type selectingClient struct {
 }
 
 func (s *selectingClient) GetVersion() (string, error) {
-	return ZeroTouchRemediationMinVersion, nil
+	return ZeroTouchRemediationMinXrayVersion, nil
 }
 
 func (s *selectingClient) ZeroTouchRemediation(req services.ComponentResolutionRequest) (*services.ComponentResolutionResponse, bool, error) {

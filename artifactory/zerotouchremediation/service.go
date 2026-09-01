@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
@@ -13,11 +14,13 @@ import (
 	"github.com/jfrog/jfrog-client-go/xray/services"
 )
 
-// ZtrComponentsEnabledEnvVar enables Zero Touch Remediation when set to "true".
-// Feature is disabled by default.
+// ZtrComponentsEnabledEnvVar enables Zero Touch Remediation when set to a
+// truthy value per strconv.ParseBool ("true", "TRUE", "1", "t", …). Disabled by default.
 const ZtrComponentsEnabledEnvVar = "JFROG_CLI_ZTR_COMPONENTS_ENABLED"
 
-const ZeroTouchRemediationMinVersion = "3.154.0"
+// ZeroTouchRemediationMinXrayVersion is the minimum JFrog Xray version that
+// supports the component-resolution / Zero Touch Remediation API.
+const ZeroTouchRemediationMinXrayVersion = "3.154.0"
 
 var noopRestore = func() error { return nil }
 
@@ -34,10 +37,6 @@ func SkipRemediation(message string, cause error) (func() error, bool, error) {
 	return noopRestore, false, nil
 }
 
-func skipRemediationWarn(message string, cause error) (func() error, bool, error) {
-	return skipWithRestore(noopRestore, message, cause)
-}
-
 func skipWithRestore(restore func() error, message string, cause error) (func() error, bool, error) {
 	if cause != nil {
 		log.Warn(message + cause.Error())
@@ -51,7 +50,8 @@ func skipWithRestore(restore func() error, message string, cause error) (func() 
 }
 
 func IsComponentResolutionEnabled() bool {
-	return os.Getenv(ZtrComponentsEnabledEnvVar) == "true"
+	value, err := strconv.ParseBool(os.Getenv(ZtrComponentsEnabledEnvVar))
+	return err == nil && value
 }
 
 // Lockfile is a CLI-side lock artifact. Path is relative to project root (read/write only — not sent to Xray).
@@ -81,21 +81,21 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 	}
 	version, err := client.GetVersion()
 	if err != nil {
-		return skipRemediationWarn("Zero Touch Remediation skipped: could not get Xray version: ", err)
+		return SkipRemediation("Zero Touch Remediation skipped: could not get Xray version: ", err)
 	}
 	log.Debug("Xray version: ", version)
-	if versionErr := clientutils.ValidateMinimumVersion(clientutils.Xray, version, ZeroTouchRemediationMinVersion); versionErr != nil {
-		return skipRemediationWarn("Zero Touch Remediation is not supported on the current Xray version. ", versionErr)
+	if versionErr := clientutils.ValidateMinimumVersion(clientutils.Xray, version, ZeroTouchRemediationMinXrayVersion); versionErr != nil {
+		return SkipRemediation("Zero Touch Remediation is not supported on the current Xray version. ", versionErr)
 	}
 	log.Debug("Running Zero Touch Remediation at '"+repo+"' RT repository for tool:", tool.ToolName())
 	projectRoot, err := tool.ProjectRoot(workingDir)
 	if err != nil {
-		return skipRemediationWarn("Zero Touch Remediation skipped: could not resolve project root: ", err)
+		return skipWithRestore(noopRestore, "Zero Touch Remediation skipped: could not resolve project root: ", err)
 	}
 	log.Debug("Ensuring lockfiles in project root: ", projectRoot)
 	bootstrapped, err := tool.EnsureLockfiles(ctx, projectRoot, command, runner, bootstrapArgs...)
 	if err != nil {
-		return skipRemediationWarn("Zero Touch Remediation skipped: ", err)
+		return skipWithRestore(noopRestore, "Zero Touch Remediation skipped: ", err)
 	}
 	skipAfterBootstrap := func(message string, cause error) (func() error, bool, error) {
 		return skipWithRestore(restoreAbsentLockfiles(projectRoot, bootstrapped), message, cause)
@@ -287,9 +287,10 @@ func containedLockfilePath(projectRoot, rel string) (string, error) {
 	return full, nil
 }
 
-// rejectSymlinksUnderRoot Lstats each path component from projectRoot to fullPath,
-// not including projectRoot itself. Walking above the root would reject macOS
-// TempDirs whose prefix is /var → /private/var.
+// rejectSymlinksUnderRoot Lstats each component from projectRoot to fullPath so a
+// symlink parent cannot redirect writes outside the tree. It does not inspect
+// projectRoot or its ancestors (macOS TempDir is often under /var → /private/var).
+// Empty and "." parts from Rel are skipped. Missing components are allowed.
 func rejectSymlinksUnderRoot(projectRoot, fullPath string) error {
 	root, err := filepath.Abs(projectRoot)
 	if err != nil {
@@ -312,6 +313,8 @@ func rejectSymlinksUnderRoot(projectRoot, fullPath string) error {
 	return nil
 }
 
+// rejectSymlink uses Lstat (does not follow) and allows a missing path so a
+// lockfile can be created. Stat would follow a dangling or redirected link.
 func rejectSymlink(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil {
