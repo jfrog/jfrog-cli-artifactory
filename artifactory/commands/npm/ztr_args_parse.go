@@ -1,15 +1,8 @@
 package npm
 
 import (
-	"path/filepath"
 	"strings"
-
-	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
-
-type discoveryOptions struct {
-	prefixDir string
-}
 
 type npmCLIArgs struct {
 	prefixDir       string
@@ -54,7 +47,7 @@ func parseNpmCLIArgs(args []string) npmCLIArgs {
 		case strings.HasPrefix(arg, "--registry="):
 			out.registryURL = strings.TrimPrefix(arg, "--registry=")
 			out.bootstrapArgs = append(out.bootstrapArgs, arg)
-		case arg == "--tag" || arg == "--omit":
+		case arg == "--tag" || arg == "--omit" || arg == "--include" || arg == "--save-prefix":
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				i++
 			}
@@ -67,39 +60,66 @@ func parseNpmCLIArgs(args []string) npmCLIArgs {
 	return out
 }
 
-// HasPackageOperands reports whether npmArgs include a package name (not an option value).
-func HasPackageOperands(npmArgs []string) bool {
-	return len(parseNpmCLIArgs(npmArgs).packageOperands) > 0
-}
-
-// BootstrapArgsFrom extracts workspace flags to pass to npm install --package-lock-only.
-func BootstrapArgsFrom(npmArgs []string) []string {
-	return parseNpmCLIArgs(npmArgs).bootstrapArgs
-}
-
-func effectiveStartDir(workingDir string, opts discoveryOptions) (string, error) {
-	abs, err := filepath.Abs(workingDir)
-	if err != nil {
-		return "", errorutils.CheckError(err)
-	}
-	if opts.prefixDir != "" {
-		return resolveDiscoveryPath(abs, opts.prefixDir)
-	}
-	return abs, nil
-}
-
-// resolveDiscoveryPath joins base and p unless p is already absolute.
-// On Windows, Unix-style paths (e.g. /repo/pkg) are not filepath.IsAbs but must not be joined with base.
-func resolveDiscoveryPath(base, p string) (string, error) {
-	if filepath.IsAbs(p) {
-		return filepath.Clean(p), nil
-	}
-	if strings.HasPrefix(filepath.ToSlash(p), "/") {
-		abs, err := filepath.Abs(p)
-		if err != nil {
-			return "", errorutils.CheckError(err)
+func stripNpmInstallOnlyArgs(args []string) []string {
+	filtered := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		drop, consumesValue := npmInstallOnlyArg(args[i])
+		if !drop {
+			filtered = append(filtered, args[i])
+			continue
 		}
-		return filepath.Clean(abs), nil
+		if i+1 < len(args) {
+			next := args[i+1]
+			if (consumesValue && !strings.HasPrefix(next, "-")) ||
+				(npmInstallOnlyBooleanArg(args[i]) && (next == "true" || next == "false")) {
+				i++
+			}
+		}
 	}
-	return filepath.Clean(filepath.Join(base, p)), nil
+	return filtered
+}
+
+func npmInstallOnlyArg(arg string) (drop, consumesValue bool) {
+	switch arg {
+	case "--save", "-S",
+		"--save-prod", "-P",
+		"--save-dev", "-D",
+		"--save-optional", "-O",
+		"--save-peer", "--save-bundle",
+		"--no-save",
+		"--save-exact", "-E",
+		"--package-lock-only",
+		"--package-lock", "--no-package-lock":
+		return true, false
+	case "--save-prefix":
+		return true, true
+	}
+	name, _, hasValue := strings.Cut(arg, "=")
+	if !hasValue {
+		return false, false
+	}
+	switch name {
+	case "--save",
+		"--save-prod",
+		"--save-dev",
+		"--save-optional",
+		"--save-peer",
+		"--save-bundle",
+		"--save-exact",
+		"--save-prefix",
+		"--package-lock-only",
+		"--package-lock",
+		"--no-package-lock":
+		return true, false
+	}
+	return false, false
+}
+
+func npmInstallOnlyBooleanArg(arg string) bool {
+	switch arg {
+	case "--package-lock-only", "--package-lock", "--no-package-lock":
+		return true
+	default:
+		return false
+	}
 }

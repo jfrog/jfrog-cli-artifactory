@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 )
@@ -13,8 +14,39 @@ const (
 	shrinkwrapFileName = "npm-shrinkwrap.json"
 )
 
+type discoveryOptions struct {
+	prefixDir string
+}
+
 func discoverProjectRoot(workingDir string) (string, error) {
 	return discoverProjectRootWithOptions(workingDir, discoveryOptions{})
+}
+
+func effectiveStartDir(workingDir string, opts discoveryOptions) (string, error) {
+	abs, err := filepath.Abs(workingDir)
+	if err != nil {
+		return "", errorutils.CheckError(err)
+	}
+	if opts.prefixDir != "" {
+		return resolveDiscoveryPath(abs, opts.prefixDir)
+	}
+	return abs, nil
+}
+
+// resolveDiscoveryPath joins base and p unless p is already absolute.
+// On Windows, Unix-style paths are not filepath.IsAbs but must not be joined with base.
+func resolveDiscoveryPath(base, p string) (string, error) {
+	if filepath.IsAbs(p) {
+		return filepath.Clean(p), nil
+	}
+	if strings.HasPrefix(filepath.ToSlash(p), "/") {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return "", errorutils.CheckError(err)
+		}
+		return filepath.Clean(abs), nil
+	}
+	return filepath.Clean(filepath.Join(base, p)), nil
 }
 
 func discoverProjectRootWithOptions(workingDir string, opts discoveryOptions) (string, error) {

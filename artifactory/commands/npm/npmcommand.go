@@ -26,8 +26,6 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/spf13/viper"
-
-	"github.com/jfrog/jfrog-cli-artifactory/artifactory/zerotouchremediation"
 )
 
 const (
@@ -357,23 +355,20 @@ func (nc *NpmCommand) Run() (err error) {
 	defer func() {
 		err = errors.Join(err, nc.installHandler.RestoreNpmrc())
 	}()
-	if !zerotouchremediation.IsComponentResolutionEnabled() {
-		err = nc.installHandler.Install()
-	} else {
-		var installErr error
-		defer func() {
-			if installErr != nil && nc.restoreResolution != nil {
-				err = errors.Join(err, nc.restoreResolution())
-			}
-		}()
-		installErr = nc.installHandler.Install()
-		err = installErr
-	}
-	if err != nil {
-		if !nc.disableCVSCheck && (nc.cmdName == "install" || nc.cmdName == "ci") {
-			if blockedErr := nc.handle404Errors(err); blockedErr != nil {
-				err = blockedErr
-			}
+	err = nc.installWithLockfileRestore()
+	return
+}
+
+func (nc *NpmCommand) installWithLockfileRestore() (err error) {
+	defer func() {
+		if err != nil && nc.restoreResolution != nil {
+			err = errors.Join(err, nc.restoreResolution())
+		}
+	}()
+	err = nc.installHandler.Install()
+	if err != nil && !nc.disableCVSCheck && (nc.cmdName == "install" || nc.cmdName == "ci") {
+		if blockedErr := nc.handle404Errors(err); blockedErr != nil {
+			err = blockedErr
 		}
 	}
 	return
@@ -525,19 +520,21 @@ func (nc *NpmCommand) prepareBuildInfoModule() error {
 	return nil
 }
 
-func (nc *NpmCommand) effectiveNpmCommand() string {
+func (nc *NpmCommand) dependencyCollectionArgs() []string {
+	npmArgs := nc.npmArgs
+	npmCommand := nc.cmdName
 	if nc.remediatedLockfile && nc.cmdName == "install" {
-		return "ci"
+		npmCommand = "ci"
+		npmArgs = stripNpmInstallOnlyArgs(npmArgs)
 	}
-	return nc.cmdName
+	return append([]string{npmCommand}, npmArgs...)
 }
 
 func (nc *NpmCommand) collectDependencies() error {
-	npmCommand := nc.effectiveNpmCommand()
-	if nc.remediatedLockfile {
+	if nc.remediatedLockfile && nc.cmdName == "install" {
 		log.Info("Using npm ci after Zero Touch Remediation to install from the remediated lockfile")
 	}
-	nc.buildInfoModule.SetNpmArgs(append([]string{npmCommand}, nc.npmArgs...))
+	nc.buildInfoModule.SetNpmArgs(nc.dependencyCollectionArgs())
 	return errorutils.CheckError(nc.buildInfoModule.Build())
 }
 

@@ -126,16 +126,3 @@ func TestNpmBuildTool_EnsureLockfiles_PassesWorkspaceFlags(t *testing.T) {
 func TestNpmBuildTool_RelevantCommands(t *testing.T) {
 	assert.Equal(t, []string{"install", "ci"}, NewBuildTool().RelevantCommands())
 }
-
-func TestNewBuildToolWithArgs_Prefix(t *testing.T) {
-	tool := NewBuildToolWithArgs([]string{"install", "--prefix", "frontend"})
-	root := t.TempDir()
-	sub := filepath.Join(root, "frontend")
-	require.NoError(t, os.MkdirAll(sub, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(sub, "package.json"), []byte(`{"name":"fe"}`), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(sub, "package-lock.json"), []byte(`{}`), 0644))
-
-	got, err := tool.ProjectRoot(root)
-	require.NoError(t, err)
-	assert.Equal(t, sub, got)
-}

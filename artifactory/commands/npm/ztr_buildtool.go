@@ -21,11 +21,6 @@ func NewBuildTool() BuildTool {
 	return BuildTool{}
 }
 
-func NewBuildToolWithArgs(npmArgs []string) BuildTool {
-	parsed := parseNpmCLIArgs(npmArgs)
-	return BuildTool{opts: discoveryOptions{prefixDir: parsed.prefixDir}}
-}
-
 func (BuildTool) ToolName() string { return toolName }
 
 func (BuildTool) RelevantCommands() []string {
@@ -66,16 +61,12 @@ func (t BuildTool) EnsureLockfiles(ctx context.Context, projectRoot, command str
 	}
 }
 
-func (t BuildTool) DiscoverLockfiles(workingDir string) ([]zerotouchremediation.Lockfile, error) {
-	root, err := discoverProjectRootWithOptions(workingDir, t.opts)
+func (BuildTool) DiscoverLockfiles(projectRoot string) ([]zerotouchremediation.Lockfile, error) {
+	name, err := lockfileNameInDir(projectRoot)
 	if err != nil {
 		return nil, err
 	}
-	name, err := lockfileNameInDir(root)
-	if err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(filepath.Join(root, name))
+	data, err := os.ReadFile(filepath.Join(projectRoot, name))
 	if err != nil {
 		return nil, errorutils.CheckError(err)
 	}

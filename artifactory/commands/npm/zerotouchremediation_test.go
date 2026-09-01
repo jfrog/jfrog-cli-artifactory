@@ -2,6 +2,7 @@ package npm
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,6 +18,14 @@ import (
 type countingZTRClient struct {
 	calls int
 }
+
+type stubInstaller struct {
+	runErr error
+}
+
+func (s stubInstaller) PrepareInstallPrerequisites(string) error { return nil }
+func (s stubInstaller) Run() error                               { return s.runErr }
+func (s stubInstaller) RestoreNpmrc() error                      { return nil }
 
 func (c *countingZTRClient) GetVersion() (string, error) {
 	return zerotouchremediation.ZeroTouchRemediationMinXrayVersion, nil
@@ -38,49 +47,79 @@ func TestApplyZeroTouchRemediation_DisabledByDefault(t *testing.T) {
 	assert.Nil(t, nc.restoreResolution)
 }
 
+func TestInstallWithLockfileRestore_RestoresOnlyOnFailure(t *testing.T) {
+	installErr := errors.New("install failed")
+	restoreErr := errors.New("restore failed")
+	restoreCalls := 0
+	nc := &NpmCommand{
+		installHandler: &NpmInstallStrategy{strategy: stubInstaller{runErr: installErr}},
+		restoreResolution: func() error {
+			restoreCalls++
+			return restoreErr
+		},
+	}
+
+	err := nc.installWithLockfileRestore()
+
+	assert.ErrorIs(t, err, installErr)
+	assert.ErrorIs(t, err, restoreErr)
+	assert.Equal(t, 1, restoreCalls)
+
+	nc.installHandler = &NpmInstallStrategy{strategy: stubInstaller{}}
+	require.NoError(t, nc.installWithLockfileRestore())
+	assert.Equal(t, 1, restoreCalls)
+}
+
 func TestResolverRepoForResolution_PrefersCliRegistryOverNpmConfig(t *testing.T) {
 	nc := &NpmCommand{
 		cmdName:        "install",
 		executablePath: "/bin/false",
 	}
-	nc.SetNpmArgs([]string{"--registry", "https://acme.jfrog.io/artifactory/api/npm/libs-npm/"})
-	got, err := nc.resolverRepoForResolution()
+	got, err := nc.resolverRepoForResolution("https://acme.jfrog.io/artifactory/api/npm/libs-npm/")
 	require.NoError(t, err)
 	assert.Equal(t, "libs-npm", got)
 }
 
-func TestResolverRepoForResolution_RepoWinsOverCliRegistry(t *testing.T) {
+func TestResolverRepoForResolution_CliRegistryOverridesRepo(t *testing.T) {
 	nc := &NpmCommand{cmdName: "install"}
-	nc.SetNpmArgs([]string{"--registry", "https://acme.jfrog.io/artifactory/api/npm/libs-npm/"})
 	nc.SetRepo("from-config")
-	got, err := nc.resolverRepoForResolution()
+	got, err := nc.resolverRepoForResolution("https://acme.jfrog.io/artifactory/api/npm/libs-npm/")
 	require.NoError(t, err)
-	assert.Equal(t, "from-config", got)
+	assert.Equal(t, "libs-npm", got)
 }
 
-func TestEffectiveNpmCommandAfterRemediation(t *testing.T) {
+func TestDependencyCollectionArgsCommandSelection(t *testing.T) {
 	nc := &NpmCommand{cmdName: "install", remediatedLockfile: true}
-	assert.Equal(t, "ci", nc.effectiveNpmCommand())
+	assert.Equal(t, []string{"ci"}, nc.dependencyCollectionArgs())
 
 	nc.remediatedLockfile = false
-	assert.Equal(t, "install", nc.effectiveNpmCommand())
+	assert.Equal(t, []string{"install"}, nc.dependencyCollectionArgs())
 
 	nc.cmdName = "ci"
 	nc.remediatedLockfile = true
-	assert.Equal(t, "ci", nc.effectiveNpmCommand())
+	assert.Equal(t, []string{"ci"}, nc.dependencyCollectionArgs())
 }
 
-func TestIsSinglePackageInstall(t *testing.T) {
-	assert.True(t, isSinglePackageInstall([]string{"lodash"}))
-	assert.True(t, isSinglePackageInstall([]string{"--save", "lodash"}))
-	assert.False(t, isSinglePackageInstall([]string{"--verbose"}))
-	assert.False(t, isSinglePackageInstall([]string{"-w", "app"}))
-	assert.False(t, isSinglePackageInstall([]string{"--workspace", "@scope/pkg"}))
-	assert.False(t, isSinglePackageInstall([]string{"--prefix", "packages/app"}))
-	assert.False(t, isSinglePackageInstall([]string{"--registry", "https://registry.example"}))
-	assert.False(t, isSinglePackageInstall([]string{"--tag", "next"}))
-	assert.False(t, isSinglePackageInstall([]string{"--omit", "dev"}))
-	assert.False(t, isSinglePackageInstall(nil))
+func TestDependencyCollectionArgsAfterRemediation(t *testing.T) {
+	nc := &NpmCommand{
+		cmdName:            "install",
+		remediatedLockfile: true,
+	}
+	nc.SetNpmArgs([]string{
+		"--save", "-D", "--save-prefix", "~",
+		"--package-lock-only", "--package-lock", "false", "--no-package-lock=false",
+		"--include", "dev", "--omit=optional",
+		"--workspaces", "-w", "app",
+		"--registry=https://acme.jfrog.io/artifactory/api/npm/libs-npm/",
+	})
+
+	assert.Equal(t, []string{
+		"ci",
+		"--include", "dev",
+		"--omit=optional",
+		"--workspaces", "-w", "app",
+		"--registry=https://acme.jfrog.io/artifactory/api/npm/libs-npm/",
+	}, nc.dependencyCollectionArgs())
 }
 
 func TestRunIfEnabled_SkipsSymlinkedLockfile(t *testing.T) {
