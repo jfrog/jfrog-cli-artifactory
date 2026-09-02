@@ -53,7 +53,6 @@ func TestPrepareConfigData(t *testing.T) {
 			"allow-same-version=false",
 			"user-agent=npm/5.5.1 node/v8.9.1 darwin x64",
 			"@jfrog:registry = " + testRegistry,
-			"email=ddd@dd.dd",
 			"cache-lock-retries=10",
 			"registry = " + testRegistry,
 		}
