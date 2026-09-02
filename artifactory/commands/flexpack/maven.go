@@ -296,7 +296,25 @@ func checksumAql(repo string, sha256s []string) string {
 		Repo string              `json:"repo"`
 		Or   []map[string]string `json:"$or"`
 	}
-	b, _ := json.Marshal(aqlBody{Repo: repo, Or: orList})
+	b, err := json.Marshal(aqlBody{Repo: repo, Or: orList})
+	if err != nil {
+		// Fallback: build the AQL string manually. Repo keys and sha256 hashes have restricted charsets
+		// so this path is unreachable in practice, but keeps the function total.
+		var sb strings.Builder
+		sb.WriteString(`{"repo":"`)
+		sb.WriteString(repo)
+		sb.WriteString(`","$or":[`)
+		for i, sha256 := range sha256s {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(`{"sha256":"`)
+			sb.WriteString(sha256)
+			sb.WriteString(`"}`)
+		}
+		sb.WriteString("]}")
+		return sb.String()
+	}
 	return string(b)
 }
 
