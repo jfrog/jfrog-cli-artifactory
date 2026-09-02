@@ -83,6 +83,8 @@ func TestExtractResolutionArgs(t *testing.T) {
 		{name: "offline flag short", args: []string{"install", "-o"}, want: []string{"-o"}},
 		{name: "offline flag long", args: []string{"install", "--offline"}, want: []string{"--offline"}},
 		{name: "activate-profiles long form", args: []string{"deploy", "--activate-profiles", "prod,ci"}, want: []string{"--activate-profiles", "prod,ci"}},
+		{name: "profiles short flag with separate value", args: []string{"deploy", "-P", "prod,ci"}, want: []string{"-P", "prod,ci"}},
+		{name: "define short flag with separate value", args: []string{"deploy", "-D", "key=val"}, want: []string{"-D", "key=val"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

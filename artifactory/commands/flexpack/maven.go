@@ -1,6 +1,7 @@
 package flexpack
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -127,7 +128,7 @@ func wasDeployCommand(userArgs []string) bool {
 // Must run BEFORE the build info is saved so OriginalDeploymentRepo is persisted for `rt bp`.
 func finalizeDeployedArtifacts(workingDir string, buildInfo *entities.BuildInfo, moduleDeployURLs map[string]string, overrideURL, buildName, buildNumber string, buildArgs *buildUtils.BuildConfiguration, serverDetails *config.ServerDetails) error {
 	if overrideURL == "" && len(moduleDeployURLs) == 0 {
-		log.Warn("Could not determine any Maven deployment repository; skipping build-property tagging")
+		log.Debug("Could not determine any Maven deployment repository; skipping build-property tagging")
 		return nil
 	}
 
@@ -196,6 +197,9 @@ func finalizeDeployedArtifacts(workingDir string, buildInfo *entities.BuildInfo,
 	buildProps := mavenBuildProperties(buildName, buildNumber, buildArgs.GetProject(), workingDir)
 	total := 0
 	for physicalRepo, sha256s := range sha256sByRepo {
+		if len(sha256s) == 0 {
+			continue
+		}
 		count, tagErr := tagArtifactsInRepo(servicesManager, physicalRepo, sha256s, buildProps)
 		if tagErr != nil {
 			log.Warn("Failed to set build properties in '" + physicalRepo + "': " + tagErr.Error())
@@ -221,11 +225,15 @@ func tagArtifactsInRepo(servicesManager artifactory.ArtifactoryServicesManager, 
 		return 0, err
 	}
 	count, setErr := servicesManager.SetProps(services.PropsParams{Reader: reader, Props: buildProps})
+	readerErr := reader.GetError()
 	if closeErr := reader.Close(); closeErr != nil {
 		log.Debug("Failed to close search reader: " + closeErr.Error())
 	}
 	if setErr != nil {
 		return 0, setErr
+	}
+	if readerErr != nil {
+		return 0, readerErr
 	}
 	return count, nil
 }
@@ -268,6 +276,9 @@ func extractRepoKeyFromUrl(repoUrl string) (string, error) {
 	}
 	// /artifactory/<REPO-KEY>, or just <REPO-KEY> when Artifactory is at the host root.
 	if repoKey := segments[len(segments)-1]; repoKey != "" {
+		if strings.EqualFold(repoKey, "artifactory") {
+			return "", fmt.Errorf("unable to extract repository key from URL (URL points to Artifactory root, not a specific repository): %s", repoUrl)
+		}
 		return repoKey, nil
 	}
 	return "", fmt.Errorf("unable to extract repository key from URL: %s", repoUrl)
@@ -277,20 +288,16 @@ func extractRepoKeyFromUrl(repoUrl string) (string, error) {
 // the collision-resistant content identifier; scoping to the (physical) deploy repo keeps identical
 // content stored elsewhere from being matched, without assuming any repository path layout.
 func checksumAql(repo string, sha256s []string) string {
-	var b strings.Builder
-	b.WriteString(`{"repo":"`)
-	b.WriteString(repo)
-	b.WriteString(`","$or":[`)
+	orList := make([]map[string]string, len(sha256s))
 	for i, sha256 := range sha256s {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		b.WriteString(`{"sha256":"`)
-		b.WriteString(sha256)
-		b.WriteString(`"}`)
+		orList[i] = map[string]string{"sha256": sha256}
 	}
-	b.WriteString("]}")
-	return b.String()
+	type aqlBody struct {
+		Repo string              `json:"repo"`
+		Or   []map[string]string `json:"$or"`
+	}
+	b, _ := json.Marshal(aqlBody{Repo: repo, Or: orList})
+	return string(b)
 }
 
 // mavenBuildProperties builds the build.name;build.number;build.timestamp property string (timestamp is
@@ -345,8 +352,6 @@ func validateMavenCoordinate(value string) error {
 	return nil
 }
 
-// resolutionArgReferencesSettings reports whether arg selects a settings file (its value may be the
-// following token).
 // isSeparateValueFlag reports whether arg is a resolution flag that consumes the next token as its value.
 func isSeparateValueFlag(arg string) bool {
 	return arg == "-s" || arg == "--settings" ||
@@ -369,15 +374,15 @@ func extractResolutionArgs(userArgs []string) []string {
 	for i := 0; i < len(userArgs); i++ {
 		arg := userArgs[i]
 		switch {
-		case strings.HasPrefix(arg, "-P"), strings.HasPrefix(arg, "--activate-profiles="),
-			strings.HasPrefix(arg, "-D"), strings.HasPrefix(arg, "--define="),
+		case len(arg) > 2 && strings.HasPrefix(arg, "-P"), strings.HasPrefix(arg, "--activate-profiles="),
+			len(arg) > 2 && strings.HasPrefix(arg, "-D"), strings.HasPrefix(arg, "--define="),
 			strings.HasPrefix(arg, "--settings="), strings.HasPrefix(arg, "-f="),
 			strings.HasPrefix(arg, "--file="), strings.HasPrefix(arg, "-gs="),
 			strings.HasPrefix(arg, "--global-settings="),
 			arg == "-o", arg == "--offline":
 			extracted = append(extracted, arg)
 		case isSeparateValueFlag(arg),
-			arg == "--activate-profiles", arg == "--define":
+			arg == "-P", arg == "-D", arg == "--activate-profiles", arg == "--define":
 			extracted = append(extracted, arg)
 			// These flags take their value as the next token.
 			if i+1 < len(userArgs) {
@@ -430,7 +435,7 @@ func collectModuleArtifacts(moduleId string, location flexpack.ModuleLocation) [
 	targetDir := filepath.Join(location.Dir, "target")
 	if _, statErr := os.Stat(targetDir); statErr == nil {
 		packagingType := sanitizePackaging(location.Packaging)
-		mainArtifactName := fmt.Sprintf("%s-%s.%s", artifactId, version, packagingType)
+		mainArtifactName := fmt.Sprintf("%s-%s.%s", artifactId, version, packagingFileExtension(packagingType))
 		// Defense in depth: re-validate the composed filename before joining it with targetDir.
 		// The individual inputs are already sanitized at extraction, but composing them (version "." packaging)
 		// could still produce ".." at a boundary (e.g. a trailing-dot version "1.0." -> "app-1.0..jar").
@@ -473,6 +478,18 @@ func splitModuleId(moduleId string) (groupId, artifactId, version string, ok boo
 		}
 	}
 	return parts[0], parts[1], parts[2], true
+}
+
+// packagingFileExtension maps Maven packaging types that produce .jar files (maven-plugin, bundle, ejb,
+// maven-archetype) to the "jar" extension used in the deployed filename, while other types use their
+// own name as the extension. The artifact Type field still records the original packaging type.
+func packagingFileExtension(packaging string) string {
+	switch packaging {
+	case "maven-plugin", "bundle", "ejb", "maven-archetype":
+		return "jar"
+	default:
+		return packaging
+	}
 }
 
 // sanitizePackaging validates a packaging value (recorded from the dependency-tree root node) that is

@@ -204,4 +204,4 @@ require (
 
 // replace github.com/ktrysmt/go-bitbucket => github.com/ktrysmt/go-bitbucket v0.9.80
 
-replace github.com/jfrog/build-info-go => github.com/jfrog/build-info-go v1.13.1-0.20260804091857-2e9f7c89c1d5
+replace github.com/jfrog/build-info-go => github.com/jfrog/build-info-go v1.13.1-0.20260902103717-1668dd184191

@@ -268,12 +268,22 @@ func stampMavenBuildMode(buildInfoPath, mode string) {
 		log.Debug("Skipping maven build-mode stamp, could not serialize build info: " + err.Error())
 		return
 	}
-	perm := os.FileMode(0644)
-	if info, statErr := os.Stat(buildInfoPath); statErr == nil {
-		perm = info.Mode().Perm()
+	tmpFile, tmpErr := os.CreateTemp(filepath.Dir(buildInfoPath), "buildinfo-*.json")
+	if tmpErr != nil {
+		log.Debug("Skipping maven build-mode stamp, could not create temp file: " + tmpErr.Error())
+		return
 	}
-	if err = os.WriteFile(buildInfoPath, updated, perm); err != nil {
-		log.Debug("Skipping maven build-mode stamp, could not write build info: " + err.Error())
+	tmpPath := tmpFile.Name()
+	_, writeErr := tmpFile.Write(updated)
+	closeErr := tmpFile.Close()
+	if writeErr != nil || closeErr != nil {
+		_ = os.Remove(tmpPath)
+		log.Debug("Skipping maven build-mode stamp, could not write temp file")
+		return
+	}
+	if err = os.Rename(tmpPath, buildInfoPath); err != nil {
+		_ = os.Remove(tmpPath)
+		log.Debug("Skipping maven build-mode stamp, could not rename temp file: " + err.Error())
 	}
 }
 
