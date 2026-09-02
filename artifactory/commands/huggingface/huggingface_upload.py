@@ -26,10 +26,23 @@ def upload(folder_path, repo_id, repo_type, revision, **kwargs):
         >>> upload_model("/path/to/dataset", "username/dataset-name", repo_type="dataset")
     """
     api = HfApi()
-    api.upload_folder(
-        folder_path=folder_path,
-        repo_id=repo_id,
-        revision=revision,
-        repo_type=repo_type,
-        **kwargs
-    )
+    try:
+        api.upload_folder(
+            folder_path=folder_path,
+            repo_id=repo_id,
+            revision=revision,
+            repo_type=repo_type,
+            **kwargs
+        )
+    except Exception as e:
+        # huggingface_hub >= 1.20.0 uses strict parse_hf_uri inside RepoUrl (PR #4324).
+        # Artifactory returns a placeholder commitUrl that fails this parser, but the
+        # files were already committed before the response is parsed. Swallow the URI
+        # parse error so callers treat the upload as successful.
+        try:
+            from huggingface_hub.errors import HfUriError
+            if isinstance(e, HfUriError):
+                return
+        except ImportError:
+            pass
+        raise
