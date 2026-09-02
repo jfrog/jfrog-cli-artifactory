@@ -1,8 +1,11 @@
 package npm
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 
 	biUtils "github.com/jfrog/build-info-go/build/utils"
 	npmUtils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/npm"
@@ -54,19 +57,105 @@ func (nc *NpmCommand) runZeroTouchRemediation(ctx context.Context, command, work
 }
 
 // resolverRepoForResolution returns the Artifactory virtual repo for dependency policy scope.
+// Native npmrc can set both registry and @scope:registry; Xray accepts one repo, so this
+// uses the unique Artifactory npm repo across those URLs and errors if more than one exists.
 func (nc *NpmCommand) resolverRepoForResolution(registryURL string) (string, error) {
+	if registryURL == "" && nc.repo != "" {
+		return nc.repo, nil
+	}
+	listedConfig := false
+	if nc.executablePath != "" {
+		if data, err := npmUtils.GetConfigList(nc.npmArgs, nc.executablePath); err == nil {
+			listedConfig = true
+			repo, repoErr := resolverRepoFromNpmConfig(registryURL, data)
+			if repoErr != nil {
+				return "", repoErr
+			}
+			if repo != "" {
+				return repo, nil
+			}
+		}
+	}
 	if registryURL != "" {
 		return extractRepoName(registryURL)
 	}
 	if nc.repo != "" {
 		return nc.repo, nil
 	}
-	if nc.executablePath != "" {
-		registryURL, err := npmUtils.ConfigGet(nc.npmArgs, "registry", nc.executablePath)
-		if err != nil {
-			return "", fmt.Errorf("failed to get registry URL: %w", err)
-		}
-		return extractRepoName(registryURL)
+	if listedConfig || nc.executablePath == "" {
+		return "", nil
 	}
-	return "", nil
+	registryURL, err := npmUtils.ConfigGet(nc.npmArgs, "registry", nc.executablePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to get registry URL: %w", err)
+	}
+	return extractRepoName(registryURL)
+}
+
+func resolverRepoFromNpmConfig(cliRegistryURL string, configList []byte) (string, error) {
+	repos := uniqueArtifactoryNpmRepos(npmConfigRegistryURLs(cliRegistryURL, configList))
+	switch len(repos) {
+	case 0:
+		return "", nil
+	case 1:
+		return repos[0], nil
+	default:
+		return "", fmt.Errorf("multiple Artifactory npm registries in npm config: %s", strings.Join(repos, ", "))
+	}
+}
+
+func npmConfigRegistryURLs(cliRegistryURL string, configList []byte) []string {
+	cliOverridesDefault := cliRegistryURL != ""
+	var urls []string
+	if cliOverridesDefault {
+		urls = append(urls, cliRegistryURL)
+	}
+	scanner := bufio.NewScanner(strings.NewReader(string(configList)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, ";") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.Trim(strings.TrimSpace(value), `"`)
+		if value == "" || value == "undefined" {
+			continue
+		}
+		switch {
+		case key == "registry" && !cliOverridesDefault:
+			urls = append(urls, value)
+		case strings.HasPrefix(key, "@") && strings.HasSuffix(key, ":registry"):
+			urls = append(urls, value)
+		}
+	}
+	return urls
+}
+
+func uniqueArtifactoryNpmRepos(urls []string) []string {
+	seen := make(map[string]struct{})
+	var repos []string
+	for _, raw := range urls {
+		if !isArtifactoryNpmRegistryURL(raw) {
+			continue
+		}
+		repo, err := extractRepoName(raw)
+		if err != nil || repo == "" {
+			continue
+		}
+		if _, ok := seen[repo]; ok {
+			continue
+		}
+		seen[repo] = struct{}{}
+		repos = append(repos, repo)
+	}
+	sort.Strings(repos)
+	return repos
+}
+
+func isArtifactoryNpmRegistryURL(registryURL string) bool {
+	return strings.Contains(registryURL, "/api/npm/") || strings.Contains(registryURL, "/artifactory/")
 }

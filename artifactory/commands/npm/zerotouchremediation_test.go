@@ -88,6 +88,75 @@ func TestResolverRepoForResolution_CliRegistryOverridesRepo(t *testing.T) {
 	assert.Equal(t, "libs-npm", got)
 }
 
+func TestResolverRepoFromNpmConfig(t *testing.T) {
+	const (
+		npmjs       = "https://registry.npmjs.org/"
+		libsNpm     = "https://acme.jfrog.io/artifactory/api/npm/libs-npm/"
+		internalNpm = "https://acme.jfrog.io/artifactory/api/npm/npm-internal/"
+	)
+	tests := []struct {
+		name       string
+		cliReg     string
+		config     string
+		want       string
+		wantErrSub string
+	}{
+		{
+			name:   "scoped Artifactory repo when default is public npm",
+			config: "registry = " + npmjs + "\n@company:registry = " + libsNpm + "\n",
+			want:   "libs-npm",
+		},
+		{
+			name:   "quoted scoped registry from npm c ls",
+			config: "; userconfig\nregistry = \"" + npmjs + "\"\n@company:registry = \"" + libsNpm + "\"\n",
+			want:   "libs-npm",
+		},
+		{
+			name:   "single Artifactory default registry",
+			config: "registry = " + libsNpm + "\n",
+			want:   "libs-npm",
+		},
+		{
+			name:   "scoped maps to the same Artifactory repo as default",
+			config: "registry = " + libsNpm + "\n@company:registry = " + libsNpm + "\n",
+			want:   "libs-npm",
+		},
+		{
+			name:       "distinct scoped and default Artifactory repos",
+			config:     "registry = " + libsNpm + "\n@company:registry = " + internalNpm + "\n",
+			wantErrSub: "multiple Artifactory npm registries",
+		},
+		{
+			name:   "CLI --registry overrides default but scoped Artifactory still counts",
+			cliReg: npmjs,
+			config: "registry = " + libsNpm + "\n@company:registry = " + internalNpm + "\n",
+			want:   "npm-internal",
+		},
+		{
+			name:   "CLI --registry is the only Artifactory URL",
+			cliReg: libsNpm,
+			config: "registry = " + npmjs + "\n",
+			want:   "libs-npm",
+		},
+		{
+			name:   "no Artifactory registry",
+			config: "registry = " + npmjs + "\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolverRepoFromNpmConfig(tt.cliReg, []byte(tt.config))
+			if tt.wantErrSub != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrSub)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestDependencyCollectionArgsCommandSelection(t *testing.T) {
 	nc := &NpmCommand{cmdName: "install", remediatedLockfile: true}
 	assert.Equal(t, []string{"ci"}, nc.dependencyCollectionArgs())
