@@ -73,6 +73,10 @@ type NpmCommand struct {
 	collectBuildInfo    bool
 	buildInfoModule     *build.NpmModule
 	installHandler      *NpmInstallStrategy
+	// When true, the subsequent install uses npm ci to honor remediated lockfile integrity.
+	remediatedLockfile bool
+	// Restores lockfiles written by Zero Touch Remediation if the install command fails.
+	restoreResolution func() error
 	// When true, skips the 404 error handling that checks if packages are blocked by curation
 	disableCVSCheck bool
 }
@@ -351,12 +355,20 @@ func (nc *NpmCommand) Run() (err error) {
 	defer func() {
 		err = errors.Join(err, nc.installHandler.RestoreNpmrc())
 	}()
+	err = nc.installWithLockfileRestore()
+	return
+}
+
+func (nc *NpmCommand) installWithLockfileRestore() (err error) {
+	defer func() {
+		if err != nil && nc.restoreResolution != nil {
+			err = errors.Join(err, nc.restoreResolution())
+		}
+	}()
 	err = nc.installHandler.Install()
-	if err != nil {
-		if !nc.disableCVSCheck && (nc.cmdName == "install" || nc.cmdName == "ci") {
-			if blockedErr := nc.handle404Errors(err); blockedErr != nil {
-				err = blockedErr
-			}
+	if err != nil && !nc.disableCVSCheck && (nc.cmdName == "install" || nc.cmdName == "ci") {
+		if blockedErr := nc.handle404Errors(err); blockedErr != nil {
+			err = blockedErr
 		}
 	}
 	return
@@ -508,8 +520,21 @@ func (nc *NpmCommand) prepareBuildInfoModule() error {
 	return nil
 }
 
+func (nc *NpmCommand) dependencyCollectionArgs() []string {
+	npmArgs := nc.npmArgs
+	npmCommand := nc.cmdName
+	if nc.remediatedLockfile && nc.cmdName == "install" {
+		npmCommand = "ci"
+		npmArgs = stripNpmInstallOnlyArgs(npmArgs)
+	}
+	return append([]string{npmCommand}, npmArgs...)
+}
+
 func (nc *NpmCommand) collectDependencies() error {
-	nc.buildInfoModule.SetNpmArgs(append([]string{nc.cmdName}, nc.npmArgs...))
+	if nc.remediatedLockfile && nc.cmdName == "install" {
+		log.Info("Using npm ci after Zero Touch Remediation to install from the remediated lockfile")
+	}
+	nc.buildInfoModule.SetNpmArgs(nc.dependencyCollectionArgs())
 	return errorutils.CheckError(nc.buildInfoModule.Build())
 }
 
