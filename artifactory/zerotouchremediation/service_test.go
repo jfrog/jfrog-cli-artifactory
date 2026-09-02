@@ -51,6 +51,7 @@ type mockTool struct {
 	ensureErr    error
 	discoverErr  error
 	bootstrapped []string
+	discoverRoot *string
 }
 
 func (m mockTool) ToolName() string {
@@ -74,7 +75,10 @@ func (m mockTool) EnsureLockfiles(_ context.Context, _, _ string, _ CommandRunne
 	}
 	return m.bootstrapped, nil
 }
-func (m mockTool) DiscoverLockfiles(_ string) ([]Lockfile, error) {
+func (m mockTool) DiscoverLockfiles(projectRoot string) ([]Lockfile, error) {
+	if m.discoverRoot != nil {
+		*m.discoverRoot = projectRoot
+	}
 	if m.discoverErr != nil {
 		return nil, m.discoverErr
 	}
@@ -132,6 +136,19 @@ func TestRunIfEnabled_WritesRemediatedLockfiles(t *testing.T) {
 	data, err := os.ReadFile(lockPath)
 	require.NoError(t, err)
 	assert.Equal(t, "remediated", string(data))
+}
+
+func TestRunIfEnabled_DiscoversLockfilesFromProjectRoot(t *testing.T) {
+	enableZTR(t)
+	workingDir := filepath.Join(t.TempDir(), "packages", "app")
+	projectRoot := t.TempDir()
+	var discoveredFrom string
+	tool := mockTool{root: projectRoot, discoverRoot: &discoveredFrom}
+
+	_, _, err := RunIfEnabled(context.Background(), &mockClient{}, "npm-virtual", tool, "install", workingDir, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, projectRoot, discoveredFrom)
 }
 
 func TestRunIfEnabled_WritesRemediatedNpmLockAsString(t *testing.T) {
