@@ -8,6 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jfrog/build-info-go/entities"
+	aptflex "github.com/jfrog/build-info-go/flexpack/apt"
+	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
@@ -22,14 +25,19 @@ import (
 // Dispatching: first arg selects the native tool.
 //   - "apt-cache" or "dpkg-query" → that tool, remaining args, no auth injection
 //   - anything else → apt-get, all args, with auth injection when --repo+--dist set
+//
+// Build-info collection (design doc §5):
+// When --build-name and --build-number are provided and the command is an install,
+// build-info is collected after the install completes using the three-source pipeline.
 type AptCommand struct {
-	args          []string
-	skipLogin     bool
-	trusted       bool
-	serverDetails *config.ServerDetails
-	repoName      string
-	dist          string
-	component     string
+	args               []string
+	skipLogin          bool
+	trusted            bool
+	serverDetails      *config.ServerDetails
+	repoName           string
+	dist               string
+	component          string
+	buildConfiguration *buildUtils.BuildConfiguration
 }
 
 func NewAptCommand() *AptCommand {
@@ -74,6 +82,11 @@ func (c *AptCommand) SetRepoName(repoName string) *AptCommand {
 	return c
 }
 
+func (c *AptCommand) SetBuildConfiguration(bc *buildUtils.BuildConfiguration) *AptCommand {
+	c.buildConfiguration = bc
+	return c
+}
+
 func (c *AptCommand) CommandName() string { return "rt_apt" }
 
 func (c *AptCommand) ServerDetails() (*config.ServerDetails, error) {
@@ -95,7 +108,8 @@ var aptValueFlags = map[string]bool{
 	"-t": true, "--target-release": true,
 }
 
-func needsUpdate(args []string) bool {
+// firstNonFlagToken returns the first non-flag token in args (the apt subcommand).
+func firstNonFlagToken(args []string) string {
 	skipNext := false
 	for _, a := range args {
 		if skipNext {
@@ -103,18 +117,54 @@ func needsUpdate(args []string) bool {
 			continue
 		}
 		if strings.HasPrefix(a, "-") {
-			if aptValueFlags[a] {
-				skipNext = true
-			}
+			skipNext = aptValueFlags[a]
 			continue
 		}
-		switch a {
-		case "install", "upgrade", "dist-upgrade", "full-upgrade", "satisfy":
-			return true
+		return a
+	}
+	return ""
+}
+
+// nonFlagArgs returns all non-flag tokens after the first (the subcommand).
+func nonFlagArgs(args []string) []string {
+	var result []string
+	skipNext := false
+	foundSubcmd := false
+	for _, a := range args {
+		if skipNext {
+			skipNext = false
+			continue
 		}
-		return false
+		if strings.HasPrefix(a, "-") {
+			skipNext = aptValueFlags[a]
+			continue
+		}
+		if !foundSubcmd {
+			foundSubcmd = true
+			continue
+		}
+		result = append(result, a)
+	}
+	return result
+}
+
+func needsUpdate(args []string) bool {
+	switch firstNonFlagToken(args) {
+	case "install", "upgrade", "dist-upgrade", "full-upgrade", "satisfy":
+		return true
 	}
 	return false
+}
+
+// isInstallSubcommand returns true when the first non-flag token in args is "install".
+func isInstallSubcommand(args []string) bool {
+	return firstNonFlagToken(args) == "install"
+}
+
+// extractPackageNames returns the package-name tokens from apt-get install args
+// (strips the subcommand and all flag tokens).
+func extractPackageNames(args []string) []string {
+	return nonFlagArgs(args)
 }
 
 // Run executes the native apt tool.
@@ -222,12 +272,84 @@ func (c *AptCommand) Run() error {
 		}
 	}
 
+	collectBuildInfo := nativeTool == "apt-get" && isInstallSubcommand(c.args) && c.buildConfiguration != nil
+
 	cmd := exec.Command(nativeTool, nativeArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s failed: %w", nativeTool, err)
+	}
+
+	if collectBuildInfo {
+		if err := c.collectAndSaveBuildInfo(c.args); err != nil {
+			// Non-fatal: log the error but don't fail the install.
+			log.Warn("apt build-info collection failed: " + err.Error())
+		}
+	}
+
+	return nil
+}
+
+// collectAndSaveBuildInfo runs the three-source pipeline and persists build-info locally.
+func (c *AptCommand) collectAndSaveBuildInfo(aptArgs []string) error {
+	buildName, err := c.buildConfiguration.GetBuildName()
+	if err != nil {
+		return err
+	}
+	if buildName == "" {
+		return nil
+	}
+	buildNumber, err := c.buildConfiguration.GetBuildNumber()
+	if err != nil {
+		return err
+	}
+	if buildNumber == "" {
+		return nil
+	}
+
+	pkgs := extractPackageNames(aptArgs)
+	if len(pkgs) == 0 {
+		return nil
+	}
+
+	moduleID := c.buildConfiguration.GetModule()
+	if moduleID == "" {
+		moduleID = buildName
+	}
+
+	log.Info(fmt.Sprintf("Collecting apt build-info for %s/%s (%d package(s))", buildName, buildNumber, len(pkgs)))
+
+	collector := aptflex.NewAptFlexPack(aptflex.AptConfig{})
+	if err := collector.CollectDependencies(pkgs); err != nil {
+		return fmt.Errorf("collect dependencies: %w", err)
+	}
+
+	buildInfo, err := collector.CollectBuildInfo(buildName, buildNumber, moduleID)
+	if err != nil {
+		return fmt.Errorf("assemble build-info: %w", err)
+	}
+
+	projectKey := c.buildConfiguration.GetProject()
+	if err := aptSaveBuildInfoLocally(buildInfo, projectKey); err != nil {
+		return fmt.Errorf("save build-info: %w", err)
+	}
+
+	log.Info(fmt.Sprintf("apt build-info collected (%d deps). Use 'jf rt bp %s %s' to publish.",
+		len(buildInfo.Modules[0].Dependencies), buildName, buildNumber))
+	return nil
+}
+
+// aptSaveBuildInfoLocally persists build-info to the local JFrog CLI cache.
+func aptSaveBuildInfoLocally(buildInfo *entities.BuildInfo, projectKey string) error {
+	service := buildUtils.CreateBuildInfoService()
+	buildInstance, err := service.GetOrCreateBuildWithProject(buildInfo.Name, buildInfo.Number, projectKey)
+	if err != nil {
+		return fmt.Errorf("create build: %w", err)
+	}
+	if err := buildInstance.SaveBuildInfo(buildInfo); err != nil {
+		return fmt.Errorf("save build info: %w", err)
 	}
 	return nil
 }
