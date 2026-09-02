@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -141,6 +142,13 @@ func TestResolverRepoFromNpmConfig(t *testing.T) {
 		{
 			name:   "no Artifactory registry",
 			config: "registry = " + npmjs + "\n",
+		},
+		{
+			name: "oversized non-registry line between two Artifactory registries",
+			config: "registry = " + libsNpm + "\n" +
+				"loglevel = " + strings.Repeat("x", 70*1024) + "\n" +
+				"@company:registry = " + internalNpm + "\n",
+			wantErrSub: "multiple Artifactory npm registries",
 		},
 	}
 	for _, tt := range tests {

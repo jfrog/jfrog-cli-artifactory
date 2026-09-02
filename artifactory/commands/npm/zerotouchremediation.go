@@ -1,7 +1,6 @@
 package npm
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"sort"
@@ -110,9 +109,8 @@ func npmConfigRegistryURLs(cliRegistryURL string, configList []byte) []string {
 	if cliOverridesDefault {
 		urls = append(urls, cliRegistryURL)
 	}
-	scanner := bufio.NewScanner(strings.NewReader(string(configList)))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	for _, rawLine := range strings.Split(string(configList), "\n") {
+		line := strings.TrimSpace(rawLine)
 		if line == "" || strings.HasPrefix(line, ";") {
 			continue
 		}
