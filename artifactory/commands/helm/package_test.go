@@ -239,6 +239,14 @@ func packageChartDir(t *testing.T, sourceDir, targetTgz string) error {
 		require.NoError(t, tarWriter.Close())
 	}()
 
+	root, err := os.OpenRoot(sourceDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		require.NoError(t, root.Close())
+	}()
+
 	baseName := filepath.Base(sourceDir)
 	return filepath.Walk(sourceDir, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
@@ -269,7 +277,7 @@ func packageChartDir(t *testing.T, sourceDir, targetTgz string) error {
 		if err = tarWriter.WriteHeader(header); err != nil {
 			return err
 		}
-		content, err := os.ReadFile(path)
+		content, err := root.ReadFile(relPath)
 		if err != nil {
 			return err
 		}
