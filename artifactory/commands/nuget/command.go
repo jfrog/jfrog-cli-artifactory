@@ -142,7 +142,8 @@ func (c *NuGetFlexPackCommand) Run() error {
 			// are never embedded in the process argv (invisible to ps/proc); the flag style
 			// is selected inside injectCredentialsViaTempConfig based on toolchainType.
 			// Push, pack, and passthrough commands are excluded: push goes through
-			// pushPackagesToArtifactory (Basic Auth), and pack/passthrough are local-only.
+			// pushPackagesToArtifactory (the shared upload service, which authenticates from
+			// the configured server details), and pack/passthrough are local-only.
 			cleanup, err := c.injectCredentialsViaTempConfig(repo)
 			if err != nil {
 				return err
@@ -169,13 +170,25 @@ func (c *NuGetFlexPackCommand) Run() error {
 		}
 	}
 
-	// Both nuget.exe and dotnet CLI have push auth issues with Artifactory:
-	//   nuget.exe sends X-NuGet-ApiKey which Artifactory rejects for access tokens (403).
-	//   dotnet nuget push with embedded credentials in a V3 URL fails to load the service
-	//   index (401) because dotnet does not forward URL-embedded auth for index.json fetches.
-	// When targeting a known Artifactory repo (and the user hasn't overridden the source or
-	// API key flags), bypass the native tool entirely and push directly via the NuGet gallery
-	// REST endpoint using Basic Auth — which Artifactory accepts for both toolchains.
+	// Push bypasses the native tool and uploads through the shared Artifactory upload service.
+	//
+	// For nuget.exe this is a design choice, not a necessity: Artifactory does accept nuget.exe's
+	// X-NuGet-ApiKey header — access tokens included — but only when the value is
+	// "<username>:<token>", since it splits the header on the colon to recover credentials. A
+	// bare token has nothing to split and is rejected. Note also that nuget.exe only sends that
+	// header when an API key is actually resolved (-ApiKey, NUGET_API_KEY, or <apikeys> in a
+	// config file); credentials supplied via <packageSourceCredentials> go out as Basic auth
+	// instead, which is why push is excluded from the temp nuget.config injection above.
+	//
+	// For dotnet the problem is real and unrelated: dotnet nuget push cannot load a V3
+	// index.json with URL-embedded credentials (401), because it does not forward that auth on
+	// the service-index fetch.
+	//
+	// Uploading via the upload service sidesteps both, authenticates from the configured JFrog
+	// server details, and shares the code path used by npm/alpine/terraform — inheriting proxy
+	// handling, retries and checksum-optimised deploys. When the user supplies their own
+	// -Source/-ApiKey the bypass is skipped and their intent wins.
+	//
 	// resolvedPushPaths is set when the Artifactory bypass handles the push so that
 	// collectAndStampPushArtifacts can reuse the already-resolved paths instead of
 	// re-expanding globs from c.args a second time.
@@ -299,12 +312,12 @@ func (c *NuGetFlexPackCommand) injectCredentialsViaTempConfig(repo string) (func
 	}, nil
 }
 
-// pushPackagesToArtifactory resolves all .nupkg/.snupkg paths from push args (expanding
-// globs), pushes each directly to Artifactory's NuGet gallery endpoint using Basic Auth,
-// and replicates nuget.exe's sibling .snupkg auto-push behaviour. This bypasses the native
-// push tool (nuget.exe or dotnet) to avoid authentication issues: nuget.exe sends
-// X-NuGet-ApiKey which Artifactory rejects for access tokens (403), and dotnet nuget push
-// cannot authenticate against a V3 index.json with embedded URL credentials (401).
+// pushPackagesToArtifactory resolves all .nupkg/.snupkg paths from push args (expanding globs),
+// uploads each through the shared Artifactory upload service, and replicates nuget.exe's sibling
+// .snupkg auto-push behaviour. Using the upload service instead of driving the native push tool
+// keeps authentication, proxy handling, retries and checksum-optimised deploys consistent with
+// the other package managers, and avoids dotnet nuget push's inability to authenticate against
+// a V3 index.json with URL-embedded credentials (401). See Run for the full rationale.
 // It returns the resolved absolute paths of all packages that were pushed so callers can
 // reuse them without re-expanding globs from c.args.
 func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() ([]string, error) {
@@ -325,7 +338,7 @@ func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() ([]string, error) {
 		"-disablebuffering": true, "--disable-buffering": true,
 		// non-interactive / --interactive: interactive auth prompts are not used by the bypass
 		"-noninteractive": true, "--interactive": true,
-		// config-file: credentials are supplied via Basic Auth in the bypass; no config needed
+		// config-file: the bypass authenticates from the configured JFrog server; no config needed
 		"-configfile": true, "--configfile": true,
 		// force-english-output: locale hint for the native tool; no-op for the bypass
 		"-forceenglishoutput": true, "--force-english-output": true,
