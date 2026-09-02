@@ -512,6 +512,12 @@ const (
 	SkillsDelete  = "skills-delete"
 	SkillsList    = "skills-list"
 
+	// Agent APM commands key. install/publish/update take only build-info flags; auth always
+	// resolves from the default configured JFrog server, no --server-id/--repo/direct-credential
+	// override - apm's own registry/config resolution (~/.apm/config.json, apm.yml) is what
+	// package managers are for. The generic passthrough takes no flags of its own at all.
+	AgentApm = "agent-apm"
+
 	// Agent plugin commands keys
 	AgentPluginsPublish = "agent-plugins-publish"
 	AgentPluginsInstall = "agent-plugins-install"
@@ -920,6 +926,9 @@ var commandFlags = map[string][]string{
 	},
 	SkillsList: {
 		url, user, password, accessToken, serverId, repo, harness, projectDir, agentGlobal, agentFormat, agentLimit, agentSortBy, agentSortOrder, agentCheckUpdates,
+	},
+	AgentApm: {
+		serverId, BuildName, BuildNumber, module, Project,
 	},
 }
 
