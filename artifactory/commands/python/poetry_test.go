@@ -35,6 +35,8 @@ func initPoetryTest(t *testing.T) (string, func()) {
 	return poetryProjectPath, cleanUp
 }
 
+// TestSetPypiRepoUrlWithCredentials_URLTransformation verifies that the publish URL drops the
+// /simple suffix while every resolution command keeps it, so Poetry queries a PEP 503 index.
 func TestSetPypiRepoUrlWithCredentials_URLTransformation(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -43,39 +45,46 @@ func TestSetPypiRepoUrlWithCredentials_URLTransformation(t *testing.T) {
 		username    string
 		password    string
 		accessToken string
-		expectedURL string
+		// expectedPublishURL is the upload endpoint, without the /simple suffix.
+		expectedPublishURL string
+		// expectedResolveURL is the PEP 503 index, which must keep the /simple suffix.
+		expectedResolveURL string
 	}{
 		{
-			name:        "Strips /simple suffix from URL",
-			repository:  "poetry-local",
-			serverURL:   "https://my-server.jfrog.io/artifactory",
-			username:    "user",
-			password:    "pass",
-			expectedURL: "https://my-server.jfrog.io/artifactory/api/pypi/poetry-local",
+			name:               "Strips /simple suffix for publish only",
+			repository:         "poetry-local",
+			serverURL:          "https://my-server.jfrog.io/artifactory",
+			username:           "user",
+			password:           "pass",
+			expectedPublishURL: "https://my-server.jfrog.io/artifactory/api/pypi/poetry-local",
+			expectedResolveURL: "https://my-server.jfrog.io/artifactory/api/pypi/poetry-local/simple",
 		},
 		{
-			name:        "Handles different repository name",
-			repository:  "poetry-remote",
-			serverURL:   "https://my-server.jfrog.io/artifactory",
-			username:    "user",
-			password:    "pass",
-			expectedURL: "https://my-server.jfrog.io/artifactory/api/pypi/poetry-remote",
+			name:               "Handles different repository name",
+			repository:         "poetry-remote",
+			serverURL:          "https://my-server.jfrog.io/artifactory",
+			username:           "user",
+			password:           "pass",
+			expectedPublishURL: "https://my-server.jfrog.io/artifactory/api/pypi/poetry-remote",
+			expectedResolveURL: "https://my-server.jfrog.io/artifactory/api/pypi/poetry-remote/simple",
 		},
 		{
 			name:       "Works with access token",
 			repository: "poetry-local",
 			serverURL:  "https://my-server.jfrog.io/artifactory",
 			// #nosec G101 -- This is a fake test token with no real credentials.
-			accessToken: "fake-test-token-for-unit-testing-only", //nolint:gosec
-			expectedURL: "https://my-server.jfrog.io/artifactory/api/pypi/poetry-local",
+			accessToken:        "fake-test-token-for-unit-testing-only", //nolint:gosec
+			expectedPublishURL: "https://my-server.jfrog.io/artifactory/api/pypi/poetry-local",
+			expectedResolveURL: "https://my-server.jfrog.io/artifactory/api/pypi/poetry-local/simple",
 		},
 		{
-			name:        "Handles server URL with trailing slash",
-			repository:  "poetry-local",
-			serverURL:   "https://my-server.jfrog.io/artifactory/",
-			username:    "user",
-			password:    "pass",
-			expectedURL: "https://my-server.jfrog.io/artifactory/api/pypi/poetry-local",
+			name:               "Handles server URL with trailing slash",
+			repository:         "poetry-local",
+			serverURL:          "https://my-server.jfrog.io/artifactory/",
+			username:           "user",
+			password:           "pass",
+			expectedPublishURL: "https://my-server.jfrog.io/artifactory/api/pypi/poetry-local",
+			expectedResolveURL: "https://my-server.jfrog.io/artifactory/api/pypi/poetry-local/simple",
 		},
 	}
 
@@ -91,19 +100,19 @@ func TestSetPypiRepoUrlWithCredentials_URLTransformation(t *testing.T) {
 			// Get URL with credentials - this returns URL with /simple suffix
 			rtUrl, _, password, err := GetPypiRepoUrlWithCredentials(serverDetails, tt.repository, false)
 			require.NoError(t, err)
+			require.NotEmpty(t, password)
 
-			if password != "" {
-				// Construct base URL
-				baseUrl := rtUrl.Scheme + "://" + rtUrl.Host + rtUrl.Path
+			publishUrl := poetryRepoUrl(rtUrl, "publish")
+			assert.Equal(t, tt.expectedPublishURL, publishUrl)
+			assert.NotContains(t, publishUrl, "/simple", "publish URL should not contain /simple")
+			assert.False(t, strings.HasSuffix(publishUrl, "/"), "publish URL should not have trailing slash")
 
-				// This is the logic from SetPypiRepoUrlWithCredentials that we're testing
-				publishUrl := strings.TrimSuffix(baseUrl, "/simple")
-				publishUrl = strings.TrimSuffix(publishUrl, "/")
-
-				// Validate
-				assert.Equal(t, tt.expectedURL, publishUrl)
-				assert.NotContains(t, publishUrl, "/simple", "URL should not contain /simple")
-				assert.False(t, strings.HasSuffix(publishUrl, "/"), "URL should not have trailing slash")
+			// Resolution commands write this URL to [[tool.poetry.source]] in pyproject.toml.
+			// Poetry queries it as a PEP 503 index, so /simple must be preserved.
+			for _, commandName := range []string{"install", "add", "update", "lock", ""} {
+				resolveUrl := poetryRepoUrl(rtUrl, commandName)
+				assert.Equal(t, tt.expectedResolveURL, resolveUrl,
+					"resolve URL should keep /simple for command %q", commandName)
 			}
 		})
 	}
