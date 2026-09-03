@@ -513,6 +513,12 @@ const (
 	SkillsDelete  = "skills-delete"
 	SkillsList    = "skills-list"
 
+	// Agent APM commands key. install/publish/update take only build-info flags; auth always
+	// resolves from the default configured JFrog server, no --server-id/--repo/direct-credential
+	// override - apm's own registry/config resolution (~/.apm/config.json, apm.yml) is what
+	// package managers are for. The generic passthrough takes no flags of its own at all.
+	AgentApm = "agent-apm"
+
 	// Agent plugin commands keys
 	AgentPluginsPublish = "agent-plugins-publish"
 	AgentPluginsInstall = "agent-plugins-install"
@@ -922,6 +928,9 @@ var commandFlags = map[string][]string{
 	SkillsList: {
 		url, user, password, accessToken, serverId, repo, harness, projectDir, agentGlobal, agentFormat, agentLimit, agentSortBy, agentSortOrder, agentCheckUpdates,
 	},
+	AgentApm: {
+		serverId, BuildName, BuildNumber, module, Project,
+	},
 }
 
 var flagsMap = map[string]components.Flag{
@@ -1149,7 +1158,7 @@ var flagsMap = map[string]components.Flag{
 	npmDetailedSummary:       components.NewBoolFlag(detailedSummary, "Set to true to include a list of the affected files in the command summary.", components.WithBoolDefaultValueFalse()),
 	nugetV2:                  components.NewBoolFlag(nugetV2, "Set to true if you'd like to use the NuGet V2 protocol when restoring packages from Artifactory.", components.WithBoolDefaultValueFalse()),
 	disableCVSCheck:          components.NewBoolFlag(disableCVSCheck, "Set to true to disable the CVS check that verifies if 404 errors are due to blocked packages.", components.WithBoolDefaultValueFalse()),
-	failOnMissingDeps:        components.NewBoolFlag(failOnMissingDeps, "Set to true to fail the build if a dependency's tarball can't be resolved from the npm cache. Only applies when collecting build-info with --build-name and --build-number.", components.WithBoolDefaultValueFalse()),
+	failOnMissingDeps:        components.NewStringFlag(failOnMissingDeps, "Fail the build if a dependency's tarball can't be resolved from the npm cache. Accepts 'all' (fail for every missing dependency type), or a comma-separated combination of 'regular', 'peer', 'optional', 'bundle' (e.g. 'peer,optional,bundle') to fail only for the specified types. Only applies when collecting build-info with --build-name and --build-number.", components.SetMandatoryFalse()),
 
 	// GoPublish specific commands flags
 	goPublishExclusions: components.NewStringFlag(exclusions, "List of semicolon-separated(;) exclusions. Exclusions can include the * and the ? wildcards.", components.SetMandatoryFalse()),

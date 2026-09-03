@@ -73,10 +73,16 @@ type NpmCommand struct {
 	collectBuildInfo    bool
 	buildInfoModule     *build.NpmModule
 	installHandler      *NpmInstallStrategy
+	// When true, the subsequent install uses npm ci to honor remediated lockfile integrity.
+	remediatedLockfile bool
+	// Restores lockfiles written by Zero Touch Remediation if the install command fails.
+	restoreResolution func() error
 	// When true, skips the 404 error handling that checks if packages are blocked by curation
 	disableCVSCheck bool
-	// When true, fails the build if a dependency's tarball can't be resolved from the npm cache
-	failOnMissingDeps bool
+	// Granular strict-mode value for missing dependencies: "" (never fail, default), "all" (fail for
+	// every missing dependency type), or a comma-separated combination of "regular", "peer", "optional",
+	// "bundle" (e.g. "peer,optional,bundle") to fail only for the specified types.
+	failOnMissingDeps string
 }
 
 func NewNpmCommand(cmdName string, collectBuildInfo bool) *NpmCommand {
@@ -130,7 +136,7 @@ func (nc *NpmCommand) SetDisableCVSCheck(disable bool) *NpmCommand {
 	return nc
 }
 
-func (nc *NpmCommand) SetFailOnMissingDeps(fail bool) *NpmCommand {
+func (nc *NpmCommand) SetFailOnMissingDeps(fail string) *NpmCommand {
 	nc.failOnMissingDeps = fail
 	return nc
 }
@@ -175,9 +181,14 @@ func (nc *NpmCommand) Init() error {
 	if err != nil {
 		return err
 	}
-	// Extract --fail-on-missing-deps flag
-	filteredNpmArgs, failOnMissingDeps, err := coreutils.ExtractBoolFlagFromArgs(filteredNpmArgs, "fail-on-missing-deps")
+	// Extract --fail-on-missing-deps flag. Accepts a granular string value: "all", "" (default, never fail),
+	// or a comma-separated combination of "regular", "peer", "optional", "bundle".
+	filteredNpmArgs, failOnMissingDeps, err := coreutils.ExtractStringOptionFromArgs(filteredNpmArgs, "fail-on-missing-deps")
 	if err != nil {
+		return err
+	}
+	// Validate the fail-on-missing-deps flag value
+	if err := validateFailOnMissingDeps(failOnMissingDeps); err != nil {
 		return err
 	}
 	nc.SetArgs(filteredNpmArgs).SetBuildConfiguration(buildConfiguration)
@@ -368,12 +379,20 @@ func (nc *NpmCommand) Run() (err error) {
 	defer func() {
 		err = errors.Join(err, nc.installHandler.RestoreNpmrc())
 	}()
+	err = nc.installWithLockfileRestore()
+	return
+}
+
+func (nc *NpmCommand) installWithLockfileRestore() (err error) {
+	defer func() {
+		if err != nil && nc.restoreResolution != nil {
+			err = errors.Join(err, nc.restoreResolution())
+		}
+	}()
 	err = nc.installHandler.Install()
-	if err != nil {
-		if !nc.disableCVSCheck && (nc.cmdName == "install" || nc.cmdName == "ci") {
-			if blockedErr := nc.handle404Errors(err); blockedErr != nil {
-				err = blockedErr
-			}
+	if err != nil && !nc.disableCVSCheck && (nc.cmdName == "install" || nc.cmdName == "ci") {
+		if blockedErr := nc.handle404Errors(err); blockedErr != nil {
+			err = blockedErr
 		}
 	}
 	return
@@ -526,8 +545,21 @@ func (nc *NpmCommand) prepareBuildInfoModule() error {
 	return nil
 }
 
+func (nc *NpmCommand) dependencyCollectionArgs() []string {
+	npmArgs := nc.npmArgs
+	npmCommand := nc.cmdName
+	if nc.remediatedLockfile && nc.cmdName == "install" {
+		npmCommand = "ci"
+		npmArgs = stripNpmInstallOnlyArgs(npmArgs)
+	}
+	return append([]string{npmCommand}, npmArgs...)
+}
+
 func (nc *NpmCommand) collectDependencies() error {
-	nc.buildInfoModule.SetNpmArgs(append([]string{nc.cmdName}, nc.npmArgs...))
+	if nc.remediatedLockfile && nc.cmdName == "install" {
+		log.Info("Using npm ci after Zero Touch Remediation to install from the remediated lockfile")
+	}
+	nc.buildInfoModule.SetNpmArgs(nc.dependencyCollectionArgs())
 	return errorutils.CheckError(nc.buildInfoModule.Build())
 }
 
@@ -582,6 +614,33 @@ func filterFlags(splitArgs []string) []string {
 
 func (nc *NpmCommand) GetRepo() string {
 	return nc.repo
+}
+
+// validateFailOnMissingDeps validates that the --fail-on-missing-deps flag contains only valid values.
+// Valid values: "" (empty, default), "all", or comma-separated combination of "peer", "optional", "regular", "bundle"
+func validateFailOnMissingDeps(flagValue string) error {
+	if flagValue == "" {
+		return nil
+	}
+
+	validValues := map[string]bool{
+		"all":      true,
+		"peer":     true,
+		"optional": true,
+		"regular":  true,
+		"bundle":   true,
+	}
+
+	for _, val := range strings.Split(flagValue, ",") {
+		trimmed := strings.TrimSpace(val)
+		if !validValues[trimmed] {
+			return errorutils.CheckErrorf(
+				"invalid --fail-on-missing-deps value: '%s'. "+
+					"Valid values are: all, peer, optional, regular, bundle, or comma-separated combinations (e.g., peer,optional,bundle)",
+				trimmed)
+		}
+	}
+	return nil
 }
 
 // Creates an .npmrc file in the project's directory in order to configure the provided Artifactory server as a resolution server
