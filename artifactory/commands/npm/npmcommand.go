@@ -79,6 +79,10 @@ type NpmCommand struct {
 	restoreResolution func() error
 	// When true, skips the 404 error handling that checks if packages are blocked by curation
 	disableCVSCheck bool
+	// Granular strict-mode value for missing dependencies: "" (never fail, default), "all" (fail for
+	// every missing dependency type), or a comma-separated combination of "regular", "peer", "optional",
+	// "bundle" (e.g. "peer,optional,bundle") to fail only for the specified types.
+	failOnMissingDeps string
 }
 
 func NewNpmCommand(cmdName string, collectBuildInfo bool) *NpmCommand {
@@ -132,6 +136,15 @@ func (nc *NpmCommand) SetDisableCVSCheck(disable bool) *NpmCommand {
 	return nc
 }
 
+func (nc *NpmCommand) SetFailOnMissingDeps(fail string) *NpmCommand {
+	nc.failOnMissingDeps = fail
+	return nc
+}
+
+func (nc *NpmCommand) GetBuildInfoModule() *build.NpmModule {
+	return nc.buildInfoModule
+}
+
 func (nc *NpmCommand) Init() error {
 	if nc.configFilePath != "" {
 		log.Debug("Preparing to read the config file", nc.configFilePath)
@@ -168,8 +181,19 @@ func (nc *NpmCommand) Init() error {
 	if err != nil {
 		return err
 	}
+	// Extract --fail-on-missing-deps flag. Accepts a granular string value: "all", "" (default, never fail),
+	// or a comma-separated combination of "regular", "peer", "optional", "bundle".
+	filteredNpmArgs, failOnMissingDeps, err := coreutils.ExtractStringOptionFromArgs(filteredNpmArgs, "fail-on-missing-deps")
+	if err != nil {
+		return err
+	}
+	// Validate the fail-on-missing-deps flag value
+	if err := validateFailOnMissingDeps(failOnMissingDeps); err != nil {
+		return err
+	}
 	nc.SetArgs(filteredNpmArgs).SetBuildConfiguration(buildConfiguration)
 	nc.SetDisableCVSCheck(disableCVSCheck)
+	nc.SetFailOnMissingDeps(failOnMissingDeps)
 	return nil
 }
 
@@ -514,6 +538,7 @@ func (nc *NpmCommand) prepareBuildInfoModule() error {
 		return errorutils.CheckError(err)
 	}
 	nc.buildInfoModule.SetCollectBuildInfo(nc.collectBuildInfo)
+	nc.buildInfoModule.SetFailOnMissingDeps(nc.failOnMissingDeps)
 	if nc.buildConfiguration.GetModule() != "" {
 		nc.buildInfoModule.SetName(nc.buildConfiguration.GetModule())
 	}
@@ -589,6 +614,33 @@ func filterFlags(splitArgs []string) []string {
 
 func (nc *NpmCommand) GetRepo() string {
 	return nc.repo
+}
+
+// validateFailOnMissingDeps validates that the --fail-on-missing-deps flag contains only valid values.
+// Valid values: "" (empty, default), "all", or comma-separated combination of "peer", "optional", "regular", "bundle"
+func validateFailOnMissingDeps(flagValue string) error {
+	if flagValue == "" {
+		return nil
+	}
+
+	validValues := map[string]bool{
+		"all":      true,
+		"peer":     true,
+		"optional": true,
+		"regular":  true,
+		"bundle":   true,
+	}
+
+	for _, val := range strings.Split(flagValue, ",") {
+		trimmed := strings.TrimSpace(val)
+		if !validValues[trimmed] {
+			return errorutils.CheckErrorf(
+				"invalid --fail-on-missing-deps value: '%s'. "+
+					"Valid values are: all, peer, optional, regular, bundle, or comma-separated combinations (e.g., peer,optional,bundle)",
+				trimmed)
+		}
+	}
+	return nil
 }
 
 // Creates an .npmrc file in the project's directory in order to configure the provided Artifactory server as a resolution server

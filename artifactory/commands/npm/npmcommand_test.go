@@ -329,3 +329,4 @@ func TestHandle404ErrorsFallsBackToGetWhenNoNpmNoticeHeader(t *testing.T) {
 	assert.Contains(t, err.Error(), "lodash@4.17.21")
 	assert.Contains(t, err.Error(), expectedBody)
 }
+
