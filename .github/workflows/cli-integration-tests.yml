@@ -103,6 +103,10 @@ jobs:
           RTLIC: ${{ secrets.RTLIC }}
           RT_CONNECTION_TIMEOUT_SECONDS: '1200'
 
+      - name: Mask local Artifactory admin token
+        shell: bash
+        run: echo "::add-mask::$JFROG_TESTS_LOCAL_ACCESS_TOKEN"
+
       - name: Run Artifactory tests
         if: matrix.suite == 'artifactory'
         working-directory: jfrog-cli
@@ -230,6 +234,10 @@ jobs:
           RTLIC: ${{ secrets.RTLIC }}
           RT_CONNECTION_TIMEOUT_SECONDS: '1200'
 
+      - name: Mask local Artifactory admin token
+        shell: bash
+        run: echo "::add-mask::$JFROG_TESTS_LOCAL_ACCESS_TOKEN"
+
       - name: Run NuGet tests
         working-directory: jfrog-cli
         run: go test -v github.com/jfrog/jfrog-cli --timeout 0 --test.nuget
@@ -284,6 +292,10 @@ jobs:
         with:
           RTLIC: ${{ secrets.RTLIC }}
           RT_CONNECTION_TIMEOUT_SECONDS: '1200'
+
+      - name: Mask local Artifactory admin token
+        shell: bash
+        run: echo "::add-mask::$JFROG_TESTS_LOCAL_ACCESS_TOKEN"
 
       - name: Run npm tests
         working-directory: jfrog-cli
@@ -353,6 +365,10 @@ jobs:
           RTLIC: ${{ secrets.RTLIC }}
           RT_CONNECTION_TIMEOUT_SECONDS: '1200'
 
+      - name: Mask local Artifactory admin token
+        shell: bash
+        run: echo "::add-mask::$JFROG_TESTS_LOCAL_ACCESS_TOKEN"
+
       - name: Run pnpm tests
         working-directory: jfrog-cli
         env:
@@ -409,6 +425,10 @@ jobs:
         with:
           RTLIC: ${{ secrets.RTLIC }}
           RT_CONNECTION_TIMEOUT_SECONDS: '1200'
+
+      - name: Mask local Artifactory admin token
+        shell: bash
+        run: echo "::add-mask::$JFROG_TESTS_LOCAL_ACCESS_TOKEN"
 
       - name: Run Maven tests
         working-directory: jfrog-cli
@@ -473,6 +493,10 @@ jobs:
           RTLIC: ${{ secrets.RTLIC }}
           RT_CONNECTION_TIMEOUT_SECONDS: '1200'
 
+      - name: Mask local Artifactory admin token
+        shell: bash
+        run: echo "::add-mask::$JFROG_TESTS_LOCAL_ACCESS_TOKEN"
+
       - name: Run Gradle tests
         working-directory: jfrog-cli
         run: go test -v github.com/jfrog/jfrog-cli --timeout 0 --test.gradle
@@ -528,6 +552,10 @@ jobs:
           RTLIC: ${{ secrets.RTLIC }}
           RT_CONNECTION_TIMEOUT_SECONDS: '1200'
 
+      - name: Mask local Artifactory admin token
+        shell: bash
+        run: echo "::add-mask::$JFROG_TESTS_LOCAL_ACCESS_TOKEN"
+
       - name: Run Conan tests
         working-directory: jfrog-cli
         run: go test -v github.com/jfrog/jfrog-cli --timeout 0 --test.conan
@@ -582,6 +610,10 @@ jobs:
         with:
           RTLIC: ${{ secrets.RTLIC }}
           RT_CONNECTION_TIMEOUT_SECONDS: '1200'
+
+      - name: Mask local Artifactory admin token
+        shell: bash
+        run: echo "::add-mask::$JFROG_TESTS_LOCAL_ACCESS_TOKEN"
 
       - name: Run Helm tests
         working-directory: jfrog-cli
@@ -772,6 +804,10 @@ jobs:
           RTLIC: ${{ secrets.RTLIC }}
           RT_CONNECTION_TIMEOUT_SECONDS: '1200'
 
+      - name: Mask local Artifactory admin token
+        shell: bash
+        run: echo "::add-mask::$JFROG_TESTS_LOCAL_ACCESS_TOKEN"
+
       - name: Run Python tests
         working-directory: jfrog-cli
         run: go test -v github.com/jfrog/jfrog-cli --timeout 0 --test.${{ matrix.suite }}
@@ -821,6 +857,10 @@ jobs:
         with:
           RTLIC: ${{ secrets.RTLIC }}
           RT_CONNECTION_TIMEOUT_SECONDS: '1200'
+
+      - name: Mask local Artifactory admin token
+        shell: bash
+        run: echo "::add-mask::$JFROG_TESTS_LOCAL_ACCESS_TOKEN"
 
       - name: Run Lifecycle tests
         working-directory: jfrog-cli
