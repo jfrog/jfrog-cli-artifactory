@@ -10,6 +10,7 @@ import (
 
 	dotnetutils "github.com/jfrog/build-info-go/build/utils/dotnet"
 	"github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -257,4 +258,132 @@ func TestAppendSiblingSymbolPackages(t *testing.T) {
 			assert.Equal(t, tc.expected, appendSiblingSymbolPackages(tc.input))
 		})
 	}
+}
+
+// TestShouldPushViaNativeClient pins which pushes the dotnet CLI performs itself. FlexPack's
+// contract is that the native tool does the work and jf only observes it, so a dotnet push
+// with a JFrog source to build must not be taken over by the Artifactory upload bypass.
+func TestShouldPushViaNativeClient(t *testing.T) {
+	server := &config.ServerDetails{Url: "https://acme.jfrog.io/"}
+
+	newCmd := func(toolchain dotnetutils.ToolchainType, sub string, srv *config.ServerDetails, repo string, args []string) *NuGetFlexPackCommand {
+		return &NuGetFlexPackCommand{
+			toolchainType: toolchain,
+			subCommand:    sub,
+			serverDetails: srv,
+			repoDeploy:    repo,
+			args:          args,
+		}
+	}
+
+	// Both toolchains upload through their own client. Each authenticates against Artifactory
+	// from the temp nuget.config's <packageSourceCredentials> and finds its target via
+	// defaultPushSource, so neither needs jf to upload on its behalf.
+	t.Run("dotnet nuget push is handled natively", func(t *testing.T) {
+		cmd := newCmd(dotnetutils.DotnetCore, "nuget push", server, "nuget-local", []string{"pkg.nupkg"})
+		assert.True(t, cmd.shouldPushViaNativeClient())
+	})
+
+	t.Run("nuget.exe push is handled natively", func(t *testing.T) {
+		cmd := newCmd(dotnetutils.Nuget, "push", server, "nuget-local", []string{"pkg.nupkg"})
+		assert.True(t, cmd.shouldPushViaNativeClient())
+	})
+
+	// A user-supplied source/api-key is an explicit choice and must win untouched.
+	t.Run("user auth override is respected", func(t *testing.T) {
+		for _, override := range [][]string{
+			{"pkg.nupkg", "--source", "mine"},
+			{"pkg.nupkg", "--api-key", "abc"},
+			{"pkg.nupkg", "-s", "mine"},
+			{"pkg.nupkg", "--source=mine"},
+		} {
+			cmd := newCmd(dotnetutils.DotnetCore, "nuget push", server, "nuget-local", override)
+			assert.False(t, cmd.shouldPushViaNativeClient(), "args: %v", override)
+		}
+	})
+
+	t.Run("non-push subcommands are unaffected", func(t *testing.T) {
+		for _, sub := range []string{"restore", "pack", "build", "publish"} {
+			cmd := newCmd(dotnetutils.DotnetCore, sub, server, "nuget-local", []string{"App.csproj"})
+			assert.False(t, cmd.shouldPushViaNativeClient(), "subcommand: %s", sub)
+		}
+	})
+
+	// Without a server or deploy repo there is no source to inject, so the native tool runs
+	// on its own configuration and jf collects build-info only.
+	t.Run("missing server or repo falls through", func(t *testing.T) {
+		assert.False(t, newCmd(dotnetutils.DotnetCore, "nuget push", nil, "nuget-local", []string{"pkg.nupkg"}).shouldPushViaNativeClient())
+		assert.False(t, newCmd(dotnetutils.DotnetCore, "nuget push", server, "", []string{"pkg.nupkg"}).shouldPushViaNativeClient())
+	})
+}
+
+// TestCredentialEnvEntry pins the NuGet environment-variable credential format. Both
+// nuget.exe and the dotnet CLI read NuGetPackageSourceCredentials_<source> in the
+// "Username=<u>;Password=<p>" form, keyed by the source name declared in the config file.
+func TestCredentialEnvEntry(t *testing.T) {
+	t.Run("format matches what NuGet expects", func(t *testing.T) {
+		assert.Equal(t,
+			"NuGetPackageSourceCredentials_JFrog=Username=admin;Password=token123",
+			credentialEnvEntry("JFrog", "admin", "token123"))
+	})
+
+	// The key must carry the source name, since NuGet matches the variable to the source
+	// declared in the config; a mismatch silently yields an unauthenticated request (401).
+	t.Run("key is keyed by source name", func(t *testing.T) {
+		got := credentialEnvEntry("MyFeed", "u", "p")
+		assert.True(t, strings.HasPrefix(got, "NuGetPackageSourceCredentials_MyFeed="), got)
+	})
+
+	t.Run("access token as password is carried verbatim", func(t *testing.T) {
+		token := "eyJ2ZXIiOiIyIiwidHlwIjoiSldUIn0.abc-DEF_123"
+		got := credentialEnvEntry("JFrog", "bhanu", token)
+		assert.Contains(t, got, "Password="+token)
+	})
+}
+
+// TestTempConfigCarriesNoSecret is the regression guard for the change that moved credentials
+// out of the temp nuget.config: the file must declare the source but never a password, so a
+// crash that skips cleanup cannot leave a secret on disk.
+func TestTempConfigCarriesNoSecret(t *testing.T) {
+	cmd := NewNuGetFlexPackCommand().
+		SetToolchainType(dotnetutils.DotnetCore).
+		SetSubCommand("restore").
+		SetArgs([]string{"App.csproj"}).
+		SetServerDetails(&config.ServerDetails{
+			ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
+			User:           "admin",
+			Password:       "sup3rs3cr3t",
+		})
+
+	cleanup, err := cmd.injectCredentialsViaTempConfig("nuget-virtual")
+	require.NoError(t, err)
+	defer cleanup()
+
+	// Recover the temp config path from the flag jf appended.
+	var cfgPath string
+	for i, a := range cmd.args {
+		if a == "--configfile" && i+1 < len(cmd.args) {
+			cfgPath = cmd.args[i+1]
+		}
+	}
+	require.NotEmpty(t, cfgPath, "expected --configfile to be appended")
+
+	body, err := os.ReadFile(cfgPath)
+	require.NoError(t, err)
+	contents := string(body)
+
+	assert.NotContains(t, contents, "sup3rs3cr3t", "password must not be written to disk")
+	assert.NotContains(t, contents, "ClearTextPassword")
+	assert.NotContains(t, contents, "packageSourceCredentials")
+	assert.Contains(t, contents, "nuget-virtual", "source should still be declared")
+	assert.Contains(t, contents, "defaultPushSource")
+
+	// The secret travels in the environment instead.
+	assert.Contains(t, cmd.credentialEnv, "Password=sup3rs3cr3t")
+
+	// Cleanup must remove the file and clear the credential.
+	cleanup()
+	_, statErr := os.Stat(cfgPath)
+	assert.True(t, os.IsNotExist(statErr), "temp config should be removed")
+	assert.Empty(t, cmd.credentialEnv)
 }
