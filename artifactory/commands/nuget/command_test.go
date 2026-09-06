@@ -335,7 +335,7 @@ func TestCredentialEnvEntry(t *testing.T) {
 	})
 
 	t.Run("access token as password is carried verbatim", func(t *testing.T) {
-		token := "eyJ2ZXIiOiIyIiwidHlwIjoiSldUIn0.abc-DEF_123"
+		token := "eyJ2ZXIiOiIyIiwidHlwIjoiSldUIn0.abc-DEF_123" //#nosec G101 -- not a credential, a shaped literal asserting the token survives unaltered
 		got := credentialEnvEntry("JFrog", "bhanu", token)
 		assert.Contains(t, got, "Password="+token)
 	})
