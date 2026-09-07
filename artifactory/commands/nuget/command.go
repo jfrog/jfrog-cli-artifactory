@@ -297,7 +297,7 @@ func (c *NuGetFlexPackCommand) injectCredentialsViaTempConfig(repo string) (func
 		configFlag = "--configfile"
 	}
 	origArgs := c.args
-	c.args = append(c.args, configFlag, tmpFile.Name())
+	c.args = insertBeforeSeparator(c.args, configFlag, tmpFile.Name())
 
 	origCredentialEnv := c.credentialEnv
 	c.credentialEnv = credentialEnvEntry(sourceName, user, password)
@@ -307,6 +307,30 @@ func (c *NuGetFlexPackCommand) injectCredentialsViaTempConfig(repo string) (func
 		c.credentialEnv = origCredentialEnv
 		_ = os.Remove(tmpFile.Name())
 	}, nil
+}
+
+// insertBeforeSeparator places extra arguments ahead of a bare "--" in args, appending them at
+// the end when there is no separator.
+//
+// The dotnet CLI forwards everything after "--" to MSBuild, so appending blindly puts jf's own
+// --configfile on the wrong side of it and the restore dies on MSBuild's own parser:
+//
+//	MSBUILD : error MSB1001: Unknown switch.
+//	Switch: --configfile
+//
+// The flag belongs to the dotnet command itself, so it has to precede the separator. Only the
+// first "--" is meaningful; anything after it is the user's payload and is left untouched.
+func insertBeforeSeparator(args []string, extra ...string) []string {
+	for i, arg := range args {
+		if arg == "--" {
+			combined := make([]string, 0, len(args)+len(extra))
+			combined = append(combined, args[:i]...)
+			combined = append(combined, extra...)
+			combined = append(combined, args[i:]...)
+			return combined
+		}
+	}
+	return append(args, extra...)
 }
 
 // credentialEnvEntry builds the NuGet environment-variable credential entry for a package

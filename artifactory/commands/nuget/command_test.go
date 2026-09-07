@@ -387,3 +387,48 @@ func TestTempConfigCarriesNoSecret(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr), "temp config should be removed")
 	assert.Empty(t, cmd.credentialEnv)
 }
+
+// TestInsertBeforeSeparator pins where jf's injected --configfile lands relative to a user's
+// "--" separator. The dotnet CLI forwards everything after "--" to MSBuild, so an injected flag
+// on the wrong side of it reaches MSBuild's parser and fails the restore with MSB1001.
+func TestInsertBeforeSeparator(t *testing.T) {
+	t.Run("no separator appends at the end", func(t *testing.T) {
+		got := insertBeforeSeparator([]string{"App.sln", "--verbosity", "quiet"}, "--configfile", "/tmp/x")
+		assert.Equal(t, []string{"App.sln", "--verbosity", "quiet", "--configfile", "/tmp/x"}, got)
+	})
+
+	t.Run("separator receives the flag before it", func(t *testing.T) {
+		got := insertBeforeSeparator([]string{"App.sln", "--", "--verbosity", "minimal"}, "--configfile", "/tmp/x")
+		assert.Equal(t, []string{"App.sln", "--configfile", "/tmp/x", "--", "--verbosity", "minimal"}, got)
+	})
+
+	t.Run("only the first separator counts", func(t *testing.T) {
+		got := insertBeforeSeparator([]string{"App.sln", "--", "a", "--", "b"}, "--configfile", "/tmp/x")
+		assert.Equal(t, []string{"App.sln", "--configfile", "/tmp/x", "--", "a", "--", "b"}, got)
+	})
+
+	t.Run("leading separator still yields a valid command", func(t *testing.T) {
+		got := insertBeforeSeparator([]string{"--", "--verbosity", "minimal"}, "--configfile", "/tmp/x")
+		assert.Equal(t, []string{"--configfile", "/tmp/x", "--", "--verbosity", "minimal"}, got)
+	})
+
+	// A double-dashed flag is not a separator; only a bare "--" is.
+	t.Run("double-dashed flags are not separators", func(t *testing.T) {
+		got := insertBeforeSeparator([]string{"App.sln", "--no-restore"}, "--configfile", "/tmp/x")
+		assert.Equal(t, []string{"App.sln", "--no-restore", "--configfile", "/tmp/x"}, got)
+	})
+
+	t.Run("empty args", func(t *testing.T) {
+		assert.Equal(t, []string{"--configfile", "/tmp/x"},
+			insertBeforeSeparator(nil, "--configfile", "/tmp/x"))
+	})
+
+	// The caller restores c.args from a saved copy, so the input slice must not be aliased in a
+	// way that lets the insert leak back into it.
+	t.Run("does not mutate the input slice", func(t *testing.T) {
+		original := []string{"App.sln", "--", "--verbosity", "minimal"}
+		snapshot := append([]string(nil), original...)
+		_ = insertBeforeSeparator(original, "--configfile", "/tmp/x")
+		assert.Equal(t, snapshot, original, "input slice must be left untouched")
+	})
+}
