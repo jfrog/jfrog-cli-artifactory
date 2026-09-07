@@ -5,6 +5,8 @@ This module provides functionality to upload models and datasets to HuggingFace 
 using HfApi with configurable parameters.
 """
 
+import sys
+
 from huggingface_hub import HfApi
 
 
@@ -42,6 +44,18 @@ def upload(folder_path, repo_id, repo_type, revision, **kwargs):
         try:
             from huggingface_hub.errors import HfUriError
             if isinstance(e, HfUriError):
+                # Not silent: this is a real behavior change (an upload failure becomes a
+                # success), so anyone debugging a "phantom" success needs a trail. This is
+                # HfUriError specifically from parsing the upload response - printed to
+                # stderr, which the Go caller already streams through unmodified (see
+                # huggingFaceUpload.go's cmd.Stderr), so it won't affect the stdout JSON
+                # success/failure contract the caller actually parses.
+                print(
+                    f"jf hf upload: swallowed HfUriError while parsing the commit response for "
+                    f"'{repo_id}' - files were already uploaded successfully; only the response "
+                    f"URL failed to parse ({e})",
+                    file=sys.stderr,
+                )
                 return
         except ImportError:
             pass
