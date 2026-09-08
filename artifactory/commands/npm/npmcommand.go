@@ -85,8 +85,17 @@ func NewNpmCommand(cmdName string, collectBuildInfo bool) *NpmCommand {
 	return &NpmCommand{
 		cmdName:             cmdName,
 		collectBuildInfo:    collectBuildInfo,
-		internalCommandName: "rt_npm_" + cmdName,
+		internalCommandName: npmUsageName(cmdName),
 	}
+}
+
+// npmUsageName is rt_npm_<verb>. A missing verb (the common rt_npm_ lake name) is rt_npm.
+func npmUsageName(cmdName string) string {
+	verb := strings.TrimSpace(cmdName)
+	if verb == "" {
+		return "rt_npm"
+	}
+	return "rt_npm_" + verb
 }
 
 func NewNpmInstallCommand() *NpmCommand {
