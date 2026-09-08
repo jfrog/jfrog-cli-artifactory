@@ -1802,3 +1802,48 @@ func TestConfigureHelmUrlPathUsesArtifactoryUrl(t *testing.T) {
 	assert.Contains(t, string(got), "acme.jfrog.io")
 	assert.NotContains(t, string(got), "server URL is empty")
 }
+
+func newRepositoriesListServer(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/repositories" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, err := w.Write([]byte(body))
+		require.NoError(t, err)
+	}))
+}
+
+func TestPromptUserToSelectRepositoryFiltered_NonInteractiveNoRepos(t *testing.T) {
+	t.Setenv(coreutils.CI, "true")
+	server := newRepositoriesListServer(t, "[]")
+	defer server.Close()
+
+	cmd := NewSetupCommand(project.Npm)
+	cmd.serverDetails = &config.ServerDetails{ArtifactoryUrl: server.URL + "/"}
+	err := cmd.promptUserToSelectRepository()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--repo")
+	assert.Empty(t, cmd.repoName)
+}
+
+func TestPromptUserToSelectCargoRepositories_NonInteractiveSkipsPublish(t *testing.T) {
+	t.Setenv(coreutils.CI, "true")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/repositories", r.URL.Path)
+		assert.Equal(t, "remote", r.URL.Query().Get("type"))
+		assert.Equal(t, "cargo", r.URL.Query().Get("packageType"))
+		w.Header().Set("Content-Type", "application/json")
+		_, err := w.Write([]byte(`[{"key":"crates-remote"}]`))
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+
+	cmd := NewSetupCommand(project.Cargo)
+	cmd.serverDetails = &config.ServerDetails{ArtifactoryUrl: server.URL + "/"}
+	require.NoError(t, cmd.promptUserToSelectCargoRepositories())
+	assert.Equal(t, "crates-remote", cmd.repoName)
+	assert.Empty(t, cmd.deployRepoName)
+}
