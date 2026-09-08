@@ -519,6 +519,10 @@ func TestPnpmVersionValidation(t *testing.T) {
 	pnpm11 := version.NewVersion("11.0.0")
 	assert.LessOrEqual(t, pnpm11.Compare(minSupportedPnpmVersion), 0, "pnpm 11.0.0 should meet minimum")
 
+	// pnpm 12.x should also meet minimum (no upper bound)
+	pnpm12 := version.NewVersion("12.2.1")
+	assert.LessOrEqual(t, pnpm12.Compare(minSupportedPnpmVersion), 0, "pnpm 12.2.1 should meet minimum")
+
 	// Exact minimum should pass
 	exactPnpm := version.NewVersion(minSupportedPnpmVersion)
 	assert.Equal(t, 0, exactPnpm.Compare(minSupportedPnpmVersion), "exact minimum should pass")
