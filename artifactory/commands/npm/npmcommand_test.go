@@ -333,5 +333,8 @@ func TestNpmCommandName(t *testing.T) {
 	assert.Equal(t, "rt_npm_install", NewNpmCommand("install", true).CommandName())
 	assert.Equal(t, "rt_npm_install", NewNpmInstallCommand().CommandName())
 	assert.Equal(t, "rt_npm_ci", NewNpmCiCommand().CommandName())
+	assert.Equal(t, "rt_npm_c", NewNpmCommand("c", false).CommandName())
 	assert.Equal(t, "rt_npm_publish", NewNpmPublishCommand().CommandName())
+	assert.Equal(t, "rt_npm", NewNpmCommand("", false).CommandName())
+	assert.Equal(t, "rt_npm", NewNpmCommand("   ", false).CommandName())
 }
