@@ -85,7 +85,7 @@ func NewNpmCommand(cmdName string, collectBuildInfo bool) *NpmCommand {
 	return &NpmCommand{
 		cmdName:             cmdName,
 		collectBuildInfo:    collectBuildInfo,
-		internalCommandName: "rt_npm_" + cmdName,
+		internalCommandName: npmTelemetryCommandName(cmdName),
 	}
 }
 

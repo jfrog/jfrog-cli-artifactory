@@ -33,9 +33,10 @@ func NewHelmCommand() *HelmCommand {
 	return &HelmCommand{}
 }
 
-// CommandName returns the command name for this Helm command
+// CommandName is the Call Home / Visibility feature_id. The helm subprocess
+// still uses cmdName (see Run).
 func (hc *HelmCommand) CommandName() string {
-	return hc.cmdName
+	return helmTelemetryCommandName(hc.cmdName)
 }
 
 // SetHelmCmdName sets the Helm command name

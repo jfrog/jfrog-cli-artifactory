@@ -34,7 +34,7 @@ func TestHelmCommandSetters(t *testing.T) {
 	// Test SetHelmCmdName
 	cmd.SetHelmCmdName("push")
 	assert.Equal(t, "push", cmd.cmdName)
-	assert.Equal(t, "push", cmd.CommandName())
+	assert.Equal(t, "rt_helm_push", cmd.CommandName())
 
 	// Test SetHelmArgs
 	args := []string{"chart.tgz", "oci://example.com/repo"}
