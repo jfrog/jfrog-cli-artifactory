@@ -232,34 +232,6 @@ func TestIsPushCommand(t *testing.T) {
 	}
 }
 
-func TestAppendSiblingSymbolPackages(t *testing.T) {
-	dir := t.TempDir()
-	write := func(name string) string {
-		p := filepath.Join(dir, name)
-		require.NoError(t, os.WriteFile(p, []byte("pkg"), 0o600))
-		return p
-	}
-	nupkg := write("Foo.1.0.0.nupkg")
-	snupkg := write("Foo.1.0.0.snupkg")
-	lonely := write("Bar.2.0.0.nupkg")
-
-	tests := []struct {
-		name     string
-		input    []string
-		expected []string
-	}{
-		{name: "adds sibling snupkg", input: []string{nupkg}, expected: []string{nupkg, snupkg}},
-		{name: "no sibling on disk", input: []string{lonely}, expected: []string{lonely}},
-		{name: "does not duplicate an explicit snupkg", input: []string{nupkg, snupkg}, expected: []string{nupkg, snupkg}},
-		{name: "snupkg input is left alone", input: []string{snupkg}, expected: []string{snupkg}},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, appendSiblingSymbolPackages(tc.input))
-		})
-	}
-}
-
 // TestShouldPushViaNativeClient pins which pushes the dotnet CLI performs itself. FlexPack's
 // contract is that the native tool does the work and jf only observes it, so a dotnet push
 // with a JFrog source to build must not be taken over by the Artifactory upload bypass.

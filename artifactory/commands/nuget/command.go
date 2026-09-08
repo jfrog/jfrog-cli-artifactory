@@ -210,10 +210,7 @@ func (c *NuGetFlexPackCommand) Run() error {
 	case isRestoreCommand(c.subCommand):
 		return c.collectDependencies(buildName, buildNumber)
 	case isPushCommand(c.subCommand):
-		// nil: the native client performed the upload, so there are no pre-resolved paths to
-		// reuse. CollectPushArtifacts re-derives them from c.args, skipping flags and their
-		// values, which correctly ignores the --configfile jf injected.
-		return c.collectAndStampPushArtifacts(buildName, buildNumber, nil)
+		return c.collectAndStampPushArtifacts(buildName, buildNumber)
 	case isPackCommand(c.subCommand):
 		return c.collectPackArtifacts(buildName, buildNumber, packSnapshot, packOutputDir)
 	}
@@ -312,6 +309,10 @@ func (c *NuGetFlexPackCommand) injectCredentialsViaTempConfig(repo string) (func
 // insertBeforeSeparator places extra arguments ahead of a bare "--" in args, appending them at
 // the end when there is no separator.
 //
+// The ruby command package solves the identical problem in rubyAppendToolArgs
+// (commands/ruby/native_ruby.go) - gem forwards everything after "--" to the C extension
+// build the same way. Keep the two in step; they are a candidate for one shared helper.
+//
 // The dotnet CLI forwards everything after "--" to MSBuild, so appending blindly puts jf's own
 // --configfile on the wrong side of it and the restore dies on MSBuild's own parser:
 //
@@ -343,30 +344,6 @@ func insertBeforeSeparator(args []string, extra ...string) []string {
 // than eliminating it - but it is the mechanism NuGet documents for exactly this purpose.
 func credentialEnvEntry(sourceName, user, password string) string {
 	return fmt.Sprintf("NuGetPackageSourceCredentials_%s=Username=%s;Password=%s", sourceName, user, password)
-}
-
-// appendSiblingSymbolPackages returns packages plus the sibling .snupkg of every .nupkg that
-// has one on disk, preserving order and skipping any path already present.
-func appendSiblingSymbolPackages(packages []string) []string {
-	seen := make(map[string]bool, len(packages))
-	for _, p := range packages {
-		seen[p] = true
-	}
-	withSymbols := packages
-	for _, pkgPath := range packages {
-		if !strings.HasSuffix(strings.ToLower(pkgPath), ".nupkg") {
-			continue
-		}
-		snupkgPath := pkgPath[:len(pkgPath)-len(".nupkg")] + ".snupkg"
-		if seen[snupkgPath] {
-			continue
-		}
-		if _, statErr := os.Stat(snupkgPath); statErr == nil {
-			seen[snupkgPath] = true
-			withSymbols = append(withSymbols, snupkgPath)
-		}
-	}
-	return withSymbols
 }
 
 // searchWithRetry calls searchFn up to maxAttempts times with exponential backoff starting
@@ -439,10 +416,7 @@ func (c *NuGetFlexPackCommand) collectDependencies(buildName, buildNumber string
 // build properties on their exact Artifactory paths, and records them in local build-info.
 // The native push has already succeeded at this point, so it is never re-run; a stamping
 // failure is surfaced as an error without masking the push.
-//
-// resolvedPaths contains the absolute package paths already resolved by pushPackagesToArtifactory
-// (Artifactory bypass path). When nil (native-tool push path), paths are re-resolved from c.args.
-func (c *NuGetFlexPackCommand) collectAndStampPushArtifacts(buildName, buildNumber string, resolvedPaths []string) error {
+func (c *NuGetFlexPackCommand) collectAndStampPushArtifacts(buildName, buildNumber string) error {
 	log.Info(fmt.Sprintf("Collecting NuGet artifact info for %s/%s", buildName, buildNumber))
 	// Resolve the actual local repo so OriginalDeploymentRepo is always a local repo key.
 	// When the user pushes to a virtual repo, Artifactory routes to its defaultDeploymentRepo;
@@ -451,13 +425,9 @@ func (c *NuGetFlexPackCommand) collectAndStampPushArtifacts(buildName, buildNumb
 	if err != nil {
 		return fmt.Errorf("resolve deployment repo: %w", err)
 	}
-	// Use pre-resolved paths when available (Artifactory bypass) to avoid re-expanding globs.
-	// Pass them as pushArgs: resolvePushPackagePaths handles absolute literal paths correctly.
-	pushArgs := c.args
-	if len(resolvedPaths) > 0 {
-		pushArgs = resolvedPaths
-	}
-	artifacts, err := nugetflex.CollectPushArtifacts(c.workingDir, pushArgs, deployRepo)
+	// c.args is passed verbatim: CollectPushArtifacts needs the flags as well as the package
+	// paths, since -NoSymbols / --no-symbols decides whether a sibling .snupkg is recorded.
+	artifacts, err := nugetflex.CollectPushArtifacts(c.workingDir, c.args, deployRepo)
 	if err != nil {
 		return fmt.Errorf("collect pushed NuGet artifacts: %w", err)
 	}
@@ -536,10 +506,9 @@ func artifactPatterns(artifacts []entities.Artifact) []string {
 }
 
 // stampBuildProperties attaches build.name/build.number/build.timestamp to each uploaded
-// package at its exact, deterministic Artifactory path. Primary packages (.nupkg) are stored
-// flat at the repository root; symbol packages (.snupkg) are stored at
-// symbolpackage/<id>.<version>.nupkg. Both paths are captured in artifact.Path by
-// newArtifactFromFile. Fully-qualified patterns are used so no repository-wide scan is performed.
+// package at its exact Artifactory path, taken verbatim from artifact.Path - build-info-go's
+// newArtifactFromFile owns where a package lands, so no storage-layout knowledge is needed or
+// duplicated here. Fully-qualified patterns are used so no repository-wide scan is performed.
 func (c *NuGetFlexPackCommand) stampBuildProperties(artifacts []entities.Artifact, buildName, buildNumber string) error {
 	if c.serverDetails == nil || c.repoDeploy == "" {
 		// Anonymous push or no deploy repo: there is no JFrog target to stamp.
