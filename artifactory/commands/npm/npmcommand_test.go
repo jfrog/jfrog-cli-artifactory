@@ -328,3 +328,17 @@ func TestHandle404ErrorsFallsBackToGetWhenNoNpmNoticeHeader(t *testing.T) {
 	assert.Contains(t, err.Error(), "lodash@4.17.21")
 	assert.Contains(t, err.Error(), expectedBody)
 }
+
+func TestNpmCommandName(t *testing.T) {
+	cmd := NewNpmCommand("localhost:8083", false)
+	assert.Equal(t, "localhost:8083", cmd.cmdName)
+	assert.Equal(t, "rt_npm", cmd.CommandName())
+
+	install := NewNpmCommand("install", true)
+	assert.Equal(t, "install", install.cmdName)
+	assert.Equal(t, "rt_npm", install.CommandName())
+
+	assert.Equal(t, "rt_npm", NewNpmInstallCommand().CommandName())
+	assert.Equal(t, "rt_npm", NewNpmCiCommand().CommandName())
+	assert.Equal(t, "rt_npm_publish", NewNpmPublishCommand().CommandName())
+}
