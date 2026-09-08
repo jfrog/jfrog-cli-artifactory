@@ -16,6 +16,7 @@ func TestHelmTelemetryCommandName(t *testing.T) {
 		{"push", "rt_helm_push"},
 		{"pull", "rt_helm_pull"},
 		{"fetch", "rt_helm_pull"},
+		{"inspect", "rt_helm_show"},
 		{"install", "rt_helm_install"},
 		{"upgrade", "rt_helm_upgrade"},
 		{"uninstall", "rt_helm_uninstall"},

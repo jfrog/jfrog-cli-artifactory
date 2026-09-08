@@ -12,8 +12,9 @@ var canonicalNpmVerbs = map[string]string{
 	"access": "access", "add": "install", "adduser": "adduser", "audit": "audit",
 	"bugs": "bugs", "c": "config", "cache": "cache", "ci": "ci",
 	"cit": "install-ci-test", "clean-install": "ci", "completion": "completion",
-	"config": "config", "dedupe": "dedupe", "deprecate": "deprecate", "diff": "diff",
-	"dist-tag": "dist-tag", "docs": "docs", "doctor": "doctor", "exec": "exec",
+	"config": "config", "create": "init", "dedupe": "dedupe", "deprecate": "deprecate",
+	"diff": "diff", "dist-tag": "dist-tag", "dist-tags": "dist-tag", "docs": "docs",
+	"doctor": "doctor", "exec": "exec",
 	"explain": "explain", "explore": "explore", "find-dupes": "find-dupes",
 	"fund": "fund", "get": "get", "help": "help", "help-search": "help-search",
 	"hook": "hook", "i": "install", "info": "view", "init": "init",
@@ -31,7 +32,7 @@ var canonicalNpmVerbs = map[string]string{
 	"tst": "test", "un": "uninstall", "undeprecate": "undeprecate",
 	"uninstall": "uninstall", "unpublish": "unpublish", "unstar": "unstar",
 	"up": "update", "update": "update", "version": "version", "view": "view",
-	"whoami": "whoami",
+	"whoami": "whoami", "x": "exec",
 }
 
 // npmTelemetryCommandName is the feature_id sent to Call Home and Visibility.

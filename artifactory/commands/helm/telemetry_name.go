@@ -10,7 +10,8 @@ const helmTelemetryPrefix = "rt_helm"
 var canonicalHelmVerbs = map[string]string{
 	"completion": "completion", "create": "create", "dependency": "dependency",
 	"dep": "dependency", "env": "env", "fetch": "pull", "get": "get",
-	"hist": "history", "history": "history", "install": "install", "lint": "lint",
+	"hist": "history", "history": "history", "inspect": "show", "install": "install",
+	"lint": "lint",
 	"list": "list", "ls": "list", "package": "package", "plugin": "plugin",
 	"pull": "pull", "push": "push", "registry": "registry", "repo": "repo",
 	"rollback": "rollback",
