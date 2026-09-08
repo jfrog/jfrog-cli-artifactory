@@ -385,6 +385,10 @@ func (sc *SetupCommand) promptUserToSelectRepositoryFiltered(repoType string) (e
 	}
 
 	// No matching repository was found — fall back to asking the user to type an existing name.
+	// In CI / non-TTY the interactive fallback would hang; require --repo instead.
+	if err := rejectNonInteractiveRepoPrompt(); err != nil {
+		return err
+	}
 	if repoType != "" {
 		log.Info(fmt.Sprintf("No %s %s repository was found.", repoType, repoFilterParams.PackageType))
 	} else {
@@ -429,6 +433,9 @@ func (sc *SetupCommand) promptUserToSelectCargoRepositories() error {
 		if !strings.Contains(err.Error(), noMatchingRepositoriesErrSubstring) {
 			return err
 		}
+		if err := rejectNonInteractiveRepoPrompt(); err != nil {
+			return err
+		}
 		log.Info(fmt.Sprintf("No remote %s repository was found.", packageType))
 		remote = ioutils.AskString("", "Please enter the name of an existing repository to resolve dependencies from", false, false)
 		serviceDetails, sErr := sc.serverDetails.CreateArtAuthConfig()
@@ -444,6 +451,12 @@ func (sc *SetupCommand) promptUserToSelectCargoRepositories() error {
 	// Deployment repository — a local Cargo repo (publish target). Optional.
 	// Ask up-front so the user can skip publishing even when local repos exist —
 	// SelectRepositoryInteractively has no "none" entry and would otherwise force a choice.
+	// Optional publish prompt — default skip in CI / non-TTY so a single remote
+	// auto-select cannot hang the command waiting for stdin.
+	if isNonInteractiveSetup() {
+		log.Info("Skipping publish configuration in non-interactive mode; configuring resolution only.")
+		return nil
+	}
 	if !coreutils.AskYesNo("Configure a local repository for publishing crates?", false) {
 		log.Info("Skipping publish configuration; configuring resolution only.")
 		return nil
@@ -460,6 +473,17 @@ func (sc *SetupCommand) promptUserToSelectCargoRepositories() error {
 		return nil
 	}
 	sc.deployRepoName = local
+	return nil
+}
+
+func isNonInteractiveSetup() bool {
+	return !log.IsStdOutTerminal() || strings.ToLower(os.Getenv(coreutils.CI)) == "true"
+}
+
+func rejectNonInteractiveRepoPrompt() error {
+	if isNonInteractiveSetup() {
+		return errorutils.CheckErrorf("please provide the repository name using '--repo' flag")
+	}
 	return nil
 }
 
@@ -844,8 +868,8 @@ func (sc *SetupCommand) configureContainer() error {
 	return nil
 }
 
-// deriveContainerRegistryHost returns the docker/podman registry hostname
-// (no scheme, no path) for `docker login` / `podman login`.
+// deriveContainerRegistryHost returns the docker/podman/helm registry hostname
+// (no scheme, no path) for `docker login` / `podman login` / `helm registry login`.
 //
 // createServerDetailsFromFlags (jfrog-cli/utils/cliutils/utils.go) clears the
 // platform Url for the Rt domain after copying it into ArtifactoryUrl, so on
@@ -1215,15 +1239,14 @@ func reorderGemrcSources(sources []string, sourceURL string) []string {
 //
 //	helm registry login <registry-url> --username <user> --password-stdin
 //
-// If anonymous access is enabled for the repository, no login is performed.
+// Credentials are required. Anonymous helm setup is not supported.
 func (sc *SetupCommand) configureHelm() error {
-	// Parse the URL to get the registry domain without scheme or path
-	parsedURL, err := url.Parse(sc.serverDetails.GetUrl())
+	// Same --url vs --server-id split as docker/podman (RTECO-1352): GetUrl() is
+	// empty on the --url path after flags copy the host into ArtifactoryUrl.
+	registryURL, err := deriveContainerRegistryHost(sc.serverDetails.GetArtifactoryUrl(), sc.serverDetails.GetUrl())
 	if err != nil {
 		return err
 	}
-	// Use just the hostname part for OCI registry
-	registryURL := parsedURL.Host
 
 	// Prepare credentials
 	user := sc.serverDetails.GetUser()
@@ -1428,6 +1451,9 @@ func (sc *SetupCommand) resolveApkRepoType() (string, error) {
 
 // promptApkRepoType interactively asks the user whether they want a local, remote, or virtual repo.
 func promptApkRepoType() (string, error) {
+	if err := rejectNonInteractiveRepoPrompt(); err != nil {
+		return "", err
+	}
 	repoTypes := []string{
 		utils.Virtual.String(),
 		utils.Local.String(),

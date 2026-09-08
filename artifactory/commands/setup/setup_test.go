@@ -868,7 +868,7 @@ func TestSetupCommand_UV(t *testing.T) {
 }
 
 // TestDeriveContainerRegistryHost covers the URL-derivation logic for
-// `jf setup docker` / `jf setup podman`.
+// `jf setup docker` / `jf setup podman` / `jf setup helm`.
 //
 // The bug it guards against (RTECO-1352): createServerDetailsFromFlags in
 // jfrog-cli clears ServerDetails.Url for the Rt command domain after copying
@@ -1757,4 +1757,33 @@ func TestApkResolveCredentials_Anonymous(t *testing.T) {
 	username, password = apkResolveCredentials(nil)
 	assert.Empty(t, username)
 	assert.Empty(t, password)
+}
+
+func TestCommandName_SupportedPackageManagers(t *testing.T) {
+	for _, name := range GetSupportedPackageManagersList() {
+		pm := project.FromString(name)
+		assert.Equal(t, "setup_"+name, NewSetupCommand(pm).CommandName(), name)
+	}
+}
+
+func TestRejectNonInteractiveRepoPrompt_CI(t *testing.T) {
+	t.Setenv(coreutils.CI, "true")
+	err := rejectNonInteractiveRepoPrompt()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--repo")
+}
+
+func TestPromptApkRepoType_NonInteractive(t *testing.T) {
+	t.Setenv(coreutils.CI, "true")
+	_, err := promptApkRepoType()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--repo")
+}
+
+func TestConfigureHelmEmptyUrlsFailBeforeLogin(t *testing.T) {
+	cmd := NewSetupCommand(project.Helm)
+	cmd.serverDetails = &config.ServerDetails{User: "u", Password: "p"}
+	err := cmd.configureHelm()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "server URL is empty")
 }
