@@ -853,7 +853,7 @@ func (sc *SetupCommand) configureContainer() error {
 	default:
 		return errorutils.CheckErrorf("unsupported container manager: %s", sc.packageManager)
 	}
-	registryHost, err := deriveContainerRegistryHost(sc.serverDetails.GetArtifactoryUrl(), sc.serverDetails.GetUrl())
+	registryHost, err := deriveContainerRegistryHost(sc.serverDetails)
 	if err != nil {
 		return err
 	}
@@ -871,22 +871,17 @@ func (sc *SetupCommand) configureContainer() error {
 // deriveContainerRegistryHost returns the docker/podman/helm registry hostname
 // (no scheme, no path) for `docker login` / `podman login` / `helm registry login`.
 //
-// createServerDetailsFromFlags (jfrog-cli/utils/cliutils/utils.go) clears the
-// platform Url for the Rt domain after copying it into ArtifactoryUrl, so on
-// the --url path GetUrl() is empty and we must read GetArtifactoryUrl().
-// GetUrl() IS populated on the --server-id path (loaded from saved config),
-// so we fall back to it there. Returning an explicit error when both are
-// empty avoids the historical failure mode where `docker login ""` was
-// resolved by the daemon to Docker Hub and produced a misleading 401.
-func deriveContainerRegistryHost(artifactoryUrl, platformUrl string) (string, error) {
-	rawUrl := artifactoryUrl
-	if rawUrl == "" {
-		rawUrl = platformUrl
-	}
-	if rawUrl == "" {
+// Setup receives ServerDetails from CreateArtifactoryDetailsByFlags, which
+// guarantees ArtifactoryUrl for both --url and --server-id. Accept the details
+// object here so callers cannot accidentally choose the platform URL instead.
+// Returning an explicit error avoids the historical failure mode where
+// `docker login ""` was resolved by the daemon to Docker Hub.
+func deriveContainerRegistryHost(serverDetails *config.ServerDetails) (string, error) {
+	if serverDetails == nil || serverDetails.GetArtifactoryUrl() == "" {
 		return "", errorutils.CheckErrorf("server URL is empty; provide --url or --server-id")
 	}
-	parsedUrl, err := url.Parse(rawUrl)
+	artifactoryUrl := serverDetails.GetArtifactoryUrl()
+	parsedUrl, err := url.Parse(artifactoryUrl)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse server URL: %w", err)
 	}
@@ -894,10 +889,10 @@ func deriveContainerRegistryHost(artifactoryUrl, platformUrl string) (string, er
 	// treats the whole string as Path with an empty Host. Surface a specific
 	// error so users know to add http:// or https://.
 	if parsedUrl.Scheme == "" {
-		return "", errorutils.CheckErrorf("server URL %q is missing a scheme; expected http:// or https://", rawUrl)
+		return "", errorutils.CheckErrorf("server URL %q is missing a scheme; expected http:// or https://", artifactoryUrl)
 	}
 	if parsedUrl.Host == "" {
-		return "", errorutils.CheckErrorf("server URL %q has no host component", rawUrl)
+		return "", errorutils.CheckErrorf("server URL %q has no host component", artifactoryUrl)
 	}
 	return parsedUrl.Host, nil
 }
@@ -1241,9 +1236,7 @@ func reorderGemrcSources(sources []string, sourceURL string) []string {
 //
 // Credentials are required. Anonymous helm setup is not supported.
 func (sc *SetupCommand) configureHelm() error {
-	// Same --url vs --server-id split as docker/podman (RTECO-1352): GetUrl() is
-	// empty on the --url path after flags copy the host into ArtifactoryUrl.
-	registryURL, err := deriveContainerRegistryHost(sc.serverDetails.GetArtifactoryUrl(), sc.serverDetails.GetUrl())
+	registryURL, err := deriveContainerRegistryHost(sc.serverDetails)
 	if err != nil {
 		return err
 	}

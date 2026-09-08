@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -887,17 +888,10 @@ func TestDeriveContainerRegistryHost(t *testing.T) {
 		{
 			name:           "--url path: ArtifactoryUrl populated, Url cleared",
 			artifactoryUrl: "https://acme.jfrog.io/artifactory/",
-			platformUrl:    "",
 			wantHost:       "acme.jfrog.io",
 		},
 		{
-			name:           "--server-id path: Url populated from saved config",
-			artifactoryUrl: "",
-			platformUrl:    "https://acme.jfrog.io/",
-			wantHost:       "acme.jfrog.io",
-		},
-		{
-			name:           "ArtifactoryUrl takes precedence when both are set",
+			name:           "platform URL cannot override the Artifactory URL",
 			artifactoryUrl: "https://acme.jfrog.io/artifactory/",
 			platformUrl:    "https://wrong.example.com/",
 			wantHost:       "acme.jfrog.io",
@@ -905,63 +899,57 @@ func TestDeriveContainerRegistryHost(t *testing.T) {
 		{
 			name:           "self-hosted with explicit port preserves port in host",
 			artifactoryUrl: "https://artifactory.acme.com:8082/artifactory/",
-			platformUrl:    "",
 			wantHost:       "artifactory.acme.com:8082",
 		},
 		{
 			name:           "http scheme is accepted",
 			artifactoryUrl: "http://localhost:8081/artifactory/",
-			platformUrl:    "",
 			wantHost:       "localhost:8081",
 		},
 		{
 			name:           "self-hosted IP over HTTP",
 			artifactoryUrl: "http://10.0.0.10/artifactory",
-			platformUrl:    "",
 			wantHost:       "10.0.0.10",
 		},
 		{
 			name:           "self-hosted IP with port",
 			artifactoryUrl: "http://192.168.1.100:8082/artifactory/",
-			platformUrl:    "",
 			wantHost:       "192.168.1.100:8082",
 		},
 		{
 			name:           "IPv6 host with port",
 			artifactoryUrl: "https://[::1]:8082/artifactory/",
-			platformUrl:    "",
 			wantHost:       "[::1]:8082",
 		},
 		{
 			name:           "subdomain registry method preserves full subdomain",
 			artifactoryUrl: "https://docker-virtual.acme.jfrog.io/",
-			platformUrl:    "",
 			wantHost:       "docker-virtual.acme.jfrog.io",
 		},
 		{
 			name: "URL with embedded credentials does not leak into host",
 			// #nosec G101 -- test fixture: verifies userinfo is stripped from URL, not a real credential
 			artifactoryUrl: "https://user:secret-token@acme.jfrog.io/artifactory/",
-			platformUrl:    "",
 			wantHost:       "acme.jfrog.io",
 		},
 		{
 			name:           "URL without scheme returns scheme-specific error",
 			artifactoryUrl: "acme.jfrog.io/artifactory/",
-			platformUrl:    "",
 			wantErrContain: "is missing a scheme",
 		},
 		{
-			name:           "both empty returns explicit error, not empty host",
-			artifactoryUrl: "",
-			platformUrl:    "",
+			name:           "platform URL is not accepted as an Artifactory URL fallback",
+			platformUrl:    "https://wrong.example.com/",
 			wantErrContain: "server URL is empty",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			host, err := deriveContainerRegistryHost(tc.artifactoryUrl, tc.platformUrl)
+			host, err := deriveContainerRegistryHost(&config.ServerDetails{
+				ArtifactoryUrl: tc.artifactoryUrl,
+				Url:            tc.platformUrl,
+			})
 			if tc.wantErrContain != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErrContain)
@@ -1786,4 +1774,31 @@ func TestConfigureHelmEmptyUrlsFailBeforeLogin(t *testing.T) {
 	err := cmd.configureHelm()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "server URL is empty")
+}
+
+// RTECO-1352 for helm: --url copies the host into ArtifactoryUrl and clears Url.
+// configureHelm must not treat that as an empty server and must login to the Artifactory host.
+func TestConfigureHelmUrlPathUsesArtifactoryUrl(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "helm-args.txt")
+	t.Setenv("HELM_ARGS_FILE", argsFile)
+	if runtime.GOOS == "windows" {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "helm.cmd"), []byte("@echo %* > %HELM_ARGS_FILE%\r\n"), 0755))
+	} else {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "helm"), []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$HELM_ARGS_FILE\"\ncat >/dev/null\n"), 0755))
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cmd := NewSetupCommand(project.Helm)
+	cmd.serverDetails = &config.ServerDetails{
+		ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
+		User:           "u",
+		Password:       "p",
+	}
+	require.NoError(t, cmd.configureHelm())
+
+	got, err := os.ReadFile(argsFile)
+	require.NoError(t, err)
+	assert.Contains(t, string(got), "acme.jfrog.io")
+	assert.NotContains(t, string(got), "server URL is empty")
 }
