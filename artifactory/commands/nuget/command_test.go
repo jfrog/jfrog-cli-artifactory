@@ -363,6 +363,49 @@ func TestTempConfigCarriesNoSecret(t *testing.T) {
 // TestInsertBeforeSeparator pins where jf's injected --configfile lands relative to a user's
 // "--" separator. The dotnet CLI forwards everything after "--" to MSBuild, so an injected flag
 // on the wrong side of it reaches MSBuild's parser and fails the restore with MSB1001.
+// TestPackTargetDirs pins the directories a pack command can write packages to. Without --output
+// each project writes to its own bin/<Configuration>, so packing a target below the working
+// directory produced nothing under <workingDir>/bin and build-info was persisted with no modules
+// while the command still reported success.
+func TestPackTargetDirs(t *testing.T) {
+	workingDir := t.TempDir()
+	nested := filepath.Join(workingDir, "src", "Lib")
+	require.NoError(t, os.MkdirAll(nested, 0o755))
+
+	for _, tc := range []struct {
+		name     string
+		args     []string
+		expected []string
+	}{
+		{"no target", []string{"--configuration", "Release"}, nil},
+		{"relative project", []string{filepath.Join("src", "Lib", "Lib.csproj")}, []string{nested}},
+		{"solution", []string{filepath.Join("src", "Lib", "App.sln")}, []string{nested}},
+		{"fsproj and vbproj", []string{"a.fsproj", "b.vbproj"}, []string{workingDir}},
+		{"nuspec", []string{"Pkg.nuspec"}, []string{workingDir}},
+		{"existing directory argument", []string{filepath.Join("src", "Lib")}, []string{nested}},
+		// A flag value that happens to look like a path must not be treated as a target.
+		{"flag value is not a target", []string{"--configuration", "Release", "x.csproj"}, []string{workingDir}},
+		// A non-existent, non-project positional is not a directory to snapshot.
+		{"unknown positional ignored", []string{"Release"}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, packTargetDirs(workingDir, tc.args))
+		})
+	}
+}
+
+// TestPerformsRestore pins which sub-commands need the Artifactory source declared. pack and
+// publish restore implicitly unless --no-restore is given, and both accept --configfile; omitting
+// them meant --repo-resolve was accepted and then silently dropped.
+func TestPerformsRestore(t *testing.T) {
+	for _, sub := range []string{"restore", "install", "update", "build", "add", "pack", "publish"} {
+		assert.True(t, performsRestore(sub), "%s restores and needs the source declared", sub)
+	}
+	for _, sub := range []string{"push", "nuget push", "locals", "list"} {
+		assert.False(t, performsRestore(sub), "%s does not restore", sub)
+	}
+}
+
 // TestUserConfigFileDetection pins that a config file the user supplied is recognised in every
 // spelling both clients accept, so jf steps aside instead of appending a second one. The dotnet
 // CLI rejects a duplicate --configfile outright, and nuget.exe silently honours only the last,

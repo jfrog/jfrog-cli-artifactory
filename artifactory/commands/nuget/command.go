@@ -158,12 +158,12 @@ func (c *NuGetFlexPackCommand) Run() error {
 			// packageSourceCredentials they declared for their other private feeds. Step aside
 			// and say so, the same way an explicit -Source/-ApiKey suppresses injection.
 			log.Warn(fmt.Sprintf("A NuGet config file was supplied on the command line, so %q is being used as-is and no credentials are injected for repository %q. Remove the config file flag to let JFrog CLI configure the source, or add the Artifactory source to that file yourself.", userConfigFilePath(c.args), repo))
-		} else if repo != "" && isRestoreCommand(c.subCommand) && !c.acceptsConfigFile() {
+		} else if repo != "" && performsRestore(c.subCommand) && !c.acceptsConfigFile() {
 			// The subcommand restores packages but has no config-file option to inject into.
 			// Say so rather than letting --repo-resolve look effective: the restore will go to
 			// whatever sources the user's own configuration names.
 			log.Warn(fmt.Sprintf("'%s %s' does not accept a NuGet config file, so --repo-resolve=%s cannot be applied and packages will resolve from your configured sources. Run 'jf %s restore --repo-resolve=%s' first, or pass the source explicitly.", c.toolchainType, c.subCommand, repo, c.toolchainType, repo))
-		} else if repo != "" && (isRestoreCommand(c.subCommand) || pushViaNativeClient) {
+		} else if repo != "" && (performsRestore(c.subCommand) || pushViaNativeClient) {
 			// Inject credentials via a temp nuget.config for restore-family commands and for
 			// pushes the native client performs. Both nuget.exe and dotnet CLI use
 			// -ConfigFile / --configfile so credentials are never embedded in the process argv
@@ -190,6 +190,12 @@ func (c *NuGetFlexPackCommand) Run() error {
 		if packOutputDir != "" {
 			extraDirs = append(extraDirs, packOutputDir)
 		}
+		// Without --output, each project writes to its OWN bin/<Configuration>. When the target
+		// lives below the working directory - "pack src/Lib/Lib.csproj", or any .sln whose
+		// projects sit in sub-directories - none of that is under <workingDir>/bin, so nothing
+		// would be collected and build-info would be persisted with no modules at all, while the
+		// command still reported success. Snapshot the target's own directory too.
+		extraDirs = append(extraDirs, packTargetDirs(c.workingDir, c.args)...)
 		var snapErr error
 		packSnapshot, snapErr = nugetflex.SnapshotPackageFiles(c.workingDir, extraDirs...)
 		if snapErr != nil {
@@ -717,6 +723,69 @@ func restoreOptionTakesValue(arg string) bool {
 
 // hasSlnxTarget returns true if any positional arg is a .slnx file. Used to detect SDK-only
 // solution formats before passing them to nuget.exe, which has no .slnx parser.
+// performsRestore reports whether the subcommand downloads packages and therefore needs the
+// Artifactory source declared.
+//
+// It is wider than isRestoreCommand: "pack" and "publish" restore implicitly unless --no-restore
+// is passed, and both accept -ConfigFile/--configfile, which steers that restore (verified
+// against SDK 10.0.302 - a config naming an unreachable source makes both fail in NuGet.targets).
+// Leaving them out meant --repo-resolve was accepted, stripped from argv and then silently
+// dropped, so the implicit restore went to whatever sources the user's own configuration named,
+// typically nuget.org - no curation, no audit trail, no warning. Injecting for a command that
+// turns out not to restore is harmless: the config file is simply unused.
+func performsRestore(sub string) bool {
+	return isRestoreCommand(sub) || isPackCommand(sub) || sub == "publish"
+}
+
+// packTargetSuffixes are the positional targets a pack command accepts. A directory argument is
+// covered by the generic non-flag branch in packTargetDirs.
+var packTargetSuffixes = []string{".csproj", ".fsproj", ".vbproj", ".sln", ".slnx", ".nuspec"}
+
+// packTargetDirs returns the directories that hold the project or solution being packed, resolved
+// against workingDir. Without an explicit --output every project writes to its own
+// bin/<Configuration>, so these are where produced packages appear.
+func packTargetDirs(workingDir string, args []string) []string {
+	var dirs []string
+	seen := map[string]bool{}
+	skipNext := false
+	for _, arg := range args {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			if !strings.Contains(arg, "=") {
+				skipNext = true
+			}
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(arg))
+		isTarget := false
+		for _, suffix := range packTargetSuffixes {
+			if ext == suffix {
+				isTarget = true
+				break
+			}
+		}
+		candidate := arg
+		if !filepath.IsAbs(candidate) {
+			candidate = filepath.Join(workingDir, candidate)
+		}
+		dir := candidate
+		if isTarget {
+			dir = filepath.Dir(candidate)
+		} else if info, err := os.Stat(candidate); err != nil || !info.IsDir() {
+			// Neither a recognised project/solution file nor an existing directory.
+			continue
+		}
+		if !seen[dir] {
+			seen[dir] = true
+			dirs = append(dirs, dir)
+		}
+	}
+	return dirs
+}
+
 func hasSlnxTarget(args []string) bool {
 	for _, arg := range args {
 		if strings.EqualFold(filepath.Ext(arg), ".slnx") {
