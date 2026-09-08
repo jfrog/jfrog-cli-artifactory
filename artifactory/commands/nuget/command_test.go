@@ -363,6 +363,35 @@ func TestTempConfigCarriesNoSecret(t *testing.T) {
 // TestInsertBeforeSeparator pins where jf's injected --configfile lands relative to a user's
 // "--" separator. The dotnet CLI forwards everything after "--" to MSBuild, so an injected flag
 // on the wrong side of it reaches MSBuild's parser and fails the restore with MSB1001.
+// TestUserConfigFileDetection pins that a config file the user supplied is recognised in every
+// spelling both clients accept, so jf steps aside instead of appending a second one. The dotnet
+// CLI rejects a duplicate --configfile outright, and nuget.exe silently honours only the last,
+// discarding the user's own sources and packageSourceCredentials.
+func TestUserConfigFileDetection(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		args     []string
+		expected string
+	}{
+		{"none", []string{"restore", "App.sln", "--no-restore"}, ""},
+		{"dotnet space form", []string{"restore", "--configfile", "corp.config"}, "corp.config"},
+		{"dotnet inline form", []string{"restore", "--configfile=corp.config"}, "corp.config"},
+		{"nuget space form", []string{"restore", "-ConfigFile", "corp.config"}, "corp.config"},
+		{"nuget inline form", []string{"restore", "-ConfigFile=corp.config"}, "corp.config"},
+		{"case insensitive", []string{"restore", "-CONFIGFILE", "corp.config"}, "corp.config"},
+		// A trailing flag with no value is still the user asking for their own file; report the
+		// flag rather than silently treating it as absent and injecting a second one.
+		{"flag with no value", []string{"restore", "--configfile"}, "--configfile"},
+		// Must not be confused with a different flag that merely starts the same way.
+		{"similar flag is not a match", []string{"restore", "--configfile-ish", "x"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, userConfigFilePath(tc.args))
+			assert.Equal(t, tc.expected != "", hasUserConfigFile(tc.args))
+		})
+	}
+}
+
 func TestInsertBeforeSeparator(t *testing.T) {
 	t.Run("no separator appends at the end", func(t *testing.T) {
 		got := insertBeforeSeparator([]string{"App.sln", "--verbosity", "quiet"}, "--configfile", "/tmp/x")

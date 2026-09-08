@@ -137,12 +137,33 @@ func (c *NuGetFlexPackCommand) Run() error {
 	// Inject credentials per NuGet's credential priority hierarchy so no nuget.config is
 	// created or modified. Customers who manage their own credentials simply omit
 	// --repo-resolve/--repo; FlexPack then skips injection and collects build-info only.
-	if c.serverDetails != nil {
-		repo := c.repoResolve
-		if isPushCommand(c.subCommand) {
-			repo = c.repoDeploy
-		}
-		if repo != "" && (isRestoreCommand(c.subCommand) || pushViaNativeClient) {
+	// A configured server means one with a URL, not merely a non-nil struct: when nothing is
+	// configured, GetSpecificConfig hands back an empty *ServerDetails and a nil error, and an
+	// empty ArtifactoryUrl turns the source into the relative path "api/nuget/v3/<repo>/index.json"
+	// that NuGet then reports as a missing LOCAL folder ("NU1301: The local source ... doesn't
+	// exist"), never naming the real problem.
+	repo := c.repoResolve
+	if isPushCommand(c.subCommand) {
+		repo = c.repoDeploy
+	}
+	if repo != "" && (c.serverDetails == nil || c.serverDetails.ArtifactoryUrl == "") {
+		return fmt.Errorf("a repository was requested (%q) but no JFrog server is configured; run 'jf c add' or pass --server-id", repo)
+	}
+	if c.serverDetails != nil && c.serverDetails.ArtifactoryUrl != "" {
+		if repo != "" && hasUserConfigFile(c.args) {
+			// The user brought their own config file. Injecting a second -ConfigFile/--configfile
+			// is not additive: the dotnet CLI rejects the duplicate outright ("Option
+			// '--configfile' expects a single argument but 2 were provided"), and nuget.exe
+			// silently honours only the last one, discarding the user's sources and any
+			// packageSourceCredentials they declared for their other private feeds. Step aside
+			// and say so, the same way an explicit -Source/-ApiKey suppresses injection.
+			log.Warn(fmt.Sprintf("A NuGet config file was supplied on the command line, so %q is being used as-is and no credentials are injected for repository %q. Remove the config file flag to let JFrog CLI configure the source, or add the Artifactory source to that file yourself.", userConfigFilePath(c.args), repo))
+		} else if repo != "" && isRestoreCommand(c.subCommand) && !c.acceptsConfigFile() {
+			// The subcommand restores packages but has no config-file option to inject into.
+			// Say so rather than letting --repo-resolve look effective: the restore will go to
+			// whatever sources the user's own configuration names.
+			log.Warn(fmt.Sprintf("'%s %s' does not accept a NuGet config file, so --repo-resolve=%s cannot be applied and packages will resolve from your configured sources. Run 'jf %s restore --repo-resolve=%s' first, or pass the source explicitly.", c.toolchainType, c.subCommand, repo, c.toolchainType, repo))
+		} else if repo != "" && (isRestoreCommand(c.subCommand) || pushViaNativeClient) {
 			// Inject credentials via a temp nuget.config for restore-family commands and for
 			// pushes the native client performs. Both nuget.exe and dotnet CLI use
 			// -ConfigFile / --configfile so credentials are never embedded in the process argv
@@ -297,7 +318,13 @@ func (c *NuGetFlexPackCommand) injectCredentialsViaTempConfig(repo string) (func
 	c.args = insertBeforeSeparator(c.args, configFlag, tmpFile.Name())
 
 	origCredentialEnv := c.credentialEnv
-	c.credentialEnv = credentialEnvEntry(sourceName, user, password)
+	// Only pass credentials when there are credentials. With both empty the entry would be
+	// "Username=;Password=", which NuGet sends as an empty Basic header rather than omitting
+	// authentication - turning a working anonymous repository into a rejected request. The legacy
+	// config writer makes the same distinction.
+	if user != "" || password != "" {
+		c.credentialEnv = credentialEnvEntry(sourceName, user, password)
+	}
 
 	return func() {
 		c.args = origArgs
@@ -392,6 +419,37 @@ func hasNativeAuthOverride(args []string) bool {
 		}
 	}
 	return false
+}
+
+// configFileFlags are the spellings both clients accept for "read settings from this file":
+// nuget.exe uses -ConfigFile, the dotnet CLI --configfile. Matching is case-insensitive because
+// nuget.exe's own parser is.
+var configFileFlags = map[string]bool{"-configfile": true, "--configfile": true}
+
+// hasUserConfigFile reports whether the user already passed a NuGet config file, in either the
+// space-separated or the inline-equals form. Both clients take a single value for it, so jf must
+// not append another.
+func hasUserConfigFile(args []string) bool {
+	return userConfigFilePath(args) != ""
+}
+
+// userConfigFilePath returns the config file the user asked for, or "" if they did not. When the
+// flag is present with no value the flag itself is returned, which is enough for a warning.
+func userConfigFilePath(args []string) string {
+	for i, arg := range args {
+		flag, inlineValue, hasInline := strings.Cut(arg, "=")
+		if !configFileFlags[strings.ToLower(flag)] {
+			continue
+		}
+		if hasInline {
+			return inlineValue
+		}
+		if i+1 < len(args) {
+			return args[i+1]
+		}
+		return arg
+	}
+	return ""
 }
 
 func (c *NuGetFlexPackCommand) collectDependencies(buildName, buildNumber string) error {
@@ -669,6 +727,17 @@ func hasSlnxTarget(args []string) bool {
 }
 
 // isRestoreCommand returns true for commands that download packages (need dependency collection).
+// acceptsConfigFile reports whether the subcommand has a -ConfigFile/--configfile option to
+// inject into. "dotnet add package" restores, and so is in the restore family, but the SDK gives
+// it no config-file option at all - it takes -s/--source instead - so injecting one makes the
+// command fail with an unknown-option error. nuget.exe's own "add" does accept -ConfigFile.
+func (c *NuGetFlexPackCommand) acceptsConfigFile() bool {
+	if c.toolchainType == dotnetutils.DotnetCore && c.subCommand == "add" {
+		return false
+	}
+	return true
+}
+
 func isRestoreCommand(sub string) bool {
 	switch sub {
 	case "restore", "install", "update", "build", "add":
