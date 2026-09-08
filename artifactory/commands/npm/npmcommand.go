@@ -91,10 +91,11 @@ func NewNpmCommand(cmdName string, collectBuildInfo bool) *NpmCommand {
 
 // npmUsageName is rt_npm_<verb>. A missing verb (the common rt_npm_ lake name) is rt_npm.
 func npmUsageName(cmdName string) string {
-	if strings.TrimSpace(cmdName) == "" {
+	verb := strings.TrimSpace(cmdName)
+	if verb == "" {
 		return "rt_npm"
 	}
-	return "rt_npm_" + cmdName
+	return "rt_npm_" + verb
 }
 
 func NewNpmInstallCommand() *NpmCommand {
