@@ -149,8 +149,9 @@ func (c *NuGetFlexPackCommand) Run() error {
 	if repo != "" && (c.serverDetails == nil || c.serverDetails.ArtifactoryUrl == "") {
 		return fmt.Errorf("a repository was requested (%q) but no JFrog server is configured; run 'jf c add' or pass --server-id", repo)
 	}
-	if c.serverDetails != nil && c.serverDetails.ArtifactoryUrl != "" {
-		if repo != "" && hasUserConfigFile(c.args) {
+	if repo != "" && c.serverDetails != nil && c.serverDetails.ArtifactoryUrl != "" {
+		switch {
+		case hasUserConfigFile(c.args):
 			// The user brought their own config file. Injecting a second -ConfigFile/--configfile
 			// is not additive: the dotnet CLI rejects the duplicate outright ("Option
 			// '--configfile' expects a single argument but 2 were provided"), and nuget.exe
@@ -158,12 +159,12 @@ func (c *NuGetFlexPackCommand) Run() error {
 			// packageSourceCredentials they declared for their other private feeds. Step aside
 			// and say so, the same way an explicit -Source/-ApiKey suppresses injection.
 			log.Warn(fmt.Sprintf("A NuGet config file was supplied on the command line, so %q is being used as-is and no credentials are injected for repository %q. Remove the config file flag to let JFrog CLI configure the source, or add the Artifactory source to that file yourself.", userConfigFilePath(c.args), repo))
-		} else if repo != "" && performsRestore(c.subCommand) && !c.acceptsConfigFile() {
+		case performsRestore(c.subCommand) && !c.acceptsConfigFile():
 			// The subcommand restores packages but has no config-file option to inject into.
 			// Say so rather than letting --repo-resolve look effective: the restore will go to
 			// whatever sources the user's own configuration names.
 			log.Warn(fmt.Sprintf("'%s %s' does not accept a NuGet config file, so --repo-resolve=%s cannot be applied and packages will resolve from your configured sources. Run 'jf %s restore --repo-resolve=%s' first, or pass the source explicitly.", c.toolchainType, c.subCommand, repo, c.toolchainType, repo))
-		} else if repo != "" && (performsRestore(c.subCommand) || pushViaNativeClient) {
+		case performsRestore(c.subCommand) || pushViaNativeClient:
 			// Inject credentials via a temp nuget.config for restore-family commands and for
 			// pushes the native client performs. Both nuget.exe and dotnet CLI use
 			// -ConfigFile / --configfile so credentials are never embedded in the process argv
