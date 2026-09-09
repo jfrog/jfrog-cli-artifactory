@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -130,7 +131,7 @@ func (gc *GradleCommand) Run() error {
 	if err != nil {
 		return err
 	}
-	err = runGradle(vConfig, gc.tasks, gc.buildArtifactsDetailsFile, gc.configuration, gc.threads, gc.IsXrayScan())
+	err = runGradle(vConfig, gc.tasks, gc.buildArtifactsDetailsFile, gc.configuration, gc.threads, gc.IsXrayScan(), gc.includeSharedBuild)
 	if err != nil {
 		return err
 	}
@@ -201,8 +202,11 @@ func (gc *GradleCommand) runWithGradleNative() error {
 				return err
 			}
 
-			// Call FlexPack collection using the flexpack working directory
-			if err := flexpackgradle.CollectGradleBuildInfoWithFlexPack(flexpackWorkingDir, buildName, buildNumber, gc.tasks, gc.configuration, gc.serverDetails); err != nil {
+			// Call FlexPack collection using the flexpack working directory.
+			// RTECO-136: gc.includeSharedBuild is passed explicitly here because gc.tasks has
+			// already had --include-shared-build stripped out of it (see GradleCmd in
+			// jfrog-cli/buildtools/cli.go, which extracts the flag before it ever reaches gradle).
+			if err := flexpackgradle.CollectGradleBuildInfoWithFlexPack(flexpackWorkingDir, buildName, buildNumber, gc.tasks, gc.configuration, gc.serverDetails, gc.includeSharedBuild); err != nil {
 				log.Warn("Failed to collect Gradle build info with Flexpack:")
 			}
 		}
@@ -460,7 +464,7 @@ func parseUserHomeFromJavaOutput(output string) (string, error) {
 	return "", fmt.Errorf("user.home not found in java output")
 }
 
-func runGradle(vConfig *viper.Viper, tasks []string, deployableArtifactsFile string, configuration *build.BuildConfiguration, threads int, disableDeploy bool) error {
+func runGradle(vConfig *viper.Viper, tasks []string, deployableArtifactsFile string, configuration *build.BuildConfiguration, threads int, disableDeploy bool, includeSharedBuild bool) error {
 	buildInfoService := build.CreateBuildInfoService()
 	buildName, err := configuration.GetBuildName()
 	if err != nil {
@@ -478,7 +482,7 @@ func runGradle(vConfig *viper.Viper, tasks []string, deployableArtifactsFile str
 	if err != nil {
 		return errorutils.CheckError(err)
 	}
-	props, wrapper, plugin, err := createGradleRunConfig(vConfig, deployableArtifactsFile, threads, disableDeploy)
+	props, wrapper, plugin, err := createGradleRunConfig(vConfig, deployableArtifactsFile, threads, disableDeploy, includeSharedBuild)
 	if err != nil {
 		return err
 	}
@@ -498,7 +502,7 @@ func getGradleDependencyLocalPath() (string, error) {
 	return filepath.Join(dependenciesPath, "gradle"), nil
 }
 
-func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string, threads int, disableDeploy bool) (props map[string]string, wrapper, plugin bool, err error) {
+func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string, threads int, disableDeploy bool, includeSharedBuild bool) (props map[string]string, wrapper, plugin bool, err error) {
 	wrapper = vConfig.GetBool(useWrapper)
 	if threads > 0 {
 		vConfig.Set(build.ForkCount, threads)
@@ -519,6 +523,13 @@ func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string,
 	if err != nil {
 		return
 	}
+	// RTECO-136: Propagate the --include-shared-build flag to the Gradle extractor init script
+	// (build-info-go/build/init-gradle-extractor-5.gradle) as a Gradle project property.
+	// The extractor props map is passed to the gradle subprocess as environment variables
+	// (see build-info-go's gradleRunConfig.runCmd), and Gradle automatically exposes any
+	// ORG_GRADLE_PROJECT_<name> environment variable as the project property <name>,
+	// which the init script reads via gradle.startParameter.getProjectProperties().
+	props["ORG_GRADLE_PROJECT_includeSharedBuild"] = strconv.FormatBool(includeSharedBuild)
 	if deployableArtifactsFile != "" {
 		// Save the path to a temp file, where buildinfo project will write the deployable artifacts details.
 		props[build.DeployableArtifacts] = fmt.Sprint(vConfig.Get(build.DeployableArtifacts))
