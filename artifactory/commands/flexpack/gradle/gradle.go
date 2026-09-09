@@ -38,9 +38,14 @@ func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber strin
 		return fmt.Errorf("failed to resolve absolute path for working directory")
 	}
 	workingDir = absWorkingDir
+
+	// Extract --include-shared-build flag from tasks/arguments and remove it from tasks
+	filteredTasks, includeSharedBuild := extractIncludeSharedBuildFromTasks(tasks)
+
 	config := flexpack.GradleConfig{
 		WorkingDirectory:        workingDir,
 		IncludeTestDependencies: true,
+		IncludeSharedBuild:      includeSharedBuild,
 	}
 
 	gradleFlex, err := gradle.NewGradleFlexPack(config)
@@ -49,8 +54,9 @@ func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber strin
 		return fmt.Errorf("could not initialize Gradle FlexPack")
 	}
 
-	isPublishCommand := wasPublishCommand(tasks)
+	isPublishCommand := wasPublishCommand(filteredTasks)
 	gradleFlex.SetWasPublishCommand(isPublishCommand)
+	gradleFlex.SetIncludeSharedBuild(includeSharedBuild)
 
 	buildInfo, err := gradleFlex.CollectBuildInfo(buildName, buildNumber)
 	if err != nil {
@@ -430,4 +436,31 @@ func ValidateWorkingDirectory(workingDir string) error {
 		return fmt.Errorf("working directory is not a directory: %s", workingDir)
 	}
 	return nil
+}
+
+// extractIncludeSharedBuildFromTasks checks if --include-shared-build flag is present in the tasks/arguments
+// and removes it from the tasks array before passing to gradle
+// Supports both --include-shared-build and --include-shared-build=true/false forms
+func extractIncludeSharedBuildFromTasks(tasks []string) ([]string, bool) {
+	includeSharedBuild := false
+	var filteredTasks []string
+
+	for _, task := range tasks {
+		if task == "--include-shared-build" {
+			includeSharedBuild = true
+			// Skip this task (remove from args)
+			continue
+		}
+		if strings.HasPrefix(task, "--include-shared-build=") {
+			value := strings.TrimPrefix(task, "--include-shared-build=")
+			// Parse boolean value: "true", "1", etc. are true, everything else is false
+			includeSharedBuild = strings.ToLower(value) == "true" || value == "1"
+			// Skip this task (remove from args)
+			continue
+		}
+		// Keep all other tasks
+		filteredTasks = append(filteredTasks, task)
+	}
+
+	return filteredTasks, includeSharedBuild
 }
