@@ -25,7 +25,10 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, tasks []string, buildConfiguration *buildUtils.BuildConfiguration, serverDetails *config.ServerDetails) error {
+// RTECO-136: includeSharedBuild is passed explicitly by the caller (rather than parsed out of
+// tasks here) because by the time tasks reaches this function, jfrog-cli/buildtools/cli.go has
+// already stripped --include-shared-build out of it via coreutils.ExtractIncludeSharedBuildFromArgs.
+func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber string, tasks []string, buildConfiguration *buildUtils.BuildConfiguration, serverDetails *config.ServerDetails, includeSharedBuild bool) error {
 	if workingDir == "" {
 		return fmt.Errorf("working directory is required")
 	}
@@ -39,9 +42,6 @@ func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber strin
 	}
 	workingDir = absWorkingDir
 
-	// Extract --include-shared-build flag from tasks/arguments and remove it from tasks
-	filteredTasks, includeSharedBuild := extractIncludeSharedBuildFromTasks(tasks)
-
 	config := flexpack.GradleConfig{
 		WorkingDirectory:        workingDir,
 		IncludeTestDependencies: true,
@@ -54,7 +54,7 @@ func CollectGradleBuildInfoWithFlexPack(workingDir, buildName, buildNumber strin
 		return fmt.Errorf("could not initialize Gradle FlexPack")
 	}
 
-	isPublishCommand := wasPublishCommand(filteredTasks)
+	isPublishCommand := wasPublishCommand(tasks)
 	gradleFlex.SetWasPublishCommand(isPublishCommand)
 	gradleFlex.SetIncludeSharedBuild(includeSharedBuild)
 
@@ -438,29 +438,3 @@ func ValidateWorkingDirectory(workingDir string) error {
 	return nil
 }
 
-// extractIncludeSharedBuildFromTasks checks if --include-shared-build flag is present in the tasks/arguments
-// and removes it from the tasks array before passing to gradle
-// Supports both --include-shared-build and --include-shared-build=true/false forms
-func extractIncludeSharedBuildFromTasks(tasks []string) ([]string, bool) {
-	includeSharedBuild := false
-	var filteredTasks []string
-
-	for _, task := range tasks {
-		if task == "--include-shared-build" {
-			includeSharedBuild = true
-			// Skip this task (remove from args)
-			continue
-		}
-		if strings.HasPrefix(task, "--include-shared-build=") {
-			value := strings.TrimPrefix(task, "--include-shared-build=")
-			// Parse boolean value: "true", "1", etc. are true, everything else is false
-			includeSharedBuild = strings.ToLower(value) == "true" || value == "1"
-			// Skip this task (remove from args)
-			continue
-		}
-		// Keep all other tasks
-		filteredTasks = append(filteredTasks, task)
-	}
-
-	return filteredTasks, includeSharedBuild
-}
