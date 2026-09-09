@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,13 +16,12 @@ import (
 	buildinfoflex "github.com/jfrog/build-info-go/flexpack"
 	nugetflex "github.com/jfrog/build-info-go/flexpack/nuget"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	rtutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
-	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
-	specutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
@@ -40,6 +38,10 @@ type NuGetFlexPackCommand struct {
 	allowInsecureConnections bool
 	buildConfiguration       *buildUtils.BuildConfiguration
 	workingDir               string
+	// credentialEnv is the NuGetPackageSourceCredentials_<source> entry handed to the native
+	// client's environment. Empty when no credentials were injected. Set by
+	// injectCredentialsViaTempConfig and reset by its cleanup func.
+	credentialEnv string
 }
 
 // NewNuGetFlexPackCommand creates a new NuGetFlexPackCommand.
@@ -128,22 +130,48 @@ func (c *NuGetFlexPackCommand) Run() error {
 		return fmt.Errorf(".slnx solution files are not supported by nuget.exe; use 'jf dotnet restore' instead")
 	}
 
+	// Decide up front whether the native client performs the upload itself, so the decision is
+	// made against the user's own arguments before jf appends anything to them.
+	pushViaNativeClient := c.shouldPushViaNativeClient()
+
 	// Inject credentials per NuGet's credential priority hierarchy so no nuget.config is
 	// created or modified. Customers who manage their own credentials simply omit
 	// --repo-resolve/--repo; FlexPack then skips injection and collects build-info only.
-	if c.serverDetails != nil {
-		repo := c.repoResolve
-		if isPushCommand(c.subCommand) {
-			repo = c.repoDeploy
-		}
-		if repo != "" && isRestoreCommand(c.subCommand) {
-			// Inject credentials via a temp nuget.config for all restore-family commands.
-			// Both nuget.exe and dotnet CLI use -ConfigFile / --configfile so credentials
-			// are never embedded in the process argv (invisible to ps/proc); the flag style
-			// is selected inside injectCredentialsViaTempConfig based on toolchainType.
-			// Push, pack, and passthrough commands are excluded: push goes through
-			// pushPackagesToArtifactory (the shared upload service, which authenticates from
-			// the configured server details), and pack/passthrough are local-only.
+	// A configured server means one with a URL, not merely a non-nil struct: when nothing is
+	// configured, GetSpecificConfig hands back an empty *ServerDetails and a nil error, and an
+	// empty ArtifactoryUrl turns the source into the relative path "api/nuget/v3/<repo>/index.json"
+	// that NuGet then reports as a missing LOCAL folder ("NU1301: The local source ... doesn't
+	// exist"), never naming the real problem.
+	repo := c.repoResolve
+	if isPushCommand(c.subCommand) {
+		repo = c.repoDeploy
+	}
+	if repo != "" && (c.serverDetails == nil || c.serverDetails.ArtifactoryUrl == "") {
+		return fmt.Errorf("a repository was requested (%q) but no JFrog server is configured; run 'jf c add' or pass --server-id", repo)
+	}
+	if repo != "" && c.serverDetails != nil && c.serverDetails.ArtifactoryUrl != "" {
+		switch {
+		case hasUserConfigFile(c.args):
+			// The user brought their own config file. Injecting a second -ConfigFile/--configfile
+			// is not additive: the dotnet CLI rejects the duplicate outright ("Option
+			// '--configfile' expects a single argument but 2 were provided"), and nuget.exe
+			// silently honours only the last one, discarding the user's sources and any
+			// packageSourceCredentials they declared for their other private feeds. Step aside
+			// and say so, the same way an explicit -Source/-ApiKey suppresses injection.
+			log.Warn(fmt.Sprintf("A NuGet config file was supplied on the command line, so %q is being used as-is and no credentials are injected for repository %q. Remove the config file flag to let JFrog CLI configure the source, or add the Artifactory source to that file yourself.", userConfigFilePath(c.args), repo))
+		case performsRestore(c.subCommand) && !c.acceptsConfigFile():
+			// The subcommand restores packages but has no config-file option to inject into.
+			// Say so rather than letting --repo-resolve look effective: the restore will go to
+			// whatever sources the user's own configuration names.
+			log.Warn(fmt.Sprintf("'%s %s' does not accept a NuGet config file, so --repo-resolve=%s cannot be applied and packages will resolve from your configured sources. Run 'jf %s restore --repo-resolve=%s' first, or pass the source explicitly.", c.toolchainType, c.subCommand, repo, c.toolchainType, repo))
+		case performsRestore(c.subCommand) || pushViaNativeClient:
+			// Inject credentials via a temp nuget.config for restore-family commands and for
+			// pushes the native client performs. Both nuget.exe and dotnet CLI use
+			// -ConfigFile / --configfile so credentials are never embedded in the process argv
+			// (invisible to ps/proc); the flag style is selected inside
+			// injectCredentialsViaTempConfig based on toolchainType. The same file also carries
+			// defaultPushSource, so push needs no source flag on the command line.
+			// Pack and passthrough commands are excluded: they are local-only.
 			cleanup, err := c.injectCredentialsViaTempConfig(repo)
 			if err != nil {
 				return err
@@ -163,6 +191,12 @@ func (c *NuGetFlexPackCommand) Run() error {
 		if packOutputDir != "" {
 			extraDirs = append(extraDirs, packOutputDir)
 		}
+		// Without --output, each project writes to its OWN bin/<Configuration>. When the target
+		// lives below the working directory - "pack src/Lib/Lib.csproj", or any .sln whose
+		// projects sit in sub-directories - none of that is under <workingDir>/bin, so nothing
+		// would be collected and build-info would be persisted with no modules at all, while the
+		// command still reported success. Snapshot the target's own directory too.
+		extraDirs = append(extraDirs, packTargetDirs(c.workingDir, c.args)...)
 		var snapErr error
 		packSnapshot, snapErr = nugetflex.SnapshotPackageFiles(c.workingDir, extraDirs...)
 		if snapErr != nil {
@@ -170,45 +204,22 @@ func (c *NuGetFlexPackCommand) Run() error {
 		}
 	}
 
-	// Push bypasses the native tool and uploads through the shared Artifactory upload service.
-	//
-	// For nuget.exe this is a design choice, not a necessity: Artifactory does accept nuget.exe's
-	// X-NuGet-ApiKey header — access tokens included — but only when the value is
-	// "<username>:<token>", since it splits the header on the colon to recover credentials. A
-	// bare token has nothing to split and is rejected. Note also that nuget.exe only sends that
-	// header when an API key is actually resolved (-ApiKey, NUGET_API_KEY, or <apikeys> in a
-	// config file); credentials supplied via <packageSourceCredentials> go out as Basic auth
-	// instead, which is why push is excluded from the temp nuget.config injection above.
-	//
-	// For dotnet the problem is real and unrelated: dotnet nuget push cannot load a V3
-	// index.json with URL-embedded credentials (401), because it does not forward that auth on
-	// the service-index fetch.
-	//
-	// Uploading via the upload service sidesteps both, authenticates from the configured JFrog
-	// server details, and shares the code path used by npm/alpine/terraform — inheriting proxy
-	// handling, retries and checksum-optimised deploys. When the user supplies their own
-	// -Source/-ApiKey the bypass is skipped and their intent wins.
-	//
-	// resolvedPushPaths is set when the Artifactory bypass handles the push so that
-	// collectAndStampPushArtifacts can reuse the already-resolved paths instead of
-	// re-expanding globs from c.args a second time.
-	var resolvedPushPaths []string
-	if isPushCommand(c.subCommand) && c.serverDetails != nil && c.repoDeploy != "" && !hasNativeAuthOverride(c.args) {
-		log.Info("Pushing NuGet package to Artifactory...")
-		var pushErr error
-		resolvedPushPaths, pushErr = c.pushPackagesToArtifactory()
-		if pushErr != nil {
-			return fmt.Errorf("nuget push: %w", pushErr)
-		}
-	} else {
-		log.Info(fmt.Sprintf("Running %s %s", c.toolchainType, c.subCommand))
-		nativeCmd := c.buildCmd()
-		nativeCmd.Stdin = os.Stdin
-		nativeCmd.Stdout = os.Stdout
-		nativeCmd.Stderr = os.Stderr
-		if err := nativeCmd.Run(); err != nil {
-			return fmt.Errorf("%s %s failed: %w", c.toolchainType, c.subCommand, err)
-		}
+	// Every command - push included - is executed by the native client. jf's role is to supply
+	// credentials through a temporary nuget.config and to observe the result for build-info; it
+	// does not upload on the tool's behalf. See shouldPushViaNativeClient for why the push no
+	// longer goes through the Artifactory upload service.
+	log.Info(fmt.Sprintf("Running %s %s", c.toolchainType, c.subCommand))
+	nativeCmd := c.buildCmd()
+	nativeCmd.Stdin = os.Stdin
+	nativeCmd.Stdout = os.Stdout
+	nativeCmd.Stderr = os.Stderr
+	// Inherit the caller's environment and add the source credentials, so the native client
+	// authenticates without a secret being written into the temp nuget.config.
+	if c.credentialEnv != "" {
+		nativeCmd.Env = append(os.Environ(), c.credentialEnv)
+	}
+	if err := nativeCmd.Run(); err != nil {
+		return fmt.Errorf("%s %s failed: %w", c.toolchainType, c.subCommand, err)
 	}
 
 	if c.buildConfiguration == nil {
@@ -227,7 +238,7 @@ func (c *NuGetFlexPackCommand) Run() error {
 	case isRestoreCommand(c.subCommand):
 		return c.collectDependencies(buildName, buildNumber)
 	case isPushCommand(c.subCommand):
-		return c.collectAndStampPushArtifacts(buildName, buildNumber, resolvedPushPaths)
+		return c.collectAndStampPushArtifacts(buildName, buildNumber)
 	case isPackCommand(c.subCommand):
 		return c.collectPackArtifacts(buildName, buildNumber, packSnapshot, packOutputDir)
 	}
@@ -243,24 +254,25 @@ func (c *NuGetFlexPackCommand) buildCmd() *exec.Cmd {
 	return exec.Command("nuget", append([]string{c.subCommand}, c.args...)...)
 }
 
-// injectCredentialsViaTempConfig writes a temporary nuget.config with the Artifactory
-// source URL and <packageSourceCredentials>, then appends -ConfigFile / --configfile to
-// c.args so the native tool reads it. The returned cleanup func removes the temp file
-// and restores c.args to its original value. The caller must defer it immediately after
-// a nil-error return.
+// injectCredentialsViaTempConfig writes a temporary nuget.config declaring the Artifactory
+// source, then appends -ConfigFile / --configfile to c.args so the native tool reads it, and
+// records the matching credential environment entry on c.credentialEnv. The returned cleanup
+// func removes the temp file and restores c.args and c.credentialEnv to their original values.
+// The caller must defer it immediately after a nil-error return.
+//
+// The config file carries no secret: credentials travel in the environment (see
+// credentialEnvEntry), which keeps them off disk and out of argv.
 //
 // A V3 source URL is used. nuget.exe (mono) re-embeds -Source values into MSBuild's
 // /p:RestoreSources, but sources read from /p:RestoreConfigFile are NOT re-embedded, so
 // the V3 index.json URL in the config file is passed as-is and NU1301 is avoided.
-// ClearTextPassword is used (not Password) because nuget.exe's encrypted Password
-// storage is Windows DPAPI-only; ClearTextPassword works on all platforms including mono/macOS.
 func (c *NuGetFlexPackCommand) injectCredentialsViaTempConfig(repo string) (func(), error) {
 	sourceURL, user, password, err := NuGetExeV3SourceDetails(c.serverDetails, repo)
 	if err != nil {
 		return nil, fmt.Errorf("get NuGet source details: %w", err)
 	}
 
-	const sourceName = "JFrog"
+	const sourceName = injectedSourceName
 
 	// NuGet 6.8+ rejects HTTP sources unless allowInsecureConnections="true" is set.
 	// Local Artifactory instances in CI typically run on plain HTTP.
@@ -271,18 +283,24 @@ func (c *NuGetFlexPackCommand) injectCredentialsViaTempConfig(repo string) (func
 
 	// <clear/> ensures no other sources (nuget.org, system config) interfere — all traffic
 	// is routed exclusively through Artifactory.
+	// defaultPushSource names the same source as the push target so that 'nuget push' and
+	// 'dotnet nuget push' find it without jf appending -Source/--source to the user's command
+	// line. Keeping the target in configuration rather than argv means the native client is
+	// invoked exactly as the user wrote it, and avoids branching on per-toolchain flag
+	// spelling. It is inert for restore, which never consults defaultPushSource.
+	//
+	// Note the absence of a <packageSourceCredentials> block: credentials are handed to the
+	// native client through the NuGetPackageSourceCredentials_<source> environment variable
+	// instead (see credentialEnvEntry), so no secret is ever written to disk.
 	configContent := `<?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <packageSources>
     <clear />
     <add key=` + xmlAttrValue(sourceName) + ` value=` + xmlAttrValue(sourceURL) + allowInsecure + ` />
   </packageSources>
-  <packageSourceCredentials>
-    <` + sourceName + `>
-      <add key="Username" value=` + xmlAttrValue(user) + ` />
-      <add key="ClearTextPassword" value=` + xmlAttrValue(password) + ` />
-    </` + sourceName + `>
-  </packageSourceCredentials>
+  <config>
+    <add key="defaultPushSource" value=` + xmlAttrValue(sourceName) + ` />
+  </config>
 </configuration>`
 
 	tmpFile, err := os.CreateTemp("", "jfrog-nuget-*.config")
@@ -304,200 +322,69 @@ func (c *NuGetFlexPackCommand) injectCredentialsViaTempConfig(repo string) (func
 		configFlag = "--configfile"
 	}
 	origArgs := c.args
-	c.args = append(c.args, configFlag, tmpFile.Name())
+	c.args = insertBeforeSeparator(c.args, configFlag, tmpFile.Name())
+
+	origCredentialEnv := c.credentialEnv
+	// Only pass credentials when there are credentials. With both empty the entry would be
+	// "Username=;Password=", which NuGet sends as an empty Basic header rather than omitting
+	// authentication - turning a working anonymous repository into a rejected request. The legacy
+	// config writer makes the same distinction.
+	if user != "" || password != "" {
+		c.credentialEnv = credentialEnvEntry(sourceName, user, password)
+	}
 
 	return func() {
 		c.args = origArgs
+		c.credentialEnv = origCredentialEnv
 		_ = os.Remove(tmpFile.Name())
 	}, nil
 }
 
-// pushPackagesToArtifactory resolves all .nupkg/.snupkg paths from push args (expanding globs),
-// uploads each through the shared Artifactory upload service, and replicates nuget.exe's sibling
-// .snupkg auto-push behaviour. Using the upload service instead of driving the native push tool
-// keeps authentication, proxy handling, retries and checksum-optimised deploys consistent with
-// the other package managers, and avoids dotnet nuget push's inability to authenticate against
-// a V3 index.json with URL-embedded credentials (401). See Run for the full rationale.
-// It returns the resolved absolute paths of all packages that were pushed so callers can
-// reuse them without re-expanding globs from c.args.
-func (c *NuGetFlexPackCommand) pushPackagesToArtifactory() ([]string, error) {
-	// Warn about flags that the native tool would have honoured but the bypass cannot
-	// forward. Flags in this list are silently accepted (or handled below); any unrecognised
-	// flag produces a visible warning. Includes both nuget.exe style (single-dash) and dotnet
-	// CLI style (double-dash) equivalents for each option.
-	recognisedPushFlags := map[string]bool{
-		// skip-duplicate: handled explicitly below
-		"-skipduplicate": true, "--skip-duplicate": true,
-		// no-symbols: handled explicitly below
-		"-nosymbols": true, "--no-symbols": true, "-n": true,
-		// timeout: advisory to the native tool only; irrelevant for the direct PUT
-		"-timeout": true, "--timeout": true,
-		// verbosity: no-op for the bypass (we use jf log levels)
-		"-verbosity": true, "--verbosity": true, "-v": true,
-		// disable-buffering: streaming hint for the native tool; no-op for the bypass
-		"-disablebuffering": true, "--disable-buffering": true,
-		// non-interactive / --interactive: interactive auth prompts are not used by the bypass
-		"-noninteractive": true, "--interactive": true,
-		// config-file: the bypass authenticates from the configured JFrog server; no config needed
-		"-configfile": true, "--configfile": true,
-		// force-english-output: locale hint for the native tool; no-op for the bypass
-		"-forceenglishoutput": true, "--force-english-output": true,
-	}
-	for _, arg := range c.args {
-		if !strings.HasPrefix(arg, "-") {
-			continue
-		}
-		flagOnly := strings.ToLower(arg)
-		if idx := strings.IndexByte(flagOnly, '='); idx != -1 {
-			flagOnly = flagOnly[:idx]
-		}
-		if !recognisedPushFlags[flagOnly] {
-			log.Warn(fmt.Sprintf("Flag %q is not forwarded when pushing directly to Artifactory; it will have no effect.", arg))
-		}
-	}
-
-	packages, err := resolvePackagePaths(c.workingDir, c.args)
-	if err != nil {
-		return nil, fmt.Errorf("resolve package paths: %w", err)
-	}
-	if len(packages) == 0 {
-		return nil, fmt.Errorf("no .nupkg or .snupkg files found in push arguments: %v", c.args)
-	}
-	// Replicate nuget.exe behaviour: when pushing a .nupkg, also push the sibling .snupkg
-	// if one exists alongside it (unless -NoSymbols was passed).
-	if !hasNoSymbols(c.args) {
-		packages = appendSiblingSymbolPackages(packages)
-	}
-
-	servicesManager, err := rtutils.CreateServiceManager(c.serverDetails, -1, 0, false)
-	if err != nil {
-		return nil, fmt.Errorf("create services manager for NuGet push: %w", err)
-	}
-	// Validate the target and resolve a virtual repo to the local repo artifacts land in, so the
-	// upload target and the OriginalDeploymentRepo in build-info both name the local repository.
-	deployRepo, err := resolveAndValidateDeployRepo(servicesManager, c.repoDeploy)
-	if err != nil {
-		return nil, err
-	}
-
-	// Derive each package's Artifactory storage path with the same build-info logic that
-	// collectAndStampPushArtifacts uses, so the upload target and the later property-stamping
-	// path can never diverge: .nupkg lands flat at the repository root, .snupkg under
-	// symbolpackage/<id>.<version>.nupkg.
-	artifacts, err := nugetflex.CollectPushArtifacts(c.workingDir, packages, deployRepo)
-	if err != nil {
-		return nil, fmt.Errorf("resolve NuGet storage paths: %w", err)
-	}
-	targetByName := make(map[string]string, len(artifacts))
-	for _, a := range artifacts {
-		targetByName[a.Name] = deployRepo + "/" + strings.TrimPrefix(a.Path, "/")
-	}
-
-	skipDuplicate := hasSkipDuplicate(c.args)
-	for _, pkgPath := range packages {
-		target, ok := targetByName[filepath.Base(pkgPath)]
-		if !ok {
-			return nil, fmt.Errorf("could not resolve the Artifactory path for %q", pkgPath)
-		}
-		if err := uploadPackage(servicesManager, pkgPath, target, skipDuplicate); err != nil {
-			return nil, err
-		}
-	}
-	return packages, nil
-}
-
-// resolveAndValidateDeployRepo validates that repoKey is a NuGet local or virtual repository and
-// returns the local repository key that artifacts actually land in.
+// insertBeforeSeparator places extra arguments ahead of a bare "--" in args, appending them at
+// the end when there is no separator.
 //
-// Validation is explicit because packages are uploaded through the generic artifact API, which
-// would otherwise silently accept a .nupkg into, say, a Maven repository. The NuGet gallery
-// endpoint used to reject that implicitly (it does not exist for non-NuGet repos).
+// The ruby command package solves the identical problem in rubyAppendToolArgs
+// (commands/ruby/native_ruby.go) - gem forwards everything after "--" to the C extension
+// build the same way. Keep the two in step; they are a candidate for one shared helper.
 //
-// For a virtual repository the returned key is its defaultDeploymentRepo, so both the upload
-// target and the OriginalDeploymentRepo recorded in build-info name the local repository.
-// Recording the virtual key would make downstream tools 404 when they try to locate the artifact.
-func resolveAndValidateDeployRepo(servicesManager artifactory.ArtifactoryServicesManager, repoKey string) (string, error) {
-	var params services.VirtualRepositoryBaseParams
-	if err := servicesManager.GetRepository(repoKey, &params); err != nil {
-		return "", fmt.Errorf("resolve repository %q: %w", repoKey, err)
+// The dotnet CLI forwards everything after "--" to MSBuild, so appending blindly puts jf's own
+// --configfile on the wrong side of it and the restore dies on MSBuild's own parser:
+//
+//	MSBUILD : error MSB1001: Unknown switch.
+//	Switch: --configfile
+//
+// The flag belongs to the dotnet command itself, so it has to precede the separator. Only the
+// first "--" is meaningful; anything after it is the user's payload and is left untouched.
+func insertBeforeSeparator(args []string, extra ...string) []string {
+	// Insert before the first bare "--", or at the end when there is none.
+	at := len(args)
+	for i, arg := range args {
+		if arg == "--" {
+			at = i
+			break
+		}
 	}
-	if !strings.EqualFold(params.PackageType, "nuget") {
-		return "", fmt.Errorf("repository %q is of type %q, not NuGet; NuGet packages cannot be pushed to it", repoKey, params.PackageType)
-	}
-	if strings.EqualFold(params.Rclass, "remote") {
-		return "", fmt.Errorf("repository %q is a remote repository; NuGet packages can only be pushed to a local or virtual repository", repoKey)
-	}
-	if !strings.EqualFold(params.Rclass, "virtual") {
-		return repoKey, nil
-	}
-	if params.DefaultDeploymentRepo == "" {
-		return "", fmt.Errorf("virtual repo %q has no defaultDeploymentRepo configured; cannot determine the local repo to push to", repoKey)
-	}
-	log.Debug(fmt.Sprintf("Resolved virtual repo %q → local repo %q for push", repoKey, params.DefaultDeploymentRepo))
-	return params.DefaultDeploymentRepo, nil
+	// Always build a fresh slice. "append(args, extra...)" for the no-separator case wrote into
+	// the caller's backing array whenever it had spare capacity, which contradicts this
+	// function's contract: the caller keeps a saved reference to restore c.args from after the
+	// command runs.
+	combined := make([]string, 0, len(args)+len(extra))
+	combined = append(combined, args[:at]...)
+	combined = append(combined, extra...)
+	combined = append(combined, args[at:]...)
+	return combined
 }
 
-// appendSiblingSymbolPackages returns packages plus the sibling .snupkg of every .nupkg that
-// has one on disk, preserving order and skipping any path already present.
-func appendSiblingSymbolPackages(packages []string) []string {
-	seen := make(map[string]bool, len(packages))
-	for _, p := range packages {
-		seen[p] = true
-	}
-	withSymbols := packages
-	for _, pkgPath := range packages {
-		if !strings.HasSuffix(strings.ToLower(pkgPath), ".nupkg") {
-			continue
-		}
-		snupkgPath := pkgPath[:len(pkgPath)-len(".nupkg")] + ".snupkg"
-		if seen[snupkgPath] {
-			continue
-		}
-		if _, statErr := os.Stat(snupkgPath); statErr == nil {
-			seen[snupkgPath] = true
-			withSymbols = append(withSymbols, snupkgPath)
-		}
-	}
-	return withSymbols
-}
-
-// uploadPackage deploys a single package file to target ("<repo>/<path>") using the shared
-// Artifactory upload service, which handles authentication, proxies, retries and checksum
-// optimisation. When skipDuplicate is set, an existing artifact at target is left untouched.
-func uploadPackage(servicesManager artifactory.ArtifactoryServicesManager, pkgPath, target string, skipDuplicate bool) error {
-	if skipDuplicate {
-		exists, err := artifactExists(servicesManager, target)
-		if err != nil {
-			return err
-		}
-		if exists {
-			log.Warn(fmt.Sprintf("Package %q already exists — skipping duplicate", filepath.Base(pkgPath)))
-			return nil
-		}
-	}
-	up := services.NewUploadParams()
-	up.CommonParams = &specutils.CommonParams{Pattern: pkgPath, Target: target}
-	up.Flat = true
-	_, totalFailed, err := servicesManager.UploadFiles(artifactory.UploadServiceOptions{}, up)
-	if err != nil {
-		return fmt.Errorf("push %q: %w", filepath.Base(pkgPath), err)
-	}
-	if totalFailed > 0 {
-		return fmt.Errorf("failed to push %q to Artifactory; see the Artifactory logs for details", filepath.Base(pkgPath))
-	}
-	log.Info(fmt.Sprintf("Package %q pushed successfully", filepath.Base(pkgPath)))
-	return nil
-}
-
-// artifactExists reports whether repoPath ("<repo>/<path>") already exists in Artifactory.
-func artifactExists(servicesManager artifactory.ArtifactoryServicesManager, repoPath string) (bool, error) {
-	httpDetails := servicesManager.GetConfig().GetServiceDetails().CreateHttpClientDetails()
-	itemURL := strings.TrimSuffix(servicesManager.GetConfig().GetServiceDetails().GetUrl(), "/") + "/" + repoPath
-	resp, _, err := servicesManager.Client().SendHead(itemURL, &httpDetails)
-	if err != nil {
-		return false, fmt.Errorf("check whether %q already exists: %w", repoPath, err)
-	}
-	return resp.StatusCode == http.StatusOK, nil
+// credentialEnvEntry builds the NuGet environment-variable credential entry for a package
+// source, in the "KEY=Username=<u>;Password=<p>" form both nuget.exe and the dotnet CLI read.
+//
+// Passing credentials this way keeps them out of the temp nuget.config, so a secret is never
+// written to disk and cannot survive a crash that skips cleanup. It also keeps them out of the
+// process argv, which is world-readable via ps. The value is still visible to other processes
+// running as the same user (ps -E, /proc/<pid>/environ), so this narrows the exposure rather
+// than eliminating it - but it is the mechanism NuGet documents for exactly this purpose.
+func credentialEnvEntry(sourceName, user, password string) string {
+	return fmt.Sprintf("NuGetPackageSourceCredentials_%s=Username=%s;Password=%s", sourceName, user, password)
 }
 
 // searchWithRetry calls searchFn up to maxAttempts times with exponential backoff starting
@@ -524,63 +411,6 @@ func searchWithRetry(maxAttempts int, initialDelay time.Duration, patterns []str
 	return 0, fmt.Errorf("no uploaded NuGet artifacts found at the expected paths after %d attempts: %s", maxAttempts, strings.Join(patterns, ", "))
 }
 
-// resolvePackagePaths returns all .nupkg and .snupkg file paths from args, expanding
-// glob patterns relative to workingDir. Flags (args starting with -) are skipped.
-func resolvePackagePaths(workingDir string, args []string) ([]string, error) {
-	var paths []string
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "-") {
-			continue
-		}
-		ext := strings.ToLower(filepath.Ext(arg))
-		if ext != ".nupkg" && ext != ".snupkg" {
-			continue
-		}
-		pattern := arg
-		if !filepath.IsAbs(pattern) {
-			pattern = filepath.Join(workingDir, pattern)
-		}
-		matches, err := filepath.Glob(pattern)
-		if err != nil {
-			return nil, fmt.Errorf("expand glob %q: %w", arg, err)
-		}
-		// Re-filter glob matches to only include NuGet package files; a glob like
-		// "bin/*" could expand to non-package files if the pattern is broad.
-		for _, m := range matches {
-			ext := strings.ToLower(filepath.Ext(m))
-			if ext == ".nupkg" || ext == ".snupkg" {
-				paths = append(paths, m)
-			}
-		}
-	}
-	return paths, nil
-}
-
-// hasSkipDuplicate reports whether the skip-duplicate flag is present in args.
-// Handles both nuget.exe style (-SkipDuplicate) and dotnet CLI style (--skip-duplicate).
-func hasSkipDuplicate(args []string) bool {
-	for _, arg := range args {
-		switch strings.ToLower(arg) {
-		case "-skipduplicate", "--skip-duplicate":
-			return true
-		}
-	}
-	return false
-}
-
-// hasNoSymbols reports whether the no-symbols flag is present in args.
-// Handles nuget.exe style (-NoSymbols), dotnet CLI style (--no-symbols), and the short
-// form (-n used by dotnet nuget push).
-func hasNoSymbols(args []string) bool {
-	for _, arg := range args {
-		switch strings.ToLower(arg) {
-		case "-nosymbols", "--no-symbols", "-n":
-			return true
-		}
-	}
-	return false
-}
-
 // hasNativeAuthOverride reports whether the user passed a flag that explicitly controls
 // NuGet's own auth for push. Covers both nuget.exe style (-Source, -ApiKey, -SymbolApiKey)
 // and dotnet CLI style (--source, -s, --api-key, -k, --symbol-api-key). Handles both the
@@ -605,6 +435,37 @@ func hasNativeAuthOverride(args []string) bool {
 	return false
 }
 
+// configFileFlags are the spellings both clients accept for "read settings from this file":
+// nuget.exe uses -ConfigFile, the dotnet CLI --configfile. Matching is case-insensitive because
+// nuget.exe's own parser is.
+var configFileFlags = map[string]bool{"-configfile": true, "--configfile": true}
+
+// hasUserConfigFile reports whether the user already passed a NuGet config file, in either the
+// space-separated or the inline-equals form. Both clients take a single value for it, so jf must
+// not append another.
+func hasUserConfigFile(args []string) bool {
+	return userConfigFilePath(args) != ""
+}
+
+// userConfigFilePath returns the config file the user asked for, or "" if they did not. When the
+// flag is present with no value the flag itself is returned, which is enough for a warning.
+func userConfigFilePath(args []string) string {
+	for i, arg := range args {
+		flag, inlineValue, hasInline := strings.Cut(arg, "=")
+		if !configFileFlags[strings.ToLower(flag)] {
+			continue
+		}
+		if hasInline {
+			return inlineValue
+		}
+		if i+1 < len(args) {
+			return args[i+1]
+		}
+		return arg
+	}
+	return ""
+}
+
 func (c *NuGetFlexPackCommand) collectDependencies(buildName, buildNumber string) error {
 	log.Info(fmt.Sprintf("Collecting NuGet build info for %s/%s", buildName, buildNumber))
 	collector, err := nugetflex.NewNuGetFlexPack(buildinfoflex.NuGetConfig{
@@ -627,10 +488,7 @@ func (c *NuGetFlexPackCommand) collectDependencies(buildName, buildNumber string
 // build properties on their exact Artifactory paths, and records them in local build-info.
 // The native push has already succeeded at this point, so it is never re-run; a stamping
 // failure is surfaced as an error without masking the push.
-//
-// resolvedPaths contains the absolute package paths already resolved by pushPackagesToArtifactory
-// (Artifactory bypass path). When nil (native-tool push path), paths are re-resolved from c.args.
-func (c *NuGetFlexPackCommand) collectAndStampPushArtifacts(buildName, buildNumber string, resolvedPaths []string) error {
+func (c *NuGetFlexPackCommand) collectAndStampPushArtifacts(buildName, buildNumber string) error {
 	log.Info(fmt.Sprintf("Collecting NuGet artifact info for %s/%s", buildName, buildNumber))
 	// Resolve the actual local repo so OriginalDeploymentRepo is always a local repo key.
 	// When the user pushes to a virtual repo, Artifactory routes to its defaultDeploymentRepo;
@@ -639,13 +497,9 @@ func (c *NuGetFlexPackCommand) collectAndStampPushArtifacts(buildName, buildNumb
 	if err != nil {
 		return fmt.Errorf("resolve deployment repo: %w", err)
 	}
-	// Use pre-resolved paths when available (Artifactory bypass) to avoid re-expanding globs.
-	// Pass them as pushArgs: resolvePushPackagePaths handles absolute literal paths correctly.
-	pushArgs := c.args
-	if len(resolvedPaths) > 0 {
-		pushArgs = resolvedPaths
-	}
-	artifacts, err := nugetflex.CollectPushArtifacts(c.workingDir, pushArgs, deployRepo)
+	// c.args is passed verbatim: CollectPushArtifacts needs the flags as well as the package
+	// paths, since -NoSymbols / --no-symbols decides whether a sibling .snupkg is recorded.
+	artifacts, err := nugetflex.CollectPushArtifacts(c.workingDir, c.args, deployRepo)
 	if err != nil {
 		return fmt.Errorf("collect pushed NuGet artifacts: %w", err)
 	}
@@ -724,10 +578,9 @@ func artifactPatterns(artifacts []entities.Artifact) []string {
 }
 
 // stampBuildProperties attaches build.name/build.number/build.timestamp to each uploaded
-// package at its exact, deterministic Artifactory path. Primary packages (.nupkg) are stored
-// flat at the repository root; symbol packages (.snupkg) are stored at
-// symbolpackage/<id>.<version>.nupkg. Both paths are captured in artifact.Path by
-// newArtifactFromFile. Fully-qualified patterns are used so no repository-wide scan is performed.
+// package at its exact Artifactory path, taken verbatim from artifact.Path - build-info-go's
+// newArtifactFromFile owns where a package lands, so no storage-layout knowledge is needed or
+// duplicated here. Fully-qualified patterns are used so no repository-wide scan is performed.
 func (c *NuGetFlexPackCommand) stampBuildProperties(artifacts []entities.Artifact, buildName, buildNumber string) error {
 	if c.serverDetails == nil || c.repoDeploy == "" {
 		// Anonymous push or no deploy repo: there is no JFrog target to stamp.
@@ -745,6 +598,12 @@ func (c *NuGetFlexPackCommand) stampBuildProperties(artifacts []entities.Artifac
 
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	props := fmt.Sprintf("build.name=%s;build.number=%s;build.timestamp=%s", buildName, buildNumber, timestamp)
+	// Stamp the CI/VCS coordinates too, so pushed NuGet packages carry the same vcs.*/ci.*
+	// properties that the other FlexPack package managers (npm, Go, Maven, Terraform) attach.
+	// Without these an artifact records which build produced it but not which commit, branch,
+	// or pipeline run it came from. MergeWithUserProps is a no-op when the props are disabled
+	// or no CI/Git context can be detected, so this is safe outside a repository.
+	props = civcs.MergeWithUserProps(props, c.workingDir)
 
 	specFiles := &spec.SpecFiles{}
 	for _, pattern := range patterns {
@@ -872,6 +731,69 @@ func restoreOptionTakesValue(arg string) bool {
 
 // hasSlnxTarget returns true if any positional arg is a .slnx file. Used to detect SDK-only
 // solution formats before passing them to nuget.exe, which has no .slnx parser.
+// performsRestore reports whether the subcommand downloads packages and therefore needs the
+// Artifactory source declared.
+//
+// It is wider than isRestoreCommand: "pack" and "publish" restore implicitly unless --no-restore
+// is passed, and both accept -ConfigFile/--configfile, which steers that restore (verified
+// against SDK 10.0.302 - a config naming an unreachable source makes both fail in NuGet.targets).
+// Leaving them out meant --repo-resolve was accepted, stripped from argv and then silently
+// dropped, so the implicit restore went to whatever sources the user's own configuration named,
+// typically nuget.org - no curation, no audit trail, no warning. Injecting for a command that
+// turns out not to restore is harmless: the config file is simply unused.
+func performsRestore(sub string) bool {
+	return isRestoreCommand(sub) || isPackCommand(sub) || sub == "publish"
+}
+
+// packTargetSuffixes are the positional targets a pack command accepts. A directory argument is
+// covered by the generic non-flag branch in packTargetDirs.
+var packTargetSuffixes = []string{".csproj", ".fsproj", ".vbproj", ".sln", ".slnx", ".nuspec"}
+
+// packTargetDirs returns the directories that hold the project or solution being packed, resolved
+// against workingDir. Without an explicit --output every project writes to its own
+// bin/<Configuration>, so these are where produced packages appear.
+func packTargetDirs(workingDir string, args []string) []string {
+	var dirs []string
+	seen := map[string]bool{}
+	skipNext := false
+	for _, arg := range args {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			if !strings.Contains(arg, "=") {
+				skipNext = true
+			}
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(arg))
+		isTarget := false
+		for _, suffix := range packTargetSuffixes {
+			if ext == suffix {
+				isTarget = true
+				break
+			}
+		}
+		candidate := arg
+		if !filepath.IsAbs(candidate) {
+			candidate = filepath.Join(workingDir, candidate)
+		}
+		dir := candidate
+		if isTarget {
+			dir = filepath.Dir(candidate)
+		} else if info, err := os.Stat(candidate); err != nil || !info.IsDir() {
+			// Neither a recognised project/solution file nor an existing directory.
+			continue
+		}
+		if !seen[dir] {
+			seen[dir] = true
+			dirs = append(dirs, dir)
+		}
+	}
+	return dirs
+}
+
 func hasSlnxTarget(args []string) bool {
 	for _, arg := range args {
 		if strings.EqualFold(filepath.Ext(arg), ".slnx") {
@@ -882,6 +804,17 @@ func hasSlnxTarget(args []string) bool {
 }
 
 // isRestoreCommand returns true for commands that download packages (need dependency collection).
+// acceptsConfigFile reports whether the subcommand has a -ConfigFile/--configfile option to
+// inject into. "dotnet add package" restores, and so is in the restore family, but the SDK gives
+// it no config-file option at all - it takes -s/--source instead - so injecting one makes the
+// command fail with an unknown-option error. nuget.exe's own "add" does accept -ConfigFile.
+func (c *NuGetFlexPackCommand) acceptsConfigFile() bool {
+	if c.toolchainType == dotnetutils.DotnetCore && c.subCommand == "add" {
+		return false
+	}
+	return true
+}
+
 func isRestoreCommand(sub string) bool {
 	switch sub {
 	case "restore", "install", "update", "build", "add":
@@ -893,6 +826,35 @@ func isRestoreCommand(sub string) bool {
 // isPushCommand returns true for push subcommands.
 func isPushCommand(sub string) bool {
 	return sub == "push" || sub == "nuget push"
+}
+
+// injectedSourceName is the package-source key written into the temporary nuget.config, and
+// the value of its defaultPushSource setting.
+const injectedSourceName = "JFrog"
+
+// shouldPushViaNativeClient reports whether the native client performs the upload itself
+// instead of jf taking the publish over.
+//
+// FlexPack's contract is that the native tool does the work and jf observes it, so the upload
+// belongs to nuget.exe / the dotnet CLI. Both push to Artifactory successfully when their
+// credentials come from the NuGetPackageSourceCredentials_<source> environment variable and
+// the target comes from defaultPushSource - which is what injectCredentialsViaTempConfig sets up.
+//
+// The 401 that originally motivated the Artifactory-side bypass is specific to credentials
+// carried in the source URL: fetching the V3 service index that way is unauthenticated and
+// fails for both clients. Supplying credentials through the config file avoids it entirely.
+// Verified against Artifactory for nuget.exe 6.6.2 and dotnet SDK 10.0.302.
+//
+// Build-info collection and property stamping are unaffected - they run after the command
+// either way, so the artifact record and build.*/vcs.* properties are identical.
+//
+// Skipped when the user supplied their own -Source/-ApiKey, or when there is no server or
+// deploy repo to build a source from; those cases already run the native tool directly.
+func (c *NuGetFlexPackCommand) shouldPushViaNativeClient() bool {
+	return isPushCommand(c.subCommand) &&
+		c.serverDetails != nil &&
+		c.repoDeploy != "" &&
+		!hasNativeAuthOverride(c.args)
 }
 
 // isPackCommand returns true for the pack subcommand, which produces .nupkg/.snupkg files locally.

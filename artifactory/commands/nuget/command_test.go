@@ -10,6 +10,7 @@ import (
 
 	dotnetutils "github.com/jfrog/build-info-go/build/utils/dotnet"
 	"github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -231,30 +232,264 @@ func TestIsPushCommand(t *testing.T) {
 	}
 }
 
-func TestAppendSiblingSymbolPackages(t *testing.T) {
-	dir := t.TempDir()
-	write := func(name string) string {
-		p := filepath.Join(dir, name)
-		require.NoError(t, os.WriteFile(p, []byte("pkg"), 0o600))
-		return p
-	}
-	nupkg := write("Foo.1.0.0.nupkg")
-	snupkg := write("Foo.1.0.0.snupkg")
-	lonely := write("Bar.2.0.0.nupkg")
+// TestShouldPushViaNativeClient pins which pushes the dotnet CLI performs itself. FlexPack's
+// contract is that the native tool does the work and jf only observes it, so a dotnet push
+// with a JFrog source to build must not be taken over by the Artifactory upload bypass.
+func TestShouldPushViaNativeClient(t *testing.T) {
+	server := &config.ServerDetails{Url: "https://acme.jfrog.io/"}
 
-	tests := []struct {
+	newCmd := func(toolchain dotnetutils.ToolchainType, sub string, srv *config.ServerDetails, repo string, args []string) *NuGetFlexPackCommand {
+		return &NuGetFlexPackCommand{
+			toolchainType: toolchain,
+			subCommand:    sub,
+			serverDetails: srv,
+			repoDeploy:    repo,
+			args:          args,
+		}
+	}
+
+	// Both toolchains upload through their own client. Each authenticates against Artifactory
+	// from the temp nuget.config's <packageSourceCredentials> and finds its target via
+	// defaultPushSource, so neither needs jf to upload on its behalf.
+	t.Run("dotnet nuget push is handled natively", func(t *testing.T) {
+		cmd := newCmd(dotnetutils.DotnetCore, "nuget push", server, "nuget-local", []string{"pkg.nupkg"})
+		assert.True(t, cmd.shouldPushViaNativeClient())
+	})
+
+	t.Run("nuget.exe push is handled natively", func(t *testing.T) {
+		cmd := newCmd(dotnetutils.Nuget, "push", server, "nuget-local", []string{"pkg.nupkg"})
+		assert.True(t, cmd.shouldPushViaNativeClient())
+	})
+
+	// A user-supplied source/api-key is an explicit choice and must win untouched.
+	t.Run("user auth override is respected", func(t *testing.T) {
+		for _, override := range [][]string{
+			{"pkg.nupkg", "--source", "mine"},
+			{"pkg.nupkg", "--api-key", "abc"},
+			{"pkg.nupkg", "-s", "mine"},
+			{"pkg.nupkg", "--source=mine"},
+		} {
+			cmd := newCmd(dotnetutils.DotnetCore, "nuget push", server, "nuget-local", override)
+			assert.False(t, cmd.shouldPushViaNativeClient(), "args: %v", override)
+		}
+	})
+
+	t.Run("non-push subcommands are unaffected", func(t *testing.T) {
+		for _, sub := range []string{"restore", "pack", "build", "publish"} {
+			cmd := newCmd(dotnetutils.DotnetCore, sub, server, "nuget-local", []string{"App.csproj"})
+			assert.False(t, cmd.shouldPushViaNativeClient(), "subcommand: %s", sub)
+		}
+	})
+
+	// Without a server or deploy repo there is no source to inject, so the native tool runs
+	// on its own configuration and jf collects build-info only.
+	t.Run("missing server or repo falls through", func(t *testing.T) {
+		assert.False(t, newCmd(dotnetutils.DotnetCore, "nuget push", nil, "nuget-local", []string{"pkg.nupkg"}).shouldPushViaNativeClient())
+		assert.False(t, newCmd(dotnetutils.DotnetCore, "nuget push", server, "", []string{"pkg.nupkg"}).shouldPushViaNativeClient())
+	})
+}
+
+// TestCredentialEnvEntry pins the NuGet environment-variable credential format. Both
+// nuget.exe and the dotnet CLI read NuGetPackageSourceCredentials_<source> in the
+// "Username=<u>;Password=<p>" form, keyed by the source name declared in the config file.
+func TestCredentialEnvEntry(t *testing.T) {
+	t.Run("format matches what NuGet expects", func(t *testing.T) {
+		assert.Equal(t,
+			"NuGetPackageSourceCredentials_JFrog=Username=admin;Password=token123",
+			credentialEnvEntry("JFrog", "admin", "token123"))
+	})
+
+	// The key must carry the source name, since NuGet matches the variable to the source
+	// declared in the config; a mismatch silently yields an unauthenticated request (401).
+	t.Run("key is keyed by source name", func(t *testing.T) {
+		got := credentialEnvEntry("MyFeed", "u", "p")
+		assert.True(t, strings.HasPrefix(got, "NuGetPackageSourceCredentials_MyFeed="), got)
+	})
+
+	t.Run("access token as password is carried verbatim", func(t *testing.T) {
+		token := "eyJ2ZXIiOiIyIiwidHlwIjoiSldUIn0.abc-DEF_123" //#nosec G101 -- not a credential, a shaped literal asserting the token survives unaltered
+		got := credentialEnvEntry("JFrog", "bhanu", token)
+		assert.Contains(t, got, "Password="+token)
+	})
+}
+
+// TestTempConfigCarriesNoSecret is the regression guard for the change that moved credentials
+// out of the temp nuget.config: the file must declare the source but never a password, so a
+// crash that skips cleanup cannot leave a secret on disk.
+func TestTempConfigCarriesNoSecret(t *testing.T) {
+	cmd := NewNuGetFlexPackCommand().
+		SetToolchainType(dotnetutils.DotnetCore).
+		SetSubCommand("restore").
+		SetArgs([]string{"App.csproj"}).
+		SetServerDetails(&config.ServerDetails{
+			ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
+			User:           "admin",
+			Password:       "sup3rs3cr3t",
+		})
+
+	cleanup, err := cmd.injectCredentialsViaTempConfig("nuget-virtual")
+	require.NoError(t, err)
+	defer cleanup()
+
+	// Recover the temp config path from the flag jf appended.
+	var cfgPath string
+	for i, a := range cmd.args {
+		if a == "--configfile" && i+1 < len(cmd.args) {
+			cfgPath = cmd.args[i+1]
+		}
+	}
+	require.NotEmpty(t, cfgPath, "expected --configfile to be appended")
+
+	body, err := os.ReadFile(cfgPath)
+	require.NoError(t, err)
+	contents := string(body)
+
+	assert.NotContains(t, contents, "sup3rs3cr3t", "password must not be written to disk")
+	assert.NotContains(t, contents, "ClearTextPassword")
+	assert.NotContains(t, contents, "packageSourceCredentials")
+	assert.Contains(t, contents, "nuget-virtual", "source should still be declared")
+	assert.Contains(t, contents, "defaultPushSource")
+
+	// The secret travels in the environment instead.
+	assert.Contains(t, cmd.credentialEnv, "Password=sup3rs3cr3t")
+
+	// Cleanup must remove the file and clear the credential.
+	cleanup()
+	_, statErr := os.Stat(cfgPath)
+	assert.True(t, os.IsNotExist(statErr), "temp config should be removed")
+	assert.Empty(t, cmd.credentialEnv)
+}
+
+// TestInsertBeforeSeparator pins where jf's injected --configfile lands relative to a user's
+// "--" separator. The dotnet CLI forwards everything after "--" to MSBuild, so an injected flag
+// on the wrong side of it reaches MSBuild's parser and fails the restore with MSB1001.
+// TestPackTargetDirs pins the directories a pack command can write packages to. Without --output
+// each project writes to its own bin/<Configuration>, so packing a target below the working
+// directory produced nothing under <workingDir>/bin and build-info was persisted with no modules
+// while the command still reported success.
+func TestPackTargetDirs(t *testing.T) {
+	workingDir := t.TempDir()
+	nested := filepath.Join(workingDir, "src", "Lib")
+	require.NoError(t, os.MkdirAll(nested, 0o755))
+
+	for _, tc := range []struct {
 		name     string
-		input    []string
+		args     []string
 		expected []string
 	}{
-		{name: "adds sibling snupkg", input: []string{nupkg}, expected: []string{nupkg, snupkg}},
-		{name: "no sibling on disk", input: []string{lonely}, expected: []string{lonely}},
-		{name: "does not duplicate an explicit snupkg", input: []string{nupkg, snupkg}, expected: []string{nupkg, snupkg}},
-		{name: "snupkg input is left alone", input: []string{snupkg}, expected: []string{snupkg}},
-	}
-	for _, tc := range tests {
+		{"no target", []string{"--configuration", "Release"}, nil},
+		{"relative project", []string{filepath.Join("src", "Lib", "Lib.csproj")}, []string{nested}},
+		{"solution", []string{filepath.Join("src", "Lib", "App.sln")}, []string{nested}},
+		{"fsproj and vbproj", []string{"a.fsproj", "b.vbproj"}, []string{workingDir}},
+		{"nuspec", []string{"Pkg.nuspec"}, []string{workingDir}},
+		{"existing directory argument", []string{filepath.Join("src", "Lib")}, []string{nested}},
+		// A flag value that happens to look like a path must not be treated as a target.
+		{"flag value is not a target", []string{"--configuration", "Release", "x.csproj"}, []string{workingDir}},
+		// A non-existent, non-project positional is not a directory to snapshot.
+		{"unknown positional ignored", []string{"Release"}, nil},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, appendSiblingSymbolPackages(tc.input))
+			assert.Equal(t, tc.expected, packTargetDirs(workingDir, tc.args))
 		})
 	}
+}
+
+// TestPerformsRestore pins which sub-commands need the Artifactory source declared. pack and
+// publish restore implicitly unless --no-restore is given, and both accept --configfile; omitting
+// them meant --repo-resolve was accepted and then silently dropped.
+func TestPerformsRestore(t *testing.T) {
+	for _, sub := range []string{"restore", "install", "update", "build", "add", "pack", "publish"} {
+		assert.True(t, performsRestore(sub), "%s restores and needs the source declared", sub)
+	}
+	for _, sub := range []string{"push", "nuget push", "locals", "list"} {
+		assert.False(t, performsRestore(sub), "%s does not restore", sub)
+	}
+}
+
+// TestUserConfigFileDetection pins that a config file the user supplied is recognised in every
+// spelling both clients accept, so jf steps aside instead of appending a second one. The dotnet
+// CLI rejects a duplicate --configfile outright, and nuget.exe silently honours only the last,
+// discarding the user's own sources and packageSourceCredentials.
+func TestUserConfigFileDetection(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		args     []string
+		expected string
+	}{
+		{"none", []string{"restore", "App.sln", "--no-restore"}, ""},
+		{"dotnet space form", []string{"restore", "--configfile", "corp.config"}, "corp.config"},
+		{"dotnet inline form", []string{"restore", "--configfile=corp.config"}, "corp.config"},
+		{"nuget space form", []string{"restore", "-ConfigFile", "corp.config"}, "corp.config"},
+		{"nuget inline form", []string{"restore", "-ConfigFile=corp.config"}, "corp.config"},
+		{"case insensitive", []string{"restore", "-CONFIGFILE", "corp.config"}, "corp.config"},
+		// A trailing flag with no value is still the user asking for their own file; report the
+		// flag rather than silently treating it as absent and injecting a second one.
+		{"flag with no value", []string{"restore", "--configfile"}, "--configfile"},
+		// Must not be confused with a different flag that merely starts the same way.
+		{"similar flag is not a match", []string{"restore", "--configfile-ish", "x"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, userConfigFilePath(tc.args))
+			assert.Equal(t, tc.expected != "", hasUserConfigFile(tc.args))
+		})
+	}
+}
+
+func TestInsertBeforeSeparator(t *testing.T) {
+	t.Run("no separator appends at the end", func(t *testing.T) {
+		got := insertBeforeSeparator([]string{"App.sln", "--verbosity", "quiet"}, "--configfile", "/tmp/x")
+		assert.Equal(t, []string{"App.sln", "--verbosity", "quiet", "--configfile", "/tmp/x"}, got)
+	})
+
+	t.Run("separator receives the flag before it", func(t *testing.T) {
+		got := insertBeforeSeparator([]string{"App.sln", "--", "--verbosity", "minimal"}, "--configfile", "/tmp/x")
+		assert.Equal(t, []string{"App.sln", "--configfile", "/tmp/x", "--", "--verbosity", "minimal"}, got)
+	})
+
+	t.Run("only the first separator counts", func(t *testing.T) {
+		got := insertBeforeSeparator([]string{"App.sln", "--", "a", "--", "b"}, "--configfile", "/tmp/x")
+		assert.Equal(t, []string{"App.sln", "--configfile", "/tmp/x", "--", "a", "--", "b"}, got)
+	})
+
+	t.Run("leading separator still yields a valid command", func(t *testing.T) {
+		got := insertBeforeSeparator([]string{"--", "--verbosity", "minimal"}, "--configfile", "/tmp/x")
+		assert.Equal(t, []string{"--configfile", "/tmp/x", "--", "--verbosity", "minimal"}, got)
+	})
+
+	// A double-dashed flag is not a separator; only a bare "--" is.
+	t.Run("double-dashed flags are not separators", func(t *testing.T) {
+		got := insertBeforeSeparator([]string{"App.sln", "--no-restore"}, "--configfile", "/tmp/x")
+		assert.Equal(t, []string{"App.sln", "--no-restore", "--configfile", "/tmp/x"}, got)
+	})
+
+	t.Run("empty args", func(t *testing.T) {
+		assert.Equal(t, []string{"--configfile", "/tmp/x"},
+			insertBeforeSeparator(nil, "--configfile", "/tmp/x"))
+	})
+
+	// The caller restores c.args from a saved copy, so the input slice must not be aliased in a
+	// way that lets the insert leak back into it.
+	t.Run("does not mutate the input slice", func(t *testing.T) {
+		original := []string{"App.sln", "--", "--verbosity", "minimal"}
+		snapshot := append([]string(nil), original...)
+		_ = insertBeforeSeparator(original, "--configfile", "/tmp/x")
+		assert.Equal(t, snapshot, original, "input slice must be left untouched")
+	})
+
+	// The case above only exercises the separator branch, which always allocates a fresh slice
+	// and therefore cannot alias. The append branch can write into the caller's backing array
+	// when it has spare capacity, and the caller restores c.args from a saved reference - so that
+	// is the branch where aliasing would actually bite.
+	t.Run("append branch does not write into the caller's spare capacity", func(t *testing.T) {
+		backing := make([]string, 1, 8)
+		backing[0] = "App.sln"
+		backing = append(backing, "sentinel-one", "sentinel-two")
+		args := backing[:1]
+
+		got := insertBeforeSeparator(args, "--configfile", "/tmp/x")
+		assert.Equal(t, []string{"App.sln", "--configfile", "/tmp/x"}, got)
+		assert.Equal(t, []string{"App.sln"}, args, "the caller's slice must keep its own length and contents")
+		assert.Equal(t, []string{"sentinel-one", "sentinel-two"}, backing[1:3],
+			"the caller's backing array beyond len must not be overwritten")
+	})
 }
