@@ -4,6 +4,7 @@ def artifactoryUrl = '{{ .ArtifactoryURL }}'
 def gradleRepoName = '{{ .GradleRepoName }}'
 def artifactoryUsername = '{{ .ArtifactoryUsername }}'
 def artifactoryAccessToken = '{{ .ArtifactoryAccessToken }}'
+def includeSharedBuild = {{ .IncludeSharedBuild }}
 def gradleVersion = GradleVersion.current()
 def allowInsecure = gradleVersion >= GradleVersion.version("6.2") && artifactoryUrl.startsWith("http://")
 
