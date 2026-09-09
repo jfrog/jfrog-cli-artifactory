@@ -365,4 +365,3 @@ func TestValidateFailOnUncollectedDeps(t *testing.T) {
 		})
 	}
 }
-
