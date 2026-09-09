@@ -355,16 +355,23 @@ func (c *NuGetFlexPackCommand) injectCredentialsViaTempConfig(repo string) (func
 // The flag belongs to the dotnet command itself, so it has to precede the separator. Only the
 // first "--" is meaningful; anything after it is the user's payload and is left untouched.
 func insertBeforeSeparator(args []string, extra ...string) []string {
+	// Insert before the first bare "--", or at the end when there is none.
+	at := len(args)
 	for i, arg := range args {
 		if arg == "--" {
-			combined := make([]string, 0, len(args)+len(extra))
-			combined = append(combined, args[:i]...)
-			combined = append(combined, extra...)
-			combined = append(combined, args[i:]...)
-			return combined
+			at = i
+			break
 		}
 	}
-	return append(args, extra...)
+	// Always build a fresh slice. "append(args, extra...)" for the no-separator case wrote into
+	// the caller's backing array whenever it had spare capacity, which contradicts this
+	// function's contract: the caller keeps a saved reference to restore c.args from after the
+	// command runs.
+	combined := make([]string, 0, len(args)+len(extra))
+	combined = append(combined, args[:at]...)
+	combined = append(combined, extra...)
+	combined = append(combined, args[at:]...)
+	return combined
 }
 
 // credentialEnvEntry builds the NuGet environment-variable credential entry for a package

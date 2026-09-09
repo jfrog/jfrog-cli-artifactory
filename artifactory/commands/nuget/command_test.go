@@ -475,4 +475,21 @@ func TestInsertBeforeSeparator(t *testing.T) {
 		_ = insertBeforeSeparator(original, "--configfile", "/tmp/x")
 		assert.Equal(t, snapshot, original, "input slice must be left untouched")
 	})
+
+	// The case above only exercises the separator branch, which always allocates a fresh slice
+	// and therefore cannot alias. The append branch can write into the caller's backing array
+	// when it has spare capacity, and the caller restores c.args from a saved reference - so that
+	// is the branch where aliasing would actually bite.
+	t.Run("append branch does not write into the caller's spare capacity", func(t *testing.T) {
+		backing := make([]string, 1, 8)
+		backing[0] = "App.sln"
+		backing = append(backing, "sentinel-one", "sentinel-two")
+		args := backing[:1]
+
+		got := insertBeforeSeparator(args, "--configfile", "/tmp/x")
+		assert.Equal(t, []string{"App.sln", "--configfile", "/tmp/x"}, got)
+		assert.Equal(t, []string{"App.sln"}, args, "the caller's slice must keep its own length and contents")
+		assert.Equal(t, []string{"sentinel-one", "sentinel-two"}, backing[1:3],
+			"the caller's backing array beyond len must not be overwritten")
+	})
 }
