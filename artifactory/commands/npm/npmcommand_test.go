@@ -13,6 +13,7 @@ import (
 	biutils "github.com/jfrog/build-info-go/utils"
 	"github.com/jfrog/gofrog/version"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
+	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	commonTests "github.com/jfrog/jfrog-cli-core/v2/common/tests"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/tests"
@@ -356,6 +357,34 @@ func TestValidateFailOnUncollectedDeps(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validateFailOnUncollectedDeps(tc.flagValue)
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateFailOnUncollectedDepsBuild(t *testing.T) {
+	testCases := []struct {
+		name        string
+		flagValue   string
+		buildName   string
+		buildNumber string
+		wantErr     bool
+	}{
+		{"flag not set, no build tracking - fine", "", "", "", false},
+		{"flag not set, build tracking present - fine", "", "my-build", "1", false},
+		{"flag set, build tracking present - fine", "all", "my-build", "1", false},
+		{"flag set, neither build-name nor build-number - rejected", "all", "", "", true},
+		{"flag set, build-name only - rejected", "regular", "my-build", "", true},
+		{"flag set, build-number only - rejected", "peer,optional", "", "1", true},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			buildConfiguration := buildUtils.NewBuildConfiguration(tc.buildName, tc.buildNumber, "", "")
+			err := validateFailOnUncollectedDepsBuild(tc.flagValue, buildConfiguration)
 			if tc.wantErr {
 				assert.Error(t, err)
 			} else {

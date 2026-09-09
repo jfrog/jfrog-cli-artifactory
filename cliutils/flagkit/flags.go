@@ -1158,7 +1158,7 @@ var flagsMap = map[string]components.Flag{
 	npmDetailedSummary:       components.NewBoolFlag(detailedSummary, "Set to true to include a list of the affected files in the command summary.", components.WithBoolDefaultValueFalse()),
 	nugetV2:                  components.NewBoolFlag(nugetV2, "Set to true if you'd like to use the NuGet V2 protocol when restoring packages from Artifactory.", components.WithBoolDefaultValueFalse()),
 	disableCVSCheck:          components.NewBoolFlag(disableCVSCheck, "Set to true to disable the CVS check that verifies if 404 errors are due to blocked packages.", components.WithBoolDefaultValueFalse()),
-	failOnUncollectedDeps:    components.NewStringFlag(failOnUncollectedDeps, "Fail the build if a dependency's integrity/checksum can't be collected for build-info. Accepts 'all' (every type), or a comma-separated combination of 'regular', 'peer', 'optional', 'bundle' to fail only for those. Only applies when collecting build-info with --build-name and --build-number.", components.SetMandatoryFalse()),
+	failOnUncollectedDeps:    components.NewStringFlag(failOnUncollectedDeps, "Fail the build if a dependency's integrity/checksum can't be collected for build-info. Accepts 'all' (every type), or a comma-separated combination of 'regular', 'peer', 'optional', 'bundle' to fail only for those. Requires --build-name and --build-number.", components.SetMandatoryFalse()),
 
 	// GoPublish specific commands flags
 	goPublishExclusions: components.NewStringFlag(exclusions, "List of semicolon-separated(;) exclusions. Exclusions can include the * and the ? wildcards.", components.SetMandatoryFalse()),

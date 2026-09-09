@@ -201,6 +201,9 @@ func (nc *NpmCommand) Init() error {
 	if err := validateFailOnUncollectedDeps(failOnUncollectedDeps); err != nil {
 		return err
 	}
+	if err := validateFailOnUncollectedDepsBuild(failOnUncollectedDeps, buildConfiguration); err != nil {
+		return err
+	}
 	nc.SetArgs(filteredNpmArgs).SetBuildConfiguration(buildConfiguration)
 	nc.SetDisableCVSCheck(disableCVSCheck)
 	nc.SetFailOnUncollectedDeps(failOnUncollectedDeps)
@@ -652,6 +655,24 @@ func validateFailOnUncollectedDeps(flagValue string) error {
 					"Valid values are: all, peer, optional, regular, bundle, or comma-separated combinations (e.g., peer,optional,bundle)",
 				trimmed)
 		}
+	}
+	return nil
+}
+
+// validateFailOnUncollectedDepsBuild fails fast if --fail-on-uncollected-deps was given a
+// value but build-info collection isn't configured: the flag only has an effect while collecting
+// build-info, so without --build-name/--build-number it would otherwise be silently ignored. Mirrors
+// --module's requirement on --build-name/--build-number (ValidateBuildAndModuleParams).
+func validateFailOnUncollectedDepsBuild(flagValue string, buildConfiguration *buildUtils.BuildConfiguration) error {
+	if flagValue == "" {
+		return nil
+	}
+	collectBuildInfo, err := buildConfiguration.IsCollectBuildInfo()
+	if err != nil {
+		return err
+	}
+	if !collectBuildInfo {
+		return errorutils.CheckErrorf("the build-name and build-number options are mandatory when the fail-on-uncollected-deps option is provided.")
 	}
 	return nil
 }
