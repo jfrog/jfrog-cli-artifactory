@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -79,10 +80,10 @@ type NpmCommand struct {
 	restoreResolution func() error
 	// When true, skips the 404 error handling that checks if packages are blocked by curation
 	disableCVSCheck bool
-	// Granular strict-mode value for missing dependencies: "" (never fail, default), "all" (fail for
-	// every missing dependency type), or a comma-separated combination of "regular", "peer", "optional",
+	// Granular strict-mode value for uncollected dependencies: "" (never fail, default), "all" (fail for
+	// every uncollected dependency type), or a comma-separated combination of "regular", "peer", "optional",
 	// "bundle" (e.g. "peer,optional,bundle") to fail only for the specified types.
-	failOnMissingDeps string
+	failOnUncollectedDeps string
 }
 
 func NewNpmCommand(cmdName string, collectBuildInfo bool) *NpmCommand {
@@ -136,8 +137,8 @@ func (nc *NpmCommand) SetDisableCVSCheck(disable bool) *NpmCommand {
 	return nc
 }
 
-func (nc *NpmCommand) SetFailOnMissingDeps(fail string) *NpmCommand {
-	nc.failOnMissingDeps = fail
+func (nc *NpmCommand) SetFailOnUncollectedDeps(fail string) *NpmCommand {
+	nc.failOnUncollectedDeps = fail
 	return nc
 }
 
@@ -181,19 +182,19 @@ func (nc *NpmCommand) Init() error {
 	if err != nil {
 		return err
 	}
-	// Extract --fail-on-missing-deps flag. Accepts a granular string value: "all", "" (default, never fail),
+	// Extract --fail-on-uncollected-deps flag. Accepts a granular string value: "all", "" (default, never fail),
 	// or a comma-separated combination of "regular", "peer", "optional", "bundle".
-	filteredNpmArgs, failOnMissingDeps, err := coreutils.ExtractStringOptionFromArgs(filteredNpmArgs, "fail-on-missing-deps")
+	filteredNpmArgs, failOnUncollectedDeps, err := coreutils.ExtractStringOptionFromArgs(filteredNpmArgs, "fail-on-uncollected-deps")
 	if err != nil {
 		return err
 	}
-	// Validate the fail-on-missing-deps flag value
-	if err := validateFailOnMissingDeps(failOnMissingDeps); err != nil {
+	// Validate the fail-on-uncollected-deps flag value
+	if err := validateFailOnUncollectedDeps(failOnUncollectedDeps); err != nil {
 		return err
 	}
 	nc.SetArgs(filteredNpmArgs).SetBuildConfiguration(buildConfiguration)
 	nc.SetDisableCVSCheck(disableCVSCheck)
-	nc.SetFailOnMissingDeps(failOnMissingDeps)
+	nc.SetFailOnUncollectedDeps(failOnUncollectedDeps)
 	return nil
 }
 
@@ -538,7 +539,7 @@ func (nc *NpmCommand) prepareBuildInfoModule() error {
 		return errorutils.CheckError(err)
 	}
 	nc.buildInfoModule.SetCollectBuildInfo(nc.collectBuildInfo)
-	nc.buildInfoModule.SetFailOnMissingDeps(nc.failOnMissingDeps)
+	nc.buildInfoModule.SetFailOnUncollectedDeps(nc.failOnUncollectedDeps)
 	if nc.buildConfiguration.GetModule() != "" {
 		nc.buildInfoModule.SetName(nc.buildConfiguration.GetModule())
 	}
@@ -616,26 +617,28 @@ func (nc *NpmCommand) GetRepo() string {
 	return nc.repo
 }
 
-// validateFailOnMissingDeps validates that the --fail-on-missing-deps flag contains only valid values.
-// Valid values: "" (empty, default), "all", or comma-separated combination of "peer", "optional", "regular", "bundle"
-func validateFailOnMissingDeps(flagValue string) error {
+// validFailOnUncollectedDepsValues are the individual values accepted by the --fail-on-uncollected-deps
+// flag, either on their own or combined in a comma-separated list (e.g. "peer,optional,bundle").
+var validFailOnUncollectedDepsValues = []string{"all", "peer", "optional", "regular", "bundle"}
+
+// validateFailOnUncollectedDeps validates that the --fail-on-uncollected-deps flag contains only valid values.
+// Valid values: "" (empty, default), "all", or a comma-separated combination of "peer", "optional", "regular", "bundle".
+// "all" must appear on its own: combining it with another value (e.g. "all,peer") would fail every dependency
+// type instead of just the ones requested, so it's rejected rather than silently doing more than asked.
+func validateFailOnUncollectedDeps(flagValue string) error {
 	if flagValue == "" {
 		return nil
 	}
 
-	validValues := map[string]bool{
-		"all":      true,
-		"peer":     true,
-		"optional": true,
-		"regular":  true,
-		"bundle":   true,
-	}
-
-	for _, val := range strings.Split(flagValue, ",") {
+	values := strings.Split(flagValue, ",")
+	for _, val := range values {
 		trimmed := strings.TrimSpace(val)
-		if !validValues[trimmed] {
+		if trimmed == "all" && len(values) != 1 {
+			return errorutils.CheckErrorf("--fail-on-uncollected-deps value 'all' cannot be combined with other dependency types")
+		}
+		if !slices.Contains(validFailOnUncollectedDepsValues, trimmed) {
 			return errorutils.CheckErrorf(
-				"invalid --fail-on-missing-deps value: '%s'. "+
+				"invalid --fail-on-uncollected-deps value: '%s'. "+
 					"Valid values are: all, peer, optional, regular, bundle, or comma-separated combinations (e.g., peer,optional,bundle)",
 				trimmed)
 		}

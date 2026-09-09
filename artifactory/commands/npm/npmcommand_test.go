@@ -330,3 +330,39 @@ func TestHandle404ErrorsFallsBackToGetWhenNoNpmNoticeHeader(t *testing.T) {
 	assert.Contains(t, err.Error(), expectedBody)
 }
 
+func TestValidateFailOnUncollectedDeps(t *testing.T) {
+	testCases := []struct {
+		name      string
+		flagValue string
+		wantErr   bool
+	}{
+		{"empty is valid (default, never fail)", "", false},
+		{"all alone is valid", "all", false},
+		{"peer alone is valid", "peer", false},
+		{"optional alone is valid", "optional", false},
+		{"regular alone is valid", "regular", false},
+		{"bundle alone is valid", "bundle", false},
+		{"two-value combo is valid", "peer,optional", false},
+		{"three-value combo is valid", "regular,bundle,optional", false},
+		{"whitespace around values is trimmed", " peer , optional ", false},
+		{"all combined with another value is rejected", "all,peer", true},
+		{"all combined with another value, reversed order, is rejected", "peer,all", true},
+		{"unknown value is rejected", "invalid", true},
+		{"values are case-sensitive", "ALL", true},
+		{"trailing comma is rejected", "peer,", true},
+		{"leading comma is rejected", ",peer", true},
+		{"double comma is rejected", "peer,,bundle", true},
+		{"special characters are rejected", "peer@bundle", true},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateFailOnUncollectedDeps(tc.flagValue)
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
