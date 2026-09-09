@@ -74,9 +74,9 @@ func TestHFDownloadCmd_SetEtagTimeout(t *testing.T) {
 
 func TestHFDownloadCmd_CommandName(t *testing.T) {
 	cmd := NewHuggingFaceDownload()
-	assert.Empty(t, cmd.CommandName())
-	cmd.name = "test-command"
-	assert.Equal(t, "test-command", cmd.CommandName())
+	assert.Equal(t, "rt_hf_download", cmd.CommandName())
+	cmd.name = "download"
+	assert.Equal(t, "rt_hf_download", cmd.CommandName())
 }
 
 func TestHFDownloadCmd_ServerDetails(t *testing.T) {

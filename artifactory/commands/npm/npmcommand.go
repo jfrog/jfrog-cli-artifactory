@@ -90,8 +90,17 @@ func NewNpmCommand(cmdName string, collectBuildInfo bool) *NpmCommand {
 	return &NpmCommand{
 		cmdName:             cmdName,
 		collectBuildInfo:    collectBuildInfo,
-		internalCommandName: "rt_npm_" + cmdName,
+		internalCommandName: npmUsageName(cmdName),
 	}
+}
+
+// npmUsageName is rt_npm_<verb>. A missing verb (the common rt_npm_ lake name) is rt_npm.
+func npmUsageName(cmdName string) string {
+	verb := strings.TrimSpace(cmdName)
+	if verb == "" {
+		return "rt_npm"
+	}
+	return "rt_npm_" + verb
 }
 
 func NewNpmInstallCommand() *NpmCommand {
@@ -600,6 +609,7 @@ func isValidKey(key string) bool {
 		!strings.HasPrefix(key, "@") && // Scoped configurations
 		key != "registry" &&
 		key != "metrics-registry" &&
+		key != "email" && // npm 12+ rejects bare email; must be registry-scoped (//registry/:email)
 		key != "json" // Handled separately because 'npm c ls' should run with json=false
 }
 
