@@ -66,16 +66,22 @@ func TestChocoSourceNameValidatesInput(t *testing.T) {
 }
 
 func TestNormalizeChocoRepositoryType(t *testing.T) {
-	for input, expected := range map[string]string{
-		"virtual":  services.VirtualRepositoryRepoType,
-		"local":    services.LocalRepositoryRepoType,
-		"remote":   services.RemoteRepositoryRepoType,
-		" REMOTE ": services.RemoteRepositoryRepoType,
+	for _, testCase := range []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"virtual", "virtual", services.VirtualRepositoryRepoType},
+		{"local", "local", services.LocalRepositoryRepoType},
+		{"remote", "remote", services.RemoteRepositoryRepoType},
+		// The padding and casing are the point: the value is trimmed and lower-cased before
+		// being matched, so a repository class read back from Artifactory normalizes either way.
+		{"padded and upper-cased", " REMOTE ", services.RemoteRepositoryRepoType},
 	} {
-		t.Run(input, func(t *testing.T) {
-			actual, err := normalizeChocoRepositoryType(input)
+		t.Run(testCase.name, func(t *testing.T) {
+			actual, err := normalizeChocoRepositoryType(testCase.input)
 			require.NoError(t, err)
-			assert.Equal(t, expected, actual)
+			assert.Equal(t, testCase.expected, actual)
 		})
 	}
 
@@ -87,9 +93,9 @@ func TestNormalizeChocoRepositoryType(t *testing.T) {
 func TestConfigureChocoCreatesVirtualSource(t *testing.T) {
 	calls := stubChocoCommandRunner(t)
 	stubChocoPlatformChecker(t, true)
-	stubChocoRepoClassResolver(t, services.VirtualRepositoryRepoType, nil)
+	stubChocoRepoClassResolver(t, services.VirtualRepositoryRepoType)
 
-	configureChocoForTest(t, "choco-virtual", "secret")
+	configureChocoForTest(t, "choco-virtual")
 
 	const sourceURL = "https://acme.jfrog.io/artifactory/api/nuget/choco-virtual"
 	assert.Equal(t, [][]string{
@@ -102,9 +108,9 @@ func TestConfigureChocoCreatesVirtualSource(t *testing.T) {
 func TestConfigureChocoCreatesLocalSourceWithoutPriority(t *testing.T) {
 	calls := stubChocoCommandRunner(t)
 	stubChocoPlatformChecker(t, true)
-	stubChocoRepoClassResolver(t, services.LocalRepositoryRepoType, nil)
+	stubChocoRepoClassResolver(t, services.LocalRepositoryRepoType)
 
-	configureChocoForTest(t, "choco-local", "secret")
+	configureChocoForTest(t, "choco-local")
 
 	assert.Equal(t, []string{
 		"choco", "source", "add", "-n=jfrt-acme.jfrog.io-choco-local",
@@ -115,9 +121,9 @@ func TestConfigureChocoCreatesLocalSourceWithoutPriority(t *testing.T) {
 func TestConfigureChocoCreatesRemoteSourceWithPriority(t *testing.T) {
 	calls := stubChocoCommandRunner(t)
 	stubChocoPlatformChecker(t, true)
-	stubChocoRepoClassResolver(t, services.RemoteRepositoryRepoType, nil)
+	stubChocoRepoClassResolver(t, services.RemoteRepositoryRepoType)
 
-	configureChocoForTest(t, "choco-remote", "secret")
+	configureChocoForTest(t, "choco-remote")
 
 	assert.Equal(t, []string{
 		"choco", "source", "add", "-n=jfrt-acme.jfrog.io-choco-remote",
@@ -127,7 +133,7 @@ func TestConfigureChocoCreatesRemoteSourceWithPriority(t *testing.T) {
 
 func TestConfigureChocoDoesNotLeakSecrets(t *testing.T) {
 	stubChocoPlatformChecker(t, true)
-	stubChocoRepoClassResolver(t, services.VirtualRepositoryRepoType, nil)
+	stubChocoRepoClassResolver(t, services.VirtualRepositoryRepoType)
 	originalRunner := chocoCommandRunner
 	chocoCommandRunner = func(string, ...string) error { return errors.New("boom") }
 	t.Cleanup(func() { chocoCommandRunner = originalRunner })
@@ -139,7 +145,7 @@ func TestConfigureChocoDoesNotLeakSecrets(t *testing.T) {
 
 func TestConfigureChocoToleratesMissingSource(t *testing.T) {
 	stubChocoPlatformChecker(t, true)
-	stubChocoRepoClassResolver(t, services.VirtualRepositoryRepoType, nil)
+	stubChocoRepoClassResolver(t, services.VirtualRepositoryRepoType)
 	originalRunner := chocoCommandRunner
 	chocoCommandRunner = func(_ string, args ...string) error {
 		if len(args) > 1 && args[0] == "source" && args[1] == "remove" {
@@ -149,7 +155,7 @@ func TestConfigureChocoToleratesMissingSource(t *testing.T) {
 	}
 	t.Cleanup(func() { chocoCommandRunner = originalRunner })
 
-	configureChocoForTest(t, "choco-virtual", "secret")
+	configureChocoForTest(t, "choco-virtual")
 }
 
 func TestConfigureChocoNonWindowsFailsClearly(t *testing.T) {
@@ -176,9 +182,9 @@ func TestChocoIsSupportedBySetup(t *testing.T) {
 	assert.Equal(t, repository.Nuget, packageType)
 }
 
-func configureChocoForTest(t *testing.T, repoName, password string) {
+func configureChocoForTest(t *testing.T, repoName string) {
 	t.Helper()
-	require.NoError(t, newChocoSetupCommand(repoName, password).configureChoco())
+	require.NoError(t, newChocoSetupCommand(repoName, "secret").configureChoco())
 }
 
 func newChocoSetupCommand(repoName, password string) *SetupCommand {
@@ -212,11 +218,11 @@ func stubChocoPlatformChecker(t *testing.T, isWindows bool) {
 	t.Cleanup(func() { chocoPlatformChecker = originalChecker })
 }
 
-func stubChocoRepoClassResolver(t *testing.T, repoClass string, err error) {
+func stubChocoRepoClassResolver(t *testing.T, repoClass string) {
 	t.Helper()
 	originalResolver := chocoRepoClassResolver
 	chocoRepoClassResolver = func(*config.ServerDetails, string) (string, error) {
-		return repoClass, err
+		return repoClass, nil
 	}
 	t.Cleanup(func() { chocoRepoClassResolver = originalResolver })
 }
