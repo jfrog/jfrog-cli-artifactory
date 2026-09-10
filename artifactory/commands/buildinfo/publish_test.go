@@ -112,7 +112,8 @@ func TestSetVcsPropsOnArtifacts_AllPresent_DirectOnly(t *testing.T) {
 	// Build-scoped SearchFiles must NOT have been called.
 	for _, call := range mockSM.Calls {
 		if call.Method == "SearchFiles" {
-			params := call.Arguments.Get(0).(services.SearchParams)
+			params, ok := call.Arguments.Get(0).(services.SearchParams)
+			require.True(t, ok, "unexpected type for SearchFiles argument")
 			assert.Empty(t, params.Build, "build-search branch must not fire when all artifacts have OriginalDeploymentRepo")
 		}
 	}
@@ -160,7 +161,8 @@ func TestSetVcsPropsOnArtifacts_AllMissing_BuildSearchOnly(t *testing.T) {
 	buildSearchCalls := 0
 	for _, call := range mockSM.Calls {
 		if call.Method == "SearchFiles" {
-			params := call.Arguments.Get(0).(services.SearchParams)
+			params, ok := call.Arguments.Get(0).(services.SearchParams)
+			require.True(t, ok, "unexpected type for SearchFiles argument")
 			assert.NotEmpty(t, params.Build, "direct-path branch must not fire when no artifact has OriginalDeploymentRepo")
 			buildSearchCalls++
 		}
