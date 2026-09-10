@@ -223,6 +223,11 @@ func stubChocoRepoClassResolver(t *testing.T, repoClass string, err error) {
 
 func exitWithStatus(t *testing.T, status int) error {
 	t.Helper()
+	// Re-exec this same test binary to produce a real *exec.ExitError with a chosen status, which
+	// is the only way to exercise the exit-code handling without invoking Chocolatey itself.
+	// os.Args[0] is the running test binary and the argument is a constant, so the taint gosec
+	// reports here is not reachable from any external input.
+	//#nosec G702 G204 -- re-execs this test binary with a constant argument; no external input
 	cmd := exec.Command(os.Args[0], "-test.run=TestChocoExitWithStatus")
 	cmd.Env = append(os.Environ(), "GO_WANT_CHOCO_EXIT_STATUS=1", fmt.Sprintf("CHOCO_EXIT_STATUS=%d", status))
 	return cmd.Run()
