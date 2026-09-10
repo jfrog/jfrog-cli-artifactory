@@ -66,6 +66,7 @@ type packageManagerConfig struct {
 	// function or the tool it drives really honors the variable — the per-entry
 	// comments record what was verified.
 	overrideEnv string
+	machineWide bool
 }
 
 // One entry per package manager in packageManagerToRepositoryPackageType;
@@ -117,6 +118,7 @@ var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
 	// Both cargoHome() in commands/cargo/setup.go and cargo itself honour CARGO_HOME, so setting it
 	// redirects the whole configuration off its user-level default.
 	project.Cargo: {location: "your user-level Cargo configuration (config.toml and credentials.toml in your Cargo home)", overrideEnv: "CARGO_HOME"},
+	project.Choco: {location: "your machine-level Chocolatey configuration (chocolatey.config)", machineWide: true},
 }
 
 // configScopeNote describes what the command changed and how widely it applies, or
@@ -128,6 +130,10 @@ func configScopeNote(packageManager project.ProjectType) string {
 	}
 	if cfg.credentialsOnly {
 		return fmt.Sprintf("Credentials were saved to %s for your user account.", cfg.location)
+	}
+	if cfg.machineWide {
+		return fmt.Sprintf("This updated %s, so it applies to every %s project for every user on this machine, not only the current directory.",
+			cfg.location, packageManager.String())
 	}
 	// A redirected configuration is not user-level, so report where it actually went
 	// rather than promising a scope that may not hold.
@@ -159,6 +165,7 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	// Nuget package managers
 	project.Nuget:  repository.Nuget,
 	project.Dotnet: repository.Nuget,
+	project.Choco:  repository.Nuget,
 
 	// Docker package managers
 	project.Docker: repository.Docker,
@@ -269,6 +276,11 @@ func (sc *SetupCommand) Run() (err error) {
 	if !IsSupportedPackageManager(sc.packageManager) {
 		return errorutils.CheckErrorf("unsupported package manager: %s", sc.packageManager)
 	}
+	if sc.packageManager == project.Choco {
+		if err = ValidateChocoPlatform(); err != nil {
+			return err
+		}
+	}
 
 	// If the repository name is not provided, and the package manager is not Docker or Podman, prompt the user to select a repository.
 	// Docker and Podman do not require a repository name as they authenticate directly with the platform and require the repository name as part of the image name.
@@ -276,7 +288,11 @@ func (sc *SetupCommand) Run() (err error) {
 	if sc.repoName == "" && sc.packageManager != project.Docker && sc.packageManager != project.Podman && sc.packageManager != project.Apk {
 		// Cargo has no virtual repositories and separates resolution (remote) from deployment
 		// (local), so it selects both instead of a single virtual repo.
-		if sc.packageManager == project.Cargo {
+		if sc.packageManager == project.Choco {
+			if err = sc.promptUserToSelectChocoRepository(); err != nil {
+				return err
+			}
+		} else if sc.packageManager == project.Cargo {
 			if err = sc.promptUserToSelectCargoRepositories(); err != nil {
 				return err
 			}
@@ -302,6 +318,8 @@ func (sc *SetupCommand) Run() (err error) {
 		err = sc.configureGo()
 	case project.Nuget, project.Dotnet:
 		err = sc.configureDotnetNuget()
+	case project.Choco:
+		err = sc.configureChoco()
 	case project.Docker, project.Podman:
 		err = sc.configureContainer()
 	case project.Helm:

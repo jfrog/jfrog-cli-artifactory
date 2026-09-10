@@ -1377,6 +1377,11 @@ func TestConfigScopeNote_CoversEverySupportedPackageManager(t *testing.T) {
 			assert.NotContainsf(t, note, "applies to every", "%q must not claim resolution: %s", name, note)
 			continue
 		}
+		if packageManagerConfigs[packageManager].machineWide {
+			assert.Containsf(t, note, "every user on this machine", "%q: %s", name, note)
+			assert.NotContainsf(t, note, "for this user", "%q must not claim user scope: %s", name, note)
+			continue
+		}
 		assert.Containsf(t, note, fmt.Sprintf("applies to every %s project", name), "%q: %s", name, note)
 		assert.NotContainsf(t, note, "Credentials were saved", "%q: %s", name, note)
 	}
