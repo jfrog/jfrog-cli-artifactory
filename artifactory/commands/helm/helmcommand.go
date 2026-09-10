@@ -33,9 +33,8 @@ func NewHelmCommand() *HelmCommand {
 	return &HelmCommand{}
 }
 
-// CommandName returns the command name for this Helm command
 func (hc *HelmCommand) CommandName() string {
-	return hc.cmdName
+	return "rt_helm"
 }
 
 // SetHelmCmdName sets the Helm command name
