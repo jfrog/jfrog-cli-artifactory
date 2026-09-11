@@ -360,11 +360,10 @@ func (bpc *BuildPublishCommand) getNextBuildNumber(buildName string, servicesMan
 }
 
 // setVcsPropsOnArtifacts sets VCS properties on all artifacts in the build info.
-// This method:
-// - Merges CI and local git VCS props via mergeVcsPropsForBuildPublish
-// - Never fails the build publish - only logs warnings on errors
-// - Retries transient failures but not 404 errors
-// - Does nothing if VCS props collection is disabled via JFROG_CLI_CI_VCS_PROPS_DISABLED
+// Artifacts with OriginalDeploymentRepo are tagged directly by exact path.
+// Artifacts missing OriginalDeploymentRepo are resolved via the dedicated build-artifacts API
+// (one indexed call) instead of an instance-wide wildcard fan-out across all local repos.
+// Never fails the build publish - only logs debug messages on errors.
 func (bpc *BuildPublishCommand) setVcsPropsOnArtifacts(
 	servicesManager artifactory.ArtifactoryServicesManager,
 	buildInfo *buildinfo.BuildInfo,
@@ -380,28 +379,23 @@ func (bpc *BuildPublishCommand) setVcsPropsOnArtifacts(
 			searchDir = "."
 		}
 	}
-	// Build props string (CI env + local git fallback).
 	props := civcs.GetCIVcsPropsString(searchDir)
 	if props == "" {
 		log.Debug("VCS: Empty props string, skipping")
 		return
 	}
-	// Extract artifact paths from build info (with warnings for missing repo paths)
-	artifactPaths, skippedCount := extractArtifactPathsWithWarnings(buildInfo)
-	log.Debug("VCS: Extracted", len(artifactPaths), "artifact paths,", skippedCount, "skipped")
-	if len(artifactPaths) == 0 && skippedCount == 0 {
-		log.Debug("VCS: No artifacts found in build info")
-		return
+	present, missingCount := extractArtifactPaths(buildInfo)
+	log.Debug("VCS: Extracted", len(present), "direct paths,", missingCount, "missing OriginalDeploymentRepo")
+	// Artifacts WITH OriginalDeploymentRepo: tag directly by exact path.
+	if len(present) > 0 {
+		setPropsOnArtifacts(servicesManager, present, props)
 	}
-	if len(artifactPaths) == 0 {
-		// All artifacts were skipped due to missing repo paths
-		log.Debug("VCS: All artifacts skipped due to missing repo paths")
-		return
+	// Artifacts WITHOUT OriginalDeploymentRepo: resolve via the dedicated build-artifacts API
+	// (one indexed call) instead of the old instance-wide wildcard fan-out.
+	if missingCount > 0 {
+		setPropsViaBuildSearch(servicesManager, buildInfo.Name, buildInfo.Number,
+			bpc.buildConfiguration.GetProject(), props)
 	}
-	log.Debug("VCS: Setting properties on", len(artifactPaths), "artifacts with props:", props)
-	// Set properties on all artifacts in a single batch call
-	setPropsOnArtifacts(servicesManager, artifactPaths, props)
-	log.Debug("VCS: Property setting completed")
 }
 
 func (bpc *BuildPublishCommand) excludeDependenciesByScope(buildInfo *buildinfo.BuildInfo) {
