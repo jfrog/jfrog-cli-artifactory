@@ -192,6 +192,7 @@ func (mc *MvnCommand) Run() error {
 			SetConfigPath(mc.configPath).
 			SetGoals(mc.goals).
 			SetBuildConf(mc.configuration).
+			SetServerDetails(mc.serverDetails).
 			SetPreferWrapper(mc.preferWrapper)
 		return RunMvn(mvnParams)
 	}
@@ -359,6 +360,7 @@ func (mc *MvnCommand) updateBuildInfoArtifactsWithDeploymentRepo(vConfig *viper.
 
 	return os.WriteFile(buildInfoFilePath, newBuildInfo, 0644)
 }
+
 
 func updateArtifactRepo(artifact *entities.Artifact, snapshotRepo, releaseRepo string) {
 	if snapshotRepo != "" && strings.Contains(artifact.Path, "-SNAPSHOT") {
