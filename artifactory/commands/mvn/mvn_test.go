@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/gofrog/io"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
+	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
+	clientutils "github.com/jfrog/jfrog-client-go/utils"
+	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"os"
 	"path/filepath"
 	"testing"
@@ -205,4 +209,139 @@ func TestUpdateBuildInfoArtifactsWithTargetRepo(t *testing.T) {
 	assert.Len(t, artifacts, 2)
 	assert.Equal(t, "releases", artifacts[0].OriginalDeploymentRepo)
 	assert.Equal(t, "releases", artifacts[1].OriginalDeploymentRepo)
+}
+
+func TestCollectArtifactNames(t *testing.T) {
+	binaries := &spec.SpecFiles{Files: []spec.File{
+		{Target: "maven-dev-local/com/atruvia/atruvia-api/1.0/atruvia-api-1.0.jar"},
+	}}
+	poms := &spec.SpecFiles{Files: []spec.File{
+		{Target: "maven-dev-local/com/atruvia/atruvia-api/1.0/atruvia-api-1.0.pom"},
+		{Target: ""}, // empty targets are ignored
+	}}
+
+	names := collectArtifactNames(binaries, poms, nil)
+
+	assert.Len(t, names, 2)
+	assert.True(t, names["atruvia-api-1.0.jar"])
+	assert.True(t, names["atruvia-api-1.0.pom"])
+}
+
+func TestRemoveFailedArtifactsFromBuildInfo(t *testing.T) {
+	tempDir := t.TempDir()
+	buildInfoFilePath := filepath.Join(tempDir, "buildinfo")
+
+	buildInfo := entities.BuildInfo{
+		Modules: []entities.Module{
+			{
+				Id: "com.atruvia:atruvia-api:1.0",
+				Artifacts: []entities.Artifact{
+					{Name: "atruvia-api-1.0.jar", Path: "com/atruvia/atruvia-api/1.0/atruvia-api-1.0.jar"},
+					{Name: "atruvia-api-1.0.pom", Path: "com/atruvia/atruvia-api/1.0/atruvia-api-1.0.pom"},
+				},
+				Dependencies: []entities.Dependency{{Id: "junit:junit:4.11"}},
+			},
+		},
+	}
+	content, err := json.Marshal(buildInfo)
+	assert.NoError(t, err)
+	assert.NoError(t, os.WriteFile(buildInfoFilePath, content, 0644))
+
+	mc := MvnCommand{}
+	binaries := &spec.SpecFiles{Files: []spec.File{
+		{Target: "maven-dev-local/com/atruvia/atruvia-api/1.0/atruvia-api-1.0.jar"},
+	}}
+	poms := &spec.SpecFiles{Files: []spec.File{
+		{Target: "maven-dev-local/com/atruvia/atruvia-api/1.0/atruvia-api-1.0.pom"},
+	}}
+
+	mc.removeArtifactsFromBuildInfo(buildInfoFilePath, collectArtifactNames(binaries, poms))
+
+	updatedContent, err := os.ReadFile(buildInfoFilePath)
+	assert.NoError(t, err)
+	var updated entities.BuildInfo
+	assert.NoError(t, json.Unmarshal(updatedContent, &updated))
+
+	assert.Len(t, updated.Modules, 1)
+	// The failed artifacts must be removed, but the dependencies must be preserved.
+	assert.Len(t, updated.Modules[0].Artifacts, 0)
+	assert.Len(t, updated.Modules[0].Dependencies, 1)
+}
+
+func TestRemoveFailedArtifactsFromBuildInfoKeepsSucceeded(t *testing.T) {
+	tempDir := t.TempDir()
+	buildInfoFilePath := filepath.Join(tempDir, "buildinfo")
+
+	buildInfo := entities.BuildInfo{
+		Modules: []entities.Module{
+			{
+				Id: "com.atruvia:atruvia-api:1.0",
+				Artifacts: []entities.Artifact{
+					{Name: "atruvia-api-1.0.jar", Path: "com/atruvia/atruvia-api/1.0/atruvia-api-1.0.jar"},
+					{Name: "atruvia-api-1.0.pom", Path: "com/atruvia/atruvia-api/1.0/atruvia-api-1.0.pom"},
+				},
+			},
+		},
+	}
+	content, err := json.Marshal(buildInfo)
+	assert.NoError(t, err)
+	assert.NoError(t, os.WriteFile(buildInfoFilePath, content, 0644))
+
+	mc := MvnCommand{}
+	// Only the pom failed to upload - the jar must remain in the build-info.
+	poms := &spec.SpecFiles{Files: []spec.File{
+		{Target: "maven-dev-local/com/atruvia/atruvia-api/1.0/atruvia-api-1.0.pom"},
+	}}
+
+	mc.removeArtifactsFromBuildInfo(buildInfoFilePath, collectArtifactNames(poms))
+
+	updatedContent, err := os.ReadFile(buildInfoFilePath)
+	assert.NoError(t, err)
+	var updated entities.BuildInfo
+	assert.NoError(t, json.Unmarshal(updatedContent, &updated))
+
+	assert.Len(t, updated.Modules, 1)
+	assert.Len(t, updated.Modules[0].Artifacts, 1)
+	assert.Equal(t, "atruvia-api-1.0.jar", updated.Modules[0].Artifacts[0].Name)
+}
+
+func TestRemoveFailedArtifactsFromBuildInfoNoFilePath(t *testing.T) {
+	mc := MvnCommand{}
+	// Should be a no-op and must not panic when there is no build-info file.
+	mc.removeArtifactsFromBuildInfo("", map[string]bool{"a.jar": true})
+}
+
+func TestFailedUploadArtifactNames(t *testing.T) {
+	tempDir := t.TempDir()
+	transferFile := filepath.Join(tempDir, "transfer")
+	// Only the jar was uploaded successfully; the pom was not.
+	details := []clientutils.FileTransferDetails{
+		{SourcePath: "target/atruvia-api-1.0.jar", TargetPath: "http://host/maven-dev-local/com/atruvia/atruvia-api/1.0/atruvia-api-1.0.jar"},
+	}
+	assert.NoError(t, clientutils.SaveFileTransferDetailsInFile(transferFile, &details))
+
+	uploadCmd := generic.NewUploadCommand()
+	uploadCmd.Result().SetReader(content.NewContentReader(transferFile, "files"))
+
+	specFile := &spec.SpecFiles{Files: []spec.File{
+		{Target: "maven-dev-local/com/atruvia/atruvia-api/1.0/atruvia-api-1.0.jar"}, // succeeded
+		{Target: "maven-dev-local/com/atruvia/atruvia-api/1.0/atruvia-api-1.0.pom"}, // failed
+	}}
+
+	failed := failedUploadArtifactNames(specFile, uploadCmd)
+
+	assert.Len(t, failed, 1)
+	assert.True(t, failed["atruvia-api-1.0.pom"])
+	assert.False(t, failed["atruvia-api-1.0.jar"])
+}
+
+func TestFailedUploadArtifactNamesNoReader(t *testing.T) {
+	uploadCmd := generic.NewUploadCommand()
+	specFile := &spec.SpecFiles{Files: []spec.File{
+		{Target: "maven-dev-local/com/atruvia/atruvia-api/1.0/atruvia-api-1.0.jar"},
+	}}
+	// With no transfer details available, all artifacts in the spec are considered failed.
+	failed := failedUploadArtifactNames(specFile, uploadCmd)
+	assert.Len(t, failed, 1)
+	assert.True(t, failed["atruvia-api-1.0.jar"])
 }
