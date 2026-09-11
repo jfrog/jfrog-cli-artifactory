@@ -9,6 +9,10 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
+	clientutils "github.com/jfrog/jfrog-client-go/artifactory/services/utils"
+	"github.com/jfrog/jfrog-client-go/auth"
+	"github.com/jfrog/jfrog-client-go/http/jfroghttpclient"
+	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -52,7 +56,7 @@ func setPropsOnArtifacts(servicesManager artifactory.ArtifactoryServicesManager,
 	if len(artifactPaths) == 0 {
 		return
 	}
-	setPropsWithRetry(servicesManager, buildSpecFromPaths(artifactPaths), props)
+	setPropsViaSpecSearch(servicesManager, buildSpecFromPaths(artifactPaths), props)
 }
 
 // setPropsViaBuildSearch resolves the build's artifacts through the dedicated build-artifacts API
@@ -63,34 +67,74 @@ func setPropsViaBuildSearch(servicesManager artifactory.ArtifactoryServicesManag
 		log.Debug("CI VCS: build name/number missing, skipping build-search tagging")
 		return
 	}
-	specFiles, err := spec.CreateSpecFromBuildNameNumberAndProject(buildName, buildNumber, project)
-	if err != nil {
-		log.Warn("CI VCS: failed to build search spec:", err)
-		return
-	}
-	setPropsWithRetry(servicesManager, specFiles, props)
+	setPropsFromSearchWithRetry(servicesManager, func() (*content.ContentReader, error) {
+		return resolveBuildArtifacts(servicesManager, buildName, buildNumber, project)
+	}, props)
 }
 
-// setPropsWithRetry executes SearchItems + SetProps with exponential-backoff retry.
-// Stops early on 404 (path not found) or 403 after first retry. Never fails the build.
-func setPropsWithRetry(sm artifactory.ArtifactoryServicesManager, specFiles *spec.SpecFiles, props string) {
+// managerCommonConf adapts a services manager to the CommonConf the build-artifacts API expects,
+// reusing the manager's already-configured HTTP client instead of building a new one.
+type managerCommonConf struct {
+	servicesManager artifactory.ArtifactoryServicesManager
+}
+
+func (c managerCommonConf) GetArtifactoryDetails() auth.ServiceDetails {
+	return c.servicesManager.GetConfig().GetServiceDetails()
+}
+
+func (c managerCommonConf) GetJfrogHttpClient() *jfroghttpclient.JfrogHttpClient {
+	return c.servicesManager.Client()
+}
+
+// resolveBuildArtifacts fetches a build's artifacts from the dedicated build-artifacts API.
+// A spec-based build search would additionally fetch properties and checksums through AQL, which
+// SetProps never reads. Declared as a var so tests can substitute it without a live Artifactory.
+var resolveBuildArtifacts = func(servicesManager artifactory.ArtifactoryServicesManager, buildName, buildNumber, project string) (*content.ContentReader, error) {
+	builds := []clientutils.Build{{BuildName: buildName, BuildNumber: buildNumber}}
+	return clientutils.GetBuildArtifacts(builds, project, managerCommonConf{servicesManager})
+}
+
+// setPropsViaSpecSearch searches the given spec and sets props on the results.
+func setPropsViaSpecSearch(sm artifactory.ArtifactoryServicesManager, specFiles *spec.SpecFiles, props string) {
+	setPropsFromSearchWithRetry(sm, func() (*content.ContentReader, error) {
+		return generic.SearchItems(specFiles, sm)
+	}, props)
+}
+
+// setPropsFromSearchWithRetry resolves artifacts through searchArtifacts and sets props on them,
+// with exponential-backoff retry. Stops early on 404 or 403-after-first-retry from SetProps.
+// Never fails the build.
+func setPropsFromSearchWithRetry(sm artifactory.ArtifactoryServicesManager, searchArtifacts func() (*content.ContentReader, error), props string) {
+	closeReader := func(r *content.ContentReader) {
+		if err := r.Close(); err != nil {
+			log.Debug("CI VCS: failed to close search reader:", err)
+		}
+	}
 	var lastErr error
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
 			time.Sleep(retryDelayBase * time.Duration(1<<(attempt-1)))
 		}
-		reader, err := generic.SearchItems(specFiles, sm)
+		reader, err := searchArtifacts()
 		if err != nil {
+			// generic.SearchItems wraps all SearchFiles errors into a generic message,
+			// so HTTP status codes (404, 403) cannot be detected here — always retry.
 			lastErr = err
 			continue
 		}
-		length, _ := reader.Length()
+		length, err := reader.Length()
+		if err != nil {
+			log.Debug("CI VCS: failed to read search result length:", err)
+			closeReader(reader)
+			lastErr = err
+			continue
+		}
 		if length == 0 {
-			_ = reader.Close()
+			closeReader(reader)
 			return
 		}
 		successCount, err := sm.SetProps(services.PropsParams{Reader: reader, Props: props, UseDebugLogs: true})
-		_ = reader.Close()
+		closeReader(reader)
 		if err == nil {
 			log.Debug("CI VCS: set properties on", successCount, "artifacts")
 			return
@@ -110,11 +154,9 @@ func setPropsWithRetry(sm artifactory.ArtifactoryServicesManager, specFiles *spe
 
 // buildSpecFromPaths creates a SpecFiles object from artifact paths for search-based resolution.
 func buildSpecFromPaths(artifactPaths []string) *spec.SpecFiles {
-	specFiles := &spec.SpecFiles{}
+	specFiles := &spec.SpecFiles{Files: make([]spec.File, 0, len(artifactPaths))}
 	for _, artifactPath := range artifactPaths {
-		specFiles.Files = append(specFiles.Files, spec.File{
-			Pattern: artifactPath,
-		})
+		specFiles.Files = append(specFiles.Files, spec.File{Pattern: artifactPath})
 	}
 	return specFiles
 }

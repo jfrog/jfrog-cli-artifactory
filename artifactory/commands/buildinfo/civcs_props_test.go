@@ -6,11 +6,11 @@ import (
 	"time"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
-	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
+	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
+	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
 func TestBuildSpecFromPaths(t *testing.T) {
@@ -311,20 +311,30 @@ func zeroRetryDelay(t *testing.T) {
 	t.Cleanup(func() { retryDelayBase = time.Second })
 }
 
-// TestBuildSpecResolvesToBuildType guards that a spec created from build name/number dispatches to
-// the BUILD code path (not AQL/WILDCARD), which routes to the dedicated build-artifacts API.
-func TestBuildSpecResolvesToBuildType(t *testing.T) {
-	specFiles, err := spec.CreateSpecFromBuildNameNumberAndProject("mybuild", "42", "myproject")
-	require.NoError(t, err)
-	require.Len(t, specFiles.Files, 1)
-	f := specFiles.Files[0]
-	// GetSpecType() returns BUILD when Build != "" and Pattern == "".
-	assert.Equal(t, "mybuild/42", f.Build)
-	assert.Equal(t, "", f.Pattern, "pattern must be empty so GetSpecType dispatches to BUILD (not AQL/WILDCARD)")
-	assert.Equal(t, "myproject", f.Project)
+// stubBuildArtifacts substitutes the build-artifacts API resolver for the duration of the test.
+// readers are returned in order, one per call; errs[i] pairs with readers[i].
+func stubBuildArtifacts(t *testing.T, results []buildArtifactsResult) *int {
+	t.Helper()
+	original := resolveBuildArtifacts
+	calls := 0
+	resolveBuildArtifacts = func(_ artifactory.ArtifactoryServicesManager, _, _, _ string) (*content.ContentReader, error) {
+		i := calls
+		calls++
+		if i >= len(results) {
+			return nil, errors.New("unexpected extra call to resolveBuildArtifacts")
+		}
+		return results[i].reader, results[i].err
+	}
+	t.Cleanup(func() { resolveBuildArtifacts = original })
+	return &calls
 }
 
-// TestSetPropsViaBuildSearch_Success: SearchFiles returns an artifact; SetProps called once.
+type buildArtifactsResult struct {
+	reader *content.ContentReader
+	err    error
+}
+
+// TestSetPropsViaBuildSearch_Success: the API returns an artifact; SetProps is called once.
 func TestSetPropsViaBuildSearch_Success(t *testing.T) {
 	zeroRetryDelay(t)
 
@@ -333,9 +343,7 @@ func TestSetPropsViaBuildSearch_Success(t *testing.T) {
 	searchReader, cleanup := createTestSearchReader(t)
 	defer cleanup()
 
-	mockSM.On("SearchFiles", mock.MatchedBy(func(params services.SearchParams) bool {
-		return params.Build == "mybuild/42"
-	})).Return(searchReader, nil)
+	calls := stubBuildArtifacts(t, []buildArtifactsResult{{reader: searchReader}})
 	mockSM.On("SetProps", mock.MatchedBy(func(params services.PropsParams) bool {
 		return params.Props == props
 	})).Return(1, nil)
@@ -343,11 +351,13 @@ func TestSetPropsViaBuildSearch_Success(t *testing.T) {
 	setPropsViaBuildSearch(mockSM, "mybuild", "42", "", props)
 
 	mockSM.AssertExpectations(t)
-	mockSM.AssertNumberOfCalls(t, "SearchFiles", 1)
+	assert.Equal(t, 1, *calls, "build-artifacts API should be called once")
 	mockSM.AssertNumberOfCalls(t, "SetProps", 1)
+	// The AQL-based search path must not be used for build resolution.
+	mockSM.AssertNotCalled(t, "SearchFiles")
 }
 
-// TestSetPropsViaBuildSearch_EmptyResults: SearchFiles returns no artifacts; SetProps never called.
+// TestSetPropsViaBuildSearch_EmptyResults: the API returns no artifacts; SetProps is never called.
 func TestSetPropsViaBuildSearch_EmptyResults(t *testing.T) {
 	zeroRetryDelay(t)
 
@@ -355,7 +365,7 @@ func TestSetPropsViaBuildSearch_EmptyResults(t *testing.T) {
 	emptyReader, cleanup := createEmptySearchReader(t)
 	defer cleanup()
 
-	mockSM.On("SearchFiles", mock.Anything).Return(emptyReader, nil)
+	stubBuildArtifacts(t, []buildArtifactsResult{{reader: emptyReader}})
 
 	setPropsViaBuildSearch(mockSM, "mybuild", "42", "", "vcs.provider=github")
 
@@ -367,16 +377,16 @@ func TestSetPropsViaBuildSearch_MissingBuildInfo(t *testing.T) {
 	zeroRetryDelay(t)
 
 	mockSM := new(mockServicesManager)
-	setPropsViaBuildSearch(mockSM, "", "", "", "vcs.provider=github")
-	mockSM.AssertNotCalled(t, "SearchFiles")
-	mockSM.AssertNotCalled(t, "SetProps")
+	calls := stubBuildArtifacts(t, nil)
 
+	setPropsViaBuildSearch(mockSM, "", "", "", "vcs.provider=github")
 	setPropsViaBuildSearch(mockSM, "mybuild", "", "", "vcs.provider=github")
-	mockSM.AssertNotCalled(t, "SearchFiles")
+
+	assert.Equal(t, 0, *calls, "build-artifacts API must not be called without build name/number")
 	mockSM.AssertNotCalled(t, "SetProps")
 }
 
-// TestSetPropsViaBuildSearch_SearchRetries: first SearchFiles call errors, second succeeds.
+// TestSetPropsViaBuildSearch_SearchRetries: first API call errors, second succeeds.
 func TestSetPropsViaBuildSearch_SearchRetries(t *testing.T) {
 	zeroRetryDelay(t)
 
@@ -384,13 +394,15 @@ func TestSetPropsViaBuildSearch_SearchRetries(t *testing.T) {
 	searchReader, cleanup := createTestSearchReader(t)
 	defer cleanup()
 
-	mockSM.On("SearchFiles", mock.Anything).Return(nil, errors.New("transient timeout")).Once()
-	mockSM.On("SearchFiles", mock.Anything).Return(searchReader, nil).Once()
+	calls := stubBuildArtifacts(t, []buildArtifactsResult{
+		{err: errors.New("transient timeout")},
+		{reader: searchReader},
+	})
 	mockSM.On("SetProps", mock.Anything).Return(1, nil)
 
 	setPropsViaBuildSearch(mockSM, "mybuild", "42", "", "vcs.provider=github")
 
-	mockSM.AssertNumberOfCalls(t, "SearchFiles", 2)
+	assert.Equal(t, 2, *calls)
 	mockSM.AssertCalled(t, "SetProps", mock.Anything)
 }
 
@@ -402,12 +414,36 @@ func TestSetPropsViaBuildSearch_SetProps404NoRetry(t *testing.T) {
 	searchReader, cleanup := createTestSearchReader(t)
 	defer cleanup()
 
-	mockSM.On("SearchFiles", mock.Anything).Return(searchReader, nil)
+	calls := stubBuildArtifacts(t, []buildArtifactsResult{{reader: searchReader}})
 	mockSM.On("SetProps", mock.Anything).Return(0, errors.New("server returned 404 Not Found"))
 
 	setPropsViaBuildSearch(mockSM, "mybuild", "42", "", "vcs.provider=github")
 
-	// SearchFiles called once, SetProps called once, then stops (no retry loop).
-	mockSM.AssertNumberOfCalls(t, "SearchFiles", 1)
+	assert.Equal(t, 1, *calls)
 	mockSM.AssertNumberOfCalls(t, "SetProps", 1)
+}
+
+// TestSetPropsViaBuildSearch_SearchError_Retries: a failing API call is retried maxRetries times.
+func TestSetPropsViaBuildSearch_SearchError_Retries(t *testing.T) {
+	zeroRetryDelay(t)
+
+	for _, errMsg := range []string{
+		"server returned 404 Not Found",
+		"server returned 403 Forbidden",
+		"transient network error",
+	} {
+		t.Run(errMsg, func(t *testing.T) {
+			mockSM := new(mockServicesManager)
+			var results []buildArtifactsResult
+			for i := 0; i < maxRetries; i++ {
+				results = append(results, buildArtifactsResult{err: errors.New(errMsg)})
+			}
+			calls := stubBuildArtifacts(t, results)
+
+			setPropsViaBuildSearch(mockSM, "mybuild", "42", "", "vcs.provider=github")
+
+			assert.Equal(t, maxRetries, *calls)
+			mockSM.AssertNotCalled(t, "SetProps")
+		})
+	}
 }

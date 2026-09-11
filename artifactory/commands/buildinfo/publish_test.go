@@ -130,10 +130,8 @@ func TestSetVcsPropsOnArtifacts_AllMissing_BuildSearchOnly(t *testing.T) {
 	mockSM := new(mockServicesManager)
 	searchReader, cleanup := createTestSearchReader(t)
 	defer cleanup()
-	// Only build-scoped search should be called.
-	mockSM.On("SearchFiles", mock.MatchedBy(func(params services.SearchParams) bool {
-		return params.Build != ""
-	})).Return(searchReader, nil)
+	// Only the build-artifacts API should be used; no AQL search.
+	buildApiCalls := stubBuildArtifacts(t, []buildArtifactsResult{{reader: searchReader}})
 	mockSM.On("SetProps", mock.MatchedBy(func(params services.PropsParams) bool {
 		return params.Props == expectedProps
 	})).Return(1, nil)
@@ -158,16 +156,8 @@ func TestSetVcsPropsOnArtifacts_AllMissing_BuildSearchOnly(t *testing.T) {
 	bpc.setVcsPropsOnArtifacts(mockSM, bi)
 
 	mockSM.AssertExpectations(t)
-	buildSearchCalls := 0
-	for _, call := range mockSM.Calls {
-		if call.Method == "SearchFiles" {
-			params, ok := call.Arguments.Get(0).(services.SearchParams)
-			require.True(t, ok, "unexpected type for SearchFiles argument")
-			assert.NotEmpty(t, params.Build, "direct-path branch must not fire when no artifact has OriginalDeploymentRepo")
-			buildSearchCalls++
-		}
-	}
-	assert.Equal(t, 1, buildSearchCalls, "exactly one build-search call expected regardless of artifact count")
+	assert.Equal(t, 1, *buildApiCalls, "exactly one build-artifacts API call expected regardless of artifact count")
+	mockSM.AssertNotCalled(t, "SearchFiles")
 }
 
 // TestSetVcsPropsOnArtifacts_Mixed_BothPaths: some artifacts have OriginalDeploymentRepo, some don't.
@@ -187,10 +177,8 @@ func TestSetVcsPropsOnArtifacts_Mixed_BothPaths(t *testing.T) {
 	mockSM.On("SearchFiles", mock.MatchedBy(func(params services.SearchParams) bool {
 		return params.Build == "" && params.Pattern != ""
 	})).Return(searchReader, nil)
-	// Build-search call: Build non-empty.
-	mockSM.On("SearchFiles", mock.MatchedBy(func(params services.SearchParams) bool {
-		return params.Build != ""
-	})).Return(searchReader2, nil)
+	// Build-search resolves through the build-artifacts API, not AQL.
+	buildApiCalls := stubBuildArtifacts(t, []buildArtifactsResult{{reader: searchReader2}})
 	mockSM.On("SetProps", mock.MatchedBy(func(params services.PropsParams) bool {
 		return params.Props == expectedProps
 	})).Return(1, nil)
@@ -214,6 +202,7 @@ func TestSetVcsPropsOnArtifacts_Mixed_BothPaths(t *testing.T) {
 	bpc.setVcsPropsOnArtifacts(mockSM, bi)
 
 	mockSM.AssertExpectations(t)
+	assert.Equal(t, 1, *buildApiCalls, "missing-repo artifacts resolve through the build-artifacts API")
 }
 
 // TestSetVcsPropsOnArtifacts_Disabled: JFROG_CLI_CI_VCS_PROPS_DISABLED=true short-circuits everything.
@@ -273,10 +262,14 @@ func TestSetVcsPropsOnArtifacts_ProjectPropagated(t *testing.T) {
 	searchReader, cleanup := createTestSearchReader(t)
 	defer cleanup()
 
-	mockSM.On("SearchFiles", mock.MatchedBy(func(params services.SearchParams) bool {
-		// Build-search: Build == "mybuild/42", Project == "myproject"
-		return params.Build == "mybuild/42" && params.Project == "myproject"
-	})).Return(searchReader, nil)
+	// Capture what the build-artifacts API is asked for.
+	var gotName, gotNumber, gotProject string
+	originalResolver := resolveBuildArtifacts
+	resolveBuildArtifacts = func(_ artifactory.ArtifactoryServicesManager, buildName, buildNumber, project string) (*content.ContentReader, error) {
+		gotName, gotNumber, gotProject = buildName, buildNumber, project
+		return searchReader, nil
+	}
+	t.Cleanup(func() { resolveBuildArtifacts = originalResolver })
 	mockSM.On("SetProps", mock.Anything).Return(1, nil)
 
 	bi := &buildinfo.BuildInfo{
@@ -295,6 +288,9 @@ func TestSetVcsPropsOnArtifacts_ProjectPropagated(t *testing.T) {
 	bpc.setVcsPropsOnArtifacts(mockSM, bi)
 
 	mockSM.AssertExpectations(t)
+	assert.Equal(t, "mybuild", gotName)
+	assert.Equal(t, "42", gotNumber)
+	assert.Equal(t, "myproject", gotProject, "project key must reach the build-artifacts API")
 }
 
 func TestPrintBuildInfoLink(t *testing.T) {
