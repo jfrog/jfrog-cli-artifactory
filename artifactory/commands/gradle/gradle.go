@@ -54,7 +54,7 @@ type GradleCommand struct {
 	deploymentDisabled bool
 	// File path for Gradle extractor in which all build's artifacts details will be listed at the end of the build.
 	buildArtifactsDetailsFile string
-	// RTECO-136: Feature flag to enable shared build (buildSrc and composite builds) support via subprocess approach
+	// When true, the extractor init script collects buildSrc and included-build modules.
 	includeSharedBuild bool
 }
 
@@ -243,13 +243,11 @@ func (gc *GradleCommand) SetScanOutputFormat(format format.OutputFormat) *Gradle
 	return gc
 }
 
-// RTECO-136: SetIncludeSharedBuild enables the shared build (buildSrc and composite builds) support feature
 func (gc *GradleCommand) SetIncludeSharedBuild(includeSharedBuild bool) *GradleCommand {
 	gc.includeSharedBuild = includeSharedBuild
 	return gc
 }
 
-// RTECO-136: IsIncludeSharedBuild returns whether shared build support is enabled
 func (gc *GradleCommand) IsIncludeSharedBuild() bool {
 	return gc.includeSharedBuild
 }
@@ -385,6 +383,9 @@ func runGradle(vConfig *viper.Viper, tasks []string, deployableArtifactsFile str
 	if err != nil {
 		return errorutils.CheckError(err)
 	}
+	if includeSharedBuild {
+		tasks = append(tasks, "-PincludeSharedBuild=true")
+	}
 	props, wrapper, plugin, err := createGradleRunConfig(vConfig, deployableArtifactsFile, threads, disableDeploy, includeSharedBuild)
 	if err != nil {
 		return err
@@ -426,12 +427,7 @@ func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string,
 	if err != nil {
 		return
 	}
-	// RTECO-136: Propagate the --include-shared-build flag to the Gradle extractor init script
-	// (build-info-go/build/init-gradle-extractor-5.gradle) as a Gradle project property.
-	// The extractor props map is passed to the gradle subprocess as environment variables
-	// (see build-info-go's gradleRunConfig.runCmd), and Gradle automatically exposes any
-	// ORG_GRADLE_PROJECT_<name> environment variable as the project property <name>,
-	// which the init script reads via gradle.startParameter.getProjectProperties().
+	// Gradle exposes ORG_GRADLE_PROJECT_includeSharedBuild as the includeSharedBuild project property.
 	props["ORG_GRADLE_PROJECT_includeSharedBuild"] = strconv.FormatBool(includeSharedBuild)
 	if deployableArtifactsFile != "" {
 		// Save the path to a temp file, where buildinfo project will write the deployable artifacts details.
