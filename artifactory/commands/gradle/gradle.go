@@ -6,11 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"text/template"
 
+	buildinfoflexpack "github.com/jfrog/build-info-go/flexpack/gradle"
+	flexpackgradle "github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/flexpack/gradle"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
+	artifactoryutils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/permissions"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
@@ -120,6 +122,10 @@ func (gc *GradleCommand) shouldCreateBuildArtifactsFile() bool {
 }
 
 func (gc *GradleCommand) Run() error {
+	if artifactoryutils.ShouldRunNative(gc.configPath) {
+		return gc.runWithGradleNative()
+	}
+
 	vConfig, err := gc.init()
 	if err != nil {
 		return err
@@ -149,7 +155,85 @@ func (gc *GradleCommand) unmarshalDeployableArtifacts(filesPath string) error {
 	return nil
 }
 
-// runWithGradleNative executes Gradle using FlexPack for dependency resolution and build info collection
+// runWithGradleNative executes Gradle using FlexPack for dependency resolution and build info collection.
+// --include-shared-build is not wired here; that flag is classic-path only.
+func (gc *GradleCommand) runWithGradleNative() error {
+	log.Debug("Gradle native implementation activated")
+
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+
+	flexpackWorkingDir := workingDir
+	if buildFilePath := extractBuildFilePath(gc.tasks); buildFilePath != "" {
+		buildFileDir := filepath.Dir(buildFilePath)
+		if filepath.IsAbs(buildFileDir) {
+			flexpackWorkingDir = buildFileDir
+		} else {
+			flexpackWorkingDir = filepath.Join(workingDir, buildFileDir)
+		}
+		log.Debug(fmt.Sprintf("Using build file directory as FlexPack working directory: %s", flexpackWorkingDir))
+	}
+
+	gradleExecPath, err := buildinfoflexpack.GetGradleExecutablePath(workingDir)
+	if err != nil {
+		return fmt.Errorf("failed to find Gradle executable: %w", err)
+	}
+
+	cmd := exec.Command(gradleExecPath, gc.tasks...)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err = cmd.Run(); err != nil {
+		log.Error("Failed to execute Gradle command: " + err.Error())
+		return errorutils.CheckError(err)
+	}
+
+	if gc.configuration != nil {
+		isCollect, err := gc.configuration.IsCollectBuildInfo()
+		if err != nil {
+			return err
+		}
+		if isCollect {
+			log.Debug("Collecting build info for executed command...")
+			buildName, buildNumber, err := gc.getBuildNameAndNumber()
+			if err != nil {
+				return err
+			}
+
+			if err := flexpackgradle.CollectGradleBuildInfoWithFlexPack(flexpackWorkingDir, buildName, buildNumber, gc.tasks, gc.configuration, gc.serverDetails); err != nil {
+				log.Warn("Failed to collect Gradle build info with Flexpack:")
+			}
+		}
+	}
+	return nil
+}
+
+// It looks for -b/--build-file flags (build file path) and -p/--project-dir flags (project directory).
+func extractBuildFilePath(tasks []string) string {
+	for i, task := range tasks {
+		if strings.HasPrefix(task, "-b") && len(task) > 2 && task[2] != '-' {
+			return task[2:]
+		}
+		if strings.HasPrefix(task, "--build-file=") {
+			return strings.TrimPrefix(task, "--build-file=")
+		}
+		if (task == "-b" || task == "--build-file") && i+1 < len(tasks) {
+			return tasks[i+1]
+		}
+		if strings.HasPrefix(task, "-p") && len(task) > 2 && task[2] != '-' {
+			return filepath.Join(task[2:], "build.gradle")
+		}
+		if strings.HasPrefix(task, "--project-dir=") {
+			dir := strings.TrimPrefix(task, "--project-dir=")
+			return filepath.Join(dir, "build.gradle")
+		}
+		if (task == "-p" || task == "--project-dir") && i+1 < len(tasks) {
+			return filepath.Join(tasks[i+1], "build.gradle")
+		}
+	}
+	return ""
+}
+
 // ConditionalUpload will scan the artifact using Xray and will upload them only if the scan passes with no
 // violation.
 func (gc *GradleCommand) conditionalUpload() error {
@@ -276,8 +360,6 @@ type InitScriptAuthConfig struct {
 	GradleRepoName         string
 	ArtifactoryUsername    string
 	ArtifactoryAccessToken string
-	// RTECO-136: Enable subprocess-based shared build (buildSrc and composite builds) support
-	IncludeSharedBuild bool
 }
 
 // GenerateInitScript generates a Gradle init script with the provided authentication configuration.
@@ -427,8 +509,10 @@ func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string,
 	if err != nil {
 		return
 	}
-	// Gradle exposes ORG_GRADLE_PROJECT_includeSharedBuild as the includeSharedBuild project property.
-	props["ORG_GRADLE_PROJECT_includeSharedBuild"] = strconv.FormatBool(includeSharedBuild)
+	if includeSharedBuild {
+		// Gradle exposes ORG_GRADLE_PROJECT_includeSharedBuild as the includeSharedBuild project property.
+		props["ORG_GRADLE_PROJECT_includeSharedBuild"] = "true"
+	}
 	if deployableArtifactsFile != "" {
 		// Save the path to a temp file, where buildinfo project will write the deployable artifacts details.
 		props[build.DeployableArtifacts] = fmt.Sprint(vConfig.Get(build.DeployableArtifacts))
