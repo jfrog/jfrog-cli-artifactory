@@ -274,6 +274,15 @@ func (c *AptCommand) Run() error {
 
 	collectBuildInfo := nativeTool == "apt-get" && isInstallSubcommand(c.args) && c.buildConfiguration != nil
 
+	// Snapshot the installed set BEFORE apt-get runs so CollectBuildInfo can
+	// exclude pre-existing packages (only report what this install changed).
+	var preInstallState aptflex.PackageState
+	if collectBuildInfo {
+		if s, err := aptflex.NewAptFlexPack(aptflex.AptConfig{}).SnapshotInstalled(); err == nil {
+			preInstallState = s
+		}
+	}
+
 	cmd := exec.Command(nativeTool, nativeArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -283,7 +292,7 @@ func (c *AptCommand) Run() error {
 	}
 
 	if collectBuildInfo {
-		if err := c.collectAndSaveBuildInfo(c.args); err != nil {
+		if err := c.collectAndSaveBuildInfo(c.args, preInstallState); err != nil {
 			// Non-fatal: log the error but don't fail the install.
 			log.Warn("apt build-info collection failed: " + err.Error())
 		}
@@ -293,7 +302,7 @@ func (c *AptCommand) Run() error {
 }
 
 // collectAndSaveBuildInfo runs the three-source pipeline and persists build-info locally.
-func (c *AptCommand) collectAndSaveBuildInfo(aptArgs []string) error {
+func (c *AptCommand) collectAndSaveBuildInfo(aptArgs []string, preInstallState aptflex.PackageState) error {
 	buildName, err := c.buildConfiguration.GetBuildName()
 	if err != nil {
 		return err
@@ -322,6 +331,9 @@ func (c *AptCommand) collectAndSaveBuildInfo(aptArgs []string) error {
 	log.Info(fmt.Sprintf("Collecting apt build-info for %s/%s (%d package(s))", buildName, buildNumber, len(pkgs)))
 
 	collector := aptflex.NewAptFlexPack(aptflex.AptConfig{})
+	if preInstallState != nil {
+		collector.SetBaseline(preInstallState)
+	}
 	if err := collector.CollectDependencies(pkgs); err != nil {
 		return fmt.Errorf("collect dependencies: %w", err)
 	}
