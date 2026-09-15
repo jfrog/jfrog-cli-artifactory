@@ -540,9 +540,6 @@ jobs:
     name: Helm ${{ matrix.os.name }}
     needs: Detect-Deps
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'safe to test')
-    permissions:
-      id-token: write
-      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -589,13 +586,6 @@ jobs:
         with:
           RTLIC: ${{ secrets.RTLIC }}
           RT_CONNECTION_TIMEOUT_SECONDS: '1200'
-
-      - name: Get ID Token and Exchange Token
-        shell: bash
-        run: |
-          ID_TOKEN=$(curl -sLS -H "User-Agent: actions/oidc-client" -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-          "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=jfrog-github" | jq .value | tr -d '"')
-          echo "JFROG_CLI_OIDC_EXCHANGE_TOKEN_ID=${ID_TOKEN}" >> $GITHUB_ENV
 
       - name: Run Helm tests
         working-directory: jfrog-cli
@@ -1214,9 +1204,6 @@ jobs:
     name: HuggingFace ${{ matrix.os.name }}
     needs: Detect-Deps
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'safe to test')
-    permissions:
-      id-token: write
-      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -1267,13 +1254,6 @@ jobs:
         with:
           RTLIC: ${{ secrets.RTLIC }}
           RT_CONNECTION_TIMEOUT_SECONDS: '1200'
-
-      - name: Get ID Token and Exchange Token
-        shell: bash
-        run: |
-          ID_TOKEN=$(curl -sLS -H "User-Agent: actions/oidc-client" -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-          "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=jfrog-github" | jq .value | tr -d '"')
-          echo "JFROG_CLI_OIDC_EXCHANGE_TOKEN_ID=${ID_TOKEN}" >> $GITHUB_ENV
 
       - name: Run HuggingFace tests
         working-directory: jfrog-cli
