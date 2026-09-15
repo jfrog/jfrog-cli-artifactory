@@ -155,16 +155,17 @@ func (gc *GradleCommand) unmarshalDeployableArtifacts(filesPath string) error {
 	return nil
 }
 
-// runWithGradleNative executes Gradle using FlexPack for dependency resolution and build info collection.
-// --include-shared-build is not wired here; that flag is classic-path only.
+// runWithGradleNative executes Gradle using FlexPack for dependency resolution and build info collection
 func (gc *GradleCommand) runWithGradleNative() error {
 	log.Debug("Gradle native implementation activated")
 
+	// Get working directory - default to current directory
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return errorutils.CheckError(err)
 	}
 
+	// Check if a build file is specified via -b or --build-file flag
 	flexpackWorkingDir := workingDir
 	if buildFilePath := extractBuildFilePath(gc.tasks); buildFilePath != "" {
 		buildFileDir := filepath.Dir(buildFilePath)
@@ -200,6 +201,7 @@ func (gc *GradleCommand) runWithGradleNative() error {
 				return err
 			}
 
+			// Call FlexPack collection using the flexpack working directory
 			if err := flexpackgradle.CollectGradleBuildInfoWithFlexPack(flexpackWorkingDir, buildName, buildNumber, gc.tasks, gc.configuration, gc.serverDetails); err != nil {
 				log.Warn("Failed to collect Gradle build info with Flexpack:")
 			}
@@ -211,22 +213,29 @@ func (gc *GradleCommand) runWithGradleNative() error {
 // It looks for -b/--build-file flags (build file path) and -p/--project-dir flags (project directory).
 func extractBuildFilePath(tasks []string) string {
 	for i, task := range tasks {
+		// Check for -b<path> (no space)
 		if strings.HasPrefix(task, "-b") && len(task) > 2 && task[2] != '-' {
 			return task[2:]
 		}
+		// Check for --build-file=<path>
 		if strings.HasPrefix(task, "--build-file=") {
 			return strings.TrimPrefix(task, "--build-file=")
 		}
+		// Check for -b <path> or --build-file <path> (with space)
 		if (task == "-b" || task == "--build-file") && i+1 < len(tasks) {
 			return tasks[i+1]
 		}
+		// Check for -p<path> (no space) - project directory
 		if strings.HasPrefix(task, "-p") && len(task) > 2 && task[2] != '-' {
+			// For -p, the path is already a directory, append a dummy file to get consistent behavior
 			return filepath.Join(task[2:], "build.gradle")
 		}
+		// Check for --project-dir=<path>
 		if strings.HasPrefix(task, "--project-dir=") {
 			dir := strings.TrimPrefix(task, "--project-dir=")
 			return filepath.Join(dir, "build.gradle")
 		}
+		// Check for -p <path> or --project-dir <path> (with space)
 		if (task == "-p" || task == "--project-dir") && i+1 < len(tasks) {
 			return filepath.Join(tasks[i+1], "build.gradle")
 		}
