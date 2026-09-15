@@ -3,7 +3,6 @@ package mvn
 import (
 	"encoding/json"
 	"os"
-	"path"
 	"strings"
 
 	"github.com/jfrog/build-info-go/entities"
@@ -324,11 +323,11 @@ func (mc *MvnCommand) conditionalUpload(buildInfoFilePath string) error {
 				// Remove the binaries that were not uploaded successfully. The pom.xml's were not uploaded
 				// at all (we return below), so all of them are removed as well. This prevents the build-info
 				// from referencing artifacts that are not in Artifactory.
-				failedNames := failedUploadArtifactNames(binariesSpecFile, uploadCmd)
-				for name := range collectArtifactNames(pomSpecFile) {
-					failedNames[name] = true
+				failedTargets := failedUploadArtifactTargets(binariesSpecFile, uploadCmd)
+				for target := range collectArtifactTargets(pomSpecFile) {
+					failedTargets[target] = true
 				}
-				mc.removeArtifactsFromBuildInfo(buildInfoFilePath, failedNames)
+				mc.removeArtifactsFromBuildInfo(buildInfoFilePath, failedTargets)
 			}
 			return err
 		}
@@ -345,7 +344,7 @@ func (mc *MvnCommand) conditionalUpload(buildInfoFilePath string) error {
 		uploadCmd.SetDetailedSummary(collectBuildInfo)
 		if err = uploadCmd.Run(); err != nil {
 			if collectBuildInfo {
-				mc.removeArtifactsFromBuildInfo(buildInfoFilePath, failedUploadArtifactNames(pomSpecFile, uploadCmd))
+				mc.removeArtifactsFromBuildInfo(buildInfoFilePath, failedUploadArtifactTargets(pomSpecFile, uploadCmd))
 			}
 			return err
 		}
@@ -356,17 +355,17 @@ func (mc *MvnCommand) conditionalUpload(buildInfoFilePath string) error {
 	return nil
 }
 
-// failedUploadArtifactNames returns the set of artifact file names from specFile that were NOT
-// successfully uploaded by uploadCmd. It reads the upload's transfer-details reader (retained because
-// detailed summary is enabled on the command) to determine which files actually reached Artifactory,
-// so only the artifacts that truly failed are removed from the build-info. If no transfer details are
-// available (for example, the upload failed before any file was processed) every artifact in the spec
-// is considered failed.
-func failedUploadArtifactNames(specFile *spec.SpecFiles, uploadCmd *generic.UploadCommand) map[string]bool {
-	failedNames := collectArtifactNames(specFile)
+// failedUploadArtifactTargets returns the set of normalized (repository-relative) target paths from
+// specFile that were NOT successfully uploaded by uploadCmd. It reads the upload's transfer-details
+// reader (retained because detailed summary is enabled on the command) to determine which files
+// actually reached Artifactory, so only the artifacts that truly failed are removed from the
+// build-info. If no transfer details are available (for example, the upload failed before any file
+// was processed) every artifact in the spec is considered failed.
+func failedUploadArtifactTargets(specFile *spec.SpecFiles, uploadCmd *generic.UploadCommand) map[string]bool {
+	failedTargets := collectArtifactTargets(specFile)
 	reader := uploadCmd.Result().Reader()
 	if reader == nil {
-		return failedNames
+		return failedTargets
 	}
 	defer func() {
 		if e := reader.Close(); e != nil {
@@ -376,12 +375,14 @@ func failedUploadArtifactNames(specFile *spec.SpecFiles, uploadCmd *generic.Uplo
 	reader.Reset()
 	for details := new(clientutils.FileTransferDetails); reader.NextRecord(details) == nil; details = new(clientutils.FileTransferDetails) {
 		// A file present in the transfer details was uploaded successfully - keep it in the build-info.
-		delete(failedNames, path.Base(details.TargetPath))
+		// TargetPath here is already repository-relative ("repo-name/path/to/artifact"), matching the
+		// spec targets collected by collectArtifactTargets.
+		delete(failedTargets, details.TargetPath)
 	}
 	if e := reader.GetError(); e != nil {
 		log.Debug("Failed reading upload transfer-details: " + e.Error())
 	}
-	return failedNames
+	return failedTargets
 }
 
 // closeUploadResultReader closes the transfer-details reader retained by the upload command (when
@@ -394,13 +395,14 @@ func closeUploadResultReader(uploadCmd *generic.UploadCommand) {
 	}
 }
 
-// removeArtifactsFromBuildInfo removes the artifacts whose names are in failedNames from the generated
-// build-info file. Keeping artifacts that failed to upload would leave the build-info referencing files
-// that never reached Artifactory, which breaks build-based flows like `jf rbc`.
+// removeArtifactsFromBuildInfo removes the artifacts whose repository-relative path matches one of
+// failedTargets from the generated build-info file. Keeping artifacts that failed to upload would
+// leave the build-info referencing files that never reached Artifactory, which breaks build-based
+// flows like `jf rbc`.
 // This is best-effort: any failure here is logged at debug level and ignored so that it never masks
 // the original upload error.
-func (mc *MvnCommand) removeArtifactsFromBuildInfo(buildInfoFilePath string, failedNames map[string]bool) {
-	if buildInfoFilePath == "" || len(failedNames) == 0 {
+func (mc *MvnCommand) removeArtifactsFromBuildInfo(buildInfoFilePath string, failedTargets map[string]bool) {
+	if buildInfoFilePath == "" || len(failedTargets) == 0 {
 		return
 	}
 	exists, err := fileutils.IsFileExists(buildInfoFilePath, false)
@@ -429,7 +431,7 @@ func (mc *MvnCommand) removeArtifactsFromBuildInfo(buildInfoFilePath string, fai
 		currModule := &buildInfo.Modules[moduleIndex]
 		keptArtifacts := currModule.Artifacts[:0]
 		for _, artifact := range currModule.Artifacts {
-			if failedNames[artifact.Name] {
+			if artifactUploadFailed(artifact.Path, failedTargets) {
 				removed = true
 				continue
 			}
@@ -452,11 +454,28 @@ func (mc *MvnCommand) removeArtifactsFromBuildInfo(buildInfoFilePath string, fai
 	log.Debug("Removed artifacts that failed to upload from the generated build-info to avoid unresolvable build artifacts.")
 }
 
-// collectArtifactNames returns the set of artifact file names (the base name of each spec file's
-// target path) contained in the given spec files. These names match the "name" field recorded for
-// each artifact in the generated build-info.
-func collectArtifactNames(specFiles ...*spec.SpecFiles) map[string]bool {
-	names := make(map[string]bool)
+// artifactUploadFailed reports whether artifactPath - the repository-relative path recorded for an
+// artifact in the build-info (e.g. "com/example/artifactId/1.0/artifactId-1.0.jar") - corresponds to
+// one of failedTargets. Targets are normalized "repository/relative/path" strings (see
+// collectArtifactTargets), so a target matches artifactPath when it ends with it. Matching on the
+// full path rather than just the file's base name prevents same-named artifacts deployed from
+// different Maven modules from being confused with one another.
+func artifactUploadFailed(artifactPath string, failedTargets map[string]bool) bool {
+	if artifactPath == "" {
+		return false
+	}
+	for target := range failedTargets {
+		if strings.HasSuffix(target, artifactPath) {
+			return true
+		}
+	}
+	return false
+}
+
+// collectArtifactTargets returns the set of normalized (repository-relative) target paths of the
+// artifacts contained in the given spec files.
+func collectArtifactTargets(specFiles ...*spec.SpecFiles) map[string]bool {
+	targets := make(map[string]bool)
 	for _, specFile := range specFiles {
 		if specFile == nil {
 			continue
@@ -466,10 +485,10 @@ func collectArtifactNames(specFiles ...*spec.SpecFiles) map[string]bool {
 			if target == "" {
 				continue
 			}
-			names[path.Base(target)] = true
+			targets[target] = true
 		}
 	}
-	return names
+	return targets
 }
 
 // updateBuildInfoArtifactsWithDeploymentRepo updates existing build-info temp file with the target repository for each artifact
