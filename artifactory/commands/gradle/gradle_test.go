@@ -6,9 +6,24 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCreateGradleRunConfigOmitsSharedBuildEnvWhenFlagOff(t *testing.T) {
+	vConfig := viper.New()
+	vConfig.Set("type", "gradle")
+
+	offProps, _, _, err := createGradleRunConfig(vConfig, "", 0, false, false)
+	require.NoError(t, err)
+	_, present := offProps["ORG_GRADLE_PROJECT_includeSharedBuild"]
+	assert.False(t, present, "flag-off jf gradle must not inject includeSharedBuild")
+
+	onProps, _, _, err := createGradleRunConfig(vConfig, "", 0, false, true)
+	require.NoError(t, err)
+	assert.Equal(t, "true", onProps["ORG_GRADLE_PROJECT_includeSharedBuild"])
+}
 
 func TestGenerateInitScript(t *testing.T) {
 	config := InitScriptAuthConfig{

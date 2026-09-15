@@ -56,6 +56,8 @@ type GradleCommand struct {
 	deploymentDisabled bool
 	// File path for Gradle extractor in which all build's artifacts details will be listed at the end of the build.
 	buildArtifactsDetailsFile string
+	// When true, the extractor init script collects buildSrc and included-build modules.
+	includeSharedBuild bool
 }
 
 func NewGradleCommand() *GradleCommand {
@@ -128,7 +130,7 @@ func (gc *GradleCommand) Run() error {
 	if err != nil {
 		return err
 	}
-	err = runGradle(vConfig, gc.tasks, gc.buildArtifactsDetailsFile, gc.configuration, gc.threads, gc.IsXrayScan())
+	err = runGradle(vConfig, gc.tasks, gc.buildArtifactsDetailsFile, gc.configuration, gc.threads, gc.IsXrayScan(), gc.includeSharedBuild)
 	if err != nil {
 		return err
 	}
@@ -334,6 +336,15 @@ func (gc *GradleCommand) SetScanOutputFormat(format format.OutputFormat) *Gradle
 	return gc
 }
 
+func (gc *GradleCommand) SetIncludeSharedBuild(includeSharedBuild bool) *GradleCommand {
+	gc.includeSharedBuild = includeSharedBuild
+	return gc
+}
+
+func (gc *GradleCommand) IsIncludeSharedBuild() bool {
+	return gc.includeSharedBuild
+}
+
 func (gc *GradleCommand) Result() *commandsutils.Result {
 	return gc.result
 }
@@ -445,7 +456,7 @@ func parseUserHomeFromJavaOutput(output string) (string, error) {
 	return "", fmt.Errorf("user.home not found in java output")
 }
 
-func runGradle(vConfig *viper.Viper, tasks []string, deployableArtifactsFile string, configuration *build.BuildConfiguration, threads int, disableDeploy bool) error {
+func runGradle(vConfig *viper.Viper, tasks []string, deployableArtifactsFile string, configuration *build.BuildConfiguration, threads int, disableDeploy bool, includeSharedBuild bool) error {
 	buildInfoService := build.CreateBuildInfoService()
 	buildName, err := configuration.GetBuildName()
 	if err != nil {
@@ -463,7 +474,10 @@ func runGradle(vConfig *viper.Viper, tasks []string, deployableArtifactsFile str
 	if err != nil {
 		return errorutils.CheckError(err)
 	}
-	props, wrapper, plugin, err := createGradleRunConfig(vConfig, deployableArtifactsFile, threads, disableDeploy)
+	if includeSharedBuild {
+		tasks = append(tasks, "-PincludeSharedBuild=true")
+	}
+	props, wrapper, plugin, err := createGradleRunConfig(vConfig, deployableArtifactsFile, threads, disableDeploy, includeSharedBuild)
 	if err != nil {
 		return err
 	}
@@ -483,7 +497,7 @@ func getGradleDependencyLocalPath() (string, error) {
 	return filepath.Join(dependenciesPath, "gradle"), nil
 }
 
-func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string, threads int, disableDeploy bool) (props map[string]string, wrapper, plugin bool, err error) {
+func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string, threads int, disableDeploy bool, includeSharedBuild bool) (props map[string]string, wrapper, plugin bool, err error) {
 	wrapper = vConfig.GetBool(useWrapper)
 	if threads > 0 {
 		vConfig.Set(build.ForkCount, threads)
@@ -503,6 +517,10 @@ func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string,
 	props, err = build.CreateBuildInfoProps(deployableArtifactsFile, vConfig, project.Gradle)
 	if err != nil {
 		return
+	}
+	if includeSharedBuild {
+		// Gradle exposes ORG_GRADLE_PROJECT_includeSharedBuild as the includeSharedBuild project property.
+		props["ORG_GRADLE_PROJECT_includeSharedBuild"] = "true"
 	}
 	if deployableArtifactsFile != "" {
 		// Save the path to a temp file, where buildinfo project will write the deployable artifacts details.
