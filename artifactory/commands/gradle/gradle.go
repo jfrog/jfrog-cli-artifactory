@@ -341,10 +341,6 @@ func (gc *GradleCommand) SetIncludeSharedBuild(includeSharedBuild bool) *GradleC
 	return gc
 }
 
-func (gc *GradleCommand) IsIncludeSharedBuild() bool {
-	return gc.includeSharedBuild
-}
-
 func (gc *GradleCommand) Result() *commandsutils.Result {
 	return gc.result
 }
@@ -474,9 +470,11 @@ func runGradle(vConfig *viper.Viper, tasks []string, deployableArtifactsFile str
 	if err != nil {
 		return errorutils.CheckError(err)
 	}
-	if includeSharedBuild {
-		tasks = append(tasks, "-PincludeSharedBuild=true")
-	}
+	// includeSharedBuild is propagated to the Gradle invocation solely via the
+	// ORG_GRADLE_PROJECT_includeSharedBuild env var set in createGradleRunConfig below - Gradle
+	// turns that into the includeSharedBuild project property for every project in the build,
+	// including buildSrc and includeBuild composites, so a redundant -P task arg (which the root
+	// build alone would see) is not needed here.
 	props, wrapper, plugin, err := createGradleRunConfig(vConfig, deployableArtifactsFile, threads, disableDeploy, includeSharedBuild)
 	if err != nil {
 		return err
