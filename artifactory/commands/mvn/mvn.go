@@ -13,8 +13,10 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/common/format"
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
+	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/ioutils"
+	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/fileutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -235,7 +237,7 @@ func (mc *MvnCommand) Run() error {
 		return err
 	}
 	if mc.IsXrayScan() {
-		return mc.conditionalUpload()
+		return mc.conditionalUpload(mvnParams.GetBuildInfoFilePath())
 	}
 	return nil
 }
@@ -271,7 +273,11 @@ func (mc *MvnCommand) CommandName() string {
 
 // ConditionalUpload will scan the artifact using Xray and will upload them only if the scan passes with no
 // violation.
-func (mc *MvnCommand) conditionalUpload() error {
+// If an upload fails, the artifacts that did not reach Artifactory are removed from the generated
+// build-info (see removeFailedArtifactsFromBuildInfo). Otherwise the build-info would reference
+// artifacts that don't exist in Artifactory, causing downstream build-based flows such as
+// `jf rbc` (release-bundle-create) to fail with "Unresolvable build artifact".
+func (mc *MvnCommand) conditionalUpload(buildInfoFilePath string) error {
 	// Initialize the server details (from config) if it hasn't been initialized yet.
 	_, err := mc.ServerDetails()
 	if err != nil {
@@ -295,15 +301,38 @@ func (mc *MvnCommand) conditionalUpload() error {
 	if binariesSpecFile == nil {
 		return nil
 	}
+	// Build-info cleanup on upload failure is only relevant when build-info is being collected.
+	// When it isn't, we keep the original, lighter upload behavior (no detailed summary, no cleanup).
+	collectBuildInfo := false
+	if mc.configuration != nil {
+		if collectBuildInfo, err = mc.configuration.IsCollectBuildInfo(); err != nil {
+			return err
+		}
+	}
 	// First upload binaries
 	if len(binariesSpecFile.Files) > 0 {
 		uploadCmd := generic.NewUploadCommand()
 		uploadConfiguration := new(utils.UploadConfiguration)
 		uploadConfiguration.Threads = mc.threads
 		uploadCmd.SetUploadConfiguration(uploadConfiguration).SetBuildConfiguration(mc.configuration).SetSpec(binariesSpecFile).SetServerDetails(mc.serverDetails)
-		err = uploadCmd.Run()
-		if err != nil {
+		// When build-info is collected, enable detailed summary so the command retains the list of
+		// successfully uploaded files, allowing us to remove only the artifacts that actually failed.
+		uploadCmd.SetDetailedSummary(collectBuildInfo)
+		if err = uploadCmd.Run(); err != nil {
+			if collectBuildInfo {
+				// Remove the binaries that were not uploaded successfully. The pom.xml's were not uploaded
+				// at all (we return below), so all of them are removed as well. This prevents the build-info
+				// from referencing artifacts that are not in Artifactory.
+				failedTargets := failedUploadArtifactTargets(binariesSpecFile, uploadCmd)
+				for target := range collectArtifactTargets(pomSpecFile) {
+					failedTargets[target] = true
+				}
+				mc.removeArtifactsFromBuildInfo(buildInfoFilePath, failedTargets)
+			}
 			return err
+		}
+		if collectBuildInfo {
+			closeUploadResultReader(uploadCmd)
 		}
 	}
 	if len(pomSpecFile.Files) > 0 {
@@ -312,9 +341,154 @@ func (mc *MvnCommand) conditionalUpload() error {
 		uploadConfiguration := new(utils.UploadConfiguration)
 		uploadConfiguration.Threads = mc.threads
 		uploadCmd.SetUploadConfiguration(uploadConfiguration).SetBuildConfiguration(mc.configuration).SetSpec(pomSpecFile).SetServerDetails(mc.serverDetails)
-		err = uploadCmd.Run()
+		uploadCmd.SetDetailedSummary(collectBuildInfo)
+		if err = uploadCmd.Run(); err != nil {
+			if collectBuildInfo {
+				mc.removeArtifactsFromBuildInfo(buildInfoFilePath, failedUploadArtifactTargets(pomSpecFile, uploadCmd))
+			}
+			return err
+		}
+		if collectBuildInfo {
+			closeUploadResultReader(uploadCmd)
+		}
 	}
-	return err
+	return nil
+}
+
+// failedUploadArtifactTargets returns the set of normalized (repository-relative) target paths from
+// specFile that were NOT successfully uploaded by uploadCmd. It reads the upload's transfer-details
+// reader (retained because detailed summary is enabled on the command) to determine which files
+// actually reached Artifactory, so only the artifacts that truly failed are removed from the
+// build-info. If no transfer details are available (for example, the upload failed before any file
+// was processed) every artifact in the spec is considered failed.
+func failedUploadArtifactTargets(specFile *spec.SpecFiles, uploadCmd *generic.UploadCommand) map[string]bool {
+	failedTargets := collectArtifactTargets(specFile)
+	reader := uploadCmd.Result().Reader()
+	if reader == nil {
+		return failedTargets
+	}
+	defer func() {
+		if e := reader.Close(); e != nil {
+			log.Debug("Failed closing upload transfer-details reader: " + e.Error())
+		}
+	}()
+	reader.Reset()
+	for details := new(clientutils.FileTransferDetails); reader.NextRecord(details) == nil; details = new(clientutils.FileTransferDetails) {
+		// A file present in the transfer details was uploaded successfully - keep it in the build-info.
+		// TargetPath here is already repository-relative ("repo-name/path/to/artifact"), matching the
+		// spec targets collected by collectArtifactTargets.
+		delete(failedTargets, details.TargetPath)
+	}
+	if e := reader.GetError(); e != nil {
+		log.Debug("Failed reading upload transfer-details: " + e.Error())
+	}
+	return failedTargets
+}
+
+// closeUploadResultReader closes the transfer-details reader retained by the upload command (when
+// detailed summary is enabled) on the success path, to avoid leaking the backing temp file.
+func closeUploadResultReader(uploadCmd *generic.UploadCommand) {
+	if reader := uploadCmd.Result().Reader(); reader != nil {
+		if e := reader.Close(); e != nil {
+			log.Debug("Failed closing upload transfer-details reader: " + e.Error())
+		}
+	}
+}
+
+// removeArtifactsFromBuildInfo removes the artifacts whose repository-relative path matches one of
+// failedTargets from the generated build-info file. Keeping artifacts that failed to upload would
+// leave the build-info referencing files that never reached Artifactory, which breaks build-based
+// flows like `jf rbc`.
+// This is best-effort: any failure here is logged at debug level and ignored so that it never masks
+// the original upload error.
+func (mc *MvnCommand) removeArtifactsFromBuildInfo(buildInfoFilePath string, failedTargets map[string]bool) {
+	if buildInfoFilePath == "" || len(failedTargets) == 0 {
+		return
+	}
+	exists, err := fileutils.IsFileExists(buildInfoFilePath, false)
+	if err != nil {
+		log.Debug("Skipping build-info cleanup, could not access build info file: " + err.Error())
+		return
+	}
+	if !exists {
+		return
+	}
+	content, err := os.ReadFile(buildInfoFilePath)
+	if err != nil {
+		log.Debug("Skipping build-info cleanup, could not read build info file: " + err.Error())
+		return
+	}
+	if len(content) == 0 {
+		return
+	}
+	buildInfo := new(entities.BuildInfo)
+	if err = json.Unmarshal(content, &buildInfo); err != nil {
+		log.Debug("Skipping build-info cleanup, could not parse build info file: " + err.Error())
+		return
+	}
+	removed := false
+	for moduleIndex := range buildInfo.Modules {
+		currModule := &buildInfo.Modules[moduleIndex]
+		keptArtifacts := currModule.Artifacts[:0]
+		for _, artifact := range currModule.Artifacts {
+			if artifactUploadFailed(artifact.Path, failedTargets) {
+				removed = true
+				continue
+			}
+			keptArtifacts = append(keptArtifacts, artifact)
+		}
+		currModule.Artifacts = keptArtifacts
+	}
+	if !removed {
+		return
+	}
+	newBuildInfo, err := json.Marshal(buildInfo)
+	if err != nil {
+		log.Debug("Skipping build-info cleanup, could not serialize build info: " + err.Error())
+		return
+	}
+	if err = os.WriteFile(buildInfoFilePath, newBuildInfo, 0644); err != nil {
+		log.Debug("Skipping build-info cleanup, could not write build info file: " + err.Error())
+		return
+	}
+	log.Debug("Removed artifacts that failed to upload from the generated build-info to avoid unresolvable build artifacts.")
+}
+
+// artifactUploadFailed reports whether artifactPath - the repository-relative path recorded for an
+// artifact in the build-info (e.g. "com/example/artifactId/1.0/artifactId-1.0.jar") - corresponds to
+// one of failedTargets. Targets are normalized "repository/relative/path" strings (see
+// collectArtifactTargets), so a target matches artifactPath when it ends with it. Matching on the
+// full path rather than just the file's base name prevents same-named artifacts deployed from
+// different Maven modules from being confused with one another.
+func artifactUploadFailed(artifactPath string, failedTargets map[string]bool) bool {
+	if artifactPath == "" {
+		return false
+	}
+	for target := range failedTargets {
+		if strings.HasSuffix(target, artifactPath) {
+			return true
+		}
+	}
+	return false
+}
+
+// collectArtifactTargets returns the set of normalized (repository-relative) target paths of the
+// artifacts contained in the given spec files.
+func collectArtifactTargets(specFiles ...*spec.SpecFiles) map[string]bool {
+	targets := make(map[string]bool)
+	for _, specFile := range specFiles {
+		if specFile == nil {
+			continue
+		}
+		for i := 0; i < len(specFile.Files); i++ {
+			target := specFile.Get(i).Target
+			if target == "" {
+				continue
+			}
+			targets[target] = true
+		}
+	}
+	return targets
 }
 
 // updateBuildInfoArtifactsWithDeploymentRepo updates existing build-info temp file with the target repository for each artifact
@@ -360,7 +534,6 @@ func (mc *MvnCommand) updateBuildInfoArtifactsWithDeploymentRepo(vConfig *viper.
 
 	return os.WriteFile(buildInfoFilePath, newBuildInfo, 0644)
 }
-
 
 func updateArtifactRepo(artifact *entities.Artifact, snapshotRepo, releaseRepo string) {
 	if snapshotRepo != "" && strings.Contains(artifact.Path, "-SNAPSHOT") {
