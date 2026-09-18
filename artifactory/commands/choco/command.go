@@ -178,7 +178,14 @@ func (command *ChocoFlexPackCommand) Run() error {
 		if err != nil {
 			return fmt.Errorf("get Chocolatey source details: %w", err)
 		}
-		if user == "" || password == "" {
+		if err := dotnet.RequireHTTPSSource(sourceURL); err != nil {
+			return err
+		}
+		// password carries the actual secret (password or access-token); user is only a display
+		// name and is legitimately empty for a reference-token or API-key access-token, which does
+		// not encode a subject to derive one from. "-k=<user>:<password>" is a valid credential pair
+		// even with an empty user.
+		if password == "" {
 			return errors.New("pushing to Chocolatey requires configured JFrog credentials")
 		}
 		nativeArgs = append(nativeArgs, "-s="+sourceURL, "-k="+user+":"+password)
@@ -192,17 +199,25 @@ func (command *ChocoFlexPackCommand) Run() error {
 		if err != nil {
 			return fmt.Errorf("get Chocolatey source details: %w", err)
 		}
-		nativeArgs = append(nativeArgs, "-s="+sourceURL)
-		if user != "" && password != "" {
-			nativeArgs = append(nativeArgs, "-u="+user, "-p="+password)
+		if err := dotnet.RequireHTTPSSource(sourceURL); err != nil {
+			return err
 		}
-		// Anonymous resolution is legitimate when the repository allows it, so missing credentials
-		// are not an error here - only a note, since a 401 later would otherwise look unexplained.
-		if user == "" || password == "" {
+		nativeArgs = append(nativeArgs, "-s="+sourceURL)
+		// password carries the actual secret; user is only a display name and may legitimately be
+		// empty for a token that does not encode one (see the push branch above). Anonymous
+		// resolution is legitimate when the repository allows it, so no password is not an error
+		// here either - only a note, since a 401 later would otherwise look unexplained.
+		if password != "" {
+			if user != "" {
+				nativeArgs = append(nativeArgs, "-u="+user)
+			}
+			nativeArgs = append(nativeArgs, "-p="+password)
+		} else {
 			log.Debug("No JFrog credentials configured; resolving from " + sourceURL + " anonymously.")
 		}
 		log.Debug("Resolving Chocolatey packages from the JFrog Artifactory source " + sourceURL)
 	}
+
 
 	log.Debug("Running native Chocolatey command: choco " + strings.Join(append([]string{command.subCommand}, redactChocoArgs(command.args)...), " "))
 	if err := chocoNativeRunner(nativeArgs); err != nil {
@@ -861,7 +876,10 @@ func chocoOptionTakesValue(option string) bool {
 	switch strings.ToLower(option) {
 	case "-s", "--source", "--version", "--package-parameters", "--install-arguments",
 		"--execution-timeout", "--cache-location", "--proxy", "--proxy-user", "--proxy-password",
-		"--cert", "--certpassword":
+		"--cert", "--certpassword",
+		// `choco install`/`upgrade` source-authentication spellings, so a credential value is never
+		// mistaken for a package ID.
+		"-u", "--user", "-p", "--password":
 		return true
 	default:
 		return false

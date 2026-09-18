@@ -1,7 +1,6 @@
 package setup
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -61,7 +60,13 @@ func chocoSourceDetails(serverDetails *config.ServerDetails, repoName string) (s
 	if err != nil {
 		return "", "", fmt.Errorf("get Chocolatey source details: %w", err)
 	}
-	if user == "" || password == "" {
+	if err = dotnet.RequireHTTPSSource(sourceURL); err != nil {
+		return "", "", err
+	}
+	// password carries the actual secret (password or access-token); user is only a display name
+	// and is legitimately empty for a reference-token or API-key access-token, which does not
+	// encode a subject Chocolatey's API key can be derived from without one.
+	if password == "" {
 		return "", "", errorutils.CheckErrorf("credentials are required to configure Chocolatey authentication")
 	}
 	return sourceURL, user + ":" + password, nil
@@ -150,14 +155,10 @@ func (sc *SetupCommand) configureChoco() error {
 		return errorutils.CheckErrorf("repository %q must be a NuGet virtual, local, or remote repository; got %q", sc.repoName, repoClass)
 	}
 
-	if removeErr := chocoCommandRunner("choco", "source", "remove", "-n="+sourceName); removeErr != nil {
-		var exitErr *exec.ExitError
-		if !errors.As(removeErr, &exitErr) || exitErr.ExitCode() != 2 {
-			return errorutils.CheckErrorf("failed to remove Chocolatey source %q", sourceName)
-		}
-		log.Debug(fmt.Sprintf("Chocolatey source %q does not exist yet.", sourceName))
-	}
-
+	// "source add" is an upsert keyed by name: Chocolatey updates the existing source's URL and
+	// priority in place when the name matches, rather than requiring an add after removing the old
+	// one. Removing first would leave every user on this machine without a working source for the
+	// span between the two commands, and permanently so if the add or apikey step then failed.
 	if err = chocoCommandRunner("choco", addArgs...); err != nil {
 		return errorutils.CheckErrorf("failed to add the Artifactory source to Chocolatey. Ensure choco is installed and that this shell is elevated (Administrator)")
 	}

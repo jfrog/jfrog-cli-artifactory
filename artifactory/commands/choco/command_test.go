@@ -81,6 +81,13 @@ func TestRequestedPackages(t *testing.T) {
 	assert.Equal(t, []string{"git", "7zip.install"}, packages)
 }
 
+// Resolution credentials on the command line must not leak into the requested-packages list:
+// they would otherwise be recorded as dependencies in the build-info.
+func TestRequestedPackagesExcludesResolveCredentials(t *testing.T) {
+	packages := requestedPackages([]string{"tool", "--user", "admin", "-p", "secret"})
+	assert.Equal(t, []string{"tool"}, packages)
+}
+
 func TestRepoFromSource(t *testing.T) {
 	serverDetails := &config.ServerDetails{ArtifactoryUrl: "https://acme.jfrog.io/artifactory/"}
 	assert.Equal(t, "choco-local", repoFromSource("jfrt-acme.jfrog.io-choco-local", serverDetails))
@@ -840,6 +847,7 @@ func TestChocoResolveRedirectsTheNativeSource(t *testing.T) {
 		assert.Equal(t, []string{"install", "tool", "-s=jfrt-acme.jfrog.io-choco-local"}, received)
 	})
 }
+
 
 func TestRedactChocoArgs(t *testing.T) {
 	assert.Equal(t,

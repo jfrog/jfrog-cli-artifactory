@@ -2,11 +2,8 @@ package setup
 
 import (
 	"errors"
-	"fmt"
-	"os"
-	"os/exec"
 	"runtime"
-	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/repository"
@@ -44,6 +41,31 @@ func TestChocoSourceDetailsValidatesInput(t *testing.T) {
 	_, _, err = chocoSourceDetails(&config.ServerDetails{ArtifactoryUrl: "https://acme.jfrog.io/artifactory/"}, "choco-virtual")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "credentials")
+}
+
+func TestChocoSourceDetailsRequiresHTTPS(t *testing.T) {
+	_, _, err := chocoSourceDetails(&config.ServerDetails{
+		ArtifactoryUrl: "http://acme.jfrog.io/artifactory/",
+		User:           "john",
+		Password:       "secret",
+	}, "choco-virtual")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "HTTPS")
+}
+
+// A reference token or API-key access-token has no subject to derive a username from - see
+// auth.ExtractUsernameFromAccessToken. That must not be treated as "no credentials configured":
+// the token itself is the usable secret, and Chocolatey's API key is stored as "<user>:<token>",
+// which is a valid credential pair even with an empty user.
+func TestChocoSourceDetailsAcceptsTokenOnlyCredentials(t *testing.T) {
+	apiKeyToken := "AKCp8" + strings.Repeat("x", 68)
+	sourceURL, apiKey, err := chocoSourceDetails(&config.ServerDetails{
+		ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
+		AccessToken:    apiKeyToken,
+	}, "choco-virtual")
+	require.NoError(t, err)
+	assert.Equal(t, "https://acme.jfrog.io/artifactory/api/nuget/choco-virtual", sourceURL)
+	assert.Equal(t, ":"+apiKeyToken, apiKey)
 }
 
 func TestChocoSourceName(t *testing.T) {
@@ -98,8 +120,9 @@ func TestConfigureChocoCreatesVirtualSource(t *testing.T) {
 	configureChocoForTest(t, "choco-virtual")
 
 	const sourceURL = "https://acme.jfrog.io/artifactory/api/nuget/choco-virtual"
+	// No "source remove" beforehand: "source add" is an upsert by name, and removing first would
+	// leave every user on this machine without a working source for the span between the calls.
 	assert.Equal(t, [][]string{
-		{"choco", "source", "remove", "-n=jfrt-acme.jfrog.io-choco-virtual"},
 		{"choco", "source", "add", "-n=jfrt-acme.jfrog.io-choco-virtual", "-s=" + sourceURL, "--priority=1"},
 		{"choco", "apikey", "add", "-s=" + sourceURL, "-k=john:secret"},
 	}, *calls)
@@ -115,7 +138,7 @@ func TestConfigureChocoCreatesLocalSourceWithoutPriority(t *testing.T) {
 	assert.Equal(t, []string{
 		"choco", "source", "add", "-n=jfrt-acme.jfrog.io-choco-local",
 		"-s=https://acme.jfrog.io/artifactory/api/nuget/choco-local",
-	}, (*calls)[1])
+	}, (*calls)[0])
 }
 
 func TestConfigureChocoCreatesRemoteSourceWithPriority(t *testing.T) {
@@ -128,7 +151,7 @@ func TestConfigureChocoCreatesRemoteSourceWithPriority(t *testing.T) {
 	assert.Equal(t, []string{
 		"choco", "source", "add", "-n=jfrt-acme.jfrog.io-choco-remote",
 		"-s=https://acme.jfrog.io/artifactory/api/nuget/choco-remote", "--priority=1",
-	}, (*calls)[1])
+	}, (*calls)[0])
 }
 
 func TestConfigureChocoDoesNotLeakSecrets(t *testing.T) {
@@ -141,21 +164,6 @@ func TestConfigureChocoDoesNotLeakSecrets(t *testing.T) {
 	err := newChocoSetupCommand("choco-virtual", "sup3rs3cr3t").configureChoco()
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "sup3rs3cr3t")
-}
-
-func TestConfigureChocoToleratesMissingSource(t *testing.T) {
-	stubChocoPlatformChecker(t, true)
-	stubChocoRepoClassResolver(t, services.VirtualRepositoryRepoType)
-	originalRunner := chocoCommandRunner
-	chocoCommandRunner = func(_ string, args ...string) error {
-		if len(args) > 1 && args[0] == "source" && args[1] == "remove" {
-			return exitWithStatus(t, 2)
-		}
-		return nil
-	}
-	t.Cleanup(func() { chocoCommandRunner = originalRunner })
-
-	configureChocoForTest(t, "choco-virtual")
 }
 
 func TestConfigureChocoNonWindowsFailsClearly(t *testing.T) {
@@ -227,25 +235,3 @@ func stubChocoRepoClassResolver(t *testing.T, repoClass string) {
 	t.Cleanup(func() { chocoRepoClassResolver = originalResolver })
 }
 
-func exitWithStatus(t *testing.T, status int) error {
-	t.Helper()
-	// Re-exec this same test binary to produce a real *exec.ExitError with a chosen status, which
-	// is the only way to exercise the exit-code handling without invoking Chocolatey itself.
-	// os.Args[0] is the running test binary and the argument is a constant, so the taint gosec
-	// reports here is not reachable from any external input.
-	//#nosec G702 G204 -- re-execs this test binary with a constant argument; no external input
-	cmd := exec.Command(os.Args[0], "-test.run=TestChocoExitWithStatus")
-	cmd.Env = append(os.Environ(), "GO_WANT_CHOCO_EXIT_STATUS=1", fmt.Sprintf("CHOCO_EXIT_STATUS=%d", status))
-	return cmd.Run()
-}
-
-func TestChocoExitWithStatus(t *testing.T) {
-	if os.Getenv("GO_WANT_CHOCO_EXIT_STATUS") != "1" {
-		return
-	}
-	status, err := strconv.Atoi(os.Getenv("CHOCO_EXIT_STATUS"))
-	if err != nil {
-		os.Exit(1)
-	}
-	os.Exit(status)
-}
