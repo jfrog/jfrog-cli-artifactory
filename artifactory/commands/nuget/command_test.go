@@ -109,7 +109,7 @@ func TestArtifactPatternsUseExactPaths(t *testing.T) {
 	}
 }
 
-func TestHasNativeAuthOverride(t *testing.T) {
+func TestHasSourceOverride(t *testing.T) {
 	tests := []struct {
 		name     string
 		args     []string
@@ -118,24 +118,20 @@ func TestHasNativeAuthOverride(t *testing.T) {
 		// nuget.exe style (single dash)
 		{name: "nuget -Source", args: []string{"-Source", "https://host/"}, expected: true},
 		{name: "nuget -s", args: []string{"-s", "https://host/"}, expected: true},
-		{name: "nuget -ApiKey", args: []string{"-ApiKey", "key"}, expected: true},
-		{name: "nuget -SymbolApiKey", args: []string{"-SymbolApiKey", "key"}, expected: true},
 		// dotnet CLI style (double dash)
 		{name: "dotnet --source space-separated", args: []string{"--source", "https://host/"}, expected: true},
 		{name: "dotnet --source inline-equals", args: []string{"--source=https://host/"}, expected: true},
-		{name: "dotnet --api-key space-separated", args: []string{"--api-key", "token"}, expected: true},
-		{name: "dotnet --api-key inline-equals", args: []string{"--api-key=mytoken"}, expected: true},
-		{name: "dotnet -k short", args: []string{"-k", "token"}, expected: true},
-		{name: "dotnet -k inline-equals", args: []string{"-k=mytoken"}, expected: true},
-		{name: "dotnet --symbol-api-key", args: []string{"--symbol-api-key", "key"}, expected: true},
-		{name: "dotnet --symbol-api-key inline-equals", args: []string{"--symbol-api-key=key"}, expected: true},
 		// case insensitivity
-		{name: "mixed case -APIKEY", args: []string{"-APIKEY", "key"}, expected: true},
 		{name: "mixed case --Source", args: []string{"--Source", "https://host/"}, expected: true},
-		// dotnet --symbol-source (Gap 2 fix)
-		{name: "dotnet --symbol-source", args: []string{"--symbol-source", "https://symbols/"}, expected: true},
-		{name: "dotnet --symbol-source inline-equals", args: []string{"--symbol-source=https://symbols/"}, expected: true},
-		{name: "dotnet -ss", args: []string{"-ss", "https://symbols/"}, expected: true},
+		// -ApiKey/-SymbolApiKey/-SymbolSource name a credential or a symbol-server target, not
+		// the main package source, so they must NOT suppress defaultPushSource injection.
+		{name: "nuget -ApiKey is not a source override", args: []string{"-ApiKey", "key"}, expected: false},
+		{name: "nuget -SymbolApiKey is not a source override", args: []string{"-SymbolApiKey", "key"}, expected: false},
+		{name: "dotnet --api-key is not a source override", args: []string{"--api-key", "token"}, expected: false},
+		{name: "dotnet -k is not a source override", args: []string{"-k", "token"}, expected: false},
+		{name: "dotnet --symbol-api-key is not a source override", args: []string{"--symbol-api-key", "key"}, expected: false},
+		{name: "dotnet --symbol-source is not a source override", args: []string{"--symbol-source", "https://symbols/"}, expected: false},
+		{name: "dotnet -ss is not a source override", args: []string{"-ss", "https://symbols/"}, expected: false},
 		// no override
 		{name: "no flags", args: []string{"Package.1.0.0.nupkg"}, expected: false},
 		{name: "unrelated flags", args: []string{"Package.1.0.0.nupkg", "--skip-duplicate", "--timeout", "60"}, expected: false},
@@ -144,8 +140,8 @@ func TestHasNativeAuthOverride(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if actual := hasNativeAuthOverride(test.args); actual != test.expected {
-				t.Fatalf("hasNativeAuthOverride(%v) = %t, want %t", test.args, actual, test.expected)
+			if actual := hasSourceOverride(test.args); actual != test.expected {
+				t.Fatalf("hasSourceOverride(%v) = %t, want %t", test.args, actual, test.expected)
 			}
 		})
 	}
@@ -261,16 +257,31 @@ func TestShouldPushViaNativeClient(t *testing.T) {
 		assert.True(t, cmd.shouldPushViaNativeClient())
 	})
 
-	// A user-supplied source/api-key is an explicit choice and must win untouched.
-	t.Run("user auth override is respected", func(t *testing.T) {
+	// A user-supplied source is an explicit choice and must win untouched.
+	t.Run("user source override is respected", func(t *testing.T) {
 		for _, override := range [][]string{
 			{"pkg.nupkg", "--source", "mine"},
-			{"pkg.nupkg", "--api-key", "abc"},
 			{"pkg.nupkg", "-s", "mine"},
 			{"pkg.nupkg", "--source=mine"},
 		} {
 			cmd := newCmd(dotnetutils.DotnetCore, "nuget push", server, "nuget-local", override)
 			assert.False(t, cmd.shouldPushViaNativeClient(), "args: %v", override)
+		}
+	})
+
+	// An -ApiKey/-SymbolApiKey/-SymbolSource of the user's own names a credential or a
+	// separate symbol-server target, not the main package source. It must NOT suppress
+	// injection: without a source of its own, defaultPushSource is still the only way the
+	// push has a target at all.
+	t.Run("api-key and symbol options alone do not suppress injection", func(t *testing.T) {
+		for _, args := range [][]string{
+			{"pkg.nupkg", "--api-key", "abc"},
+			{"pkg.nupkg", "-k", "abc"},
+			{"pkg.nupkg", "--symbol-api-key", "abc"},
+			{"pkg.nupkg", "--symbol-source", "https://symbols/"},
+		} {
+			cmd := newCmd(dotnetutils.DotnetCore, "nuget push", server, "nuget-local", args)
+			assert.True(t, cmd.shouldPushViaNativeClient(), "args: %v", args)
 		}
 	})
 
@@ -385,6 +396,11 @@ func TestPackTargetDirs(t *testing.T) {
 		{"existing directory argument", []string{filepath.Join("src", "Lib")}, []string{nested}},
 		// A flag value that happens to look like a path must not be treated as a target.
 		{"flag value is not a target", []string{"--configuration", "Release", "x.csproj"}, []string{workingDir}},
+		// --no-restore and --no-build take no value; they must not consume the target that
+		// follows them, or "pack --no-restore src/Lib/Lib.csproj" would snapshot the wrong
+		// (or no) directory and silently drop the package from build-info.
+		{"value-less option before target", []string{"--no-restore", filepath.Join("src", "Lib", "Lib.csproj")}, []string{nested}},
+		{"two value-less options before target", []string{"--no-restore", "--no-build", filepath.Join("src", "Lib", "Lib.csproj")}, []string{nested}},
 		// A non-existent, non-project positional is not a directory to snapshot.
 		{"unknown positional ignored", []string{"Release"}, nil},
 	} {

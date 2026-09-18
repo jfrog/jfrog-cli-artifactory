@@ -184,21 +184,21 @@ func (c *NuGetFlexPackCommand) Run() error {
 	// identify the packages this command produces (including custom --output directories and
 	// bin/<Configuration> defaults), instead of scanning the working directory for stale files.
 	var packSnapshot nugetflex.PackageSnapshot
-	var packOutputDir string
+	var packExtraDirs []string
 	if isPackCommand(c.subCommand) {
-		packOutputDir = extractPackOutputDir(c.args)
-		var extraDirs []string
-		if packOutputDir != "" {
-			extraDirs = append(extraDirs, packOutputDir)
+		if outputDir := extractPackOutputDir(c.args); outputDir != "" {
+			packExtraDirs = append(packExtraDirs, outputDir)
 		}
 		// Without --output, each project writes to its OWN bin/<Configuration>. When the target
 		// lives below the working directory - "pack src/Lib/Lib.csproj", or any .sln whose
 		// projects sit in sub-directories - none of that is under <workingDir>/bin, so nothing
 		// would be collected and build-info would be persisted with no modules at all, while the
-		// command still reported success. Snapshot the target's own directory too.
-		extraDirs = append(extraDirs, packTargetDirs(c.workingDir, c.args)...)
+		// command still reported success. Snapshot the target's own directory too, and reuse the
+		// same directories after the command runs so a package written there is actually
+		// collected rather than only counted in the "before" snapshot.
+		packExtraDirs = append(packExtraDirs, packTargetDirs(c.workingDir, c.args)...)
 		var snapErr error
-		packSnapshot, snapErr = nugetflex.SnapshotPackageFiles(c.workingDir, extraDirs...)
+		packSnapshot, snapErr = nugetflex.SnapshotPackageFiles(c.workingDir, packExtraDirs...)
 		if snapErr != nil {
 			return snapErr
 		}
@@ -240,7 +240,7 @@ func (c *NuGetFlexPackCommand) Run() error {
 	case isPushCommand(c.subCommand):
 		return c.collectAndStampPushArtifacts(buildName, buildNumber)
 	case isPackCommand(c.subCommand):
-		return c.collectPackArtifacts(buildName, buildNumber, packSnapshot, packOutputDir)
+		return c.collectPackArtifacts(buildName, buildNumber, packSnapshot, packExtraDirs)
 	}
 	return nil
 }
@@ -411,13 +411,15 @@ func searchWithRetry(maxAttempts int, initialDelay time.Duration, patterns []str
 	return 0, fmt.Errorf("no uploaded NuGet artifacts found at the expected paths after %d attempts: %s", maxAttempts, strings.Join(patterns, ", "))
 }
 
-// hasNativeAuthOverride reports whether the user passed a flag that explicitly controls
-// NuGet's own auth for push. Covers both nuget.exe style (-Source, -ApiKey, -SymbolApiKey)
-// and dotnet CLI style (--source, -s, --api-key, -k, --symbol-api-key). Handles both the
-// space-separated form (flag as its own token) and the inline-equals form (--api-key=VALUE
-// as a single token). When any of these are present the user's intent takes precedence over
-// --repo and the bypass must not fire.
-func hasNativeAuthOverride(args []string) bool {
+// hasSourceOverride reports whether the user passed their own package source: nuget.exe style
+// (-Source, -s) or dotnet CLI style (--source, -s). Handles both the space-separated form (flag
+// as its own token) and the inline-equals form (--source=VALUE as a single token).
+//
+// An -ApiKey/-SymbolApiKey/-SymbolSource of the user's own is deliberately NOT treated as an
+// override here: those name a credential or a separate symbol-server target, not the main
+// package source, so injectCredentialsViaTempConfig must still run to set defaultPushSource -
+// otherwise the push has no source at all and fails instead of reaching repoDeploy.
+func hasSourceOverride(args []string) bool {
 	for _, arg := range args {
 		// Strip an optional inline value (--flag=value → --flag) before matching.
 		flag := strings.ToLower(arg)
@@ -425,10 +427,7 @@ func hasNativeAuthOverride(args []string) bool {
 			flag = flag[:idx]
 		}
 		switch flag {
-		case "-source", "-s", "--source",
-			"-apikey", "--api-key", "-k",
-			"-symbolapikey", "--symbol-api-key",
-			"-ss", "--symbol-source":
+		case "-source", "-s", "--source":
 			return true
 		}
 	}
@@ -509,9 +508,13 @@ func (c *NuGetFlexPackCommand) collectAndStampPushArtifacts(buildName, buildNumb
 	return c.saveArtifactsBuildInfo(buildName, buildNumber, artifacts)
 }
 
-// resolveLocalDeployRepo returns the local repo key where artifacts actually land.
+// resolveLocalDeployRepo returns the local repo key where artifacts actually land, after
+// validating that repoKey is a NuGet local or virtual repository. Without this check a wrong
+// --repo is caught late, by whatever error the native dotnet/nuget client happens to produce,
+// instead of jf's own clear message - the same validation resolveAndValidateDeployRepo used to
+// perform before the Artifactory upload path it belonged to was removed.
 // If repoKey is a virtual repo it returns the virtual repo's defaultDeploymentRepo;
-// for local/remote repos it returns repoKey unchanged.
+// for a local repo it returns repoKey unchanged.
 // Failures are hard errors: build-info must never record a virtual repo key that
 // downstream tools would 404 on.
 func (c *NuGetFlexPackCommand) resolveLocalDeployRepo(repoKey string) (string, error) {
@@ -526,6 +529,12 @@ func (c *NuGetFlexPackCommand) resolveLocalDeployRepo(repoKey string) (string, e
 	if err := servicesManager.GetRepository(repoKey, &params); err != nil {
 		return "", fmt.Errorf("resolve repo type for %q: %w", repoKey, err)
 	}
+	if !strings.EqualFold(params.PackageType, "nuget") {
+		return "", fmt.Errorf("repository %q is of type %q, not NuGet; NuGet packages cannot be pushed to it", repoKey, params.PackageType)
+	}
+	if strings.EqualFold(params.Rclass, "remote") {
+		return "", fmt.Errorf("repository %q is a remote repository; NuGet packages can only be pushed to a local or virtual repository", repoKey)
+	}
 	if params.Rclass != "virtual" {
 		return repoKey, nil
 	}
@@ -537,14 +546,12 @@ func (c *NuGetFlexPackCommand) resolveLocalDeployRepo(repoKey string) (string, e
 }
 
 // collectPackArtifacts records the packages produced by a pack command, detected by comparing
-// the pre-command package snapshot with the current filesystem state. outputDir is the
-// explicit --output directory passed to the pack command (empty string if not provided).
-func (c *NuGetFlexPackCommand) collectPackArtifacts(buildName, buildNumber string, before nugetflex.PackageSnapshot, outputDir string) error {
+// the pre-command package snapshot with the current filesystem state. extraDirs are the same
+// directories the pre-command snapshot was taken over (the --output directory, if any, plus
+// each target's own directory), so a package written there is actually collected rather than
+// only counted in the "before" snapshot.
+func (c *NuGetFlexPackCommand) collectPackArtifacts(buildName, buildNumber string, before nugetflex.PackageSnapshot, extraDirs []string) error {
 	log.Info(fmt.Sprintf("Collecting NuGet artifact info for %s/%s", buildName, buildNumber))
-	var extraDirs []string
-	if outputDir != "" {
-		extraDirs = append(extraDirs, outputDir)
-	}
 	artifacts, err := nugetflex.CollectPackedArtifacts(c.workingDir, before, c.repoDeploy, extraDirs...)
 	if err != nil {
 		return fmt.Errorf("collect packed NuGet artifacts: %w", err)
@@ -762,9 +769,9 @@ func packTargetDirs(workingDir string, args []string) []string {
 			continue
 		}
 		if strings.HasPrefix(arg, "-") {
-			if !strings.Contains(arg, "=") {
-				skipNext = true
-			}
+			// Value-less options like --no-restore and --no-build must not consume the
+			// following target. Only known value-taking options (-c, -o, -p, -v, ...) do.
+			skipNext = restoreOptionTakesValue(arg)
 			continue
 		}
 		ext := strings.ToLower(filepath.Ext(arg))
@@ -848,13 +855,16 @@ const injectedSourceName = "JFrog"
 // Build-info collection and property stamping are unaffected - they run after the command
 // either way, so the artifact record and build.*/vcs.* properties are identical.
 //
-// Skipped when the user supplied their own -Source/-ApiKey, or when there is no server or
-// deploy repo to build a source from; those cases already run the native tool directly.
+// Skipped when the user supplied their own -Source/--source, or when there is no server or
+// deploy repo to build a source from; those cases already run the native tool directly. An
+// -ApiKey/--symbol-source of the user's own does not skip injection: it names a credential or a
+// separate symbol-server target, not the main package source, so defaultPushSource still needs
+// to come from somewhere or the push has no target at all (see hasSourceOverride).
 func (c *NuGetFlexPackCommand) shouldPushViaNativeClient() bool {
 	return isPushCommand(c.subCommand) &&
 		c.serverDetails != nil &&
 		c.repoDeploy != "" &&
-		!hasNativeAuthOverride(c.args)
+		!hasSourceOverride(c.args)
 }
 
 // isPackCommand returns true for the pack subcommand, which produces .nupkg/.snupkg files locally.
