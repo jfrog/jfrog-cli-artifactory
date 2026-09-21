@@ -1,12 +1,15 @@
 package psresource
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/jfrog/build-info-go/entities"
@@ -61,12 +64,43 @@ func TestRedactPSResourceArgs(t *testing.T) {
 	assert.Equal(t, "sup3rs3cr3t", original[1])
 }
 
+// TestRedactPSResourceArgsColonForm guards against a real bug: PowerShell's colon-attached flag
+// form (-ApiKey:secret, one token) was never matched by the space-separated-only redaction logic,
+// so the real secret leaked into debug logs verbatim whenever a user passed a credential this way.
+func TestRedactPSResourceArgsColonForm(t *testing.T) {
+	for _, flag := range []string{"-ApiKey", "-Password", "-Credential", "-Token"} {
+		redacted := redactPSResourceArgs([]string{"-Name", "Foo", flag + ":sup3rs3cr3t"})
+		assert.NotContains(t, redacted, flag+":sup3rs3cr3t", "colon-form %s must be redacted", flag)
+		assert.Contains(t, redacted, flag+":***")
+	}
+	// A colon inside an ordinary value (not a sensitive flag) must be left alone.
+	redacted := redactPSResourceArgs([]string{"-Repository", "myrepo:with:colons"})
+	assert.Equal(t, []string{"-Repository", "myrepo:with:colons"}, redacted)
+}
+
 // ── PowerShell script construction ───────────────────────────────────────────
 
 func TestPsresourceCommandLineArg(t *testing.T) {
 	assert.Equal(t, "-Name", psresourceCommandLineArg("-Name"))
 	assert.Equal(t, "'Foo'", psresourceCommandLineArg("Foo"))
 	assert.Equal(t, "'it''s escaped'", psresourceCommandLineArg("it's escaped"))
+	assert.Equal(t, "-Repository:myrepo", psresourceCommandLineArg("-Repository:myrepo"), "a colon-attached flag+value must still pass through unquoted")
+}
+
+// TestPsresourceCommandLineArgRejectsInjectionLikeDashedValues guards against a real bug: any
+// argument starting with "-" was treated as a trusted, pre-safe flag name and spliced into the
+// -Command script completely unquoted, with no validation that it was actually just a flag - a
+// single crafted argument (e.g. threaded through from an external/templated source) could smuggle
+// PowerShell statement separators past QuotePSLiteral entirely.
+func TestPsresourceCommandLineArgRejectsInjectionLikeDashedValues(t *testing.T) {
+	malicious := "-Name; Remove-Item -Recurse -Force C:\\Temp; -Repository"
+	rendered := psresourceCommandLineArg(malicious)
+	assert.NotEqual(t, malicious, rendered, "must not be spliced in raw just because it starts with '-'")
+	assert.True(t, strings.HasPrefix(rendered, "'") && strings.HasSuffix(rendered, "'"), "must be quoted as a literal instead: got %q", rendered)
+
+	for _, benign := range []string{"-Name", "-Version", "-Repository", "-Trusted", "-Repository:my-repo", "-ApiKey:token"} {
+		assert.Equal(t, benign, psresourceCommandLineArg(benign), "a genuine flag token must still pass through unquoted")
+	}
 }
 
 func TestPsresourceQuoteLiteral(t *testing.T) {
@@ -97,6 +131,25 @@ func TestBuildScriptNeverEmbedsResolvedCredentialValue(t *testing.T) {
 	withoutCredential := command.buildScript(false)
 	assert.NotContains(t, withoutCredential, "-Credential")
 	assert.NotContains(t, withoutCredential, "$env:")
+}
+
+// TestBuildScriptPreservesUserSuppliedCredentialValue guards against a real bug: buildScript and
+// debugScript shared the same redaction call, so a user-supplied -ApiKey/-Password/-Credential/-Token
+// literal was replaced with "***" in the script actually executed by pwsh - not just in the log
+// line - silently turning every such publish/install into an authentication failure.
+func TestBuildScriptPreservesUserSuppliedCredentialValue(t *testing.T) {
+	command := NewPSResourceFlexPackCommand().
+		SetSubCommand(SubCommandPublish).
+		SetArgs([]string{"-Path", "./MyModule", "-ApiKey", "sup3rs3cr3t"})
+
+	// This command supplied its own credential, so Run() would resolve injectCredential=false and
+	// call buildScript(false) - the exact path that must preserve the real value.
+	script := command.buildScript(false)
+	assert.Contains(t, script, "sup3rs3cr3t", "the real script sent to pwsh must never redact a user-supplied credential")
+	assert.NotContains(t, script, "***")
+
+	// The debug-log rendering of the same command must still redact it.
+	assert.NotContains(t, command.debugScript(), "sup3rs3cr3t")
 }
 
 // ── credential resolution ────────────────────────────────────────────────────
@@ -255,6 +308,38 @@ func TestCollectDependenciesFailsWithoutName(t *testing.T) {
 	assert.Contains(t, err.Error(), "-Name")
 }
 
+// TestCollectDependenciesRecognizesPositionalName guards against a real bug: -Name is
+// Install-/Save-/Update-PSResource's first positional parameter ("Install-PSResource Foo -Repository
+// myrepo" is valid, common PSResourceGet usage), but collectDependencies only ever looked for an
+// explicit "-Name" flag, so a positional invocation - which had already installed the package
+// successfully - was reported as a build-info collection failure.
+func TestCollectDependenciesRecognizesPositionalName(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Checksum-Sha256", "sha256value")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	restoreQuery := stubQueryRunner(t, func(shell, script string) (string, error) {
+		return `{"Name":"Foo","Version":"1.2.3"}`, nil
+	})
+	defer restoreQuery()
+
+	buildConfig := &buildutils.BuildConfiguration{}
+	buildConfig.SetBuildName("my-build")
+	buildConfig.SetBuildNumber("1")
+	command := NewPSResourceFlexPackCommand().
+		SetSubCommand(SubCommandInstall).
+		SetArgs([]string{"Foo", "-Repository", "myrepo"}). // positional Name, no "-Name" flag
+		SetRepoResolve("myrepo").
+		SetServerDetails(&config.ServerDetails{ArtifactoryUrl: server.URL + "/artifactory/"}).
+		SetBuildConfiguration(buildConfig).
+		SetWorkingDirectory(t.TempDir())
+
+	err := command.collectDependencies("my-build", "1", "pwsh")
+	require.NoError(t, err)
+}
+
 func TestCollectDependenciesFailsWithoutRepoResolve(t *testing.T) {
 	command := NewPSResourceFlexPackCommand().SetSubCommand(SubCommandInstall).SetArgs([]string{"-Name", "Foo"})
 	err := command.collectDependencies("b", "1", "pwsh")
@@ -339,6 +424,42 @@ func TestCollectPublishArtifactsResolvesNameVersionFromManifest(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestCollectPublishArtifactsRecognizesPositionalPath guards against a real bug: -Path is
+// Publish-PSResource's first positional parameter ("Publish-PSResource ./MyModule -Repository
+// myrepo" is valid, common PSResourceGet usage), but resolvePublishNameVersion only ever looked for
+// an explicit "-Path" flag, so a positional invocation fell back to scanning the working directory
+// for any .psd1 - silently picking up the wrong manifest whenever one happened to be there.
+func TestCollectPublishArtifactsRecognizesPositionalPath(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "MyModule.psd1")
+	require.NoError(t, os.WriteFile(manifestPath, []byte("@{ ModuleVersion = '9.9.9' }"), 0600))
+
+	var requestedPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPath = r.URL.Path
+		w.Header().Set("X-Checksum-Sha256", "sha256value")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	stubResolveShell(t, "pwsh", nil)
+	restoreQuery := stubQueryRunner(t, func(shell, script string) (string, error) {
+		return "9.9.9\n", nil
+	})
+	defer restoreQuery()
+	defer stubStampBuildProperties(t, nil)()
+
+	command := NewPSResourceFlexPackCommand().
+		SetSubCommand(SubCommandPublish).
+		SetArgs([]string{dir, "-Repository", "myrepo"}). // positional Path, no "-Path" flag
+		SetServerDetails(&config.ServerDetails{ArtifactoryUrl: server.URL + "/artifactory/"}).
+		SetWorkingDirectory(t.TempDir()) // deliberately NOT dir, so a working-directory fallback would find nothing/the wrong manifest
+
+	err := command.collectPublishArtifacts("my-build", "1", "pwsh")
+	require.NoError(t, err)
+	assert.Contains(t, requestedPath, "mymodule/9.9.9/MyModule.9.9.9.nupkg")
+}
+
 // ── installed-version resolution ─────────────────────────────────────────────
 
 func TestResolveInstalledVersionSingleObject(t *testing.T) {
@@ -370,6 +491,19 @@ func TestResolveInstalledVersionEmptyOutputIsAnError(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestResolveInstalledVersionEmptyVersionFieldIsAnError closes a gap distinct from the empty-output
+// case above: valid JSON for a single installed package whose Version field is itself empty must
+// still be rejected, not silently recorded in build-info with a blank version.
+func TestResolveInstalledVersionEmptyVersionFieldIsAnError(t *testing.T) {
+	restore := stubQueryRunner(t, func(shell, script string) (string, error) {
+		return `{"Name":"Foo","Version":""}`, nil
+	})
+	defer restore()
+	_, err := resolveInstalledVersion("pwsh", "Foo")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no version")
+}
+
 func TestLatestInstalledVersion(t *testing.T) {
 	list := []installedPSResource{{Version: "1.0.0"}, {Version: "1.10.0"}, {Version: "1.9.0"}}
 	// Best-effort plain string comparison, documented as not SemVer-correct.
@@ -396,6 +530,68 @@ func TestArtifactPatterns(t *testing.T) {
 		{OriginalDeploymentRepo: "", Path: "ignored"},
 	})
 	assert.Equal(t, []string{"myrepo/foo/1.0.0/Foo.1.0.0.nupkg"}, patterns)
+}
+
+func TestWrapChecksumErr(t *testing.T) {
+	notFoundErr := wrapChecksumErr(errPSResourcePackageNotFound, "Foo 1.0.0", "myrepo", "foo/1.0.0/Foo.1.0.0.nupkg")
+	assert.ErrorIs(t, notFoundErr, errPSResourcePackageNotFound)
+	assert.Contains(t, notFoundErr.Error(), "myrepo/foo/1.0.0/Foo.1.0.0.nupkg")
+
+	// A persistent/non-retryable transport or server error must be wrapped distinctly from the
+	// not-found case (persistArtifactBuildInfo treats the two differently: not-found discards the
+	// build-info, a genuine error still saves it locally unstamped) - this branch had no test.
+	genuineErr := errors.New("connection reset by peer")
+	wrapped := wrapChecksumErr(genuineErr, "Foo 1.0.0", "myrepo", "foo/1.0.0/Foo.1.0.0.nupkg")
+	assert.ErrorIs(t, wrapped, genuineErr)
+	assert.NotErrorIs(t, wrapped, errPSResourcePackageNotFound)
+	assert.Contains(t, wrapped.Error(), "Foo 1.0.0")
+}
+
+// TestSearchOnceRetriesOnZeroCount guards against a real bug: a successful-but-empty search result
+// (Artifactory's async search index lagging behind a just-completed, HEAD-confirmed publish) was
+// never retried - only a genuine search error was - so a routine indexing delay turned into an
+// immediate, unretried "not found" that discarded already-collected build-info.
+func TestSearchOnceRetriesOnZeroCount(t *testing.T) {
+	attempts := 0
+	count, err := searchOnce(func() (int, error) {
+		attempts++
+		if attempts < 3 {
+			return 0, nil // not found yet, no error - must still be retried
+		}
+		return 1, nil // the index has caught up
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+	assert.Equal(t, 3, attempts, "must retry a zero-count/no-error result, not treat it as final on the first attempt")
+}
+
+// TestSearchOnceStillReportsNotFoundAfterExhaustingRetries confirms the fix does not change the
+// outcome once every retry has genuinely found nothing: callers key off "err == nil && count == 0"
+// to mean "still not found" (see stampBuildProperties), so that must keep holding even though the
+// zero-count case is now retried before giving up.
+func TestSearchOnceStillReportsNotFoundAfterExhaustingRetries(t *testing.T) {
+	attempts := 0
+	count, err := searchOnce(func() (int, error) {
+		attempts++
+		return 0, nil
+	})
+	require.NoError(t, err, "exhausting retries on nothing but zero-count results must still report as a plain (0, nil), not the executor's own timeout error")
+	assert.Equal(t, 0, count)
+	assert.Equal(t, psresourceHeadRetries+1, attempts)
+}
+
+// TestSearchOncePropagatesGenuineSearchError confirms a real, non-retryable search error is still
+// reported distinctly from the plain not-found case (persistArtifactBuildInfo treats the two
+// differently: not-found discards the build-info, a genuine error still saves it locally unstamped).
+func TestSearchOncePropagatesGenuineSearchError(t *testing.T) {
+	searchErr := errors.New("boom")
+	count, err := searchOnce(func() (int, error) {
+		return 0, searchErr
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, searchErr)
+	assert.NotErrorIs(t, err, errPSResourcePackageNotFound)
+	assert.Equal(t, 0, count)
 }
 
 func TestPersistArtifactBuildInfoReturnsNotFoundWithoutSaving(t *testing.T) {
@@ -445,6 +641,126 @@ func TestStampBuildPropertiesEndToEnd(t *testing.T) {
 	require.Len(t, propsSet, 1)
 	assert.Contains(t, propsSet[0], "build.name")
 	assert.Contains(t, propsSet[0], "build.number")
+}
+
+// TestStampBuildPropertiesForbiddenHint closes a real test-coverage gap: the annotate-permission
+// hint appended when SetProps returns 403 had no test at all, so a regression that dropped or
+// garbled it would go undetected.
+func TestStampBuildPropertiesForbiddenHint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/artifactory/api/search/aql":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"results":[{"repo":"myrepo","path":"foo/1.2.3","name":"Foo.1.2.3.nupkg"}]}`))
+		case r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/api/storage/"):
+			w.WriteHeader(http.StatusForbidden)
+		default:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("{}"))
+		}
+	}))
+	defer server.Close()
+
+	command := NewPSResourceFlexPackCommand().
+		SetServerDetails(&config.ServerDetails{ArtifactoryUrl: server.URL + "/artifactory/"}).
+		SetWorkingDirectory(t.TempDir())
+
+	artifacts := []entities.Artifact{{
+		Name:                   "Foo.1.2.3.nupkg",
+		OriginalDeploymentRepo: "myrepo",
+		Path:                   "foo/1.2.3/Foo.1.2.3.nupkg",
+	}}
+	err := command.stampBuildProperties(artifacts, "my-build", "1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "annotate permission")
+}
+
+// TestStampBuildPropertiesRetriesSetPropsOnTransientFailure closes a real test-coverage gap: the
+// reader.Reset()-then-retry sequence on a retryable SetProps failure had no test proving the
+// content.ContentReader is actually re-consumable on the retried attempt rather than sending an
+// exhausted reader.
+func TestStampBuildPropertiesRetriesSetPropsOnTransientFailure(t *testing.T) {
+	var putAttempts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/artifactory/api/search/aql":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"results":[{"repo":"myrepo","path":"foo/1.2.3","name":"Foo.1.2.3.nupkg"}]}`))
+		case r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/api/storage/"):
+			putAttempts++
+			if putAttempts < 2 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("{}"))
+		}
+	}))
+	defer server.Close()
+
+	command := NewPSResourceFlexPackCommand().
+		SetServerDetails(&config.ServerDetails{ArtifactoryUrl: server.URL + "/artifactory/"}).
+		SetWorkingDirectory(t.TempDir())
+
+	artifacts := []entities.Artifact{{
+		Name:                   "Foo.1.2.3.nupkg",
+		OriginalDeploymentRepo: "myrepo",
+		Path:                   "foo/1.2.3/Foo.1.2.3.nupkg",
+	}}
+	err := command.stampBuildProperties(artifacts, "my-build", "1")
+	require.NoError(t, err, "a retryable SetProps failure followed by success must not fail the command")
+	assert.Equal(t, 2, putAttempts, "the retried SetProps call must actually re-send the reset reader")
+}
+
+// TestFetchArtifactChecksumRetriesThenSucceeds closes a real test-coverage gap: every existing test
+// server answered on the first request, so the actual retry-then-succeed behavior of
+// fetchArtifactChecksum (a transient HEAD failure followed by a successful one) was never verified.
+func TestFetchArtifactChecksumRetriesThenSucceeds(t *testing.T) {
+	var attempts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("X-Checksum-Sha256", "sha256value")
+		w.Header().Set("X-Checksum-Sha1", "sha1value")
+		w.Header().Set("X-Checksum-Md5", "md5value")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	httpCtx, err := newPSResourceHTTPContext(&config.ServerDetails{ArtifactoryUrl: server.URL + "/artifactory/"})
+	require.NoError(t, err)
+
+	checksum, err := fetchArtifactChecksum(httpCtx, "myrepo", "foo/1.0.0/Foo.1.0.0.nupkg")
+	require.NoError(t, err)
+	assert.Equal(t, 2, attempts, "must actually retry a transient HEAD failure")
+	assert.Equal(t, "sha256value", checksum.Sha256, "the checksum from the eventually-successful attempt must be the one returned, not dropped")
+}
+
+// TestFetchArtifactChecksumExhaustsRetriesOnPersistentFailure confirms the counterpart: a
+// persistently failing HEAD (never a 404) is retried up to the configured limit and then surfaced
+// as an error, not silently treated as success or as "not found".
+func TestFetchArtifactChecksumExhaustsRetriesOnPersistentFailure(t *testing.T) {
+	var attempts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	httpCtx, err := newPSResourceHTTPContext(&config.ServerDetails{ArtifactoryUrl: server.URL + "/artifactory/"})
+	require.NoError(t, err)
+
+	_, err = fetchArtifactChecksum(httpCtx, "myrepo", "foo/1.0.0/Foo.1.0.0.nupkg")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, errPSResourcePackageNotFound, "a persistent 503 is a real error, not a not-found")
+	assert.Equal(t, psresourceHeadRetries+1, attempts)
 }
 
 func assertErr(msg string) error { return errString(msg) }
@@ -527,6 +843,34 @@ func TestIsRetryableError(t *testing.T) {
 	assert.True(t, isRetryableError(io.EOF))
 	assert.False(t, isRetryableError(errString("plain error")))
 }
+
+// TestIsRetryableErrorNetworkAndSyscallBranches closes a real test-coverage gap: the net.Error
+// timeout branch and every syscall-errno branch (ECONNRESET/ECONNABORTED/ECONNREFUSED/EPIPE) had no
+// test at all, so a regression silently dropping one of them from the retryable set would only
+// surface as an intermittent, hard-to-diagnose production/CI failure.
+func TestIsRetryableErrorNetworkAndSyscallBranches(t *testing.T) {
+	assert.True(t, isRetryableError(timeoutError{}), "a timed-out net.Error must be retryable")
+	assert.False(t, isRetryableError(nonTimeoutNetError{}), "a non-timeout net.Error must not be retryable")
+	for _, syscallErr := range []error{syscall.ECONNRESET, syscall.ECONNABORTED, syscall.ECONNREFUSED, syscall.EPIPE} {
+		assert.True(t, isRetryableError(syscallErr), "%v must be retryable", syscallErr)
+		assert.True(t, isRetryableError(fmt.Errorf("wrapped: %w", syscallErr)), "a wrapped %v must still be retryable", syscallErr)
+	}
+	assert.True(t, isRetryableError(io.ErrUnexpectedEOF))
+}
+
+// timeoutError is a minimal net.Error whose Timeout() reports true.
+type timeoutError struct{}
+
+func (timeoutError) Error() string   { return "i/o timeout" }
+func (timeoutError) Timeout() bool   { return true }
+func (timeoutError) Temporary() bool { return true }
+
+// nonTimeoutNetError is a minimal net.Error whose Timeout() reports false.
+type nonTimeoutNetError struct{}
+
+func (nonTimeoutNetError) Error() string   { return "connection issue" }
+func (nonTimeoutNetError) Timeout() bool   { return false }
+func (nonTimeoutNetError) Temporary() bool { return false }
 
 func TestIsForbiddenError(t *testing.T) {
 	assert.True(t, isForbiddenError(&errorutils.HttpResponseError{StatusCode: http.StatusForbidden}))

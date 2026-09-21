@@ -24,11 +24,21 @@ const psresourceModuleCheckScript = "if (Get-Module -ListAvailable -Name Microso
 
 // psresourceCommandRunner shells out to the resolved PowerShell executable. It is a var, like
 // chocoCommandRunner, so tests can replace it with a stub instead of invoking pwsh for real.
+// Stderr is captured (not discarded) and folded into the returned error, so a real
+// Register-PSResourceRepository failure (bad URL, name collision, permissions) is diagnosable
+// instead of always looking like a missing pwsh/module installation.
 var psresourceCommandRunner = func(name string, args ...string) error {
+	var stderr strings.Builder
 	cmd := exec.Command(name, args...) // #nosec G204 -- name/args are this package's own constructed pwsh invocation, never external input
 	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	return cmd.Run()
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if stderr.Len() > 0 {
+			return fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+		}
+		return err
+	}
+	return nil
 }
 
 // psresourceShellResolver reports the PowerShell executable to use for PSResourceGet cmdlets: pwsh
@@ -197,7 +207,7 @@ func (sc *SetupCommand) configurePSResource() error {
 	registerScript := fmt.Sprintf("Register-PSResourceRepository -Name %s -Uri %s -Trusted",
 		QuotePSLiteral(sourceName), QuotePSLiteral(sourceURL))
 	if err = psresourceCommandRunner(shell, "-NoProfile", "-Command", registerScript); err != nil {
-		return errorutils.CheckErrorf("failed to register the Artifactory source with PSResourceGet. Ensure pwsh is installed and the Microsoft.PowerShell.PSResourceGet module is available")
+		return errorutils.CheckErrorf("failed to register the Artifactory source with PSResourceGet: %s", err.Error())
 	}
 
 	log.Output(fmt.Sprintf("PSResource source name: %s", sourceName))

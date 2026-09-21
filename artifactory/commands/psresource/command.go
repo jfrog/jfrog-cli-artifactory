@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -301,7 +302,7 @@ func (command *PSResourceFlexPackCommand) buildScript(injectCredential bool) str
 			"$securePw = ConvertTo-SecureString $env:JFROG_PSRESOURCE_TOKEN -AsPlainText -Force",
 			"$cred = New-Object System.Management.Automation.PSCredential($env:JFROG_PSRESOURCE_USER, $securePw)")
 	}
-	statements = append(statements, command.cmdletInvocation(injectCredential))
+	statements = append(statements, command.cmdletInvocation(injectCredential, false))
 	return strings.Join(statements, "; ")
 }
 
@@ -311,13 +312,22 @@ func (command *PSResourceFlexPackCommand) buildScript(injectCredential bool) str
 // included here or in buildScript's logged form, because it only ever names environment variables,
 // never a resolved secret value.
 func (command *PSResourceFlexPackCommand) debugScript() string {
-	return command.cmdletInvocation(false)
+	return command.cmdletInvocation(false, true)
 }
 
-func (command *PSResourceFlexPackCommand) cmdletInvocation(injectCredential bool) string {
-	parts := make([]string, 0, len(command.args)+2)
+// cmdletInvocation builds the native cmdlet invocation. redactForLogging must be false for the
+// script actually handed to pwsh (buildScript) - redaction is a logging-only concern, and applying
+// it to the real script would silently replace the user's own credential value with the literal
+// string "***", breaking authentication. It must be true for anything rendered into a log line
+// (debugScript).
+func (command *PSResourceFlexPackCommand) cmdletInvocation(injectCredential, redactForLogging bool) string {
+	args := command.args
+	if redactForLogging {
+		args = redactPSResourceArgs(args)
+	}
+	parts := make([]string, 0, len(args)+2)
 	parts = append(parts, command.subCommand)
-	for _, arg := range redactPSResourceArgs(command.args) {
+	for _, arg := range args {
 		parts = append(parts, psresourceCommandLineArg(arg))
 	}
 	if injectCredential {
@@ -326,13 +336,22 @@ func (command *PSResourceFlexPackCommand) cmdletInvocation(injectCredential bool
 	return strings.Join(parts, " ")
 }
 
+// psresourceFlagPattern matches a plausible bare flag token: "-Name" or "-Name:value", where the
+// flag name itself is a simple identifier and, if a colon-attached value follows, that value
+// contains none of the characters that could end the -Command script's current statement early
+// (semicolon, pipe, ampersand, backtick, a "$(" subexpression opener, or a line break). Anything
+// that doesn't match this is treated as a value and safely quoted instead of being spliced in raw -
+// closing off the case where a single crafted argument (e.g. threaded through from an
+// external/templated source) happens to start with "-" but is not actually just a flag name.
+var psresourceFlagPattern = regexp.MustCompile(`^-[A-Za-z][A-Za-z0-9]*(:[^;&|` + "`" + `\r\n]*)?$`)
+
 // psresourceCommandLineArg renders one native argument for splicing into the -Command script.
-// A token starting with "-" is a parameter name and is passed through unquoted; everything else is
-// a value and is quoted as a single-quoted PowerShell string literal (doubling any embedded single
-// quote), which is always a safe way to hand PowerShell a literal string regardless of the
-// parameter's declared type.
+// A token matching psresourceFlagPattern is a parameter name (optionally with a colon-attached
+// value) and is passed through unquoted; everything else is a value and is quoted as a
+// single-quoted PowerShell string literal (doubling any embedded single quote), which is always a
+// safe way to hand PowerShell a literal string regardless of the parameter's declared type.
 func psresourceCommandLineArg(arg string) string {
-	if strings.HasPrefix(arg, "-") {
+	if psresourceFlagPattern.MatchString(arg) {
 		return arg
 	}
 	return setup.QuotePSLiteral(arg)
@@ -354,18 +373,22 @@ func hasNativeCredentialOverride(args []string) bool {
 	return false
 }
 
-// redactPSResourceArgs replaces the value following any credential-bearing native flag with "***".
-// This only ever matters when the user supplied their own -ApiKey/-Password/-Credential/-Token
-// literal on the command line (hasNativeCredentialOverride's case) - this command's own injected
-// credential never appears as literal text in the first place, only as an $env: reference.
+// redactPSResourceArgs replaces the value of any credential-bearing native flag with "***", in
+// both the space-separated form (-ApiKey secret) and PowerShell's colon-attached form
+// (-ApiKey:secret, a single token carrying both the flag and its value). This only ever matters
+// when the user supplied their own -ApiKey/-Password/-Credential/-Token literal on the command
+// line (hasNativeCredentialOverride's case) - this command's own injected credential never appears
+// as literal text in the first place, only as an $env: reference.
 func redactPSResourceArgs(args []string) []string {
 	redacted := append([]string(nil), args...)
 	sensitiveFlags := map[string]bool{"-apikey": true, "-password": true, "-credential": true, "-token": true}
 	for index := range redacted {
-		if index == 0 {
+		lower := strings.ToLower(redacted[index])
+		if colonIdx := strings.Index(lower, ":"); colonIdx > 0 && sensitiveFlags[lower[:colonIdx]] {
+			redacted[index] = redacted[index][:colonIdx] + ":***"
 			continue
 		}
-		if sensitiveFlags[strings.ToLower(redacted[index-1])] {
+		if index > 0 && sensitiveFlags[strings.ToLower(redacted[index-1])] {
 			redacted[index] = "***"
 		}
 	}
@@ -409,6 +432,34 @@ func splitCommaList(value string) []string {
 		}
 	}
 	return result
+}
+
+// positionalValues returns the leading run of bare (non-flag) tokens in args, in order, stopping at
+// the first token that starts with "-". This mirrors PowerShell's own positional binding: PSResourceGet
+// binds an unlabelled leading argument to each cmdlet's first positional parameter - Publish-PSResource's
+// is -Path, Install-/Save-/Update-PSResource's is -Name (which also accepts several bare tokens, e.g.
+// "Install-PSResource Foo Bar -Repository myrepo" binds Name=@("Foo","Bar")). Without this, a command
+// invoked positionally (valid, common PSResourceGet usage) is silently treated as if neither flag was
+// given at all.
+func positionalValues(args []string) []string {
+	var values []string
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			break
+		}
+		values = append(values, arg)
+	}
+	return values
+}
+
+// firstPositionalValue returns the first leading bare token in args, or "" if the command was
+// invoked with no positional argument (e.g. everything given via explicit flags).
+func firstPositionalValue(args []string) string {
+	values := positionalValues(args)
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }
 
 // collectPublishArtifacts collects build-info for a completed Publish-PSResource. PSResourceGet
@@ -463,6 +514,11 @@ func (command *PSResourceFlexPackCommand) resolvePublishNameVersion(shell string
 	}
 
 	path := argValue(command.args, "-Path")
+	if path == "" {
+		// -Path is Publish-PSResource's first positional parameter - a bare leading token
+		// ("Publish-PSResource ./MyModule ...") is valid, common usage, not an omission.
+		path = firstPositionalValue(command.args)
+	}
 	if path == "" {
 		path = command.workingDirectory
 	}
@@ -612,6 +668,11 @@ func latestInstalledVersion(list []installedPSResource) string {
 func (command *PSResourceFlexPackCommand) collectDependencies(buildName, buildNumber, shell string) error {
 	names := argValues(command.args, "-Name")
 	if len(names) == 0 {
+		// -Name is Install-/Save-/Update-PSResource's first positional parameter - bare leading
+		// tokens ("Install-PSResource Foo Bar ...") are valid, common usage, not an omission.
+		names = positionalValues(command.args)
+	}
+	if len(names) == 0 {
 		return fmt.Errorf("cannot determine which PSResource packages to collect build-info for: no -Name argument found on the %s command", command.subCommand)
 	}
 	if command.repoResolve == "" {
@@ -703,7 +764,14 @@ func fetchArtifactChecksum(httpCtx psresourceHTTPContext, repo, path string) (en
 	var checksum entities.Checksum
 	err = executeWithPSResourceRetry("Failed to HEAD the PSResource package in Artifactory", func() (bool, error) {
 		resp, body, headErr := httpCtx.client.SendHead(artifactURL, httpCtx.httpClientDetails, "")
-		if headErr != nil {
+		// httpCtx.client has its own internal retry wrapper (default zero retries) that treats any
+		// 5xx/429 status as "should retry"; once ITS budget is exhausted it returns a non-nil,
+		// opaque timeout error even though the real HTTP response is still available. Inspecting
+		// resp first (whenever it's non-nil) lets our own retry loop see the real status - and
+		// therefore actually retry a transient 5xx - instead of always giving up after one attempt
+		// on an error isRetryableError has no way to recognize. headErr is only the right signal
+		// when resp itself is nil (a genuine connection-level failure).
+		if resp == nil {
 			return isRetryableError(headErr), headErr
 		}
 		if resp.StatusCode == http.StatusNotFound {
@@ -905,13 +973,32 @@ func artifactPatterns(artifacts []entities.Artifact) []string {
 	return patterns
 }
 
+// searchOnce runs searchFn with retries, treating both a retryable search error and a successful
+// but empty (zero-count) result as worth another attempt: a freshly published artifact was already
+// confirmed to exist via a direct HEAD before this is ever called, so a zero-count search means
+// Artifactory's (asynchronous) search index hasn't caught up yet, not that the artifact is missing.
+// Without this, a routine, common indexing delay right after Publish-PSResource turned into an
+// immediate, unretried "not found" that discarded the just-collected build-info.
+//
+// The returned error is nil whenever no genuine search error ever occurred - including when retries
+// were exhausted on nothing but zero-count results - so callers can keep relying on
+// "err == nil && count == 0" to mean "still not found after giving it every chance", exactly as
+// they could before retries existed for this case.
 func searchOnce(searchFn func() (int, error)) (int, error) {
 	var count int
-	err := retryOnPSResourceError("Failed to search for the published PSResource package", func() error {
+	var lastSearchErr error
+	err := executeWithPSResourceRetry("Failed to search for the published PSResource package", func() (bool, error) {
 		var searchErr error
 		count, searchErr = searchFn()
-		return searchErr
+		lastSearchErr = searchErr
+		if searchErr != nil {
+			return isRetryableError(searchErr), searchErr
+		}
+		return count == 0, nil
 	})
+	if lastSearchErr == nil {
+		return count, nil
+	}
 	return count, err
 }
 

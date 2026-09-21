@@ -30,6 +30,13 @@ func TestPSResourceSourceNameValidatesInput(t *testing.T) {
 	_, err = psresourceSourceName(&config.ServerDetails{ArtifactoryUrl: "://invalid"}, "psresource-virtual")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Artifactory URL")
+
+	// A repo name that sanitizes to empty (see TestSanitizePSResourceSourceComponent) must be
+	// caught at this integration point too, not just at the sanitizer's own unit level - otherwise
+	// a malformed source name like "jfrt--" could reach Register-PSResourceRepository verbatim.
+	_, err = psresourceSourceName(&config.ServerDetails{ArtifactoryUrl: "https://acme.jfrog.io/artifactory/"}, "///")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "repository name")
 }
 
 func TestSanitizePSResourceSourceComponent(t *testing.T) {
@@ -159,6 +166,29 @@ func TestConfigurePSResourceToleratesUnregisterFailure(t *testing.T) {
 	t.Cleanup(func() { psresourceCommandRunner = originalRunner })
 
 	require.NoError(t, newPSResourceSetupCommand("psresource-virtual", "secret").configurePSResource())
+}
+
+// TestConfigurePSResourceSurfacesRegisterFailure guards against a real bug: a failing
+// Register-PSResourceRepository call was replaced with a static, generic "install pwsh" message
+// that discarded the actual error - even though ValidatePSResourcePlatform had already confirmed
+// pwsh/the module were installed a few lines earlier - making the real cause undiagnosable.
+func TestConfigurePSResourceSurfacesRegisterFailure(t *testing.T) {
+	stubPSResourcePlatformChecker(t, true)
+	stubPSResourceShellResolver(t, "pwsh", true)
+	stubPSResourceRepoClassResolver(t, services.VirtualRepositoryRepoType)
+
+	originalRunner := psresourceCommandRunner
+	psresourceCommandRunner = func(_ string, args ...string) error {
+		if len(args) > 2 && args[1] == "-Command" && strings.Contains(args[2], "Register-PSResourceRepository") {
+			return errors.New("a distinctive, real PowerShell failure message")
+		}
+		return nil
+	}
+	t.Cleanup(func() { psresourceCommandRunner = originalRunner })
+
+	err := newPSResourceSetupCommand("psresource-virtual", "secret").configurePSResource()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "a distinctive, real PowerShell failure message", "the real error must be surfaced, not replaced with a generic message")
 }
 
 func TestConfigurePSResourceNonWindowsStillWorks(t *testing.T) {
