@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -588,7 +589,7 @@ func resolvePSD1Manifest(path string) (string, error) {
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.EqualFold(filepathExt(entry.Name()), ".psd1") {
-			return joinWorkingDirectory(path, entry.Name()), nil
+			return filepath.Join(path, entry.Name()), nil
 		}
 	}
 	return "", fmt.Errorf("no module manifest (.psd1) found in %q", path)
