@@ -10,34 +10,27 @@ full URL CommitInfo parses (contains "://"), never a bare repo_id/revision -
 and treats the upload as successful. Every other exception must still
 propagate, including HfUriError raised over a plain identifier.
 
-huggingface_hub.errors.HfUriError may not exist in whatever huggingface_hub
-version happens to be installed wherever this test runs (it's a recent
-addition). Patching it with create=True injects a stand-in at the exact
-import path upload()'s except block reads from, so this test exercises the
-real isinstance() check in huggingface_upload.py regardless of the installed
-huggingface_hub version - it is not a copy of the production logic.
+huggingface_hub.errors.HfUriError already exists in huggingface_hub==1.19.0
+(the version this repo's CI pins for HuggingFace-Tests) with the same
+uri/msg constructor upload() relies on - it's PR #4324's new RepoUrl
+call site that's version-gated, not the exception class itself. These
+tests import and raise the real HfUriError rather than a stand-in, so they
+exercise the exact exception type and attribute shape production code will
+actually receive.
 """
 import io
 import unittest
 from unittest.mock import patch
 
+from huggingface_hub.errors import HfUriError
+
 import huggingface_upload
 
 
-class FakeHfUriError(ValueError):
-    """Stand-in for huggingface_hub.errors.HfUriError (same constructor shape)."""
-
-    def __init__(self, uri, msg):
-        self.uri = uri
-        self.msg = msg
-        super().__init__(f"Invalid HF URI '{uri}'. {msg}")
-
-
 class UploadHfUriErrorTest(unittest.TestCase):
-    @patch("huggingface_hub.errors.HfUriError", FakeHfUriError, create=True)
     @patch("huggingface_upload.HfApi")
     def test_swallows_hf_uri_error_after_successful_upload(self, mock_hf_api_class):
-        mock_hf_api_class.return_value.upload_folder.side_effect = FakeHfUriError(
+        mock_hf_api_class.return_value.upload_folder.side_effect = HfUriError(
             uri="https://artifactory.example/placeholder", msg="could not parse"
         )
 
@@ -54,17 +47,16 @@ class UploadHfUriErrorTest(unittest.TestCase):
         self.assertIn("swallowed HfUriError", logged)
         self.assertIn("org/repo", logged)
 
-    @patch("huggingface_hub.errors.HfUriError", FakeHfUriError, create=True)
     @patch("huggingface_upload.HfApi")
     def test_propagates_hf_uri_error_over_a_plain_identifier(self, mock_hf_api_class):
         # A bare repo_id/revision-shaped uri (no "://") is not the known
         # post-commit commitUrl parsing failure - e.g. a malformed repo_id
         # rejected before any commit happened. Must not be swallowed.
-        mock_hf_api_class.return_value.upload_folder.side_effect = FakeHfUriError(
+        mock_hf_api_class.return_value.upload_folder.side_effect = HfUriError(
             uri="not-a-real-repo-id", msg="could not parse"
         )
 
-        with self.assertRaises(FakeHfUriError):
+        with self.assertRaises(HfUriError):
             huggingface_upload.upload(
                 folder_path="/tmp/folder", repo_id="org/repo", repo_type="model", revision="main"
             )
