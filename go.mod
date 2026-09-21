@@ -207,11 +207,11 @@ require (
 
 // replace github.com/jfrog/build-info-go => github.com/jfrog/build-info-go v1.13.1-0.20260902103717-1668dd184191
 
-replace github.com/jfrog/build-info-go => github.com/bhanurp/build-info-go v1.10.10-0.20260921052939-edb8f3a8992e
+replace github.com/jfrog/build-info-go => github.com/jfrog/build-info-go v1.13.1-0.20260921070652-aa0b5c7b6789
 
 // jfrog-cli-core does not yet have project.PSResource on any released version; the fork branch
 // RTECO-2247 (github.com/bhanurp/jfrog-cli-core, commit d83d8a45) carries the single-line addition
 // to the ProjectType enum, mirroring the same pattern already used above for the build-info-go
 // PSResource collector fork. Run `go mod download github.com/jfrog/jfrog-cli-core/v2 && go mod
 // tidy` once to populate go.sum for this replacement.
-replace github.com/jfrog/jfrog-cli-core/v2 => github.com/bhanurp/jfrog-cli-core/v2 v2.57.7-0.20260918083500-d83d8a45bd7e
+replace github.com/jfrog/jfrog-cli-core/v2 => github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260918083500-d83d8a45bd7e
