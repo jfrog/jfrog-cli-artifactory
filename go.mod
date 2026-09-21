@@ -207,7 +207,7 @@ require (
 
 // replace github.com/jfrog/build-info-go => github.com/jfrog/build-info-go v1.13.1-0.20260902103717-1668dd184191
 
-replace github.com/jfrog/build-info-go => github.com/bhanurp/build-info-go v1.10.10-0.20260918084802-08a1f22415c3
+replace github.com/jfrog/build-info-go => github.com/bhanurp/build-info-go v1.10.10-0.20260921052939-edb8f3a8992e
 
 // jfrog-cli-core does not yet have project.PSResource on any released version; the fork branch
 // RTECO-2247 (github.com/bhanurp/jfrog-cli-core, commit d83d8a45) carries the single-line addition

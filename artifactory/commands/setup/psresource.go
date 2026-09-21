@@ -143,11 +143,12 @@ func sanitizePSResourceSourceComponent(value string) string {
 	return strings.Trim(builder.String(), "-")
 }
 
-// psresourcePSStringLiteral renders value as a single-quoted PowerShell string literal, doubling
-// any embedded single quote the way PowerShell itself escapes one. Both the source name (already
-// sanitized to a safe character set) and the feed URL are passed through this before being spliced
-// into a -Command script, so neither can break out of the intended string argument.
-func psresourcePSStringLiteral(value string) string {
+// QuotePSLiteral renders value as a single-quoted PowerShell string literal, doubling any embedded
+// single quote the way PowerShell itself escapes one. This is the single implementation of that
+// rule shared by this package and artifactory/commands/psresource (which already imports this
+// package for ValidatePSResourcePlatform/PSResourceShell, so it calls this rather than the reverse -
+// that direction would create an import cycle).
+func QuotePSLiteral(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
@@ -155,6 +156,8 @@ func psresourcePSStringLiteral(value string) string {
 // source. It deliberately does not persist credentials at registration time - see the comment
 // above the Register-PSResourceRepository call.
 func (sc *SetupCommand) configurePSResource() error {
+	// Re-checked here (Run() already checks it before dispatch) so configurePSResource stays safe
+	// to call on its own - e.g. in a unit test that exercises this function directly.
 	if err := ValidatePSResourcePlatform(); err != nil {
 		return err
 	}
@@ -181,7 +184,7 @@ func (sc *SetupCommand) configurePSResource() error {
 	// failure, so a first-time `jf setup psresource` (nothing registered yet) never fails here -
 	// there is no separate "not found" exit code to special-case, unlike choco's source remove.
 	unregisterScript := fmt.Sprintf("Unregister-PSResourceRepository -Name %s -ErrorAction SilentlyContinue",
-		psresourcePSStringLiteral(sourceName))
+		QuotePSLiteral(sourceName))
 	if unregisterErr := psresourceCommandRunner(shell, "-NoProfile", "-Command", unregisterScript); unregisterErr != nil {
 		log.Debug(fmt.Sprintf("Unregister-PSResourceRepository for %q returned an error (ignored): %s", sourceName, unregisterErr.Error()))
 	}
@@ -192,7 +195,7 @@ func (sc *SetupCommand) configurePSResource() error {
 	// (artifactory/commands/psresource) to inject -Credential on every native invocation instead.
 	// Do not "fix" this later by adding credential persistence here; it was left out on purpose.
 	registerScript := fmt.Sprintf("Register-PSResourceRepository -Name %s -Uri %s -Trusted",
-		psresourcePSStringLiteral(sourceName), psresourcePSStringLiteral(sourceURL))
+		QuotePSLiteral(sourceName), QuotePSLiteral(sourceURL))
 	if err = psresourceCommandRunner(shell, "-NoProfile", "-Command", registerScript); err != nil {
 		return errorutils.CheckErrorf("failed to register the Artifactory source with PSResourceGet. Ensure pwsh is installed and the Microsoft.PowerShell.PSResourceGet module is available")
 	}

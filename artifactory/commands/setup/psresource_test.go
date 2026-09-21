@@ -39,8 +39,8 @@ func TestSanitizePSResourceSourceComponent(t *testing.T) {
 }
 
 func TestPSResourcePSStringLiteral(t *testing.T) {
-	assert.Equal(t, "'plain'", psresourcePSStringLiteral("plain"))
-	assert.Equal(t, "'it''s escaped'", psresourcePSStringLiteral("it's escaped"))
+	assert.Equal(t, "'plain'", QuotePSLiteral("plain"))
+	assert.Equal(t, "'it''s escaped'", QuotePSLiteral("it's escaped"))
 }
 
 func TestValidatePSResourcePlatform(t *testing.T) {

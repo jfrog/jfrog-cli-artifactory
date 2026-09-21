@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/jfrog/build-info-go/entities"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/setup"
 	buildutils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
@@ -69,8 +70,8 @@ func TestPsresourceCommandLineArg(t *testing.T) {
 }
 
 func TestPsresourceQuoteLiteral(t *testing.T) {
-	assert.Equal(t, "'C:\\Modules\\Foo'", psresourceQuoteLiteral(`C:\Modules\Foo`))
-	assert.Equal(t, "'it''s'", psresourceQuoteLiteral("it's"))
+	assert.Equal(t, "'C:\\Modules\\Foo'", setup.QuotePSLiteral(`C:\Modules\Foo`))
+	assert.Equal(t, "'it''s'", setup.QuotePSLiteral("it's"))
 }
 
 func TestCmdletInvocationRedactsUserSuppliedSecrets(t *testing.T) {
@@ -243,20 +244,20 @@ func TestCollectDependenciesCollectsResolvedPackages(t *testing.T) {
 		SetBuildConfiguration(buildConfig).
 		SetWorkingDirectory(t.TempDir())
 
-	err := command.collectDependencies("my-build", "1")
+	err := command.collectDependencies("my-build", "1", "pwsh")
 	require.NoError(t, err)
 }
 
 func TestCollectDependenciesFailsWithoutName(t *testing.T) {
 	command := NewPSResourceFlexPackCommand().SetSubCommand(SubCommandInstall).SetRepoResolve("myrepo")
-	err := command.collectDependencies("b", "1")
+	err := command.collectDependencies("b", "1", "pwsh")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "-Name")
 }
 
 func TestCollectDependenciesFailsWithoutRepoResolve(t *testing.T) {
 	command := NewPSResourceFlexPackCommand().SetSubCommand(SubCommandInstall).SetArgs([]string{"-Name", "Foo"})
-	err := command.collectDependencies("b", "1")
+	err := command.collectDependencies("b", "1", "pwsh")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "--repo-resolve")
 }
@@ -287,7 +288,7 @@ func TestCollectPublishArtifactsWithExplicitNameVersion(t *testing.T) {
 		SetBuildConfiguration(buildConfig).
 		SetWorkingDirectory(t.TempDir())
 
-	err := command.collectPublishArtifacts("my-build", "1")
+	err := command.collectPublishArtifacts("my-build", "1", "pwsh")
 	require.NoError(t, err)
 	assert.Contains(t, requestedPath, "foo/1.2.3/Foo.1.2.3.nupkg")
 }
@@ -305,7 +306,7 @@ func TestCollectPublishArtifactsNotFoundIsAClearError(t *testing.T) {
 		SetServerDetails(&config.ServerDetails{ArtifactoryUrl: server.URL + "/artifactory/"}).
 		SetWorkingDirectory(t.TempDir())
 
-	err := command.collectPublishArtifacts("my-build", "1")
+	err := command.collectPublishArtifacts("my-build", "1", "pwsh")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "was not found in Artifactory")
 }
@@ -334,7 +335,7 @@ func TestCollectPublishArtifactsResolvesNameVersionFromManifest(t *testing.T) {
 		SetServerDetails(&config.ServerDetails{ArtifactoryUrl: server.URL + "/artifactory/"}).
 		SetWorkingDirectory(dir)
 
-	err := command.collectPublishArtifacts("my-build", "1")
+	err := command.collectPublishArtifacts("my-build", "1", "pwsh")
 	require.NoError(t, err)
 }
 
@@ -610,7 +611,7 @@ func TestCollectPublishArtifactsFailsWithoutRepo(t *testing.T) {
 	command := NewPSResourceFlexPackCommand().
 		SetSubCommand(SubCommandPublish).
 		SetArgs([]string{"-Name", "Foo", "-Version", "1.0.0"})
-	err := command.collectPublishArtifacts("b", "1")
+	err := command.collectPublishArtifacts("b", "1", "pwsh")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "-Repository")
 }

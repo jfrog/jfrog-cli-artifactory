@@ -32,10 +32,12 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/common/spec"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
+	"github.com/jfrog/jfrog-client-go/auth"
 	"github.com/jfrog/jfrog-client-go/http/httpclient"
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
+	"github.com/jfrog/jfrog-client-go/utils/io/httputils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
@@ -216,15 +218,32 @@ func (command *PSResourceFlexPackCommand) Run() error {
 		return err
 	}
 
-	switch command.subCommand {
-	case SubCommandPublish:
-		return command.collectPublishArtifacts(buildName, buildNumber)
-	case SubCommandInstall, SubCommandSave, SubCommandUpdate:
-		return command.collectDependencies(buildName, buildNumber)
+	switch {
+	case isPublishCmdlet(command.subCommand):
+		return command.collectPublishArtifacts(buildName, buildNumber, shell)
+	case isDependencyCmdlet(command.subCommand):
+		return command.collectDependencies(buildName, buildNumber, shell)
 	default:
 		// Find-PSResource, Uninstall-PSResource, *-PSResourceRepository, etc: no build-info to
 		// collect for these, so a plain passthrough is the correct (and only) outcome.
 		return nil
+	}
+}
+
+// isPublishCmdlet reports whether subCommand is Publish-PSResource, the one cmdlet whose build-info
+// is collected from an artifact this command itself just uploaded.
+func isPublishCmdlet(subCommand string) bool {
+	return subCommand == SubCommandPublish
+}
+
+// isDependencyCmdlet reports whether subCommand is one of Install-/Save-/Update-PSResource, the
+// cmdlets whose build-info is collected from packages PSResourceGet resolved as dependencies.
+func isDependencyCmdlet(subCommand string) bool {
+	switch subCommand {
+	case SubCommandInstall, SubCommandSave, SubCommandUpdate:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -234,10 +253,10 @@ func (command *PSResourceFlexPackCommand) Run() error {
 // *-PSResourceRepository, ...), which never touch a configured Artifactory repo on this command's
 // behalf.
 func (command *PSResourceFlexPackCommand) credentialInjectionRepo() string {
-	switch command.subCommand {
-	case SubCommandPublish:
+	switch {
+	case isPublishCmdlet(command.subCommand):
 		return command.repoDeploy
-	case SubCommandInstall, SubCommandSave, SubCommandUpdate:
+	case isDependencyCmdlet(command.subCommand):
 		return command.repoResolve
 	default:
 		return ""
@@ -316,14 +335,7 @@ func psresourceCommandLineArg(arg string) string {
 	if strings.HasPrefix(arg, "-") {
 		return arg
 	}
-	return "'" + strings.ReplaceAll(arg, "'", "''") + "'"
-}
-
-// psresourceQuoteLiteral is the same literal-escaping rule as psresourceCommandLineArg's value
-// branch, used directly (without the "-" passthrough) for scripts this package constructs from
-// values that are never PowerShell parameter names, such as a manifest path.
-func psresourceQuoteLiteral(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+	return setup.QuotePSLiteral(arg)
 }
 
 // hasNativeCredentialOverride reports whether the user already supplied their own -Credential or
@@ -404,7 +416,7 @@ func splitCommaList(value string) []string {
 // hash, so the package's identity (name/version) and checksum both have to be resolved after the
 // fact: identity from -Name/-Version if the caller passed them, otherwise from the module manifest
 // at -Path; checksum from a HEAD request to the path the package must now exist at in Artifactory.
-func (command *PSResourceFlexPackCommand) collectPublishArtifacts(buildName, buildNumber string) error {
+func (command *PSResourceFlexPackCommand) collectPublishArtifacts(buildName, buildNumber, shell string) error {
 	repo := argValue(command.args, "-Repository")
 	if repo == "" {
 		repo = command.repoDeploy
@@ -412,27 +424,22 @@ func (command *PSResourceFlexPackCommand) collectPublishArtifacts(buildName, bui
 	if repo == "" {
 		return fmt.Errorf("cannot determine the target repository for %s build-info: pass -Repository or --repo-deploy", SubCommandPublish)
 	}
-	shell, err := resolvePSResourceShell()
-	if err != nil {
-		return err
-	}
 	name, version, err := command.resolvePublishNameVersion(shell)
 	if err != nil {
 		return err
 	}
 	path := psresourceflex.DerivePublishedPath(name, version)
-	checksum, err := fetchArtifactChecksum(command.serverDetails, repo, path)
+	httpCtx, err := newPSResourceHTTPContext(command.serverDetails)
 	if err != nil {
-		if errors.Is(err, errPSResourcePackageNotFound) {
-			return fmt.Errorf("%w: expected it at %s/%s", err, repo, path)
-		}
-		return fmt.Errorf("resolve checksum for the published PSResource package at %s/%s: %w", repo, path, err)
+		return err
+	}
+	checksum, err := fetchArtifactChecksum(httpCtx, repo, path)
+	if err != nil {
+		return wrapChecksumErr(err, fmt.Sprintf("the published PSResource package at %s/%s", repo, path), repo, path)
 	}
 	artifact, err := psresourceflex.BuildPublishedArtifact(psresourceflex.PublishedArtifact{
-		Name:     name,
-		Version:  version,
-		Repo:     repo,
-		Checksum: checksum,
+		ResolvedPackage: psresourceflex.ResolvedPackage{Name: name, Version: version, Checksum: checksum},
+		Repo:            repo,
 	})
 	if err != nil {
 		return err
@@ -534,7 +541,7 @@ func resolvePSD1Manifest(path string) (string, error) {
 // psd1ModuleVersion asks pwsh/powershell.exe for a manifest's ModuleVersion via
 // Import-PowerShellDataFile, rather than parsing the .psd1 data-file format in Go.
 func psd1ModuleVersion(shell, manifestPath string) (string, error) {
-	script := fmt.Sprintf("(Import-PowerShellDataFile -Path %s).ModuleVersion", psresourceQuoteLiteral(manifestPath))
+	script := fmt.Sprintf("(Import-PowerShellDataFile -Path %s).ModuleVersion", setup.QuotePSLiteral(manifestPath))
 	output, err := psresourceQueryRunner(shell, script)
 	if err != nil {
 		return "", fmt.Errorf("resolve ModuleVersion from %q: %w", manifestPath, err)
@@ -558,7 +565,7 @@ type installedPSResource struct {
 // different version (e.g. a floating -Version range, or an upgrade), so the build-info must record
 // what was actually installed.
 func resolveInstalledVersion(shell, name string) (string, error) {
-	script := fmt.Sprintf("Get-InstalledPSResource -Name %s | ConvertTo-Json", psresourceQuoteLiteral(name))
+	script := fmt.Sprintf("Get-InstalledPSResource -Name %s | ConvertTo-Json", setup.QuotePSLiteral(name))
 	output, err := psresourceQueryRunner(shell, script)
 	if err != nil {
 		return "", err
@@ -602,7 +609,7 @@ func latestInstalledVersion(list []installedPSResource) string {
 // every package named on the command line, it asks PSResourceGet what version actually ended up
 // installed, then resolves that package's checksum from Artifactory the same way
 // collectPublishArtifacts does.
-func (command *PSResourceFlexPackCommand) collectDependencies(buildName, buildNumber string) error {
+func (command *PSResourceFlexPackCommand) collectDependencies(buildName, buildNumber, shell string) error {
 	names := argValues(command.args, "-Name")
 	if len(names) == 0 {
 		return fmt.Errorf("cannot determine which PSResource packages to collect build-info for: no -Name argument found on the %s command", command.subCommand)
@@ -610,7 +617,7 @@ func (command *PSResourceFlexPackCommand) collectDependencies(buildName, buildNu
 	if command.repoResolve == "" {
 		return fmt.Errorf("cannot determine the source repository for %s build-info: pass --repo-resolve", command.subCommand)
 	}
-	shell, err := resolvePSResourceShell()
+	httpCtx, err := newPSResourceHTTPContext(command.serverDetails)
 	if err != nil {
 		return err
 	}
@@ -622,12 +629,9 @@ func (command *PSResourceFlexPackCommand) collectDependencies(buildName, buildNu
 			return fmt.Errorf("resolve installed version of %q: %w", name, versionErr)
 		}
 		path := psresourceflex.DerivePublishedPath(name, version)
-		checksum, checksumErr := fetchArtifactChecksum(command.serverDetails, command.repoResolve, path)
+		checksum, checksumErr := fetchArtifactChecksum(httpCtx, command.repoResolve, path)
 		if checksumErr != nil {
-			if errors.Is(checksumErr, errPSResourcePackageNotFound) {
-				return fmt.Errorf("%w: expected it at %s/%s", checksumErr, command.repoResolve, path)
-			}
-			return fmt.Errorf("resolve checksum for %s %s: %w", name, version, checksumErr)
+			return wrapChecksumErr(checksumErr, fmt.Sprintf("%s %s", name, version), command.repoResolve, path)
 		}
 		resolved = append(resolved, psresourceflex.ResolvedPackage{Name: name, Version: version, Checksum: checksum})
 	}
@@ -635,15 +639,54 @@ func (command *PSResourceFlexPackCommand) collectDependencies(buildName, buildNu
 	collector, err := psresourceflex.NewPSResourceFlexPack(buildinfoflex.PSResourceConfig{
 		WorkingDirectory: command.workingDirectory,
 		Module:           command.moduleID(),
-	}, nil)
+		ResolvedPackages: resolved,
+	})
 	if err != nil {
 		return err
 	}
-	buildInfo, err := collector.CollectBuildInfo(buildName, buildNumber, resolved)
+	buildInfo, err := collector.CollectBuildInfo(buildName, buildNumber)
 	if err != nil {
 		return fmt.Errorf("collect PSResource dependencies: %w", err)
 	}
 	return saveBuildInfoLocally(buildInfo, command.projectKey())
+}
+
+// wrapChecksumErr wraps a checksum-resolution failure with context for the caller: a
+// errPSResourcePackageNotFound is annotated with the repo/path the package was expected at (chained
+// with %w so errors.Is still matches), and any other failure is wrapped with a context-specific
+// "resolve checksum for ..." message.
+func wrapChecksumErr(err error, context, repo, path string) error {
+	if errors.Is(err, errPSResourcePackageNotFound) {
+		return fmt.Errorf("%w: expected it at %s/%s", err, repo, path)
+	}
+	return fmt.Errorf("resolve checksum for %s: %w", context, err)
+}
+
+// psresourceHTTPContext bundles the Artifactory auth config and HTTP client fetchArtifactChecksum
+// needs. It is built once per command invocation (collectPublishArtifacts/collectDependencies) and
+// passed down, instead of fetchArtifactChecksum rebuilding both on every call - which mattered most
+// for collectDependencies's per-package loop, where that used to mean a separate client build and
+// auth-config derivation for every package.
+type psresourceHTTPContext struct {
+	client            *httpclient.HttpClient
+	artDetails        auth.ServiceDetails
+	httpClientDetails httputils.HttpClientDetails
+}
+
+func newPSResourceHTTPContext(serverDetails *config.ServerDetails) (psresourceHTTPContext, error) {
+	artDetails, err := serverDetails.CreateArtAuthConfig()
+	if err != nil {
+		return psresourceHTTPContext{}, fmt.Errorf("create Artifactory auth config: %w", err)
+	}
+	client, err := httpclient.ClientBuilder().Build()
+	if err != nil {
+		return psresourceHTTPContext{}, fmt.Errorf("build HTTP client: %w", err)
+	}
+	return psresourceHTTPContext{
+		client:            client,
+		artDetails:        artDetails,
+		httpClientDetails: artDetails.CreateHttpClientDetails(),
+	}, nil
 }
 
 // fetchArtifactChecksum HEADs (never GETs - a GET would increment Artifactory's download counters
@@ -651,50 +694,59 @@ func (command *PSResourceFlexPackCommand) collectDependencies(buildName, buildNu
 // checksum headers Artifactory attaches to the response. Transient failures are retried; a 404
 // fails immediately with errPSResourcePackageNotFound, since retrying it would only mask a
 // genuinely wrong repo/path for longer.
-func fetchArtifactChecksum(serverDetails *config.ServerDetails, repo, path string) (entities.Checksum, error) {
-	artDetails, err := serverDetails.CreateArtAuthConfig()
-	if err != nil {
-		return entities.Checksum{}, fmt.Errorf("create Artifactory auth config: %w", err)
-	}
-	httpClientDetails := artDetails.CreateHttpClientDetails()
-	client, err := httpclient.ClientBuilder().Build()
-	if err != nil {
-		return entities.Checksum{}, fmt.Errorf("build HTTP client: %w", err)
-	}
-	artifactURL, err := clientutils.BuildUrl(artDetails.GetUrl(), repo+"/"+path, map[string]string{})
+func fetchArtifactChecksum(httpCtx psresourceHTTPContext, repo, path string) (entities.Checksum, error) {
+	artifactURL, err := clientutils.BuildUrl(httpCtx.artDetails.GetUrl(), repo+"/"+path, map[string]string{})
 	if err != nil {
 		return entities.Checksum{}, fmt.Errorf("build artifact URL: %w", err)
 	}
 
 	var checksum entities.Checksum
-	executor := clientutils.RetryExecutor{
-		MaxRetries:               psresourceHeadRetries,
-		RetriesIntervalMilliSecs: psresourceHeadRetryIntervalMilliSecs,
-		ErrorMessage:             "Failed to HEAD the PSResource package in Artifactory",
-		LogMsgPrefix:             "[PSResource build-info] ",
-		ExecutionHandler: func() (bool, error) {
-			resp, body, headErr := client.SendHead(artifactURL, httpClientDetails, "")
-			if headErr != nil {
-				return isRetryableError(headErr), headErr
-			}
-			if resp.StatusCode == http.StatusNotFound {
-				return false, errPSResourcePackageNotFound
-			}
-			if statusErr := errorutils.CheckResponseStatusWithBody(resp, body, http.StatusOK); statusErr != nil {
-				return isRetryableError(statusErr), statusErr
-			}
-			checksum = entities.Checksum{
-				Sha256: resp.Header.Get("X-Checksum-Sha256"),
-				Sha1:   resp.Header.Get("X-Checksum-Sha1"),
-				Md5:    resp.Header.Get("X-Checksum-Md5"),
-			}
-			return false, nil
-		},
-	}
-	if err = executor.Execute(); err != nil {
+	err = executeWithPSResourceRetry("Failed to HEAD the PSResource package in Artifactory", func() (bool, error) {
+		resp, body, headErr := httpCtx.client.SendHead(artifactURL, httpCtx.httpClientDetails, "")
+		if headErr != nil {
+			return isRetryableError(headErr), headErr
+		}
+		if resp.StatusCode == http.StatusNotFound {
+			return false, errPSResourcePackageNotFound
+		}
+		if statusErr := errorutils.CheckResponseStatusWithBody(resp, body, http.StatusOK); statusErr != nil {
+			return isRetryableError(statusErr), statusErr
+		}
+		checksum = entities.Checksum{
+			Sha256: resp.Header.Get("X-Checksum-Sha256"),
+			Sha1:   resp.Header.Get("X-Checksum-Sha1"),
+			Md5:    resp.Header.Get("X-Checksum-Md5"),
+		}
+		return false, nil
+	})
+	if err != nil {
 		return entities.Checksum{}, err
 	}
 	return checksum, nil
+}
+
+// executeWithPSResourceRetry runs handler through the retry policy shared by every retried operation
+// in this package (fixed retry count/interval and log prefix), retrying only when handler itself
+// reports the failure as retryable.
+func executeWithPSResourceRetry(errorMessage string, handler func() (bool, error)) error {
+	executor := clientutils.RetryExecutor{
+		MaxRetries:               psresourceHeadRetries,
+		RetriesIntervalMilliSecs: psresourceHeadRetryIntervalMilliSecs,
+		ErrorMessage:             errorMessage,
+		LogMsgPrefix:             "[PSResource build-info] ",
+		ExecutionHandler:         handler,
+	}
+	return executor.Execute()
+}
+
+// retryOnPSResourceError is executeWithPSResourceRetry for the common case where retryability is
+// decided solely by isRetryableError on fn's own returned error - the shape searchOnce and
+// setPropsWithRetry both need.
+func retryOnPSResourceError(errorMessage string, fn func() error) error {
+	return executeWithPSResourceRetry(errorMessage, func() (bool, error) {
+		err := fn()
+		return err != nil && isRetryableError(err), err
+	})
 }
 
 // isRetryableError reports whether err is worth another attempt: a server-side or throttling HTTP
@@ -853,35 +905,18 @@ func artifactPatterns(artifacts []entities.Artifact) []string {
 	return patterns
 }
 
-func searchOnce(searchFn func() (int, error)) (count int, err error) {
-	executor := clientutils.RetryExecutor{
-		MaxRetries:               psresourceHeadRetries,
-		RetriesIntervalMilliSecs: psresourceHeadRetryIntervalMilliSecs,
-		ErrorMessage:             "Failed to search for the published PSResource package",
-		LogMsgPrefix:             "[PSResource build-info] ",
-		ExecutionHandler: func() (bool, error) {
-			count, err = searchFn()
-			return err != nil && isRetryableError(err), err
-		},
-	}
-	if executeErr := executor.Execute(); executeErr != nil {
-		return 0, executeErr
-	}
-	return count, nil
+func searchOnce(searchFn func() (int, error)) (int, error) {
+	var count int
+	err := retryOnPSResourceError("Failed to search for the published PSResource package", func() error {
+		var searchErr error
+		count, searchErr = searchFn()
+		return searchErr
+	})
+	return count, err
 }
 
 func setPropsWithRetry(setPropsFn func() error) error {
-	executor := clientutils.RetryExecutor{
-		MaxRetries:               psresourceHeadRetries,
-		RetriesIntervalMilliSecs: psresourceHeadRetryIntervalMilliSecs,
-		ErrorMessage:             "Failed to stamp build properties on the published PSResource package",
-		LogMsgPrefix:             "[PSResource build-info] ",
-		ExecutionHandler: func() (bool, error) {
-			err := setPropsFn()
-			return err != nil && isRetryableError(err), err
-		},
-	}
-	return executor.Execute()
+	return retryOnPSResourceError("Failed to stamp build properties on the published PSResource package", setPropsFn)
 }
 
 func isForbiddenError(err error) bool {
