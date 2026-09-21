@@ -57,7 +57,7 @@ type GradleCommand struct {
 	// File path for Gradle extractor in which all build's artifacts details will be listed at the end of the build.
 	buildArtifactsDetailsFile string
 	// When true, the extractor init script collects buildSrc and included-build modules.
-	includeSharedBuild bool
+	includeSharedBuildLogic bool
 }
 
 func NewGradleCommand() *GradleCommand {
@@ -130,7 +130,7 @@ func (gc *GradleCommand) Run() error {
 	if err != nil {
 		return err
 	}
-	err = runGradle(vConfig, gc.tasks, gc.buildArtifactsDetailsFile, gc.configuration, gc.threads, gc.IsXrayScan(), gc.includeSharedBuild)
+	err = runGradle(vConfig, gc.tasks, gc.buildArtifactsDetailsFile, gc.configuration, gc.threads, gc.IsXrayScan(), gc.includeSharedBuildLogic)
 	if err != nil {
 		return err
 	}
@@ -336,8 +336,8 @@ func (gc *GradleCommand) SetScanOutputFormat(format format.OutputFormat) *Gradle
 	return gc
 }
 
-func (gc *GradleCommand) SetIncludeSharedBuild(includeSharedBuild bool) *GradleCommand {
-	gc.includeSharedBuild = includeSharedBuild
+func (gc *GradleCommand) SetIncludeSharedBuildLogic(includeSharedBuildLogic bool) *GradleCommand {
+	gc.includeSharedBuildLogic = includeSharedBuildLogic
 	return gc
 }
 
@@ -452,7 +452,7 @@ func parseUserHomeFromJavaOutput(output string) (string, error) {
 	return "", fmt.Errorf("user.home not found in java output")
 }
 
-func runGradle(vConfig *viper.Viper, tasks []string, deployableArtifactsFile string, configuration *build.BuildConfiguration, threads int, disableDeploy bool, includeSharedBuild bool) error {
+func runGradle(vConfig *viper.Viper, tasks []string, deployableArtifactsFile string, configuration *build.BuildConfiguration, threads int, disableDeploy bool, includeSharedBuildLogic bool) error {
 	buildInfoService := build.CreateBuildInfoService()
 	buildName, err := configuration.GetBuildName()
 	if err != nil {
@@ -470,12 +470,12 @@ func runGradle(vConfig *viper.Viper, tasks []string, deployableArtifactsFile str
 	if err != nil {
 		return errorutils.CheckError(err)
 	}
-	// includeSharedBuild is propagated to the Gradle invocation solely via the
-	// ORG_GRADLE_PROJECT_includeSharedBuild env var set in createGradleRunConfig below - Gradle
-	// turns that into the includeSharedBuild project property for every project in the build,
+	// includeSharedBuildLogic is propagated to the Gradle invocation solely via the
+	// ORG_GRADLE_PROJECT_includeSharedBuildLogic env var set in createGradleRunConfig below - Gradle
+	// turns that into the includeSharedBuildLogic project property for every project in the build,
 	// including buildSrc and includeBuild composites, so a redundant -P task arg (which the root
 	// build alone would see) is not needed here.
-	props, wrapper, plugin, err := createGradleRunConfig(vConfig, deployableArtifactsFile, threads, disableDeploy, includeSharedBuild)
+	props, wrapper, plugin, err := createGradleRunConfig(vConfig, deployableArtifactsFile, threads, disableDeploy, includeSharedBuildLogic)
 	if err != nil {
 		return err
 	}
@@ -495,7 +495,7 @@ func getGradleDependencyLocalPath() (string, error) {
 	return filepath.Join(dependenciesPath, "gradle"), nil
 }
 
-func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string, threads int, disableDeploy bool, includeSharedBuild bool) (props map[string]string, wrapper, plugin bool, err error) {
+func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string, threads int, disableDeploy bool, includeSharedBuildLogic bool) (props map[string]string, wrapper, plugin bool, err error) {
 	wrapper = vConfig.GetBool(useWrapper)
 	if threads > 0 {
 		vConfig.Set(build.ForkCount, threads)
@@ -516,9 +516,9 @@ func createGradleRunConfig(vConfig *viper.Viper, deployableArtifactsFile string,
 	if err != nil {
 		return
 	}
-	if includeSharedBuild {
-		// Gradle exposes ORG_GRADLE_PROJECT_includeSharedBuild as the includeSharedBuild project property.
-		props["ORG_GRADLE_PROJECT_includeSharedBuild"] = "true"
+	if includeSharedBuildLogic {
+		// Gradle exposes ORG_GRADLE_PROJECT_includeSharedBuildLogic as the includeSharedBuildLogic project property.
+		props["ORG_GRADLE_PROJECT_includeSharedBuildLogic"] = "true"
 	}
 	if deployableArtifactsFile != "" {
 		// Save the path to a temp file, where buildinfo project will write the deployable artifacts details.

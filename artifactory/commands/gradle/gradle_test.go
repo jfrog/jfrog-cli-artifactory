@@ -17,12 +17,12 @@ func TestCreateGradleRunConfigOmitsSharedBuildEnvWhenFlagOff(t *testing.T) {
 
 	offProps, _, _, err := createGradleRunConfig(vConfig, "", 0, false, false)
 	require.NoError(t, err)
-	_, present := offProps["ORG_GRADLE_PROJECT_includeSharedBuild"]
-	assert.False(t, present, "flag-off jf gradle must not inject includeSharedBuild")
+	_, present := offProps["ORG_GRADLE_PROJECT_includeSharedBuildLogic"]
+	assert.False(t, present, "flag-off jf gradle must not inject includeSharedBuildLogic")
 
 	onProps, _, _, err := createGradleRunConfig(vConfig, "", 0, false, true)
 	require.NoError(t, err)
-	assert.Equal(t, "true", onProps["ORG_GRADLE_PROJECT_includeSharedBuild"])
+	assert.Equal(t, "true", onProps["ORG_GRADLE_PROJECT_includeSharedBuildLogic"])
 }
 
 func TestGenerateInitScript(t *testing.T) {
