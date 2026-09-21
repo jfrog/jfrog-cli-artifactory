@@ -62,9 +62,9 @@ func TestHFUploadCmd_SetRepoType(t *testing.T) {
 
 func TestHFUploadCmd_CommandName(t *testing.T) {
 	cmd := NewHuggingFaceUpload()
-	assert.Empty(t, cmd.CommandName())
-	cmd.name = "test-command"
-	assert.Equal(t, "test-command", cmd.CommandName())
+	assert.Equal(t, "rt_hf_upload", cmd.CommandName())
+	cmd.name = "upload"
+	assert.Equal(t, "rt_hf_upload", cmd.CommandName())
 }
 
 func TestHFUploadCmd_ServerDetails(t *testing.T) {

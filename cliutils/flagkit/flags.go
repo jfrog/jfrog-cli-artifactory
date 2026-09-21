@@ -366,11 +366,12 @@ const (
 	ocStartBuildRepo   = ocStartBuildPrefix + repo
 
 	// Unique npm flags
-	npmPrefix          = "npm-"
-	npmDetailedSummary = npmPrefix + detailedSummary
-	runNative          = "run-native"
-	npmWorkspaces      = "workspaces"
-	disableCVSCheck    = "disable-cvs-check"
+	npmPrefix             = "npm-"
+	npmDetailedSummary    = npmPrefix + detailedSummary
+	runNative             = "run-native"
+	npmWorkspaces         = "workspaces"
+	disableCVSCheck       = "disable-cvs-check"
+	failOnUncollectedDeps = "fail-on-uncollected-deps"
 
 	// Unique nuget/dotnet config flags
 	nugetV2                  = "nuget-v2"
@@ -511,6 +512,12 @@ const (
 	SkillsSearch  = "skills-search"
 	SkillsDelete  = "skills-delete"
 	SkillsList    = "skills-list"
+
+	// Agent APM commands key. install/publish/update take only build-info flags; auth always
+	// resolves from the default configured JFrog server, no --server-id/--repo/direct-credential
+	// override - apm's own registry/config resolution (~/.apm/config.json, apm.yml) is what
+	// package managers are for. The generic passthrough takes no flags of its own at all.
+	AgentApm = "agent-apm"
 
 	// Agent plugin commands keys
 	AgentPluginsPublish = "agent-plugins-publish"
@@ -752,7 +759,7 @@ var commandFlags = map[string][]string{
 		global, serverIdResolve, serverIdDeploy, repoResolve, repoDeploy,
 	},
 	NpmInstallCi: {
-		BuildName, BuildNumber, module, Project, runNative, disableCVSCheck,
+		BuildName, BuildNumber, module, Project, runNative, disableCVSCheck, failOnUncollectedDeps,
 	},
 	NpmPublish: {
 		BuildName, BuildNumber, module, Project, npmDetailedSummary, xrayScan, xrOutput, runNative, npmWorkspaces,
@@ -920,6 +927,9 @@ var commandFlags = map[string][]string{
 	},
 	SkillsList: {
 		url, user, password, accessToken, serverId, repo, harness, projectDir, agentGlobal, agentFormat, agentLimit, agentSortBy, agentSortOrder, agentCheckUpdates,
+	},
+	AgentApm: {
+		serverId, BuildName, BuildNumber, module, Project,
 	},
 }
 
@@ -1148,6 +1158,7 @@ var flagsMap = map[string]components.Flag{
 	npmDetailedSummary:       components.NewBoolFlag(detailedSummary, "Set to true to include a list of the affected files in the command summary.", components.WithBoolDefaultValueFalse()),
 	nugetV2:                  components.NewBoolFlag(nugetV2, "Set to true if you'd like to use the NuGet V2 protocol when restoring packages from Artifactory.", components.WithBoolDefaultValueFalse()),
 	disableCVSCheck:          components.NewBoolFlag(disableCVSCheck, "Set to true to disable the CVS check that verifies if 404 errors are due to blocked packages.", components.WithBoolDefaultValueFalse()),
+	failOnUncollectedDeps:    components.NewStringFlag(failOnUncollectedDeps, "Fail the build if a dependency's integrity/checksum can't be collected for build-info. Accepts 'all' (every type), or a comma-separated combination of 'regular', 'peer', 'optional', 'bundle' to fail only for those. Requires --build-name and --build-number.", components.SetMandatoryFalse()),
 
 	// GoPublish specific commands flags
 	goPublishExclusions: components.NewStringFlag(exclusions, "List of semicolon-separated(;) exclusions. Exclusions can include the * and the ? wildcards.", components.SetMandatoryFalse()),

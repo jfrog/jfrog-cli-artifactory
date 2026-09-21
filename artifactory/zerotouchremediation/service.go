@@ -100,7 +100,7 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 	skipAfterBootstrap := func(message string, cause error) (func() error, bool, error) {
 		return skipWithRestore(restoreAbsentLockfiles(projectRoot, bootstrapped), message, cause)
 	}
-	lockfiles, err := tool.DiscoverLockfiles(workingDir)
+	lockfiles, err := tool.DiscoverLockfiles(projectRoot)
 	if err != nil {
 		return skipAfterBootstrap("Zero Touch Remediation skipped: could not discover lockfiles: ", err)
 	}

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -73,16 +74,33 @@ type NpmCommand struct {
 	collectBuildInfo    bool
 	buildInfoModule     *build.NpmModule
 	installHandler      *NpmInstallStrategy
+	// When true, the subsequent install uses npm ci to honor remediated lockfile integrity.
+	remediatedLockfile bool
+	// Restores lockfiles written by Zero Touch Remediation if the install command fails.
+	restoreResolution func() error
 	// When true, skips the 404 error handling that checks if packages are blocked by curation
 	disableCVSCheck bool
+	// Granular strict-mode value for uncollected dependencies: "" (never fail, default), "all" (fail for
+	// every uncollected dependency type), or a comma-separated combination of "regular", "peer", "optional",
+	// "bundle" (e.g. "peer,optional,bundle") to fail only for the specified types.
+	failOnUncollectedDeps string
 }
 
 func NewNpmCommand(cmdName string, collectBuildInfo bool) *NpmCommand {
 	return &NpmCommand{
 		cmdName:             cmdName,
 		collectBuildInfo:    collectBuildInfo,
-		internalCommandName: "rt_npm_" + cmdName,
+		internalCommandName: npmUsageName(cmdName),
 	}
+}
+
+// npmUsageName is rt_npm_<verb>. A missing verb (the common rt_npm_ lake name) is rt_npm.
+func npmUsageName(cmdName string) string {
+	verb := strings.TrimSpace(cmdName)
+	if verb == "" {
+		return "rt_npm"
+	}
+	return "rt_npm_" + verb
 }
 
 func NewNpmInstallCommand() *NpmCommand {
@@ -128,6 +146,15 @@ func (nc *NpmCommand) SetDisableCVSCheck(disable bool) *NpmCommand {
 	return nc
 }
 
+func (nc *NpmCommand) SetFailOnUncollectedDeps(fail string) *NpmCommand {
+	nc.failOnUncollectedDeps = fail
+	return nc
+}
+
+func (nc *NpmCommand) GetBuildInfoModule() *build.NpmModule {
+	return nc.buildInfoModule
+}
+
 func (nc *NpmCommand) Init() error {
 	if nc.configFilePath != "" {
 		log.Debug("Preparing to read the config file", nc.configFilePath)
@@ -164,8 +191,22 @@ func (nc *NpmCommand) Init() error {
 	if err != nil {
 		return err
 	}
+	// Extract --fail-on-uncollected-deps flag. Accepts a granular string value: "all", "" (default, never fail),
+	// or a comma-separated combination of "regular", "peer", "optional", "bundle".
+	filteredNpmArgs, failOnUncollectedDeps, err := coreutils.ExtractStringOptionFromArgs(filteredNpmArgs, "fail-on-uncollected-deps")
+	if err != nil {
+		return err
+	}
+	// Validate the fail-on-uncollected-deps flag value
+	if err := validateFailOnUncollectedDeps(failOnUncollectedDeps); err != nil {
+		return err
+	}
+	if err := validateFailOnUncollectedDepsBuild(failOnUncollectedDeps, buildConfiguration); err != nil {
+		return err
+	}
 	nc.SetArgs(filteredNpmArgs).SetBuildConfiguration(buildConfiguration)
 	nc.SetDisableCVSCheck(disableCVSCheck)
+	nc.SetFailOnUncollectedDeps(failOnUncollectedDeps)
 	return nil
 }
 
@@ -351,12 +392,20 @@ func (nc *NpmCommand) Run() (err error) {
 	defer func() {
 		err = errors.Join(err, nc.installHandler.RestoreNpmrc())
 	}()
+	err = nc.installWithLockfileRestore()
+	return
+}
+
+func (nc *NpmCommand) installWithLockfileRestore() (err error) {
+	defer func() {
+		if err != nil && nc.restoreResolution != nil {
+			err = errors.Join(err, nc.restoreResolution())
+		}
+	}()
 	err = nc.installHandler.Install()
-	if err != nil {
-		if !nc.disableCVSCheck && (nc.cmdName == "install" || nc.cmdName == "ci") {
-			if blockedErr := nc.handle404Errors(err); blockedErr != nil {
-				err = blockedErr
-			}
+	if err != nil && !nc.disableCVSCheck && (nc.cmdName == "install" || nc.cmdName == "ci") {
+		if blockedErr := nc.handle404Errors(err); blockedErr != nil {
+			err = blockedErr
 		}
 	}
 	return
@@ -502,14 +551,28 @@ func (nc *NpmCommand) prepareBuildInfoModule() error {
 		return errorutils.CheckError(err)
 	}
 	nc.buildInfoModule.SetCollectBuildInfo(nc.collectBuildInfo)
+	nc.buildInfoModule.SetFailOnUncollectedDeps(nc.failOnUncollectedDeps)
 	if nc.buildConfiguration.GetModule() != "" {
 		nc.buildInfoModule.SetName(nc.buildConfiguration.GetModule())
 	}
 	return nil
 }
 
+func (nc *NpmCommand) dependencyCollectionArgs() []string {
+	npmArgs := nc.npmArgs
+	npmCommand := nc.cmdName
+	if nc.remediatedLockfile && nc.cmdName == "install" {
+		npmCommand = "ci"
+		npmArgs = stripNpmInstallOnlyArgs(npmArgs)
+	}
+	return append([]string{npmCommand}, npmArgs...)
+}
+
 func (nc *NpmCommand) collectDependencies() error {
-	nc.buildInfoModule.SetNpmArgs(append([]string{nc.cmdName}, nc.npmArgs...))
+	if nc.remediatedLockfile && nc.cmdName == "install" {
+		log.Info("Using npm ci after Zero Touch Remediation to install from the remediated lockfile")
+	}
+	nc.buildInfoModule.SetNpmArgs(nc.dependencyCollectionArgs())
 	return errorutils.CheckError(nc.buildInfoModule.Build())
 }
 
@@ -549,6 +612,7 @@ func isValidKey(key string) bool {
 		!strings.HasPrefix(key, "@") && // Scoped configurations
 		key != "registry" &&
 		key != "metrics-registry" &&
+		key != "email" && // npm 12+ rejects bare email; must be registry-scoped (//registry/:email)
 		key != "json" // Handled separately because 'npm c ls' should run with json=false
 }
 
@@ -564,6 +628,53 @@ func filterFlags(splitArgs []string) []string {
 
 func (nc *NpmCommand) GetRepo() string {
 	return nc.repo
+}
+
+// validFailOnUncollectedDepsValues are the individual values accepted by the --fail-on-uncollected-deps
+// flag, either on their own or combined in a comma-separated list (e.g. "peer,optional,bundle").
+var validFailOnUncollectedDepsValues = []string{"all", "peer", "optional", "regular", "bundle"}
+
+// validateFailOnUncollectedDeps validates that the --fail-on-uncollected-deps flag contains only valid values.
+// Valid values: "" (empty, default), "all", or a comma-separated combination of "peer", "optional", "regular", "bundle".
+// "all" must appear on its own: combining it with another value (e.g. "all,peer") would fail every dependency
+// type instead of just the ones requested, so it's rejected rather than silently doing more than asked.
+func validateFailOnUncollectedDeps(flagValue string) error {
+	if flagValue == "" {
+		return nil
+	}
+
+	values := strings.Split(flagValue, ",")
+	for _, val := range values {
+		trimmed := strings.TrimSpace(val)
+		if trimmed == "all" && len(values) != 1 {
+			return errorutils.CheckErrorf("--fail-on-uncollected-deps value 'all' cannot be combined with other dependency types")
+		}
+		if !slices.Contains(validFailOnUncollectedDepsValues, trimmed) {
+			return errorutils.CheckErrorf(
+				"invalid --fail-on-uncollected-deps value: '%s'. "+
+					"Valid values are: all, peer, optional, regular, bundle, or comma-separated combinations (e.g., peer,optional,bundle)",
+				trimmed)
+		}
+	}
+	return nil
+}
+
+// validateFailOnUncollectedDepsBuild fails fast if --fail-on-uncollected-deps was given a
+// value but build-info collection isn't configured: the flag only has an effect while collecting
+// build-info, so without --build-name/--build-number it would otherwise be silently ignored. Mirrors
+// --module's requirement on --build-name/--build-number (ValidateBuildAndModuleParams).
+func validateFailOnUncollectedDepsBuild(flagValue string, buildConfiguration *buildUtils.BuildConfiguration) error {
+	if flagValue == "" {
+		return nil
+	}
+	collectBuildInfo, err := buildConfiguration.IsCollectBuildInfo()
+	if err != nil {
+		return err
+	}
+	if !collectBuildInfo {
+		return errorutils.CheckErrorf("the build-name and build-number options are mandatory when the fail-on-uncollected-deps option is provided.")
+	}
+	return nil
 }
 
 // Creates an .npmrc file in the project's directory in order to configure the provided Artifactory server as a resolution server

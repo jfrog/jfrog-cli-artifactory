@@ -1,6 +1,7 @@
 package cli
 
 import (
+	apmcli "github.com/jfrog/jfrog-cli-artifactory/agent/apm/cli"
 	pluginscli "github.com/jfrog/jfrog-cli-artifactory/agent/plugins/cli"
 	skillscli "github.com/jfrog/jfrog-cli-artifactory/agent/skills/cli"
 	"github.com/jfrog/jfrog-cli-core/v2/plugins/components"
@@ -19,6 +20,13 @@ func GetCommands() []components.Command {
 			Name:        "skills",
 			Description: "Agent skill commands.",
 			Subcommands: skillscli.GetSubCommands(),
+		},
+		{
+			Name:          "apm",
+			Description:   apmcli.GetDescription(),
+			AIDescription: apmcli.GetAIDescription(),
+			Subcommands:   apmcli.GetSubCommands(),
+			Action:        apmcli.RunApmPassthroughDefault,
 		},
 	}
 }

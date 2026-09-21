@@ -220,7 +220,7 @@ func (hfu *HuggingFaceUpload) ServerDetails() (*config.ServerDetails, error) {
 
 // CommandName returns the name of the command
 func (hfu *HuggingFaceUpload) CommandName() string {
-	return hfu.name
+	return "rt_hf_upload"
 }
 
 // NewHuggingFaceUpload creates a new instance of HFUploadCmd

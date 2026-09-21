@@ -52,7 +52,6 @@ type NpmPublishCommandArgs struct {
 
 type NpmPublishCommand struct {
 	configFilePath  string
-	commandName     string
 	result          *commandsutils.Result
 	detailedSummary bool
 	npmVersion      *version.Version
@@ -66,7 +65,7 @@ type packageJsonInfo struct {
 }
 
 func NewNpmPublishCommand() *NpmPublishCommand {
-	return &NpmPublishCommand{NpmPublishCommandArgs: NewNpmPublishCommandArgs(), commandName: "rt_npm_publish", result: new(commandsutils.Result)}
+	return &NpmPublishCommand{NpmPublishCommandArgs: NewNpmPublishCommandArgs(), result: new(commandsutils.Result)}
 }
 
 func NewNpmPublishCommandArgs() *NpmPublishCommandArgs {
@@ -242,7 +241,7 @@ func (npc *NpmPublishCommand) Run() (err error) {
 }
 
 func (npc *NpmPublishCommand) CommandName() string {
-	return npc.commandName
+	return "rt_npm_publish"
 }
 
 func (npc *NpmPublishCommand) preparePrerequisites() error {

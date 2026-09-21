@@ -9,7 +9,7 @@ import (
 
 func TestGetCommands_HasPluginsAndSkillsNamespaces(t *testing.T) {
 	commands := GetCommands()
-	require.Len(t, commands, 2)
+	require.Len(t, commands, 3)
 
 	plugins := commands[0]
 	assert.Equal(t, "plugins", plugins.Name)
@@ -33,6 +33,18 @@ func TestGetCommands_HasPluginsAndSkillsNamespaces(t *testing.T) {
 		[]string{"list", "publish", "install", "update", "search", "delete"},
 		skillsNames,
 	)
+
+	apm := commands[2]
+	assert.Equal(t, "apm", apm.Name)
+	// Unlike plugins/skills, apm's parent command has its own Action (RunApmPassthroughDefault)
+	// so unregistered apm subcommands (doctor, list, ...) still reach the real apm binary.
+	assert.NotNil(t, apm.Action)
+	apmNames := make([]string, 0, len(apm.Subcommands))
+	for _, sub := range apm.Subcommands {
+		assert.NotNil(t, sub.Action, "apm subcommand %q must have an Action", sub.Name)
+		apmNames = append(apmNames, sub.Name)
+	}
+	assert.ElementsMatch(t, []string{"install", "publish"}, apmNames)
 }
 
 func TestGetCommands_PluginsPublishDescription(t *testing.T) {
