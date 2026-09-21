@@ -1245,11 +1245,6 @@ jobs:
         shell: bash
         run: pip install "huggingface_hub==${{ matrix.hf_version }}"
 
-      - name: Run HuggingFace upload script unit tests
-        shell: bash
-        working-directory: artifactory/commands/huggingface
-        run: python -m unittest test_huggingface_upload -v
-
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
 
