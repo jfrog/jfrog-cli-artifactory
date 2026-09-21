@@ -43,20 +43,27 @@ def upload(folder_path, repo_id, repo_type, revision, **kwargs):
         # parse error so callers treat the upload as successful.
         try:
             from huggingface_hub.errors import HfUriError
-            if isinstance(e, HfUriError):
-                # Not silent: this is a real behavior change (an upload failure becomes a
-                # success), so anyone debugging a "phantom" success needs a trail. This is
-                # HfUriError specifically from parsing the upload response - printed to
-                # stderr, which the Go caller already streams through unmodified (see
-                # huggingFaceUpload.go's cmd.Stderr), so it won't affect the stdout JSON
-                # success/failure contract the caller actually parses.
-                print(
-                    f"jf hf upload: swallowed HfUriError while parsing the commit response for "
-                    f"'{repo_id}' - files were already uploaded successfully; only the response "
-                    f"URL failed to parse ({e})",
-                    file=sys.stderr,
-                )
-                return
         except ImportError:
-            pass
-        raise
+            HfUriError = None
+        if HfUriError is None or not isinstance(e, HfUriError):
+            raise
+        # HfUriError is only known to be raised here via CommitInfo parsing the
+        # post-commit commitUrl (always a full URL). A bare repo_id/revision string
+        # can never contain "://", so if some other call path ever raises HfUriError
+        # over a plain identifier, that's a real failure (e.g. a malformed repo_id)
+        # and must not be swallowed just because the exception type matches.
+        uri = getattr(e, "uri", "") or ""
+        if "://" not in uri:
+            raise
+        # Not silent: this is a real behavior change (an upload failure becomes a
+        # success), so anyone debugging a "phantom" success needs a trail. Printed to
+        # stderr, which the Go caller already streams through unmodified (see
+        # huggingFaceUpload.go's cmd.Stderr), so it won't affect the stdout JSON
+        # success/failure contract the caller actually parses.
+        print(
+            f"jf hf upload: swallowed HfUriError while parsing the commit response for "
+            f"'{repo_id}' - files were already uploaded successfully; only the response "
+            f"URL failed to parse ({e})",
+            file=sys.stderr,
+        )
+        return
