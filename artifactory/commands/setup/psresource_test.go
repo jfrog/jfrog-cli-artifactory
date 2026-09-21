@@ -112,9 +112,9 @@ func TestConfigurePSResourceRegistersSource(t *testing.T) {
 	calls := stubPSResourceCommandRunner(t)
 	stubPSResourcePlatformChecker(t, true)
 	stubPSResourceShellResolver(t, "pwsh", true)
-	stubPSResourceRepoClassResolver(t, services.VirtualRepositoryRepoType)
+	stubPSResourceRepoClassResolver(t)
 
-	require.NoError(t, newPSResourceSetupCommand("psresource-virtual", "secret").configurePSResource())
+	require.NoError(t, newPSResourceSetupCommand("secret").configurePSResource())
 
 	require.Len(t, *calls, 2)
 	unregister := (*calls)[0]
@@ -138,9 +138,9 @@ func TestConfigurePSResourceDoesNotPersistCredentials(t *testing.T) {
 	calls := stubPSResourceCommandRunner(t)
 	stubPSResourcePlatformChecker(t, true)
 	stubPSResourceShellResolver(t, "pwsh", true)
-	stubPSResourceRepoClassResolver(t, services.VirtualRepositoryRepoType)
+	stubPSResourceRepoClassResolver(t)
 
-	require.NoError(t, newPSResourceSetupCommand("psresource-virtual", "sup3rs3cr3t").configurePSResource())
+	require.NoError(t, newPSResourceSetupCommand("sup3rs3cr3t").configurePSResource())
 
 	for _, call := range *calls {
 		for _, arg := range call {
@@ -154,7 +154,7 @@ func TestConfigurePSResourceDoesNotPersistCredentials(t *testing.T) {
 func TestConfigurePSResourceToleratesUnregisterFailure(t *testing.T) {
 	stubPSResourcePlatformChecker(t, true)
 	stubPSResourceShellResolver(t, "pwsh", true)
-	stubPSResourceRepoClassResolver(t, services.VirtualRepositoryRepoType)
+	stubPSResourceRepoClassResolver(t)
 
 	originalRunner := psresourceCommandRunner
 	psresourceCommandRunner = func(_ string, args ...string) error {
@@ -165,7 +165,7 @@ func TestConfigurePSResourceToleratesUnregisterFailure(t *testing.T) {
 	}
 	t.Cleanup(func() { psresourceCommandRunner = originalRunner })
 
-	require.NoError(t, newPSResourceSetupCommand("psresource-virtual", "secret").configurePSResource())
+	require.NoError(t, newPSResourceSetupCommand("secret").configurePSResource())
 }
 
 // TestConfigurePSResourceSurfacesRegisterFailure guards against a real bug: a failing
@@ -175,7 +175,7 @@ func TestConfigurePSResourceToleratesUnregisterFailure(t *testing.T) {
 func TestConfigurePSResourceSurfacesRegisterFailure(t *testing.T) {
 	stubPSResourcePlatformChecker(t, true)
 	stubPSResourceShellResolver(t, "pwsh", true)
-	stubPSResourceRepoClassResolver(t, services.VirtualRepositoryRepoType)
+	stubPSResourceRepoClassResolver(t)
 
 	originalRunner := psresourceCommandRunner
 	psresourceCommandRunner = func(_ string, args ...string) error {
@@ -186,7 +186,7 @@ func TestConfigurePSResourceSurfacesRegisterFailure(t *testing.T) {
 	}
 	t.Cleanup(func() { psresourceCommandRunner = originalRunner })
 
-	err := newPSResourceSetupCommand("psresource-virtual", "secret").configurePSResource()
+	err := newPSResourceSetupCommand("secret").configurePSResource()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "a distinctive, real PowerShell failure message", "the real error must be surfaced, not replaced with a generic message")
 }
@@ -197,16 +197,16 @@ func TestConfigurePSResourceNonWindowsStillWorks(t *testing.T) {
 	calls := stubPSResourceCommandRunner(t)
 	stubPSResourcePlatformChecker(t, true)
 	stubPSResourceShellResolver(t, "pwsh", true)
-	stubPSResourceRepoClassResolver(t, services.VirtualRepositoryRepoType)
+	stubPSResourceRepoClassResolver(t)
 
-	require.NoError(t, newPSResourceSetupCommand("psresource-virtual", "secret").configurePSResource())
+	require.NoError(t, newPSResourceSetupCommand("secret").configurePSResource())
 	assert.Len(t, *calls, 2)
 }
 
 func TestConfigurePSResourceFailsClearlyWhenPlatformUnavailable(t *testing.T) {
 	stubPSResourcePlatformChecker(t, false)
 
-	err := newPSResourceSetupCommand("psresource-virtual", "secret").configurePSResource()
+	err := newPSResourceSetupCommand("secret").configurePSResource()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Microsoft.PowerShell.PSResourceGet")
 }
@@ -219,7 +219,7 @@ func TestConfigurePSResourceRejectsNonNugetRepo(t *testing.T) {
 	}
 	t.Cleanup(func() { psresourceRepoClassResolver = originalResolver })
 
-	err := newPSResourceSetupCommand("psresource-virtual", "secret").configurePSResource()
+	err := newPSResourceSetupCommand("secret").configurePSResource()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "NuGet repository")
 }
@@ -245,9 +245,9 @@ func TestConfigScopeNotePSResourceIsUserLevel(t *testing.T) {
 	assert.Contains(t, note, "PSResourceRepository.xml")
 }
 
-func newPSResourceSetupCommand(repoName, password string) *SetupCommand {
+func newPSResourceSetupCommand(password string) *SetupCommand {
 	return &SetupCommand{
-		repoName: repoName,
+		repoName: "psresource-virtual",
 		serverDetails: &config.ServerDetails{
 			ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
 			User:           "john",
@@ -292,11 +292,11 @@ func stubPSResourceShellResolver(t *testing.T, shell string, found bool) {
 	t.Cleanup(func() { psresourceShellResolver = original })
 }
 
-func stubPSResourceRepoClassResolver(t *testing.T, repoClass string) {
+func stubPSResourceRepoClassResolver(t *testing.T) {
 	t.Helper()
 	original := psresourceRepoClassResolver
 	psresourceRepoClassResolver = func(*config.ServerDetails, string) (string, error) {
-		return repoClass, nil
+		return services.VirtualRepositoryRepoType, nil
 	}
 	t.Cleanup(func() { psresourceRepoClassResolver = original })
 }

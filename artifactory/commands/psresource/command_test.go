@@ -234,7 +234,7 @@ func TestRunRejectsHalfSpecifiedBuildParams(t *testing.T) {
 
 func TestRunPassthroughWithoutBuildInfo(t *testing.T) {
 	stubValidatePlatform(t, nil)
-	stubResolveShell(t, "pwsh", nil)
+	stubResolveShell(t)
 	var capturedShell, capturedScript string
 	restore := stubNativeRunner(t, func(shell, script string, env []string, workingDirectory string) error {
 		capturedShell = shell
@@ -254,7 +254,7 @@ func TestRunPassthroughWithoutBuildInfo(t *testing.T) {
 
 func TestRunSurfacesNativeCommandFailure(t *testing.T) {
 	stubValidatePlatform(t, nil)
-	stubResolveShell(t, "pwsh", nil)
+	stubResolveShell(t)
 	restore := stubNativeRunner(t, func(string, string, []string, string) error {
 		return assertErr("boom")
 	})
@@ -280,7 +280,7 @@ func TestCollectDependenciesCollectsResolvedPackages(t *testing.T) {
 	defer server.Close()
 
 	stubValidatePlatform(t, nil)
-	stubResolveShell(t, "pwsh", nil)
+	stubResolveShell(t)
 	restoreQuery := stubQueryRunner(t, func(shell, script string) (string, error) {
 		return `{"Name":"Foo","Version":"1.2.3"}`, nil
 	})
@@ -356,12 +356,12 @@ func TestCollectPublishArtifactsWithExplicitNameVersion(t *testing.T) {
 	}))
 	defer server.Close()
 
-	stubResolveShell(t, "pwsh", nil)
+	stubResolveShell(t)
 	// Property stamping drives a real Artifactory search-and-SetProps round trip that this
 	// lightweight HEAD-only fake server cannot serve; it is exercised on its own in
 	// TestStampBuildPropertiesNoopsWithoutServerDetails and covered end-to-end outside this suite.
 	// This test's job is the checksum-fetch/build-info-assembly path collectPublishArtifacts owns.
-	defer stubStampBuildProperties(t, nil)()
+	defer stubStampBuildProperties(t)()
 	buildConfig := &buildutils.BuildConfiguration{}
 	buildConfig.SetBuildName("my-build")
 	buildConfig.SetBuildNumber("1")
@@ -384,7 +384,7 @@ func TestCollectPublishArtifactsNotFoundIsAClearError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	stubResolveShell(t, "pwsh", nil)
+	stubResolveShell(t)
 	command := NewPSResourceFlexPackCommand().
 		SetSubCommand(SubCommandPublish).
 		SetArgs([]string{"-Name", "Foo", "-Version", "1.2.3", "-Repository", "myrepo"}).
@@ -407,12 +407,12 @@ func TestCollectPublishArtifactsResolvesNameVersionFromManifest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	stubResolveShell(t, "pwsh", nil)
+	stubResolveShell(t)
 	restoreQuery := stubQueryRunner(t, func(shell, script string) (string, error) {
 		return "9.9.9\n", nil
 	})
 	defer restoreQuery()
-	defer stubStampBuildProperties(t, nil)()
+	defer stubStampBuildProperties(t)()
 
 	command := NewPSResourceFlexPackCommand().
 		SetSubCommand(SubCommandPublish).
@@ -442,12 +442,12 @@ func TestCollectPublishArtifactsRecognizesPositionalPath(t *testing.T) {
 	}))
 	defer server.Close()
 
-	stubResolveShell(t, "pwsh", nil)
+	stubResolveShell(t)
 	restoreQuery := stubQueryRunner(t, func(shell, script string) (string, error) {
 		return "9.9.9\n", nil
 	})
 	defer restoreQuery()
-	defer stubStampBuildProperties(t, nil)()
+	defer stubStampBuildProperties(t)()
 
 	command := NewPSResourceFlexPackCommand().
 		SetSubCommand(SubCommandPublish).
@@ -776,10 +776,10 @@ func stubValidatePlatform(t *testing.T, err error) {
 	t.Cleanup(func() { validatePSResourcePlatform = original })
 }
 
-func stubResolveShell(t *testing.T, shell string, err error) {
+func stubResolveShell(t *testing.T) {
 	t.Helper()
 	original := resolvePSResourceShell
-	resolvePSResourceShell = func() (string, error) { return shell, err }
+	resolvePSResourceShell = func() (string, error) { return "pwsh", nil }
 	t.Cleanup(func() { resolvePSResourceShell = original })
 }
 
@@ -797,10 +797,10 @@ func stubQueryRunner(t *testing.T, fn func(shell, script string) (string, error)
 	return func() { psresourceQueryRunner = original }
 }
 
-func stubStampBuildProperties(t *testing.T, err error) func() {
+func stubStampBuildProperties(t *testing.T) func() {
 	t.Helper()
 	original := stampBuildPropertiesFn
-	stampBuildPropertiesFn = func(*PSResourceFlexPackCommand, []entities.Artifact, string, string) error { return err }
+	stampBuildPropertiesFn = func(*PSResourceFlexPackCommand, []entities.Artifact, string, string) error { return nil }
 	return func() { stampBuildPropertiesFn = original }
 }
 
@@ -971,8 +971,8 @@ func TestRunInjectsCredentialAndCollectsDependencyBuildInfo(t *testing.T) {
 	defer server.Close()
 
 	stubValidatePlatform(t, nil)
-	stubResolveShell(t, "pwsh", nil)
-	defer stubStampBuildProperties(t, nil)()
+	stubResolveShell(t)
+	defer stubStampBuildProperties(t)()
 
 	var capturedScript string
 	var capturedEnv []string
