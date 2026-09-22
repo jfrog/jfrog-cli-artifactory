@@ -218,7 +218,6 @@ func (command *ChocoFlexPackCommand) Run() error {
 		log.Debug("Resolving Chocolatey packages from the JFrog Artifactory source " + sourceURL)
 	}
 
-
 	log.Debug("Running native Chocolatey command: choco " + strings.Join(append([]string{command.subCommand}, redactChocoArgs(command.args)...), " "))
 	if err := chocoNativeRunner(nativeArgs); err != nil {
 		return fmt.Errorf("choco %s failed: %w", command.subCommand, err)
