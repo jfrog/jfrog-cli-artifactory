@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/url"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -138,19 +139,19 @@ func psresourceSourceName(serverDetails *config.ServerDetails, repoName string) 
 	return "jfrt-" + hostname + "-" + repositoryName, nil
 }
 
+// psresourceInvalidSourceChars matches any run of one or more characters that
+// Register-PSResourceRepository does not accept unquoted-safe in a source-name component: anything
+// other than lowercase letters, digits, '.', '_', '-'.
+var psresourceInvalidSourceChars = regexp.MustCompile(`[^a-z0-9._-]+`)
+
 // sanitizePSResourceSourceComponent restricts a source-name component to characters
 // Register-PSResourceRepository accepts unquoted-safe: lowercase letters, digits, '.', '_', '-'.
-// Everything else becomes '-', and leading/trailing '-' are trimmed.
+// A run of one or more invalid characters collapses to a single '-' (so "Team Repo" and "Team---Repo"
+// both become "team-repo"), and leading/trailing '-' are trimmed.
 func sanitizePSResourceSourceComponent(value string) string {
-	var builder strings.Builder
-	for _, character := range strings.ToLower(value) {
-		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '.' || character == '_' || character == '-' {
-			builder.WriteRune(character)
-			continue
-		}
-		builder.WriteByte('-')
-	}
-	return strings.Trim(builder.String(), "-")
+	lower := strings.ToLower(value)
+	replaced := psresourceInvalidSourceChars.ReplaceAllString(lower, "-")
+	return strings.Trim(replaced, "-")
 }
 
 // QuotePSLiteral renders value as a single-quoted PowerShell string literal, doubling any embedded

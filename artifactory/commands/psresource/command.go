@@ -53,6 +53,15 @@ const (
 	SubCommandPublish                    = "Publish-PSResource"
 	psresourceHeadRetries                = 3
 	psresourceHeadRetryIntervalMilliSecs = 1000
+	// envPSResourceUser/envPSResourceToken are the environment variable names resolveCredentialEnv
+	// sets on the child pwsh process and buildScript/debugScript reference (as $env:<name>, never by
+	// value) to inject -Credential without ever placing the secret in a command-line argument or log
+	// line. Named constants here so the two sides can never drift out of sync with each other.
+	envPSResourceUser  = "JFROG_PSRESOURCE_USER"
+	envPSResourceToken = "JFROG_PSRESOURCE_TOKEN" // #nosec G101 -- names an environment variable, not a credential value
+	// defaultPSResourceModuleID is the build-info module ID used when the caller did not supply
+	// --module (BuildConfiguration.GetModule() returns "").
+	defaultPSResourceModuleID = "psresource-project"
 )
 
 // errPSResourcePackageNotFound reports that the package this build-info is about was not found in
@@ -173,8 +182,21 @@ func (command *PSResourceFlexPackCommand) Run() error {
 	}
 	// --build-name and --build-number are only meaningful as a pair; reject a half-specified pair
 	// before the native command runs, exactly like choco does, so a flag mistake costs nothing.
+	//
+	// buildName/buildNumber are resolved here, once, rather than re-derived later from
+	// command.buildConfiguration: BuildConfiguration.ValidateBuildParams itself already calls
+	// GetBuildName/GetBuildNumber internally, so fetching them again immediately afterwards would
+	// just repeat that same resolution (env var / .jfrog config file lookup) for no new information.
+	var buildName, buildNumber string
 	if command.buildConfiguration != nil {
 		if err := command.buildConfiguration.ValidateBuildParams(); err != nil {
+			return err
+		}
+		var err error
+		if buildName, err = command.buildConfiguration.GetBuildName(); err != nil {
+			return err
+		}
+		if buildNumber, err = command.buildConfiguration.GetBuildNumber(); err != nil {
 			return err
 		}
 	}
@@ -191,7 +213,7 @@ func (command *PSResourceFlexPackCommand) Run() error {
 		return err
 	}
 
-	injectRepo := command.credentialInjectionRepo()
+	injectRepo := command.injectionRepo()
 	credentialEnv, injectCredential, err := command.resolveCredentialEnv(injectRepo)
 	if err != nil {
 		return err
@@ -204,20 +226,10 @@ func (command *PSResourceFlexPackCommand) Run() error {
 		return fmt.Errorf("%s failed: %w", command.subCommand, err)
 	}
 
-	collectBuildInfo, err := command.buildConfiguration.IsCollectBuildInfo()
-	if err != nil {
-		return err
-	}
-	if !collectBuildInfo {
+	if buildName == "" || buildNumber == "" {
+		// Mirrors BuildConfiguration.IsCollectBuildInfo's own rule (collect only when both are set),
+		// applied to the buildName/buildNumber this function already resolved above.
 		return nil
-	}
-	buildName, err := command.buildConfiguration.GetBuildName()
-	if err != nil {
-		return err
-	}
-	buildNumber, err := command.buildConfiguration.GetBuildNumber()
-	if err != nil {
-		return err
 	}
 
 	switch {
@@ -249,12 +261,12 @@ func isDependencyCmdlet(subCommand string) bool {
 	}
 }
 
-// credentialInjectionRepo returns the repository whose credentials should be injected for the
+// injectionRepo returns the repository whose credentials should be injected for the
 // current subcommand: the deploy repo for Publish-PSResource, the resolve repo for
 // Install-/Save-/Update-PSResource, or "" for every other cmdlet (Find-PSResource,
 // *-PSResourceRepository, ...), which never touch a configured Artifactory repo on this command's
 // behalf.
-func (command *PSResourceFlexPackCommand) credentialInjectionRepo() string {
+func (command *PSResourceFlexPackCommand) injectionRepo() string {
 	switch {
 	case isPublishCmdlet(command.subCommand):
 		return command.repoDeploy
@@ -287,8 +299,8 @@ func (command *PSResourceFlexPackCommand) resolveCredentialEnv(repo string) (env
 		return nil, false, nil
 	}
 	return []string{
-		"JFROG_PSRESOURCE_USER=" + user,
-		"JFROG_PSRESOURCE_TOKEN=" + password,
+		envPSResourceUser + "=" + user,
+		envPSResourceToken + "=" + password,
 	}, true, nil
 }
 
@@ -300,8 +312,8 @@ func (command *PSResourceFlexPackCommand) buildScript(injectCredential bool) str
 	var statements []string
 	if injectCredential {
 		statements = append(statements,
-			"$securePw = ConvertTo-SecureString $env:JFROG_PSRESOURCE_TOKEN -AsPlainText -Force",
-			"$cred = New-Object System.Management.Automation.PSCredential($env:JFROG_PSRESOURCE_USER, $securePw)")
+			fmt.Sprintf("$securePw = ConvertTo-SecureString $env:%s -AsPlainText -Force", envPSResourceToken),
+			fmt.Sprintf("$cred = New-Object System.Management.Automation.PSCredential($env:%s, $securePw)", envPSResourceUser))
 	}
 	statements = append(statements, command.cmdletInvocation(injectCredential, false))
 	return strings.Join(statements, "; ")
@@ -572,6 +584,13 @@ func filepathExt(name string) string {
 // resolvePSD1Manifest returns the module manifest (.psd1) Publish-PSResource will read for path: path
 // itself if it already names a .psd1 file, or the first .psd1 found directly inside it if it is a
 // directory.
+//
+// Both os.Stat and os.ReadDir below can fail with a permission-denied error if the OS denies this
+// process read access to path (or one of its parent directories) - e.g. a -Path outside the current
+// user's permissions, or a restrictive umask on a shared machine. That is not documented separately
+// for the caller: the error returned here already wraps the OS's own message with the offending
+// path, which is the same information a stat/ls at the shell would show, so no extra investigation
+// is needed when it happens.
 func resolvePSD1Manifest(path string) (string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -583,6 +602,8 @@ func resolvePSD1Manifest(path string) (string, error) {
 		}
 		return "", fmt.Errorf("%s -Path %q is not a module manifest (.psd1)", SubCommandPublish, path)
 	}
+	// May fail with a permission-denied error the same way os.Stat above can - see the function
+	// comment.
 	entries, err := os.ReadDir(path) // #nosec G304 -- path is this same command's own -Path/working-directory argument, not externally supplied
 	if err != nil {
 		return "", fmt.Errorf("read %s -Path %q: %w", SubCommandPublish, path, err)
@@ -871,7 +892,7 @@ func (command *PSResourceFlexPackCommand) moduleID() string {
 			return module
 		}
 	}
-	return "psresource-project"
+	return defaultPSResourceModuleID
 }
 
 // projectKey is a nil-safe accessor for command.buildConfiguration.GetProject(): unlike

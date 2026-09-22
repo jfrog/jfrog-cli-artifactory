@@ -197,19 +197,19 @@ func TestCredentialInjectionRepo(t *testing.T) {
 	command := NewPSResourceFlexPackCommand().SetRepoDeploy("deployRepo").SetRepoResolve("resolveRepo")
 
 	command.SetSubCommand(SubCommandPublish)
-	assert.Equal(t, "deployRepo", command.credentialInjectionRepo())
+	assert.Equal(t, "deployRepo", command.injectionRepo())
 
 	command.SetSubCommand(SubCommandInstall)
-	assert.Equal(t, "resolveRepo", command.credentialInjectionRepo())
+	assert.Equal(t, "resolveRepo", command.injectionRepo())
 
 	command.SetSubCommand(SubCommandSave)
-	assert.Equal(t, "resolveRepo", command.credentialInjectionRepo())
+	assert.Equal(t, "resolveRepo", command.injectionRepo())
 
 	command.SetSubCommand(SubCommandUpdate)
-	assert.Equal(t, "resolveRepo", command.credentialInjectionRepo())
+	assert.Equal(t, "resolveRepo", command.injectionRepo())
 
 	command.SetSubCommand("Find-PSResource")
-	assert.Equal(t, "", command.credentialInjectionRepo())
+	assert.Equal(t, "", command.injectionRepo())
 }
 
 // ── Run() orchestration ───────────────────────────────────────────────────────
