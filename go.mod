@@ -12,7 +12,7 @@ require (
 	github.com/jfrog/gofrog v1.7.6
 	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260831061529-c6dd293bccca
 	github.com/jfrog/jfrog-cli-evidence v0.9.0
-	github.com/jfrog/jfrog-client-go v1.55.1-0.20260901090904-78d68f83abec
+	github.com/jfrog/jfrog-client-go v1.55.1-0.20260922085904-ab72c67e288c
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
