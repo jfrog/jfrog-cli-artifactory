@@ -1425,8 +1425,12 @@ func rubyEnrichDepsViaAQL(deps []buildinfo.Dependency, entries []rubyDepEntry, r
 		seen[e.prefix] = true
 		orClauses = append(orClauses, fmt.Sprintf(`{"name":{"$match":%q}}`, e.prefix+"*.gem"))
 	}
+	// Artifactory's AQL items domain requires repo, path and name in the include clause to
+	// evaluate a non-admin caller's permissions per result; omitting any of them is rejected
+	// with HTTP 400 for any identity that isn't an admin (see jfrog/jfrog-cli-artifactory#558,
+	// which reports the same omission in cargo's checksum enrichment).
 	aqlQuery := fmt.Sprintf(
-		`items.find({"repo":%q,"$or":[%s]}).include("name","path","actual_sha1","actual_md5","sha256")`,
+		`items.find({"repo":%q,"$or":[%s]}).include("repo","name","path","actual_sha1","actual_md5","sha256")`,
 		searchRepo, strings.Join(orClauses, ","),
 	)
 	log.Debug(fmt.Sprintf("AQL fallback query for %d deps (repo: %s)", len(entries), searchRepo))
