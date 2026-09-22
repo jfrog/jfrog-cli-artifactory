@@ -48,6 +48,11 @@ const (
 	upload           = "upload"
 )
 
+const (
+	minHuggingFaceHubMajor   = 1
+	minHuggingFaceHubVersion = "1.0.0"
+)
+
 // PythonScriptTemplate is the base template for executing Python functions via importlib.
 // It accepts format arguments: module name, function name, JSON args, and success output expression.
 const PythonScriptTemplate = `import sys,json,importlib
@@ -138,6 +143,36 @@ func verifyPythonVersion(pythonPath string) error {
 		return errorutils.CheckErrorf("Python version %d found, but version %d or higher is required", majorVersion, minPythonVersion)
 	}
 	log.Debug("Python version", majorVersion, "verified (minimum required:", minPythonVersion, ")")
+	return nil
+}
+
+// verifyHuggingFaceHubVersion checks that the installed huggingface_hub library is
+// at least version 1.0.0. The 0.x series predates jfrog-cli's HuggingFace support
+// and uses API formats that are incompatible with Artifactory's huggingfaceml
+// package type.
+func verifyHuggingFaceHubVersion(pythonPath string) error {
+	cmd := exec.Command(pythonPath, "-c",
+		`import importlib.metadata, sys; print(importlib.metadata.version("huggingface_hub"))`)
+	output, err := cmd.Output()
+	if err != nil {
+		// Can't determine version; let the subsequent operation surface the real error.
+		return nil
+	}
+	versionStr := strings.TrimSpace(string(output))
+	parts := strings.SplitN(versionStr, ".", 2)
+	if len(parts) == 0 {
+		return nil
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return nil
+	}
+	if major < minHuggingFaceHubMajor {
+		return errorutils.CheckErrorf(
+			"huggingface_hub %s is not supported; version >= %s is required. "+
+				"Upgrade with: pip install \"huggingface_hub>=%s\"",
+			versionStr, minHuggingFaceHubVersion, minHuggingFaceHubVersion)
+	}
 	return nil
 }
 
