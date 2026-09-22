@@ -42,7 +42,9 @@ func handlePushCommand(buildInfo *entities.BuildInfo, helmArgs []string, service
 	if project != "" {
 		buildProps += fmt.Sprintf(";build.project=%s", project)
 	}
-	applyBuildPropertiesOnManifestFolder(serviceManager, repoName, ociChartPath, civcs.MergeWithUserProps(buildProps, workingDirectory))
+	if propsRepo := resolvePropertiesRepository(serviceManager, repoName); propsRepo != "" {
+		applyBuildPropertiesOnManifestFolder(serviceManager, propsRepo, ociChartPath, civcs.MergeWithUserProps(buildProps, workingDirectory))
+	}
 
 	artifactManifest, err := getManifest(resultMap, serviceManager, repoName)
 	if err != nil {
@@ -171,6 +173,30 @@ func splitOCIChartPath(ociChartPath string) (path, name string) {
 		return ociChartPath[:idx], ociChartPath[idx+1:]
 	}
 	return ociChartPath, ""
+}
+
+// resolvePropertiesRepository determines which repository build properties should
+// be applied to. The Artifactory Storage Properties API operates on physical
+// repositories only, so when repoName refers to a virtual repository, its default
+// deployment repository is resolved and returned instead - mirroring how jf docker
+// handles build properties on virtual OCI repositories. An empty string is returned
+// when no physical repository can be determined, signaling that setting build
+// properties should be skipped rather than attempted against the virtual repo.
+func resolvePropertiesRepository(serviceManager artifactory.ArtifactoryServicesManager, repoName string) string {
+	_, repoDetails, err := ocicontainer.GetSearchableRepositoryAndDetails(repoName, serviceManager)
+	if err != nil {
+		log.Debug("Could not resolve repository details for '", repoName, "', proceeding with it as-is for setting build properties: ", err)
+		return repoName
+	}
+	if repoDetails.RepoType != "virtual" {
+		return repoName
+	}
+	if repoDetails.DefaultDeploymentRepo == "" {
+		log.Warn("Virtual repository '", repoName, "' has no default deployment repository configured; skipping build properties on the manifest folder.")
+		return ""
+	}
+	log.Debug("Repository '", repoName, "' is virtual; setting build properties on its default deployment repository '", repoDetails.DefaultDeploymentRepo, "' instead.")
+	return repoDetails.DefaultDeploymentRepo
 }
 
 // applyBuildPropertiesOnManifestFolder sets build properties recursively on
