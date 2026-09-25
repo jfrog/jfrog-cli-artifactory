@@ -60,6 +60,7 @@ func TestChocoSourceDetailsRequiresUsernameForSubjectlessToken(t *testing.T) {
 // A username configured alongside an API key or reference token is the supported way to use one:
 // the token is the secret, the username makes basic authentication possible.
 func TestChocoSourceDetailsAcceptsUsernameWithToken(t *testing.T) {
+	// #nosec G101 -- This is a fake test token with no real credentials.
 	referenceToken := "cmVmdG9rZW4"
 	sourceURL, user, password, err := chocoSourceDetails(&config.ServerDetails{
 		ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
