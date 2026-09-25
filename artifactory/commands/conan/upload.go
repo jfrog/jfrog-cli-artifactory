@@ -151,13 +151,19 @@ func (up *UploadProcessor) extractUploadInfo(output ConanUploadOutput) (string, 
 func (up *UploadProcessor) buildArtifactPathsFromJSON(packages map[string]ConanUploadRecipe) []string {
 	var paths []string
 	for pkgRef, recipe := range packages {
+		pkgInfo, err := ParsePackageReference(pkgRef)
+		if err != nil {
+			log.Debug(fmt.Sprintf("Failed to parse package reference %s: %v", pkgRef, err))
+			continue
+		}
+		basePath := fmt.Sprintf("%s/%s/%s/%s", pkgInfo.User, pkgInfo.Name, pkgInfo.Version, pkgInfo.Channel)
 		for recipeRev, revData := range recipe.Revisions {
-			recipePath := fmt.Sprintf("_/%s/_/%s/export", pkgRef, recipeRev)
+			recipePath := fmt.Sprintf("%s/%s/export", basePath, recipeRev)
 			paths = append(paths, recipePath)
 
 			for pkgID, pkgEntry := range revData.Packages {
 				for pkgRev := range pkgEntry.Revisions {
-					pkgPath := fmt.Sprintf("_/%s/_/%s/package/%s/%s", pkgRef, recipeRev, pkgID, pkgRev)
+					pkgPath := fmt.Sprintf("%s/%s/package/%s/%s", basePath, recipeRev, pkgID, pkgRev)
 					paths = append(paths, pkgPath)
 				}
 			}
