@@ -848,7 +848,6 @@ func TestChocoResolveRedirectsTheNativeSource(t *testing.T) {
 	})
 }
 
-
 func TestRedactChocoArgs(t *testing.T) {
 	assert.Equal(t,
 		[]string{"install", "tool", "-p=***", "--password", "***", "--proxy-password=***",

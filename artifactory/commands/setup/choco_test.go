@@ -234,4 +234,3 @@ func stubChocoRepoClassResolver(t *testing.T, repoClass string) {
 	}
 	t.Cleanup(func() { chocoRepoClassResolver = originalResolver })
 }
-

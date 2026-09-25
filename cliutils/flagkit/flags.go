@@ -366,11 +366,12 @@ const (
 	ocStartBuildRepo   = ocStartBuildPrefix + repo
 
 	// Unique npm flags
-	npmPrefix          = "npm-"
-	npmDetailedSummary = npmPrefix + detailedSummary
-	runNative          = "run-native"
-	npmWorkspaces      = "workspaces"
-	disableCVSCheck    = "disable-cvs-check"
+	npmPrefix             = "npm-"
+	npmDetailedSummary    = npmPrefix + detailedSummary
+	runNative             = "run-native"
+	npmWorkspaces         = "workspaces"
+	disableCVSCheck       = "disable-cvs-check"
+	failOnUncollectedDeps = "fail-on-uncollected-deps"
 
 	// Unique nuget/dotnet config flags
 	nugetV2                  = "nuget-v2"
@@ -431,14 +432,15 @@ const (
 	deleteFromDist        = "delete-from-dist"
 
 	// Common release-bundle-* v1&v2 flags
-	DistRules      = "dist-rules"
-	site           = "site"
-	city           = "city"
-	countryCodes   = "country-codes"
-	sync           = "sync"
-	maxWaitMinutes = "max-wait-minutes"
-	CreateRepo     = "create-repo"
-	Priority       = "priority"
+	DistRules       = "dist-rules"
+	site            = "site"
+	city            = "city"
+	countryCodes    = "country-codes"
+	sync            = "sync"
+	maxWaitMinutes  = "max-wait-minutes"
+	CreateRepo      = "create-repo"
+	Priority        = "priority"
+	IncludeEvidence = "include-evidence"
 
 	// Unique offline-update flags
 	target = "target"
@@ -589,7 +591,7 @@ var commandFlags = map[string][]string{
 	},
 	cmddefs.ReleaseBundleDistribute: {
 		platformUrl, user, password, accessToken, serverId, lcProject, DistRules, site, city, countryCodes,
-		lcDryRun, CreateRepo, lcPathMappingPattern, lcPathMappingTarget, lcSync, maxWaitMinutes, Priority,
+		lcDryRun, CreateRepo, lcPathMappingPattern, lcPathMappingTarget, lcSync, maxWaitMinutes, Priority, IncludeEvidence,
 	},
 	cmddefs.ReleaseBundleDeleteLocal: {
 		platformUrl, user, password, accessToken, serverId, deleteQuiet, lcSync, lcProject,
@@ -758,7 +760,7 @@ var commandFlags = map[string][]string{
 		global, serverIdResolve, serverIdDeploy, repoResolve, repoDeploy,
 	},
 	NpmInstallCi: {
-		BuildName, BuildNumber, module, Project, runNative, disableCVSCheck,
+		BuildName, BuildNumber, module, Project, runNative, disableCVSCheck, failOnUncollectedDeps,
 	},
 	NpmPublish: {
 		BuildName, BuildNumber, module, Project, npmDetailedSummary, xrayScan, xrOutput, runNative, npmWorkspaces,
@@ -1157,6 +1159,7 @@ var flagsMap = map[string]components.Flag{
 	npmDetailedSummary:       components.NewBoolFlag(detailedSummary, "Set to true to include a list of the affected files in the command summary.", components.WithBoolDefaultValueFalse()),
 	nugetV2:                  components.NewBoolFlag(nugetV2, "Set to true if you'd like to use the NuGet V2 protocol when restoring packages from Artifactory.", components.WithBoolDefaultValueFalse()),
 	disableCVSCheck:          components.NewBoolFlag(disableCVSCheck, "Set to true to disable the CVS check that verifies if 404 errors are due to blocked packages.", components.WithBoolDefaultValueFalse()),
+	failOnUncollectedDeps:    components.NewStringFlag(failOnUncollectedDeps, "Fail the build if a dependency's integrity/checksum can't be collected for build-info. Accepts 'all' (every type), or a comma-separated combination of 'regular', 'peer', 'optional', 'bundle' to fail only for those. Requires --build-name and --build-number.", components.SetMandatoryFalse()),
 
 	// GoPublish specific commands flags
 	goPublishExclusions: components.NewStringFlag(exclusions, "List of semicolon-separated(;) exclusions. Exclusions can include the * and the ? wildcards.", components.SetMandatoryFalse()),
@@ -1209,6 +1212,7 @@ var flagsMap = map[string]components.Flag{
 	maxWaitMinutes:       components.NewStringFlag(maxWaitMinutes, "Max minutes to wait for sync distribution."),
 	deleteFromDist:       components.NewBoolFlag(deleteFromDist, "Set to true to delete release bundle version in JFrog Distribution itself after deletion is complete.", components.WithBoolDefaultValueFalse()),
 	CreateRepo:           components.NewBoolFlag(CreateRepo, "Set to true to create the repository on the edge if it does not exist.", components.WithBoolDefaultValueFalse()),
+	IncludeEvidence:      components.NewBoolFlag(IncludeEvidence, "Set to true to also move Evidence attached to the Release Bundle and to the artifacts in its hierarchy to the target.", components.WithBoolDefaultValueFalse()),
 	Priority:             components.NewStringFlag(Priority, "Distribution priority. Valid values: low, medium, high. Defaults to medium on the server when omitted.", components.SetMandatoryFalse()),
 	lcSync:               components.NewBoolFlag(Sync, "Set to false to run asynchronously.", components.WithBoolDefaultValueTrue()),
 	lcProject:            components.NewStringFlag(Project, "Project key associated with the Release Bundle version.", components.SetMandatoryFalse()),
