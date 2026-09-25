@@ -44,20 +44,32 @@ func TestChocoSourceDetailsValidatesInput(t *testing.T) {
 	assert.Contains(t, err.Error(), "credentials")
 }
 
-// A reference token or API-key access-token has no subject to derive a username from - see
-// auth.ExtractUsernameFromAccessToken. That must not be treated as "no credentials configured":
-// the token itself is the usable secret, and Chocolatey's API key is stored as "<user>:<token>",
-// which Artifactory accepts even with an empty user.
-func TestChocoSourceDetailsAcceptsTokenOnlyCredentials(t *testing.T) {
-	apiKeyToken := "AKCp8" + strings.Repeat("x", 68)
+// Chocolatey authenticates to a NuGet feed with basic authentication for both reads and pushes, so
+// it needs a username. A reference token or API-key access-token carries no subject to derive one
+// from - see auth.ExtractUsernameFromAccessToken - and there is no placeholder Artifactory accepts.
+// Failing here beats adding a source whose first "choco install" returns an unexplained 401.
+func TestChocoSourceDetailsRequiresUsernameForSubjectlessToken(t *testing.T) {
+	_, _, _, err := chocoSourceDetails(&config.ServerDetails{
+		ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
+		AccessToken:    "AKCp8" + strings.Repeat("x", 68),
+	}, "choco-virtual")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "username is required")
+}
+
+// A username configured alongside an API key or reference token is the supported way to use one:
+// the token is the secret, the username makes basic authentication possible.
+func TestChocoSourceDetailsAcceptsUsernameWithToken(t *testing.T) {
+	referenceToken := "cmVmdG9rZW4"
 	sourceURL, user, password, err := chocoSourceDetails(&config.ServerDetails{
 		ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
-		AccessToken:    apiKeyToken,
+		User:           "john",
+		AccessToken:    referenceToken,
 	}, "choco-virtual")
 	require.NoError(t, err)
 	assert.Equal(t, "https://acme.jfrog.io/artifactory/api/nuget/choco-virtual", sourceURL)
-	assert.Empty(t, user)
-	assert.Equal(t, apiKeyToken, password)
+	assert.Equal(t, "john", user)
+	assert.Equal(t, referenceToken, password)
 }
 
 func TestChocoSourceName(t *testing.T) {
@@ -121,30 +133,51 @@ func TestConfigureChocoCreatesVirtualSource(t *testing.T) {
 	}, *calls)
 }
 
-// A reference or API-key access token carries no subject, so there is no username to authenticate
-// reads with. The source must still be added rather than the whole setup failing, because pushes
-// work off the API key alone.
-func TestConfigureChocoTokenWithoutUsernameOmitsReadCredentials(t *testing.T) {
+// A JWT access token carries its username in the subject, so it configures both stores exactly like
+// a username and password do.
+func TestConfigureChocoUsesAccessTokenForBothStores(t *testing.T) {
 	calls := stubChocoCommandRunner(t)
 	stubChocoPlatformChecker(t, true)
 	stubChocoRepoClassResolver(t, services.VirtualRepositoryRepoType)
 
-	apiKeyToken := "AKCp8" + strings.Repeat("x", 68)
 	command := &SetupCommand{
 		packageManager: project.Choco,
 		repoName:       "choco-virtual",
 		serverDetails: &config.ServerDetails{
 			ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
-			AccessToken:    apiKeyToken,
+			User:           "john",
+			AccessToken:    "reference-token",
 		},
 	}
 	require.NoError(t, command.configureChoco())
 
 	const sourceURL = "https://acme.jfrog.io/artifactory/api/nuget/choco-virtual"
 	assert.Equal(t, [][]string{
-		{"choco", "source", "add", "-n=jfrt-acme.jfrog.io-choco-virtual", "-s=" + sourceURL, "--priority=1"},
-		{"choco", "apikey", "add", "-s=" + sourceURL, "-k=:" + apiKeyToken},
+		{"choco", "source", "add", "-n=jfrt-acme.jfrog.io-choco-virtual", "-s=" + sourceURL,
+			"-u=john", "-p=reference-token", "--priority=1"},
+		{"choco", "apikey", "add", "-s=" + sourceURL, "-k=john:reference-token"},
 	}, *calls)
+}
+
+// Setup must not leave a half-configured machine behind: with no username, basic authentication is
+// impossible, so neither store is written.
+func TestConfigureChocoWithoutUsernameFailsBeforeTouchingChoco(t *testing.T) {
+	calls := stubChocoCommandRunner(t)
+	stubChocoPlatformChecker(t, true)
+	stubChocoRepoClassResolver(t, services.VirtualRepositoryRepoType)
+
+	command := &SetupCommand{
+		packageManager: project.Choco,
+		repoName:       "choco-virtual",
+		serverDetails: &config.ServerDetails{
+			ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
+			AccessToken:    "AKCp8" + strings.Repeat("x", 68),
+		},
+	}
+	err := command.configureChoco()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "username is required")
+	assert.Empty(t, *calls)
 }
 
 func TestConfigureChocoCreatesLocalSourceWithoutPriority(t *testing.T) {

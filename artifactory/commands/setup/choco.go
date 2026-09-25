@@ -61,11 +61,17 @@ func chocoSourceDetails(serverDetails *config.ServerDetails, repoName string) (s
 	if err != nil {
 		return "", "", "", fmt.Errorf("get Chocolatey source details: %w", err)
 	}
-	// password carries the actual secret (password or access-token); user is only a display name
-	// and is legitimately empty for a reference-token or API-key access-token, which does not
-	// encode a subject Chocolatey's API key can be derived from without one.
 	if password == "" {
 		return "", "", "", errorutils.CheckErrorf("credentials are required to configure Chocolatey authentication")
+	}
+	// Chocolatey talks to a NuGet feed over HTTP basic authentication for both reads and pushes, so
+	// it needs a username as well as a secret. A username and password, a username and API key, and
+	// a JWT access token (whose subject is the username) all satisfy that. A reference token does
+	// not: it carries no subject, and jfrog-client-go's own guidance for that case is to supply a
+	// username. Failing here beats adding a credential-less source that only breaks later, as an
+	// unexplained 401 from the first "choco install".
+	if user == "" {
+		return "", "", "", errorutils.CheckErrorf("a username is required to configure Chocolatey. Chocolatey authenticates to Artifactory with basic authentication, and the configured access token carries no username. Re-run 'jf c add' with a username, or use a JWT access token")
 	}
 	return sourceURL, user, password, nil
 }
@@ -162,16 +168,10 @@ func (sc *SetupCommand) configureChoco() error {
 	warnOnPlaintextChocoSource(sourceURL)
 
 	addArgs := []string{"source", "add", "-n=" + sourceName, "-s=" + sourceURL}
-	// Chocolatey authenticates reads (install, list, outdated) with the credentials stored on the
-	// source itself, and uses the stored API key only for pushes. Without -u/-p every install from
-	// an authenticated Artifactory repository fails with HTTP 401 while push still succeeds. A
-	// reference or API-key access token carries no subject, so there is no username to send; the
-	// source is still added because the API key alone is enough to push.
-	if user == "" {
-		log.Debug("No username could be derived from the configured credentials, so the Chocolatey source is added without read credentials. 'choco install' from this source will fail if the repository requires authentication.")
-	} else {
-		addArgs = append(addArgs, "-u="+user, "-p="+password)
-	}
+	// Chocolatey keeps two separate credential stores: the source's own -u/-p authenticates reads
+	// (install, list, outdated), while the API key below is used only for pushes. Setting just one
+	// of them is what made push succeed while every install returned HTTP 401.
+	addArgs = append(addArgs, "-u="+user, "-p="+password)
 	switch repoClass {
 	case services.VirtualRepositoryRepoType, services.RemoteRepositoryRepoType:
 		addArgs = append(addArgs, "--priority=1")
