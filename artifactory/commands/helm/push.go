@@ -183,12 +183,12 @@ func splitOCIChartPath(ociChartPath string) (path, name string) {
 // when no physical repository can be determined, signaling that setting build
 // properties should be skipped rather than attempted against the virtual repo.
 func resolvePropertiesRepository(serviceManager artifactory.ArtifactoryServicesManager, repoName string) string {
-	_, repoDetails, err := ocicontainer.GetSearchableRepositoryAndDetails(repoName, serviceManager)
-	if err != nil {
+	repoDetails := &services.VirtualRepositoryBaseParams{}
+	if err := serviceManager.GetRepository(repoName, repoDetails); err != nil {
 		log.Debug("Could not resolve repository details for '", repoName, "', proceeding with it as-is for setting build properties: ", err)
 		return repoName
 	}
-	if repoDetails.RepoType != "virtual" {
+	if repoDetails.Rclass != services.VirtualRepositoryRepoType {
 		return repoName
 	}
 	if repoDetails.DefaultDeploymentRepo == "" {
