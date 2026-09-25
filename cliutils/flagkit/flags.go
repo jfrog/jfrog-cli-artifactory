@@ -432,14 +432,15 @@ const (
 	deleteFromDist        = "delete-from-dist"
 
 	// Common release-bundle-* v1&v2 flags
-	DistRules      = "dist-rules"
-	site           = "site"
-	city           = "city"
-	countryCodes   = "country-codes"
-	sync           = "sync"
-	maxWaitMinutes = "max-wait-minutes"
-	CreateRepo     = "create-repo"
-	Priority       = "priority"
+	DistRules       = "dist-rules"
+	site            = "site"
+	city            = "city"
+	countryCodes    = "country-codes"
+	sync            = "sync"
+	maxWaitMinutes  = "max-wait-minutes"
+	CreateRepo      = "create-repo"
+	Priority        = "priority"
+	IncludeEvidence = "include-evidence"
 
 	// Unique offline-update flags
 	target = "target"
@@ -590,7 +591,7 @@ var commandFlags = map[string][]string{
 	},
 	cmddefs.ReleaseBundleDistribute: {
 		platformUrl, user, password, accessToken, serverId, lcProject, DistRules, site, city, countryCodes,
-		lcDryRun, CreateRepo, lcPathMappingPattern, lcPathMappingTarget, lcSync, maxWaitMinutes, Priority,
+		lcDryRun, CreateRepo, lcPathMappingPattern, lcPathMappingTarget, lcSync, maxWaitMinutes, Priority, IncludeEvidence,
 	},
 	cmddefs.ReleaseBundleDeleteLocal: {
 		platformUrl, user, password, accessToken, serverId, deleteQuiet, lcSync, lcProject,
@@ -1211,6 +1212,7 @@ var flagsMap = map[string]components.Flag{
 	maxWaitMinutes:       components.NewStringFlag(maxWaitMinutes, "Max minutes to wait for sync distribution."),
 	deleteFromDist:       components.NewBoolFlag(deleteFromDist, "Set to true to delete release bundle version in JFrog Distribution itself after deletion is complete.", components.WithBoolDefaultValueFalse()),
 	CreateRepo:           components.NewBoolFlag(CreateRepo, "Set to true to create the repository on the edge if it does not exist.", components.WithBoolDefaultValueFalse()),
+	IncludeEvidence:      components.NewBoolFlag(IncludeEvidence, "Set to true to also move Evidence attached to the Release Bundle and to the artifacts in its hierarchy to the target.", components.WithBoolDefaultValueFalse()),
 	Priority:             components.NewStringFlag(Priority, "Distribution priority. Valid values: low, medium, high. Defaults to medium on the server when omitted.", components.SetMandatoryFalse()),
 	lcSync:               components.NewBoolFlag(Sync, "Set to false to run asynchronously.", components.WithBoolDefaultValueTrue()),
 	lcProject:            components.NewStringFlag(Project, "Project key associated with the Release Bundle version.", components.SetMandatoryFalse()),

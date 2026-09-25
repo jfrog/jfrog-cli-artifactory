@@ -16,6 +16,7 @@ type ReleaseBundleDistributeCommand struct {
 	pathMappingTarget  string
 	maxWaitMinutes     int
 	priority           string
+	includeEvidence    bool
 	outputFormat       coreformat.OutputFormat
 }
 
@@ -83,6 +84,11 @@ func (rbd *ReleaseBundleDistributeCommand) SetPriority(priority string) *Release
 	return rbd
 }
 
+func (rbd *ReleaseBundleDistributeCommand) SetIncludeEvidence(includeEvidence bool) *ReleaseBundleDistributeCommand {
+	rbd.includeEvidence = includeEvidence
+	return rbd
+}
+
 func (rbd *ReleaseBundleDistributeCommand) SetOutputFormat(format coreformat.OutputFormat) *ReleaseBundleDistributeCommand {
 	rbd.outputFormat = format
 	return rbd
@@ -111,6 +117,7 @@ func (rbd *ReleaseBundleDistributeCommand) Run() error {
 		PathMappings:      []services.PathMapping{pathMapping},
 		ProjectKey:        rbd.rbProjectKey,
 		Priority:          rbd.priority,
+		IncludeEvidence:   rbd.includeEvidence,
 	}
 
 	if err := servicesManager.DistributeReleaseBundle(rbDetails, distributeParams); err != nil {

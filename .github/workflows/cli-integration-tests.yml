@@ -1201,7 +1201,7 @@ jobs:
         run: go test -v github.com/jfrog/jfrog-cli --timeout 0 --test.ruby
 
   HuggingFace-Tests:
-    name: HuggingFace ${{ matrix.os.name }}
+    name: HuggingFace ${{ matrix.os.name }} (huggingface_hub ${{ matrix.hf_version }})
     needs: Detect-Deps
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'safe to test')
     strategy:
@@ -1212,6 +1212,10 @@ jobs:
             version: 24.04
           - name: windows
             version: 2022
+        # 1.19.0: last version before the breaking change. 1.20.0: the version that
+        # introduced it (PR #4324, strict RepoUrl/parse_hf_uri). 1.29.0: current target
+        # version for this fix.
+        hf_version: ['1.19.0', '1.20.0', '1.29.0']
     runs-on: ${{ matrix.os.name }}-${{ matrix.os.version }}
     env:
       JFROG_CLI_LOG_LEVEL: DEBUG
@@ -1239,7 +1243,7 @@ jobs:
 
       - name: Install HuggingFace Library
         shell: bash
-        run: pip install "huggingface_hub==1.19.0"
+        run: pip install "huggingface_hub==${{ matrix.hf_version }}"
 
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
