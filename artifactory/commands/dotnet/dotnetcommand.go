@@ -366,6 +366,20 @@ func GetSourceDetails(details *config.ServerDetails, repoName string, useNugetV2
 	return
 }
 
+// RequireHTTPSSource rejects a non-HTTPS sourceURL. Credentials registered or injected against a
+// source are sent, and in some flows stored, verbatim against that URL, so a non-HTTPS scheme
+// means they would transit - and potentially persist - in cleartext.
+func RequireHTTPSSource(sourceURL string) error {
+	parsed, err := url.Parse(sourceURL)
+	if err != nil {
+		return errorutils.CheckError(err)
+	}
+	if parsed.Scheme != "https" {
+		return errorutils.CheckErrorf("refusing to use a non-HTTPS Artifactory source (%s); credentials would be transmitted in cleartext. Configure the CLI with an HTTPS Artifactory URL", sourceURL)
+	}
+	return nil
+}
+
 // SetDefaultPushSource sets the JFrogCli source as the default push source using native config commands.
 func SetDefaultPushSource(cmdType dotnet.ToolchainType) error {
 	cmd, err := dotnet.NewToolchainCmd(cmdType)

@@ -173,6 +173,28 @@ func TestGetSourceDetails(t *testing.T) {
 	assert.Equal(t, "https://server.com/artifactory/api/nuget/repo-name", url)
 }
 
+// A reference token or API-key access-token has no subject to derive a username from - see
+// auth.ExtractUsernameFromAccessToken. GetSourceDetails must still return the token as password
+// rather than fail, leaving the empty-username decision to the caller.
+func TestGetSourceDetailsTokenWithoutDerivableUsername(t *testing.T) {
+	server := &config.ServerDetails{
+		ArtifactoryUrl: "https://server.com/artifactory",
+		AccessToken:    "AKCp8" + strings.Repeat("x", 68), // an API key, not a JWT with a subject
+	}
+	_, user, pass, err := GetSourceDetails(server, "repo-name", true)
+	require.NoError(t, err)
+	assert.Empty(t, user)
+	assert.Equal(t, server.AccessToken, pass)
+}
+
+func TestRequireHTTPSSource(t *testing.T) {
+	assert.NoError(t, RequireHTTPSSource("https://server.com/artifactory/api/nuget/repo-name"))
+
+	err := RequireHTTPSSource("http://server.com/artifactory/api/nuget/repo-name")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "HTTPS")
+}
+
 func TestPrepareDotnetBuildInfoModule(t *testing.T) {
 	t.Run("generated config file", func(t *testing.T) { testPrepareDotnetBuildInfoModule(t, "restore", []string{}, true) })
 	t.Run("existing with configfile flag", func(t *testing.T) {
