@@ -178,9 +178,6 @@ func (command *ChocoFlexPackCommand) Run() error {
 		if err != nil {
 			return fmt.Errorf("get Chocolatey source details: %w", err)
 		}
-		if err := dotnet.RequireHTTPSSource(sourceURL); err != nil {
-			return err
-		}
 		// password carries the actual secret (password or access-token); user is only a display
 		// name and is legitimately empty for a reference-token or API-key access-token, which does
 		// not encode a subject to derive one from. "-k=<user>:<password>" is a valid credential pair
@@ -198,9 +195,6 @@ func (command *ChocoFlexPackCommand) Run() error {
 		sourceURL, user, password, err := dotnet.GetSourceDetails(command.serverDetails, command.repoResolve, true)
 		if err != nil {
 			return fmt.Errorf("get Chocolatey source details: %w", err)
-		}
-		if err := dotnet.RequireHTTPSSource(sourceURL); err != nil {
-			return err
 		}
 		nativeArgs = append(nativeArgs, "-s="+sourceURL)
 		// password carries the actual secret; user is only a display name and may legitimately be

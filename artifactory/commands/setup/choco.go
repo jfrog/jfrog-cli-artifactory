@@ -60,9 +60,6 @@ func chocoSourceDetails(serverDetails *config.ServerDetails, repoName string) (s
 	if err != nil {
 		return "", "", fmt.Errorf("get Chocolatey source details: %w", err)
 	}
-	if err = dotnet.RequireHTTPSSource(sourceURL); err != nil {
-		return "", "", err
-	}
 	// password carries the actual secret (password or access-token); user is only a display name
 	// and is legitimately empty for a reference-token or API-key access-token, which does not
 	// encode a subject Chocolatey's API key can be derived from without one.
