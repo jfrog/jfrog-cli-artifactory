@@ -350,13 +350,20 @@ func (command *PSResourceFlexPackCommand) cmdletInvocation(injectCredential, red
 }
 
 // psresourceFlagPattern matches a plausible bare flag token: "-Name" or "-Name:value", where the
-// flag name itself is a simple identifier and, if a colon-attached value follows, that value
-// contains none of the characters that could end the -Command script's current statement early
-// (semicolon, pipe, ampersand, backtick, a "$(" subexpression opener, or a line break). Anything
-// that doesn't match this is treated as a value and safely quoted instead of being spliced in raw -
-// closing off the case where a single crafted argument (e.g. threaded through from an
+// flag name itself is a simple identifier and, if a colon-attached value follows, that value is
+// either one of PowerShell's two switch literals ($true/$false) or contains none of the characters
+// that could change the meaning of the -Command script it is spliced into unquoted:
+//   - statement separators and operators: ; | &
+//   - expansion and subexpression openers: $ ( )
+//   - quotes, which could unbalance the surrounding script: ' "
+//   - the backtick escape character
+//   - any whitespace, which would otherwise split one token into several parameters
+//     (e.g. "-Name:foo -Force")
+//
+// Anything that doesn't match is treated as a value and safely quoted instead of being spliced in
+// raw - closing off the case where a single crafted argument (e.g. threaded through from an
 // external/templated source) happens to start with "-" but is not actually just a flag name.
-var psresourceFlagPattern = regexp.MustCompile(`^-[A-Za-z][A-Za-z0-9]*(:[^;&|` + "`" + `\r\n]*)?$`)
+var psresourceFlagPattern = regexp.MustCompile(`^-[A-Za-z][A-Za-z0-9]*(:(\$true|\$false|[^;&|$()'"\s` + "`" + `]*))?$`)
 
 // psresourceCommandLineArg renders one native argument for splicing into the -Command script.
 // A token matching psresourceFlagPattern is a parameter name (optionally with a colon-attached
@@ -535,9 +542,7 @@ func (command *PSResourceFlexPackCommand) resolvePublishNameVersion(shell string
 	if path == "" {
 		path = command.workingDirectory
 	}
-	if !strings.HasPrefix(path, "/") && !strings.Contains(path, ":") {
-		path = joinWorkingDirectory(command.workingDirectory, path)
-	}
+	path = resolveAgainstWorkingDirectory(command.workingDirectory, path)
 	manifestPath, findErr := resolvePSD1Manifest(path)
 	if findErr != nil {
 		return "", "", findErr
@@ -555,6 +560,18 @@ func (command *PSResourceFlexPackCommand) resolvePublishNameVersion(shell string
 		return "", "", fmt.Errorf("could not determine the published PSResource package name/version; pass -Name and -Version explicitly, or point -Path at a module manifest (.psd1) with a ModuleVersion")
 	}
 	return name, version, nil
+}
+
+// resolveAgainstWorkingDirectory makes a user-supplied path absolute-ish by anchoring a relative
+// path at the command's working directory, while leaving an already-absolute path alone. "Absolute"
+// is deliberately checked in a shell-agnostic way rather than with filepath.IsAbs, because these
+// paths are handed to pwsh, which may be running on a different OS convention than the Go binary:
+// a leading "/" covers POSIX, and a ":" covers a Windows drive letter ("C:\...") or a PSDrive.
+func resolveAgainstWorkingDirectory(workingDirectory, path string) string {
+	if strings.HasPrefix(path, "/") || strings.Contains(path, ":") {
+		return path
+	}
+	return joinWorkingDirectory(workingDirectory, path)
 }
 
 func joinWorkingDirectory(workingDirectory, path string) string {
@@ -642,14 +659,24 @@ type installedPSResource struct {
 // asked for on the command line - Install-/Save-/Update-PSResource can legitimately resolve a
 // different version (e.g. a floating -Version range, or an upgrade), so the build-info must record
 // what was actually installed.
-func resolveInstalledVersion(shell, name string) (string, error) {
-	script := fmt.Sprintf("Get-InstalledPSResource -Name %s | ConvertTo-Json", setup.QuotePSLiteral(name))
+// A non-empty searchPath scopes the query to a specific location instead of the installed-module
+// set - required for Save-PSResource, which downloads the package to its -Path target without ever
+// installing it.
+func resolveInstalledVersion(shell, name, searchPath string) (string, error) {
+	script := fmt.Sprintf("Get-InstalledPSResource -Name %s", setup.QuotePSLiteral(name))
+	if searchPath != "" {
+		script += " -Path " + setup.QuotePSLiteral(searchPath)
+	}
+	script += " | ConvertTo-Json"
 	output, err := psresourceQueryRunner(shell, script)
 	if err != nil {
 		return "", err
 	}
 	trimmed := strings.TrimSpace(output)
 	if trimmed == "" {
+		if searchPath != "" {
+			return "", fmt.Errorf("Get-InstalledPSResource -Name %q -Path %q returned no result", name, searchPath)
+		}
 		return "", fmt.Errorf("Get-InstalledPSResource -Name %q returned no result", name)
 	}
 	// ConvertTo-Json emits a bare object for exactly one result and a JSON array for more than one
@@ -705,9 +732,21 @@ func (command *PSResourceFlexPackCommand) collectDependencies(buildName, buildNu
 		return err
 	}
 
+	// Save-PSResource writes the package into its -Path target without installing it, so the
+	// installed-module set is the wrong place to look for the resolved version: it would either
+	// return nothing (failing a save that actually succeeded) or report an unrelated version that
+	// happens to be installed, which would then be recorded in build-info and used to build the
+	// checksum lookup path. Scope the query to the save location instead.
+	var searchPath string
+	if command.subCommand == SubCommandSave {
+		if savePath := argValue(command.args, "-Path"); savePath != "" {
+			searchPath = resolveAgainstWorkingDirectory(command.workingDirectory, savePath)
+		}
+	}
+
 	resolved := make([]psresourceflex.ResolvedPackage, 0, len(names))
 	for _, name := range names {
-		version, versionErr := resolveInstalledVersion(shell, name)
+		version, versionErr := resolveInstalledVersion(shell, name, searchPath)
 		if versionErr != nil {
 			return fmt.Errorf("resolve installed version of %q: %w", name, versionErr)
 		}

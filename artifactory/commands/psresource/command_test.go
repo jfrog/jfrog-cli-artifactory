@@ -98,8 +98,26 @@ func TestPsresourceCommandLineArgRejectsInjectionLikeDashedValues(t *testing.T) 
 	assert.NotEqual(t, malicious, rendered, "must not be spliced in raw just because it starts with '-'")
 	assert.True(t, strings.HasPrefix(rendered, "'") && strings.HasSuffix(rendered, "'"), "must be quoted as a literal instead: got %q", rendered)
 
-	for _, benign := range []string{"-Name", "-Version", "-Repository", "-Trusted", "-Repository:my-repo", "-ApiKey:token"} {
+	for _, benign := range []string{"-Name", "-Version", "-Repository", "-Trusted", "-Repository:my-repo", "-ApiKey:token", "-Trusted:$true", "-Trusted:$false"} {
 		assert.Equal(t, benign, psresourceCommandLineArg(benign), "a genuine flag token must still pass through unquoted")
+	}
+
+	// A colon-attached value must not be able to smuggle a subexpression, an extra parameter or a
+	// quote past the flag fast-path. Each of these matched the original pattern and was spliced in
+	// completely unquoted, even though the pattern's own contract claimed to exclude them.
+	for _, hostile := range []string{
+		"-Name:$(Get-Process)",
+		"-Name:$(Remove-Item -Recurse X)",
+		"-Name:foo -Force",
+		"-Name:foo\tbar",
+		`-Name:'quoted'`,
+		`-Name:"quoted"`,
+		"-Name:$env:USERNAME",
+	} {
+		rendered := psresourceCommandLineArg(hostile)
+		assert.NotEqual(t, hostile, rendered, "%q must not be spliced in unquoted", hostile)
+		assert.True(t, strings.HasPrefix(rendered, "'") && strings.HasSuffix(rendered, "'"),
+			"%q must be quoted as a literal instead: got %q", hostile, rendered)
 	}
 }
 
@@ -462,12 +480,56 @@ func TestCollectPublishArtifactsRecognizesPositionalPath(t *testing.T) {
 
 // ── installed-version resolution ─────────────────────────────────────────────
 
+// TestResolveInstalledVersionScopesToSearchPath guards against a real bug: Save-PSResource writes
+// the package into its -Path target without ever installing it, but the version lookup ran a bare
+// "Get-InstalledPSResource -Name <name>" against the installed-module set. That either returned
+// nothing (failing a save that had actually succeeded) or reported an unrelated installed version,
+// which then went into build-info and into the checksum lookup path.
+func TestResolveInstalledVersionScopesToSearchPath(t *testing.T) {
+	var capturedScript string
+	restore := stubQueryRunner(t, func(shell, script string) (string, error) {
+		capturedScript = script
+		return `{"Name":"Foo","Version":"3.1.4"}`, nil
+	})
+	defer restore()
+
+	version, err := resolveInstalledVersion("pwsh", "Foo", "/tmp/saved modules")
+	require.NoError(t, err)
+	assert.Equal(t, "3.1.4", version)
+	assert.Contains(t, capturedScript, "-Path ", "the query must be scoped to the save location")
+	assert.Contains(t, capturedScript, "'/tmp/saved modules'", "the search path must be passed as a quoted PowerShell literal")
+}
+
+// TestResolveInstalledVersionOmitsPathWhenUnscoped is the counterpart: for Install-/Update-PSResource
+// the installed-module set is the correct place to look, so no -Path may be added.
+func TestResolveInstalledVersionOmitsPathWhenUnscoped(t *testing.T) {
+	var capturedScript string
+	restore := stubQueryRunner(t, func(shell, script string) (string, error) {
+		capturedScript = script
+		return `{"Name":"Foo","Version":"1.0.0"}`, nil
+	})
+	defer restore()
+
+	_, err := resolveInstalledVersion("pwsh", "Foo", "")
+	require.NoError(t, err)
+	assert.NotContains(t, capturedScript, "-Path")
+}
+
+// TestResolveAgainstWorkingDirectory pins the shell-agnostic absolute-path check that decides
+// whether a user-supplied -Path is anchored at the working directory or left alone.
+func TestResolveAgainstWorkingDirectory(t *testing.T) {
+	assert.Equal(t, "/work/out", resolveAgainstWorkingDirectory("/work", "out"), "a relative path is anchored at the working directory")
+	assert.Equal(t, "/abs/out", resolveAgainstWorkingDirectory("/work", "/abs/out"), "a POSIX absolute path is left alone")
+	assert.Equal(t, `C:\out`, resolveAgainstWorkingDirectory("/work", `C:\out`), "a Windows drive-letter path is left alone")
+	assert.Equal(t, "out", resolveAgainstWorkingDirectory("", "out"), "no working directory means nothing to anchor to")
+}
+
 func TestResolveInstalledVersionSingleObject(t *testing.T) {
 	restore := stubQueryRunner(t, func(shell, script string) (string, error) {
 		return `{"Name":"Foo","Version":"1.0.0"}`, nil
 	})
 	defer restore()
-	version, err := resolveInstalledVersion("pwsh", "Foo")
+	version, err := resolveInstalledVersion("pwsh", "Foo", "")
 	require.NoError(t, err)
 	assert.Equal(t, "1.0.0", version)
 }
@@ -477,7 +539,7 @@ func TestResolveInstalledVersionArrayPicksLatest(t *testing.T) {
 		return `[{"Name":"Foo","Version":"1.0.0"},{"Name":"Foo","Version":"2.0.0"}]`, nil
 	})
 	defer restore()
-	version, err := resolveInstalledVersion("pwsh", "Foo")
+	version, err := resolveInstalledVersion("pwsh", "Foo", "")
 	require.NoError(t, err)
 	assert.Equal(t, "2.0.0", version)
 }
@@ -487,7 +549,7 @@ func TestResolveInstalledVersionEmptyOutputIsAnError(t *testing.T) {
 		return "", nil
 	})
 	defer restore()
-	_, err := resolveInstalledVersion("pwsh", "Foo")
+	_, err := resolveInstalledVersion("pwsh", "Foo", "")
 	require.Error(t, err)
 }
 
@@ -499,7 +561,7 @@ func TestResolveInstalledVersionEmptyVersionFieldIsAnError(t *testing.T) {
 		return `{"Name":"Foo","Version":""}`, nil
 	})
 	defer restore()
-	_, err := resolveInstalledVersion("pwsh", "Foo")
+	_, err := resolveInstalledVersion("pwsh", "Foo", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no version")
 }
@@ -926,7 +988,7 @@ func TestPsd1ModuleVersionEmptyIsAnError(t *testing.T) {
 func TestResolveInstalledVersionParseErrorIsSurfaced(t *testing.T) {
 	restore := stubQueryRunner(t, func(shell, script string) (string, error) { return "not json", nil })
 	defer restore()
-	_, err := resolveInstalledVersion("pwsh", "Foo")
+	_, err := resolveInstalledVersion("pwsh", "Foo", "")
 	require.Error(t, err)
 }
 

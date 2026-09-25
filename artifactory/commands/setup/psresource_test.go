@@ -157,8 +157,14 @@ func TestConfigurePSResourceToleratesUnregisterFailure(t *testing.T) {
 	stubPSResourceRepoClassResolver(t)
 
 	originalRunner := psresourceCommandRunner
+	// psresourceCommandRunner is called as (shell, "-NoProfile", "-Command", script), so the
+	// variadic args are ["-NoProfile", "-Command", script] - "-Command" is args[1] and the script
+	// is args[2]. Indexing one slot further (the guard this test originally used) never matched,
+	// so the stub always returned nil and the unregister-failure path was never exercised at all.
+	unregisterFailed := false
 	psresourceCommandRunner = func(_ string, args ...string) error {
-		if len(args) > 3 && args[2] == "-Command" && strings.Contains(args[3], "Unregister-PSResourceRepository") {
+		if len(args) > 2 && args[1] == "-Command" && strings.Contains(args[2], "Unregister-PSResourceRepository") {
+			unregisterFailed = true
 			return errors.New("boom")
 		}
 		return nil
@@ -166,6 +172,7 @@ func TestConfigurePSResourceToleratesUnregisterFailure(t *testing.T) {
 	t.Cleanup(func() { psresourceCommandRunner = originalRunner })
 
 	require.NoError(t, newPSResourceSetupCommand("secret").configurePSResource())
+	assert.True(t, unregisterFailed, "the injected Unregister-PSResourceRepository failure must actually be exercised, otherwise this test proves nothing")
 }
 
 // TestConfigurePSResourceSurfacesRegisterFailure guards against a real bug: a failing
