@@ -162,7 +162,7 @@ func (command *ChocoFlexPackCommand) Run() error {
 		warnUnsubstitutedNuspecTokens(command.workingDirectory, command.args)
 	}
 
-	nativeArgs := append([]string{command.subCommand}, command.args...)
+	nativeArgs := nativeCommandLine(command.subCommand, command.args)
 	if command.subCommand == "push" && command.repoDeploy != "" && command.serverDetails != nil {
 		if err := validateExplicitPushSource(command.args, command.repoDeploy, command.serverDetails); err != nil {
 			return err
@@ -212,9 +212,9 @@ func (command *ChocoFlexPackCommand) Run() error {
 		log.Debug("Resolving Chocolatey packages from the JFrog Artifactory source " + sourceURL)
 	}
 
-	log.Debug("Running native Chocolatey command: choco " + strings.Join(append([]string{command.subCommand}, redactChocoArgs(command.args)...), " "))
+	log.Debug("Running native Chocolatey command: choco " + strings.Join(nativeCommandLine(command.subCommand, redactChocoArgs(command.args)), " "))
 	if err := chocoNativeRunner(nativeArgs); err != nil {
-		return fmt.Errorf("choco %s failed: %w", command.subCommand, err)
+		return fmt.Errorf("%s failed: %w", chocoCommandLabel(command.subCommand), err)
 	}
 	// Build-info is collected only when both --build-name and --build-number are supplied. Neither
 	// flag means a plain passthrough, which is a legitimate way to use 'jf choco'; the half-specified
@@ -732,8 +732,28 @@ func (command *ChocoFlexPackCommand) saveArtifactBuildInfo(buildName, buildNumbe
 	return saveBuildInfoLocally(buildInfo, command.buildConfiguration.GetProject())
 }
 
+// nativeCommandLine builds the argument vector for the native choco binary, prepending subCommand
+// only when there is one. A flag-only pass-through such as `jf choco --version` carries no
+// sub-command, and a leading empty element would reach choco as an empty argument, which it rejects
+// with a non-zero exit after printing its output.
+func nativeCommandLine(subCommand string, args []string) []string {
+	if subCommand == "" {
+		return append([]string(nil), args...)
+	}
+	return append([]string{subCommand}, args...)
+}
+
+// chocoCommandLabel names the command for user-facing messages, without the stray double space an
+// empty sub-command would otherwise leave behind.
+func chocoCommandLabel(subCommand string) string {
+	if subCommand == "" {
+		return "choco"
+	}
+	return "choco " + subCommand
+}
+
 func setChocoCommandProperty(modules []entities.Module, subCommand string, args []string) {
-	command := append([]string{subCommand}, redactChocoArgs(args)...)
+	command := nativeCommandLine(subCommand, redactChocoArgs(args))
 	for index := range modules {
 		modules[index].Properties = map[string]string{
 			entities.BuildInfoEnvPrefix + "CHOCO_COMMAND": strings.Join(command, " "),
