@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"syscall"
 	"testing"
@@ -79,17 +80,10 @@ func TestChocoCommandNativeFailureIsWrapped(t *testing.T) {
 // A flag-only invocation such as `jf choco --version` carries no sub-command. The flags must reach
 // choco on their own: a leading empty argument makes choco print its output and then exit non-zero.
 func TestChocoCommandPassThroughWithoutSubCommand(t *testing.T) {
-	originalChecker := chocoPlatformChecker
-	originalRunner := chocoNativeRunner
-	chocoPlatformChecker = func() bool { return true }
 	var received []string
-	chocoNativeRunner = func(args []string) error {
-		received = append([]string(nil), args...)
+	withFakeChoco(t, func(args []string) error {
+		received = slices.Clone(args)
 		return nil
-	}
-	t.Cleanup(func() {
-		chocoPlatformChecker = originalChecker
-		chocoNativeRunner = originalRunner
 	})
 
 	err := NewChocoFlexPackCommand().
@@ -101,20 +95,14 @@ func TestChocoCommandPassThroughWithoutSubCommand(t *testing.T) {
 	assert.Equal(t, []string{"--version"}, received)
 }
 
+// "choco failed" with a single space is the assertion: an empty sub-command left unhandled would
+// render as "choco  failed", which this Contains would not match.
 func TestChocoCommandNativeFailureWithoutSubCommandIsWrapped(t *testing.T) {
-	originalChecker := chocoPlatformChecker
-	originalRunner := chocoNativeRunner
-	chocoPlatformChecker = func() bool { return true }
-	chocoNativeRunner = func([]string) error { return errors.New("native failure") }
-	t.Cleanup(func() {
-		chocoPlatformChecker = originalChecker
-		chocoNativeRunner = originalRunner
-	})
+	withFakeChoco(t, func([]string) error { return errors.New("native failure") })
 
 	err := NewChocoFlexPackCommand().SetSubCommand("").SetWorkingDirectory(t.TempDir()).Run()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "choco failed")
-	assert.NotContains(t, err.Error(), "choco  failed")
 }
 
 func TestNativeCommandLine(t *testing.T) {

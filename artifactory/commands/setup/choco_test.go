@@ -28,7 +28,6 @@ func TestChocoSourceDetailsUsesV2URL(t *testing.T) {
 	assert.NotContains(t, sourceURL, "index.json")
 	assert.Equal(t, "john", user)
 	assert.Equal(t, "secret", password)
-	assert.Equal(t, "john:secret", chocoAPIKey(user, password))
 }
 
 func TestChocoSourceDetailsValidatesInput(t *testing.T) {
@@ -48,7 +47,7 @@ func TestChocoSourceDetailsValidatesInput(t *testing.T) {
 // A reference token or API-key access-token has no subject to derive a username from - see
 // auth.ExtractUsernameFromAccessToken. That must not be treated as "no credentials configured":
 // the token itself is the usable secret, and Chocolatey's API key is stored as "<user>:<token>",
-// which is a valid credential pair even with an empty user.
+// which Artifactory accepts even with an empty user.
 func TestChocoSourceDetailsAcceptsTokenOnlyCredentials(t *testing.T) {
 	apiKeyToken := "AKCp8" + strings.Repeat("x", 68)
 	sourceURL, user, password, err := chocoSourceDetails(&config.ServerDetails{
@@ -59,7 +58,6 @@ func TestChocoSourceDetailsAcceptsTokenOnlyCredentials(t *testing.T) {
 	assert.Equal(t, "https://acme.jfrog.io/artifactory/api/nuget/choco-virtual", sourceURL)
 	assert.Empty(t, user)
 	assert.Equal(t, apiKeyToken, password)
-	assert.Equal(t, ":"+apiKeyToken, chocoAPIKey(user, password))
 }
 
 func TestChocoSourceName(t *testing.T) {
@@ -142,10 +140,11 @@ func TestConfigureChocoTokenWithoutUsernameOmitsReadCredentials(t *testing.T) {
 	}
 	require.NoError(t, command.configureChoco())
 
-	addArgs := strings.Join((*calls)[0], " ")
-	assert.NotContains(t, addArgs, "-u=")
-	assert.NotContains(t, addArgs, "-p=")
-	assert.Contains(t, (*calls)[1], "-k=:"+apiKeyToken)
+	const sourceURL = "https://acme.jfrog.io/artifactory/api/nuget/choco-virtual"
+	assert.Equal(t, [][]string{
+		{"choco", "source", "add", "-n=jfrt-acme.jfrog.io-choco-virtual", "-s=" + sourceURL, "--priority=1"},
+		{"choco", "apikey", "add", "-s=" + sourceURL, "-k=:" + apiKeyToken},
+	}, *calls)
 }
 
 func TestConfigureChocoCreatesLocalSourceWithoutPriority(t *testing.T) {

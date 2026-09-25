@@ -3,6 +3,7 @@ package setup
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os/exec"
 	"runtime"
@@ -69,11 +70,19 @@ func chocoSourceDetails(serverDetails *config.ServerDetails, repoName string) (s
 	return sourceURL, user, password, nil
 }
 
-// chocoAPIKey builds the composite key Chocolatey stores for pushes to an Artifactory NuGet
-// endpoint. user is legitimately empty for a reference or API-key access token, which carries no
-// subject to derive a username from.
-func chocoAPIKey(user, password string) string {
-	return user + ":" + password
+// warnOnPlaintextChocoSource notes that the credentials about to be stored on the source will be
+// sent in the clear. The source is still configured: "jf setup nuget" and "jf setup dotnet" both
+// accept plain HTTP sources, and refusing here would put Chocolatey back in the outlier position
+// this command was aligned away from. A loopback host stays quiet - nothing leaves the machine.
+func warnOnPlaintextChocoSource(sourceURL string) {
+	parsedURL, err := url.Parse(sourceURL)
+	if err != nil || !strings.EqualFold(parsedURL.Scheme, "http") {
+		return
+	}
+	if hostname := parsedURL.Hostname(); hostname == "localhost" || net.ParseIP(hostname).IsLoopback() {
+		return
+	}
+	log.Warn("The Artifactory URL uses plain HTTP, so the credentials stored on the Chocolatey source and its API key will be transmitted unencrypted. Use HTTPS instead.")
 }
 
 func chocoSourceName(serverDetails *config.ServerDetails, repoName string) (string, error) {
@@ -150,14 +159,18 @@ func (sc *SetupCommand) configureChoco() error {
 		return err
 	}
 
+	warnOnPlaintextChocoSource(sourceURL)
+
 	addArgs := []string{"source", "add", "-n=" + sourceName, "-s=" + sourceURL}
 	// Chocolatey authenticates reads (install, list, outdated) with the credentials stored on the
 	// source itself, and uses the stored API key only for pushes. Without -u/-p every install from
-	// an authenticated Artifactory repository fails with HTTP 401 while push still succeeds.
-	if user != "" {
-		addArgs = append(addArgs, "-u="+user, "-p="+password)
-	} else {
+	// an authenticated Artifactory repository fails with HTTP 401 while push still succeeds. A
+	// reference or API-key access token carries no subject, so there is no username to send; the
+	// source is still added because the API key alone is enough to push.
+	if user == "" {
 		log.Debug("No username could be derived from the configured credentials, so the Chocolatey source is added without read credentials. 'choco install' from this source will fail if the repository requires authentication.")
+	} else {
+		addArgs = append(addArgs, "-u="+user, "-p="+password)
 	}
 	switch repoClass {
 	case services.VirtualRepositoryRepoType, services.RemoteRepositoryRepoType:
@@ -174,7 +187,7 @@ func (sc *SetupCommand) configureChoco() error {
 	if err = chocoCommandRunner("choco", addArgs...); err != nil {
 		return errorutils.CheckErrorf("failed to add the Artifactory source to Chocolatey. Ensure choco is installed and that this shell is elevated (Administrator)")
 	}
-	if err = chocoCommandRunner("choco", "apikey", "add", "-s="+sourceURL, "-k="+chocoAPIKey(user, password)); err != nil {
+	if err = chocoCommandRunner("choco", "apikey", "add", "-s="+sourceURL, "-k="+user+":"+password); err != nil {
 		return errorutils.CheckErrorf("failed to store the Artifactory API key in Chocolatey for source %q. Ensure this shell is elevated (Administrator)", sourceName)
 	}
 	log.Output(fmt.Sprintf("Chocolatey source name: %s", sourceName))

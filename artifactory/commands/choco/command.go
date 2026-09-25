@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -214,7 +215,7 @@ func (command *ChocoFlexPackCommand) Run() error {
 
 	log.Debug("Running native Chocolatey command: choco " + strings.Join(nativeCommandLine(command.subCommand, redactChocoArgs(command.args)), " "))
 	if err := chocoNativeRunner(nativeArgs); err != nil {
-		return fmt.Errorf("%s failed: %w", chocoCommandLabel(command.subCommand), err)
+		return fmt.Errorf("%s failed: %w", strings.TrimSpace("choco "+command.subCommand), err)
 	}
 	// Build-info is collected only when both --build-name and --build-number are supplied. Neither
 	// flag means a plain passthrough, which is a legitimate way to use 'jf choco'; the half-specified
@@ -738,31 +739,22 @@ func (command *ChocoFlexPackCommand) saveArtifactBuildInfo(buildName, buildNumbe
 // with a non-zero exit after printing its output.
 func nativeCommandLine(subCommand string, args []string) []string {
 	if subCommand == "" {
-		return append([]string(nil), args...)
+		return slices.Clone(args)
 	}
 	return append([]string{subCommand}, args...)
 }
 
-// chocoCommandLabel names the command for user-facing messages, without the stray double space an
-// empty sub-command would otherwise leave behind.
-func chocoCommandLabel(subCommand string) string {
-	if subCommand == "" {
-		return "choco"
-	}
-	return "choco " + subCommand
-}
-
 func setChocoCommandProperty(modules []entities.Module, subCommand string, args []string) {
-	command := nativeCommandLine(subCommand, redactChocoArgs(args))
+	commandLine := strings.Join(nativeCommandLine(subCommand, redactChocoArgs(args)), " ")
 	for index := range modules {
 		modules[index].Properties = map[string]string{
-			entities.BuildInfoEnvPrefix + "CHOCO_COMMAND": strings.Join(command, " "),
+			entities.BuildInfoEnvPrefix + "CHOCO_COMMAND": commandLine,
 		}
 	}
 }
 
 func redactChocoArgs(args []string) []string {
-	redacted := append([]string(nil), args...)
+	redacted := slices.Clone(args)
 	for index, arg := range redacted {
 		lower := strings.ToLower(arg)
 		// Every Chocolatey option that carries a secret: the push API key, the source password
