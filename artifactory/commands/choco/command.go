@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -162,7 +163,7 @@ func (command *ChocoFlexPackCommand) Run() error {
 		warnUnsubstitutedNuspecTokens(command.workingDirectory, command.args)
 	}
 
-	nativeArgs := append([]string{command.subCommand}, command.args...)
+	nativeArgs := nativeCommandLine(command.subCommand, command.args)
 	if command.subCommand == "push" && command.repoDeploy != "" && command.serverDetails != nil {
 		if err := validateExplicitPushSource(command.args, command.repoDeploy, command.serverDetails); err != nil {
 			return err
@@ -177,9 +178,6 @@ func (command *ChocoFlexPackCommand) Run() error {
 		sourceURL, user, password, err := dotnet.GetSourceDetails(command.serverDetails, command.repoDeploy, true)
 		if err != nil {
 			return fmt.Errorf("get Chocolatey source details: %w", err)
-		}
-		if err := dotnet.RequireHTTPSSource(sourceURL); err != nil {
-			return err
 		}
 		// password carries the actual secret (password or access-token); user is only a display
 		// name and is legitimately empty for a reference-token or API-key access-token, which does
@@ -199,9 +197,6 @@ func (command *ChocoFlexPackCommand) Run() error {
 		if err != nil {
 			return fmt.Errorf("get Chocolatey source details: %w", err)
 		}
-		if err := dotnet.RequireHTTPSSource(sourceURL); err != nil {
-			return err
-		}
 		nativeArgs = append(nativeArgs, "-s="+sourceURL)
 		// password carries the actual secret; user is only a display name and may legitimately be
 		// empty for a token that does not encode one (see the push branch above). Anonymous
@@ -218,9 +213,9 @@ func (command *ChocoFlexPackCommand) Run() error {
 		log.Debug("Resolving Chocolatey packages from the JFrog Artifactory source " + sourceURL)
 	}
 
-	log.Debug("Running native Chocolatey command: choco " + strings.Join(append([]string{command.subCommand}, redactChocoArgs(command.args)...), " "))
+	log.Debug("Running native Chocolatey command: choco " + strings.Join(nativeCommandLine(command.subCommand, redactChocoArgs(command.args)), " "))
 	if err := chocoNativeRunner(nativeArgs); err != nil {
-		return fmt.Errorf("choco %s failed: %w", command.subCommand, err)
+		return fmt.Errorf("%s failed: %w", strings.TrimSpace("choco "+command.subCommand), err)
 	}
 	// Build-info is collected only when both --build-name and --build-number are supplied. Neither
 	// flag means a plain passthrough, which is a legitimate way to use 'jf choco'; the half-specified
@@ -738,17 +733,28 @@ func (command *ChocoFlexPackCommand) saveArtifactBuildInfo(buildName, buildNumbe
 	return saveBuildInfoLocally(buildInfo, command.buildConfiguration.GetProject())
 }
 
+// nativeCommandLine builds the argument vector for the native choco binary, prepending subCommand
+// only when there is one. A flag-only pass-through such as `jf choco --version` carries no
+// sub-command, and a leading empty element would reach choco as an empty argument, which it rejects
+// with a non-zero exit after printing its output.
+func nativeCommandLine(subCommand string, args []string) []string {
+	if subCommand == "" {
+		return slices.Clone(args)
+	}
+	return append([]string{subCommand}, args...)
+}
+
 func setChocoCommandProperty(modules []entities.Module, subCommand string, args []string) {
-	command := append([]string{subCommand}, redactChocoArgs(args)...)
+	commandLine := strings.Join(nativeCommandLine(subCommand, redactChocoArgs(args)), " ")
 	for index := range modules {
 		modules[index].Properties = map[string]string{
-			entities.BuildInfoEnvPrefix + "CHOCO_COMMAND": strings.Join(command, " "),
+			entities.BuildInfoEnvPrefix + "CHOCO_COMMAND": commandLine,
 		}
 	}
 }
 
 func redactChocoArgs(args []string) []string {
-	redacted := append([]string(nil), args...)
+	redacted := slices.Clone(args)
 	for index, arg := range redacted {
 		lower := strings.ToLower(arg)
 		// Every Chocolatey option that carries a secret: the push API key, the source password
