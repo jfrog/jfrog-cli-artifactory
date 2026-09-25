@@ -178,6 +178,54 @@ func TestNewUploadProcessor(t *testing.T) {
 	assert.Nil(t, processor.serverDetails)
 }
 
+func TestResolveDefaultDeploymentRepo(t *testing.T) {
+	tests := []struct {
+		name         string
+		repoName     string
+		repoDetails  *conanRepositoryDetails
+		expectedRepo string
+	}{
+		{
+			name:         "nil repo details falls back to original repo",
+			repoName:     "conan",
+			repoDetails:  nil,
+			expectedRepo: "conan",
+		},
+		{
+			name:     "non-virtual repo keeps original repo",
+			repoName: "conan-snapshot-local",
+			repoDetails: &conanRepositoryDetails{
+				RepoType: "local",
+			},
+			expectedRepo: "conan-snapshot-local",
+		},
+		{
+			name:     "virtual repo without default deployment keeps original repo",
+			repoName: "conan",
+			repoDetails: &conanRepositoryDetails{
+				RepoType: "virtual",
+			},
+			expectedRepo: "conan",
+		},
+		{
+			name:     "virtual repo resolves to default deployment repo",
+			repoName: "conan",
+			repoDetails: &conanRepositoryDetails{
+				RepoType:              "virtual",
+				DefaultDeploymentRepo: "conan-snapshot-local",
+			},
+			expectedRepo: "conan-snapshot-local",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolved := resolveDefaultDeploymentRepo(tt.repoName, tt.repoDetails)
+			assert.Equal(t, tt.expectedRepo, resolved)
+		})
+	}
+}
+
 func TestHasFormatFlag(t *testing.T) {
 	tests := []struct {
 		name     string
