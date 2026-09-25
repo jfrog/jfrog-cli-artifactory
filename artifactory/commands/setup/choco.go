@@ -49,24 +49,31 @@ var chocoRepoClassResolver = func(serverDetails *config.ServerDetails, repoName 
 	return repoDetails.GetRepoType(), nil
 }
 
-func chocoSourceDetails(serverDetails *config.ServerDetails, repoName string) (sourceURL, apiKey string, err error) {
+func chocoSourceDetails(serverDetails *config.ServerDetails, repoName string) (sourceURL, user, password string, err error) {
 	if serverDetails == nil {
-		return "", "", errorutils.CheckErrorf("server details are required to configure Chocolatey")
+		return "", "", "", errorutils.CheckErrorf("server details are required to configure Chocolatey")
 	}
 	if repoName == "" {
-		return "", "", errorutils.CheckErrorf("a repository name is required to configure Chocolatey")
+		return "", "", "", errorutils.CheckErrorf("a repository name is required to configure Chocolatey")
 	}
-	sourceURL, user, password, err := dotnet.GetSourceDetails(serverDetails, repoName, true)
+	sourceURL, user, password, err = dotnet.GetSourceDetails(serverDetails, repoName, true)
 	if err != nil {
-		return "", "", fmt.Errorf("get Chocolatey source details: %w", err)
+		return "", "", "", fmt.Errorf("get Chocolatey source details: %w", err)
 	}
 	// password carries the actual secret (password or access-token); user is only a display name
 	// and is legitimately empty for a reference-token or API-key access-token, which does not
 	// encode a subject Chocolatey's API key can be derived from without one.
 	if password == "" {
-		return "", "", errorutils.CheckErrorf("credentials are required to configure Chocolatey authentication")
+		return "", "", "", errorutils.CheckErrorf("credentials are required to configure Chocolatey authentication")
 	}
-	return sourceURL, user + ":" + password, nil
+	return sourceURL, user, password, nil
+}
+
+// chocoAPIKey builds the composite key Chocolatey stores for pushes to an Artifactory NuGet
+// endpoint. user is legitimately empty for a reference or API-key access token, which carries no
+// subject to derive a username from.
+func chocoAPIKey(user, password string) string {
+	return user + ":" + password
 }
 
 func chocoSourceName(serverDetails *config.ServerDetails, repoName string) (string, error) {
@@ -130,7 +137,7 @@ func (sc *SetupCommand) configureChoco() error {
 		return err
 	}
 
-	sourceURL, apiKey, err := chocoSourceDetails(sc.serverDetails, sc.repoName)
+	sourceURL, user, password, err := chocoSourceDetails(sc.serverDetails, sc.repoName)
 	if err != nil {
 		return err
 	}
@@ -144,6 +151,14 @@ func (sc *SetupCommand) configureChoco() error {
 	}
 
 	addArgs := []string{"source", "add", "-n=" + sourceName, "-s=" + sourceURL}
+	// Chocolatey authenticates reads (install, list, outdated) with the credentials stored on the
+	// source itself, and uses the stored API key only for pushes. Without -u/-p every install from
+	// an authenticated Artifactory repository fails with HTTP 401 while push still succeeds.
+	if user != "" {
+		addArgs = append(addArgs, "-u="+user, "-p="+password)
+	} else {
+		log.Debug("No username could be derived from the configured credentials, so the Chocolatey source is added without read credentials. 'choco install' from this source will fail if the repository requires authentication.")
+	}
 	switch repoClass {
 	case services.VirtualRepositoryRepoType, services.RemoteRepositoryRepoType:
 		addArgs = append(addArgs, "--priority=1")
@@ -159,7 +174,7 @@ func (sc *SetupCommand) configureChoco() error {
 	if err = chocoCommandRunner("choco", addArgs...); err != nil {
 		return errorutils.CheckErrorf("failed to add the Artifactory source to Chocolatey. Ensure choco is installed and that this shell is elevated (Administrator)")
 	}
-	if err = chocoCommandRunner("choco", "apikey", "add", "-s="+sourceURL, "-k="+apiKey); err != nil {
+	if err = chocoCommandRunner("choco", "apikey", "add", "-s="+sourceURL, "-k="+chocoAPIKey(user, password)); err != nil {
 		return errorutils.CheckErrorf("failed to store the Artifactory API key in Chocolatey for source %q. Ensure this shell is elevated (Administrator)", sourceName)
 	}
 	log.Output(fmt.Sprintf("Chocolatey source name: %s", sourceName))

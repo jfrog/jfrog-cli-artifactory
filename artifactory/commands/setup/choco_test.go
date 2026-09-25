@@ -21,24 +21,26 @@ func TestChocoSourceDetailsUsesV2URL(t *testing.T) {
 		Password:       "secret",
 	}
 
-	sourceURL, apiKey, err := chocoSourceDetails(serverDetails, "choco-virtual")
+	sourceURL, user, password, err := chocoSourceDetails(serverDetails, "choco-virtual")
 	require.NoError(t, err)
 	assert.Equal(t, "https://acme.jfrog.io/artifactory/api/nuget/choco-virtual", sourceURL)
 	assert.NotContains(t, sourceURL, "/v3/")
 	assert.NotContains(t, sourceURL, "index.json")
-	assert.Equal(t, "john:secret", apiKey)
+	assert.Equal(t, "john", user)
+	assert.Equal(t, "secret", password)
+	assert.Equal(t, "john:secret", chocoAPIKey(user, password))
 }
 
 func TestChocoSourceDetailsValidatesInput(t *testing.T) {
-	_, _, err := chocoSourceDetails(nil, "choco-virtual")
+	_, _, _, err := chocoSourceDetails(nil, "choco-virtual")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "server details")
 
-	_, _, err = chocoSourceDetails(&config.ServerDetails{ArtifactoryUrl: "https://acme.jfrog.io/artifactory/"}, "")
+	_, _, _, err = chocoSourceDetails(&config.ServerDetails{ArtifactoryUrl: "https://acme.jfrog.io/artifactory/"}, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "repository")
 
-	_, _, err = chocoSourceDetails(&config.ServerDetails{ArtifactoryUrl: "https://acme.jfrog.io/artifactory/"}, "choco-virtual")
+	_, _, _, err = chocoSourceDetails(&config.ServerDetails{ArtifactoryUrl: "https://acme.jfrog.io/artifactory/"}, "choco-virtual")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "credentials")
 }
@@ -49,13 +51,15 @@ func TestChocoSourceDetailsValidatesInput(t *testing.T) {
 // which is a valid credential pair even with an empty user.
 func TestChocoSourceDetailsAcceptsTokenOnlyCredentials(t *testing.T) {
 	apiKeyToken := "AKCp8" + strings.Repeat("x", 68)
-	sourceURL, apiKey, err := chocoSourceDetails(&config.ServerDetails{
+	sourceURL, user, password, err := chocoSourceDetails(&config.ServerDetails{
 		ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
 		AccessToken:    apiKeyToken,
 	}, "choco-virtual")
 	require.NoError(t, err)
 	assert.Equal(t, "https://acme.jfrog.io/artifactory/api/nuget/choco-virtual", sourceURL)
-	assert.Equal(t, ":"+apiKeyToken, apiKey)
+	assert.Empty(t, user)
+	assert.Equal(t, apiKeyToken, password)
+	assert.Equal(t, ":"+apiKeyToken, chocoAPIKey(user, password))
 }
 
 func TestChocoSourceName(t *testing.T) {
@@ -113,9 +117,35 @@ func TestConfigureChocoCreatesVirtualSource(t *testing.T) {
 	// No "source remove" beforehand: "source add" is an upsert by name, and removing first would
 	// leave every user on this machine without a working source for the span between the calls.
 	assert.Equal(t, [][]string{
-		{"choco", "source", "add", "-n=jfrt-acme.jfrog.io-choco-virtual", "-s=" + sourceURL, "--priority=1"},
+		{"choco", "source", "add", "-n=jfrt-acme.jfrog.io-choco-virtual", "-s=" + sourceURL,
+			"-u=john", "-p=secret", "--priority=1"},
 		{"choco", "apikey", "add", "-s=" + sourceURL, "-k=john:secret"},
 	}, *calls)
+}
+
+// A reference or API-key access token carries no subject, so there is no username to authenticate
+// reads with. The source must still be added rather than the whole setup failing, because pushes
+// work off the API key alone.
+func TestConfigureChocoTokenWithoutUsernameOmitsReadCredentials(t *testing.T) {
+	calls := stubChocoCommandRunner(t)
+	stubChocoPlatformChecker(t, true)
+	stubChocoRepoClassResolver(t, services.VirtualRepositoryRepoType)
+
+	apiKeyToken := "AKCp8" + strings.Repeat("x", 68)
+	command := &SetupCommand{
+		packageManager: project.Choco,
+		repoName:       "choco-virtual",
+		serverDetails: &config.ServerDetails{
+			ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
+			AccessToken:    apiKeyToken,
+		},
+	}
+	require.NoError(t, command.configureChoco())
+
+	addArgs := strings.Join((*calls)[0], " ")
+	assert.NotContains(t, addArgs, "-u=")
+	assert.NotContains(t, addArgs, "-p=")
+	assert.Contains(t, (*calls)[1], "-k=:"+apiKeyToken)
 }
 
 func TestConfigureChocoCreatesLocalSourceWithoutPriority(t *testing.T) {
@@ -127,7 +157,7 @@ func TestConfigureChocoCreatesLocalSourceWithoutPriority(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"choco", "source", "add", "-n=jfrt-acme.jfrog.io-choco-local",
-		"-s=https://acme.jfrog.io/artifactory/api/nuget/choco-local",
+		"-s=https://acme.jfrog.io/artifactory/api/nuget/choco-local", "-u=john", "-p=secret",
 	}, (*calls)[0])
 }
 
@@ -140,7 +170,8 @@ func TestConfigureChocoCreatesRemoteSourceWithPriority(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"choco", "source", "add", "-n=jfrt-acme.jfrog.io-choco-remote",
-		"-s=https://acme.jfrog.io/artifactory/api/nuget/choco-remote", "--priority=1",
+		"-s=https://acme.jfrog.io/artifactory/api/nuget/choco-remote", "-u=john", "-p=secret",
+		"--priority=1",
 	}, (*calls)[0])
 }
 
