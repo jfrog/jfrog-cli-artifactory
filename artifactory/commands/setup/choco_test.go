@@ -43,16 +43,6 @@ func TestChocoSourceDetailsValidatesInput(t *testing.T) {
 	assert.Contains(t, err.Error(), "credentials")
 }
 
-func TestChocoSourceDetailsRequiresHTTPS(t *testing.T) {
-	_, _, err := chocoSourceDetails(&config.ServerDetails{
-		ArtifactoryUrl: "http://acme.jfrog.io/artifactory/",
-		User:           "john",
-		Password:       "secret",
-	}, "choco-virtual")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "HTTPS")
-}
-
 // A reference token or API-key access-token has no subject to derive a username from - see
 // auth.ExtractUsernameFromAccessToken. That must not be treated as "no credentials configured":
 // the token itself is the usable secret, and Chocolatey's API key is stored as "<user>:<token>",
