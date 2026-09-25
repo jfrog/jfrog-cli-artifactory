@@ -1067,3 +1067,96 @@ func TestRunInjectsCredentialAndCollectsDependencyBuildInfo(t *testing.T) {
 	assert.Contains(t, capturedEnv, "JFROG_PSRESOURCE_USER=john")
 	assert.Contains(t, capturedEnv, "JFROG_PSRESOURCE_TOKEN=sup3rs3cr3t")
 }
+
+// TestResolveInstalledVersionProjectsVersionToString guards a bug that broke every
+// Install-/Save-/Update-PSResource build-info collection outright: PSResourceInfo.Version is a
+// System.Version, not a string, so piping Get-InstalledPSResource straight into ConvertTo-Json
+// emitted {"Version":{"Major":1,"Minor":2,...}} - which no amount of unmarshalling into
+// installedPSResource.Version (a string) can read. The query must project Version to a string in
+// PowerShell first, re-joining the separate Prerelease property the System.Version cannot hold.
+func TestResolveInstalledVersionProjectsVersionToString(t *testing.T) {
+	var capturedScript string
+	restore := stubQueryRunner(t, func(shell, script string) (string, error) {
+		capturedScript = script
+		return `{"Name":"Foo","Version":"2.3.0-beta0"}`, nil
+	})
+	defer restore()
+
+	version, err := resolveInstalledVersion("pwsh", "Foo", "")
+	require.NoError(t, err)
+	assert.Equal(t, "2.3.0-beta0", version, "the prerelease label belongs in the recorded version")
+	assert.NotContains(t, capturedScript, "Get-InstalledPSResource -Name 'Foo' | ConvertTo-Json",
+		"piping PSResourceInfo straight into ConvertTo-Json serialises Version as a System.Version object")
+	assert.Contains(t, capturedScript, "Select-Object", "Version must be projected before serialisation")
+	assert.Contains(t, capturedScript, "$_.Prerelease", "the separate Prerelease property must be re-joined")
+	assert.Contains(t, capturedScript, "ConvertTo-Json", "the output is still read as JSON")
+}
+
+// TestCollectPublishArtifactsPrefersRepoDeploy pins which of the two repository-ish values addresses
+// Artifactory. -Repository names a registered PSResourceGet source, and `jf psresource setup`
+// registers that source as "jfrt-<hostname>-<repo>" - using it as the repository key in the checksum
+// HEAD request looked up a path that cannot exist and reported a successful publish as not found.
+func TestCollectPublishArtifactsPrefersRepoDeploy(t *testing.T) {
+	var requestedPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPath = r.URL.Path
+		w.Header().Set("X-Checksum-Sha256", "sha256value")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	stubResolveShell(t)
+	defer stubStampBuildProperties(t)()
+	buildConfig := &buildutils.BuildConfiguration{}
+	buildConfig.SetBuildName("my-build")
+	buildConfig.SetBuildNumber("1")
+	command := NewPSResourceFlexPackCommand().
+		SetSubCommand(SubCommandPublish).
+		SetArgs([]string{"-Name", "Foo", "-Version", "1.2.3", "-Repository", "jfrt-my-host-psresource-local"}).
+		SetRepoDeploy("psresource-local").
+		SetServerDetails(&config.ServerDetails{ArtifactoryUrl: server.URL + "/artifactory/"}).
+		SetBuildConfiguration(buildConfig).
+		SetWorkingDirectory(t.TempDir())
+
+	require.NoError(t, command.collectPublishArtifacts("my-build", "1", "pwsh"))
+	assert.Contains(t, requestedPath, "/psresource-local/", "the Artifactory repository key must address the checksum request")
+	assert.NotContains(t, requestedPath, "jfrt-", "the PSResourceGet source name is not a repository key")
+}
+
+// TestCollectDependenciesSaveWithoutPathScopesToWorkingDirectory covers the other half of the
+// Save-PSResource scoping fix: -Path is optional ("If no path is provided, the resource is saved in
+// the current directory"), and psresourceNativeRunner runs the cmdlet with its working directory as
+// that current directory. Leaving the query unscoped in this case would search the installed-module
+// set for a package that was only ever downloaded.
+func TestCollectDependenciesSaveWithoutPathScopesToWorkingDirectory(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Checksum-Sha256", "sha256value")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	workingDirectory := t.TempDir()
+	var capturedScript string
+	stubValidatePlatform(t, nil)
+	stubResolveShell(t)
+	restoreQuery := stubQueryRunner(t, func(shell, script string) (string, error) {
+		capturedScript = script
+		return `{"Name":"Foo","Version":"1.2.3"}`, nil
+	})
+	defer restoreQuery()
+
+	buildConfig := &buildutils.BuildConfiguration{}
+	buildConfig.SetBuildName("my-build")
+	buildConfig.SetBuildNumber("1")
+	command := NewPSResourceFlexPackCommand().
+		SetSubCommand(SubCommandSave).
+		SetArgs([]string{"-Name", "Foo"}).
+		SetRepoResolve("myrepo").
+		SetServerDetails(&config.ServerDetails{ArtifactoryUrl: server.URL + "/artifactory/"}).
+		SetBuildConfiguration(buildConfig).
+		SetWorkingDirectory(workingDirectory)
+
+	require.NoError(t, command.collectDependencies("my-build", "1", "pwsh"))
+	assert.Contains(t, capturedScript, setup.QuotePSLiteral(workingDirectory),
+		"a save with no -Path must be looked up in the working directory the cmdlet ran in")
+}

@@ -488,9 +488,14 @@ func firstPositionalValue(args []string) string {
 // fact: identity from -Name/-Version if the caller passed them, otherwise from the module manifest
 // at -Path; checksum from a HEAD request to the path the package must now exist at in Artifactory.
 func (command *PSResourceFlexPackCommand) collectPublishArtifacts(buildName, buildNumber, shell string) error {
-	repo := argValue(command.args, "-Repository")
+	// --repo-deploy is preferred over -Repository because the checksum HEAD request addresses an
+	// Artifactory repository *key*, whereas -Repository names a registered PSResourceGet source -
+	// and `jf psresource setup` registers that source as "jfrt-<hostname>-<repo>" (see
+	// setup.psresourceSourceName), which is not a valid repository key. -Repository is kept only as
+	// a fallback for a source the user registered themselves under the repository key's own name.
+	repo := command.repoDeploy
 	if repo == "" {
-		repo = command.repoDeploy
+		repo = argValue(command.args, "-Repository")
 	}
 	if repo == "" {
 		return fmt.Errorf("cannot determine the target repository for %s build-info: pass -Repository or --repo-deploy", SubCommandPublish)
@@ -649,13 +654,29 @@ func psd1ModuleVersion(shell, manifestPath string) (string, error) {
 }
 
 // installedPSResource is the subset of Get-InstalledPSResource's JSON output this package reads.
+// Both fields are strings because installedVersionProjection normalises them to strings on the
+// PowerShell side - see that constant for why Version cannot be read as one directly.
 type installedPSResource struct {
 	Name    string `json:"Name"`
 	Version string `json:"Version"`
 }
 
+// installedVersionProjection normalises Get-InstalledPSResource's output before it is serialised.
+// PSResourceInfo.Version is a System.Version, not a string, so a bare `| ConvertTo-Json` emits it
+// as an object ({"Major":1,"Minor":2,...}) that cannot be unmarshalled into installedPSResource's
+// string field - which would fail every Install-/Save-/Update-PSResource build-info collection.
+// The prerelease label lives in a separate Prerelease property that System.Version cannot hold
+// ("2.3.0" + "beta0"), so it is re-joined here with the "-" NuGet separator: the full version is
+// what belongs in build-info, and what DerivePublishedPath needs to address the package in
+// Artifactory. Interpolating through "$(...)" also keeps this correct if a future PSResourceGet
+// release ever types Version as a string.
+const installedVersionProjection = ` | Select-Object -Property Name, ` +
+	`@{Name='Version';Expression={ if ($_.Prerelease) { "$($_.Version)-$($_.Prerelease)" } else { "$($_.Version)" } }}` +
+	` | ConvertTo-Json -Compress`
+
 // resolveInstalledVersion asks PSResourceGet which version of name is now installed, via
-// Get-InstalledPSResource | ConvertTo-Json, rather than trusting the version (if any) the caller
+// Get-InstalledPSResource (see installedVersionProjection for how its output is shaped into JSON
+// this package can read), rather than trusting the version (if any) the caller
 // asked for on the command line - Install-/Save-/Update-PSResource can legitimately resolve a
 // different version (e.g. a floating -Version range, or an upgrade), so the build-info must record
 // what was actually installed.
@@ -667,7 +688,7 @@ func resolveInstalledVersion(shell, name, searchPath string) (string, error) {
 	if searchPath != "" {
 		script += " -Path " + setup.QuotePSLiteral(searchPath)
 	}
-	script += " | ConvertTo-Json"
+	script += installedVersionProjection
 	output, err := psresourceQueryRunner(shell, script)
 	if err != nil {
 		return "", err
@@ -741,6 +762,13 @@ func (command *PSResourceFlexPackCommand) collectDependencies(buildName, buildNu
 	if command.subCommand == SubCommandSave {
 		if savePath := argValue(command.args, "-Path"); savePath != "" {
 			searchPath = resolveAgainstWorkingDirectory(command.workingDirectory, savePath)
+		} else {
+			// -Path is optional for Save-PSResource: "If no path is provided, the resource is saved
+			// in the current directory." psresourceNativeRunner runs the cmdlet with
+			// cmd.Dir = command.workingDirectory, so that current directory is the working
+			// directory - leaving searchPath empty here would fall back to the installed-module set
+			// and hit exactly the failure described above.
+			searchPath = command.workingDirectory
 		}
 	}
 
