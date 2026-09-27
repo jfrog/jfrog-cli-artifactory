@@ -15,8 +15,12 @@ import (
 	"time"
 
 	bidotnet "github.com/jfrog/build-info-go/build/utils/dotnet"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/dotnet"
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/golang"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/gradle"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/python"
+	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
+	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils/maven"
 	"github.com/jfrog/jfrog-cli-core/v2/common/format"
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -660,6 +664,77 @@ func TestInspectNuget(t *testing.T) {
 		assert.Equal(t, "nuget-local", status.RepoKey)
 		assert.Equal(t, CredentialsAbsent, status.Credentials)
 	})
+}
+
+// TestInspect_ReadsWhatSetupWrites builds each configuration with the same URL builders and
+// writers `jf setup` uses, so a change to the URLs setup writes fails here rather than only in
+// the jfrog-cli integration tests. Where setup hands the value to the package manager (npm,
+// go, nuget), the test writes what that command stores.
+func TestInspect_ReadsWhatSetupWrites(t *testing.T) {
+	basicServer := statusTestServer()
+	basicServer.User, basicServer.Password = "admin", "secret"
+
+	t.Run("npm", func(t *testing.T) {
+		home := isolateStatusEnv(t)
+		tokenServer := statusTestServer()
+		tokenServer.AccessToken = testCredential()
+		repoURL := commandsutils.GetNpmRepositoryUrl("npm-virtual", tokenServer.ArtifactoryUrl) + "/"
+		authKey, authValue := commandsutils.GetNpmAuthKeyValue(tokenServer, repoURL)
+		writeTestFile(t, filepath.Join(home, ".npmrc"), "registry="+repoURL+"\n"+authKey+"="+authValue+"\n")
+		status, creds := requireStatus(t, project.Npm)
+		assert.Equal(t, StateConfigured, status.State)
+		assert.Equal(t, "npm-virtual", status.RepoKey)
+		assert.Equal(t, storedCredentials{token: tokenServer.AccessToken}, creds)
+	})
+	t.Run("pip", func(t *testing.T) {
+		isolateStatusEnv(t)
+		pipConfig := filepath.Join(t.TempDir(), "pip.conf")
+		t.Setenv("PIP_CONFIG_FILE", pipConfig)
+		repoURL, err := python.GetPypiRepoUrl(basicServer, "pypi-virtual", false)
+		require.NoError(t, err)
+		require.NoError(t, python.CreatePipConfigManually(pipConfig, repoURL))
+		status, creds := requireStatus(t, project.Pip)
+		assert.Equal(t, StateConfigured, status.State)
+		assert.Equal(t, "pypi-virtual", status.RepoKey)
+		assert.Equal(t, storedCredentials{user: "admin", password: "secret"}, creds)
+	})
+	t.Run("go", func(t *testing.T) {
+		isolateStatusEnv(t)
+		goProxy, err := golang.GetArtifactoryRemoteRepoUrl(basicServer, "go-virtual",
+			golang.GoProxyUrlParams{Direct: true, FallbackOnlyIfNotFound: true})
+		require.NoError(t, err)
+		goEnv := filepath.Join(t.TempDir(), "env")
+		writeTestFile(t, goEnv, "GOPROXY="+goProxy+"\n")
+		t.Setenv("GOENV", goEnv)
+		status, creds := requireStatus(t, project.Go)
+		assert.Equal(t, StateConfigured, status.State)
+		assert.Equal(t, "go-virtual", status.RepoKey)
+		assert.Equal(t, storedCredentials{user: "admin", password: "secret"}, creds)
+	})
+	t.Run("maven", func(t *testing.T) {
+		home := isolateStatusEnv(t)
+		settingsXML, err := maven.NewSettingsXmlManagerWithPath(filepath.Join(home, ".m2", "settings.xml"))
+		require.NoError(t, err)
+		require.NoError(t, settingsXML.ConfigureArtifactoryRepository(basicServer.GetArtifactoryUrl(), "maven-virtual", "admin", "secret"))
+		status, creds := requireStatus(t, project.Maven)
+		assert.Equal(t, StateConfigured, status.State)
+		assert.Equal(t, "maven-virtual", status.RepoKey)
+		assert.Equal(t, storedCredentials{user: "admin", password: "secret"}, creds)
+	})
+	for name, useNugetV2 := range map[string]bool{"nuget v3": false, "nuget v2": true} {
+		t.Run(name, func(t *testing.T) {
+			isolateStatusEnv(t)
+			stubTools(t, []string{"dotnet"}, nil)
+			sourceURL, _, _, err := dotnet.GetSourceDetails(basicServer, "nuget-virtual", useNugetV2)
+			require.NoError(t, err)
+			original := getNugetSourceURL
+			t.Cleanup(func() { getNugetSourceURL = original })
+			getNugetSourceURL = func(bidotnet.ToolchainType) (string, bool, error) { return sourceURL, true, nil }
+			status, _ := requireStatus(t, project.Dotnet)
+			assert.Equal(t, StateConfigured, status.State)
+			assert.Equal(t, "nuget-virtual", status.RepoKey)
+		})
+	}
 }
 
 func TestInspectContainers(t *testing.T) {
