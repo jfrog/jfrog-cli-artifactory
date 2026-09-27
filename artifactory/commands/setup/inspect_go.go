@@ -14,14 +14,17 @@ import (
 // installed, and otherwise applies go's own default (GOENV, then the per-user config
 // dir) so the file is still read. An empty path means GOENV=off: there is no such file.
 func goEnvFileForStatus(goFound bool) (string, error) {
-	path := ""
-	if goFound {
+	var path string
+	switch {
+	case goFound:
 		resolved, err := goEnvFilePath()
 		if err != nil {
 			return "", err
 		}
 		path = resolved
-	} else if path = os.Getenv("GOENV"); path == "" {
+	case os.Getenv("GOENV") != "":
+		path = os.Getenv("GOENV")
+	default:
 		configDir, err := os.UserConfigDir()
 		if err != nil {
 			return "", errorutils.CheckError(err)
