@@ -413,7 +413,8 @@ func unmarshalXML(content []byte, v any) error {
 
 // readOptionalFile reads path, treating a missing file as empty.
 func readOptionalFile(path string) (content []byte, exists bool, err error) {
-	content, err = os.ReadFile(path) // #nosec G304 -- path is a package manager config file derived from env/home
+	// #nosec G304 G703 -- path is the package manager's own config file, located the way the package manager does from env/home; status only reads it
+	content, err = os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, false, nil

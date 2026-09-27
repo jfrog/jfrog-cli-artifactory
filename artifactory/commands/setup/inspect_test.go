@@ -79,7 +79,9 @@ func stubTools(t *testing.T, binaries []string, outputs map[string]string) {
 
 func writeTestFile(t *testing.T, path, content string) {
 	t.Helper()
+	// #nosec G703 -- test helper; path is always under t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0700))
+	// #nosec G703 -- test helper; path is always under t.TempDir()
 	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
 }
 
@@ -253,6 +255,7 @@ func TestInspectNpm_CredentialsParsing(t *testing.T) {
 		{"inline comment", []string{scope + "_authToken=tok ; comment"}, storedCredentials{token: "tok"}, true},
 		{"quoted value keeps its semicolon", []string{scope + `_authToken="to;k"`}, storedCredentials{token: "to;k"}, true},
 		{"${VAR?} of an unset variable is empty", []string{scope + "_authToken=${NPM_TEST_UNSET?}"}, storedCredentials{}, false},
+		// #nosec G101 -- False positive - an unexpanded variable reference, not a credential.
 		{"${VAR} of an unset variable stays literal", []string{scope + "_authToken=${NPM_TEST_UNSET}"}, storedCredentials{token: "${NPM_TEST_UNSET}"}, true},
 		{"top-level auth is not used", []string{"_authToken=tok"}, storedCredentials{}, false},
 		{"environment variable in the key", []string{"//${NPM_TEST_HOST}/artifactory/api/npm/npm-virtual/:_authToken=tok"}, storedCredentials{token: "tok"}, true},
@@ -582,6 +585,7 @@ func TestInspectNuget(t *testing.T) {
 		getNugetSourceURL = func(bidotnet.ToolchainType) (string, bool, error) { return sourceURL, enabled, nil }
 	}
 	stubSource := func(t *testing.T, sourceURL string) { stubSourceState(t, sourceURL, true) }
+	// #nosec G101 -- False positive - fake credentials in a test fixture.
 	credentialsConfig := `<?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <packageSourceCredentials>
@@ -754,11 +758,11 @@ func TestProbeRepository(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			var authorization, path string
-			var requests atomic.Int32
+			type request struct{ authorization, path string }
+			// Handed over on a channel: after a timeout the handler is still running.
+			requests := make(chan request, 2)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				requests.Add(1)
-				authorization, path = r.Header.Get("Authorization"), r.URL.Path
+				requests <- request{r.Header.Get("Authorization"), r.URL.Path}
 				time.Sleep(test.delay)
 				if test.status == http.StatusFound {
 					w.Header().Set("Location", "/elsewhere")
@@ -767,9 +771,11 @@ func TestProbeRepository(t *testing.T) {
 			}))
 			defer server.Close()
 			result := probeRepository(&config.ServerDetails{ArtifactoryUrl: server.URL + "/artifactory/"}, "repo", test.creds, test.state)
-			assert.Equal(t, int32(1), requests.Load())
 			assert.Equal(t, test.expected, result)
-			assert.Equal(t, "/artifactory/api/repositories/repo", path)
+			received := <-requests
+			assert.Empty(t, requests, "the probe sends a single request")
+			authorization := received.authorization
+			assert.Equal(t, "/artifactory/api/repositories/repo", received.path)
 			switch {
 			case test.creds.token != "":
 				assert.Equal(t, "Bearer tok", authorization)

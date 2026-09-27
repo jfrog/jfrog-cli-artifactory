@@ -120,6 +120,7 @@ func podmanAuthFile() (string, error) {
 	}
 	if runtimeDir := os.Getenv("XDG_RUNTIME_DIR"); runtime.GOOS == "linux" && runtimeDir != "" {
 		candidate := filepath.Join(runtimeDir, "containers", "auth.json")
+		// #nosec G703 -- Podman's own auth file under XDG_RUNTIME_DIR; only its existence is checked
 		if _, err := os.Stat(candidate); err == nil {
 			return candidate, nil
 		}
