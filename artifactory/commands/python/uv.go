@@ -225,6 +225,12 @@ func GetConfiguredUVIndexURL() (string, error) {
 	return "", nil
 }
 
+// GetUserUVConfigPath returns the user-level uv.toml `jf setup uv` writes, honoring
+// UV_CONFIG_FILE, XDG_CONFIG_HOME and APPDATA.
+func GetUserUVConfigPath() (string, error) {
+	return getUserUVConfigPath()
+}
+
 func getUserUVConfigPath() (string, error) {
 	if configFile := os.Getenv(UVConfigFileEnv); configFile != "" {
 		return configFile, nil
