@@ -187,14 +187,6 @@ func TestGetSourceDetailsTokenWithoutDerivableUsername(t *testing.T) {
 	assert.Equal(t, server.AccessToken, pass)
 }
 
-func TestRequireHTTPSSource(t *testing.T) {
-	assert.NoError(t, RequireHTTPSSource("https://server.com/artifactory/api/nuget/repo-name"))
-
-	err := RequireHTTPSSource("http://server.com/artifactory/api/nuget/repo-name")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "HTTPS")
-}
-
 func TestPrepareDotnetBuildInfoModule(t *testing.T) {
 	t.Run("generated config file", func(t *testing.T) { testPrepareDotnetBuildInfoModule(t, "restore", []string{}, true) })
 	t.Run("existing with configfile flag", func(t *testing.T) {

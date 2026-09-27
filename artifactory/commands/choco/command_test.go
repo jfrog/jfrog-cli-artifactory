@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"syscall"
 	"testing"
@@ -74,6 +75,41 @@ func TestChocoCommandNativeFailureIsWrapped(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "choco install failed")
 	assert.Contains(t, err.Error(), "native failure")
+}
+
+// A flag-only invocation such as `jf choco --version` carries no sub-command. The flags must reach
+// choco on their own: a leading empty argument makes choco print its output and then exit non-zero.
+func TestChocoCommandPassThroughWithoutSubCommand(t *testing.T) {
+	var received []string
+	withFakeChoco(t, func(args []string) error {
+		received = slices.Clone(args)
+		return nil
+	})
+
+	err := NewChocoFlexPackCommand().
+		SetSubCommand("").
+		SetArgs([]string{"--version"}).
+		SetWorkingDirectory(t.TempDir()).
+		Run()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"--version"}, received)
+}
+
+// "choco failed" with a single space is the assertion: an empty sub-command left unhandled would
+// render as "choco  failed", which this Contains would not match.
+func TestChocoCommandNativeFailureWithoutSubCommandIsWrapped(t *testing.T) {
+	withFakeChoco(t, func([]string) error { return errors.New("native failure") })
+
+	err := NewChocoFlexPackCommand().SetSubCommand("").SetWorkingDirectory(t.TempDir()).Run()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "choco failed")
+}
+
+func TestNativeCommandLine(t *testing.T) {
+	assert.Equal(t, []string{"push", "tool.nupkg"}, nativeCommandLine("push", []string{"tool.nupkg"}))
+	assert.Equal(t, []string{"--version"}, nativeCommandLine("", []string{"--version"}))
+	assert.Equal(t, []string{"list"}, nativeCommandLine("list", nil))
+	assert.Empty(t, nativeCommandLine("", nil))
 }
 
 func TestRequestedPackages(t *testing.T) {

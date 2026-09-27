@@ -3,6 +3,7 @@ package setup
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os/exec"
 	"runtime"
@@ -49,27 +50,45 @@ var chocoRepoClassResolver = func(serverDetails *config.ServerDetails, repoName 
 	return repoDetails.GetRepoType(), nil
 }
 
-func chocoSourceDetails(serverDetails *config.ServerDetails, repoName string) (sourceURL, apiKey string, err error) {
+func chocoSourceDetails(serverDetails *config.ServerDetails, repoName string) (sourceURL, user, password string, err error) {
 	if serverDetails == nil {
-		return "", "", errorutils.CheckErrorf("server details are required to configure Chocolatey")
+		return "", "", "", errorutils.CheckErrorf("server details are required to configure Chocolatey")
 	}
 	if repoName == "" {
-		return "", "", errorutils.CheckErrorf("a repository name is required to configure Chocolatey")
+		return "", "", "", errorutils.CheckErrorf("a repository name is required to configure Chocolatey")
 	}
-	sourceURL, user, password, err := dotnet.GetSourceDetails(serverDetails, repoName, true)
+	sourceURL, user, password, err = dotnet.GetSourceDetails(serverDetails, repoName, true)
 	if err != nil {
-		return "", "", fmt.Errorf("get Chocolatey source details: %w", err)
+		return "", "", "", fmt.Errorf("get Chocolatey source details: %w", err)
 	}
-	if err = dotnet.RequireHTTPSSource(sourceURL); err != nil {
-		return "", "", err
-	}
-	// password carries the actual secret (password or access-token); user is only a display name
-	// and is legitimately empty for a reference-token or API-key access-token, which does not
-	// encode a subject Chocolatey's API key can be derived from without one.
 	if password == "" {
-		return "", "", errorutils.CheckErrorf("credentials are required to configure Chocolatey authentication")
+		return "", "", "", errorutils.CheckErrorf("credentials are required to configure Chocolatey authentication")
 	}
-	return sourceURL, user + ":" + password, nil
+	// Chocolatey talks to a NuGet feed over HTTP basic authentication for both reads and pushes, so
+	// it needs a username as well as a secret. A username and password, a username and API key, and
+	// a JWT access token (whose subject is the username) all satisfy that. A reference token does
+	// not: it carries no subject, and jfrog-client-go's own guidance for that case is to supply a
+	// username. Failing here beats adding a credential-less source that only breaks later, as an
+	// unexplained 401 from the first "choco install".
+	if user == "" {
+		return "", "", "", errorutils.CheckErrorf("a username is required to configure Chocolatey. Chocolatey authenticates to Artifactory with basic authentication, and the configured access token carries no username. Re-run 'jf c add' with a username, or use a JWT access token")
+	}
+	return sourceURL, user, password, nil
+}
+
+// warnOnPlaintextChocoSource notes that the credentials about to be stored on the source will be
+// sent in the clear. The source is still configured: "jf setup nuget" and "jf setup dotnet" both
+// accept plain HTTP sources, and refusing here would put Chocolatey back in the outlier position
+// this command was aligned away from. A loopback host stays quiet - nothing leaves the machine.
+func warnOnPlaintextChocoSource(sourceURL string) {
+	parsedURL, err := url.Parse(sourceURL)
+	if err != nil || !strings.EqualFold(parsedURL.Scheme, "http") {
+		return
+	}
+	if hostname := parsedURL.Hostname(); hostname == "localhost" || net.ParseIP(hostname).IsLoopback() {
+		return
+	}
+	log.Warn("The Artifactory URL uses plain HTTP, so the credentials stored on the Chocolatey source and its API key will be transmitted unencrypted. Use HTTPS instead.")
 }
 
 func chocoSourceName(serverDetails *config.ServerDetails, repoName string) (string, error) {
@@ -133,7 +152,7 @@ func (sc *SetupCommand) configureChoco() error {
 		return err
 	}
 
-	sourceURL, apiKey, err := chocoSourceDetails(sc.serverDetails, sc.repoName)
+	sourceURL, user, password, err := chocoSourceDetails(sc.serverDetails, sc.repoName)
 	if err != nil {
 		return err
 	}
@@ -146,7 +165,13 @@ func (sc *SetupCommand) configureChoco() error {
 		return err
 	}
 
+	warnOnPlaintextChocoSource(sourceURL)
+
 	addArgs := []string{"source", "add", "-n=" + sourceName, "-s=" + sourceURL}
+	// Chocolatey keeps two separate credential stores: the source's own -u/-p authenticates reads
+	// (install, list, outdated), while the API key below is used only for pushes. Setting just one
+	// of them is what made push succeed while every install returned HTTP 401.
+	addArgs = append(addArgs, "-u="+user, "-p="+password)
 	switch repoClass {
 	case services.VirtualRepositoryRepoType, services.RemoteRepositoryRepoType:
 		addArgs = append(addArgs, "--priority=1")
@@ -162,7 +187,7 @@ func (sc *SetupCommand) configureChoco() error {
 	if err = chocoCommandRunner("choco", addArgs...); err != nil {
 		return errorutils.CheckErrorf("failed to add the Artifactory source to Chocolatey. Ensure choco is installed and that this shell is elevated (Administrator)")
 	}
-	if err = chocoCommandRunner("choco", "apikey", "add", "-s="+sourceURL, "-k="+apiKey); err != nil {
+	if err = chocoCommandRunner("choco", "apikey", "add", "-s="+sourceURL, "-k="+user+":"+password); err != nil {
 		return errorutils.CheckErrorf("failed to store the Artifactory API key in Chocolatey for source %q. Ensure this shell is elevated (Administrator)", sourceName)
 	}
 	log.Output(fmt.Sprintf("Chocolatey source name: %s", sourceName))
