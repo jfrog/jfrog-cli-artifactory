@@ -275,13 +275,14 @@ func listNugetSources(cmdType dotnet.ToolchainType, listFormat string) (string, 
 }
 
 // IsNugetSourceEnabled reads the short source list, where each line is a state flag
-// ("E" enabled or "D" disabled, optionally followed by M/O markers) and the source URL.
+// ("E" enabled or "D" disabled, optionally followed by M/O markers) and the source, which
+// is a local folder path when it is not a URL and so may contain spaces.
 // A source missing from the list is treated as enabled.
 func IsNugetSourceEnabled(shortOutput, sourceURL string) bool {
 	for _, line := range strings.Split(strings.ReplaceAll(shortOutput, "\r\n", "\n"), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 2 && strings.EqualFold(fields[1], sourceURL) {
-			return !strings.HasPrefix(strings.ToUpper(fields[0]), "D")
+		flag, source, found := strings.Cut(strings.TrimSpace(line), " ")
+		if found && strings.EqualFold(strings.TrimSpace(source), sourceURL) {
+			return !strings.HasPrefix(strings.ToUpper(flag), "D")
 		}
 	}
 	return true

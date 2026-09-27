@@ -708,6 +708,55 @@ func TestInspectContainers(t *testing.T) {
 	}
 }
 
+func TestPodmanAuthFiles(t *testing.T) {
+	home := isolateStatusEnv(t)
+	containersAuth := filepath.Join(home, ".config", "containers", "auth.json")
+	dockerConfig := filepath.Join(home, ".docker", "config.json")
+
+	runtimeDir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	files, err := podmanAuthFiles("linux")
+	require.NoError(t, err)
+	assert.Equal(t, []string{filepath.Join(runtimeDir, "containers", "auth.json"), containersAuth, dockerConfig}, files)
+
+	files, err = podmanAuthFiles("darwin")
+	require.NoError(t, err)
+	assert.Equal(t, []string{containersAuth, dockerConfig}, files, "off Linux the primary file is the per-user one")
+
+	custom := filepath.Join(t.TempDir(), "auth.json")
+	t.Setenv("REGISTRY_AUTH_FILE", custom)
+	files, err = podmanAuthFiles("linux")
+	require.NoError(t, err)
+	assert.Equal(t, []string{custom}, files, "REGISTRY_AUTH_FILE is the only file searched")
+}
+
+func TestInspectPodman_SearchesFallbackFiles(t *testing.T) {
+	basic := base64.StdEncoding.EncodeToString([]byte("admin:secret"))
+	setup := func(t *testing.T) (primary, dockerConfig string) {
+		home := isolateStatusEnv(t)
+		t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+		files, err := podmanAuthFiles(runtime.GOOS)
+		require.NoError(t, err)
+		return files[0], filepath.Join(home, ".docker", "config.json")
+	}
+	t.Run("login only in the Docker config", func(t *testing.T) {
+		primary, dockerConfig := setup(t)
+		writeTestFile(t, primary, `{"auths":{"quay.io":{"auth":"eA=="}}}`)
+		writeTestFile(t, dockerConfig, `{"auths":{"acme.jfrog.io":{"auth":"`+basic+`"}}}`)
+		status, creds := requireStatus(t, project.Podman)
+		assert.Equal(t, StateConfigured, status.State)
+		assert.Equal(t, dockerConfig, status.Location)
+		assert.Equal(t, storedCredentials{user: "admin", password: "secret"}, creds)
+	})
+	t.Run("no login anywhere reports the primary file", func(t *testing.T) {
+		primary, dockerConfig := setup(t)
+		writeTestFile(t, dockerConfig, `{"auths":{"quay.io":{"auth":"eA=="}}}`)
+		status, _ := requireStatus(t, project.Podman)
+		assert.Equal(t, StateNotConfigured, status.State)
+		assert.Equal(t, primary, status.Location)
+	})
+}
+
 func TestHelmRegistryConfigFallback(t *testing.T) {
 	home := isolateStatusEnv(t)
 	helmHome := filepath.Join(home, "helm-home")
@@ -740,7 +789,7 @@ func TestProbeRepository(t *testing.T) {
 		{"rejected credentials", http.StatusUnauthorized, 0, storedCredentials{user: "u", password: "p"}, CredentialsPresent,
 			DeepStatus{AuthOk: ProbeFalse, Error: "the stored credentials were rejected (HTTP 401)"}},
 		{"forbidden", http.StatusForbidden, 0, storedCredentials{basicAuth: "dTpw"}, CredentialsPresent,
-			DeepStatus{AuthOk: ProbeFalse, Error: "the stored credentials were rejected (HTTP 403)"}},
+			DeepStatus{AuthOk: ProbeFalse, Error: "the stored credentials are not allowed to read repository repo (HTTP 403)"}},
 		{"anonymous rejected", http.StatusUnauthorized, 0, storedCredentials{}, CredentialsAbsent,
 			DeepStatus{AuthOk: ProbeUnknown, Error: "the server requires credentials and none are stored (HTTP 401)"}},
 		{"unreadable credentials rejected", http.StatusUnauthorized, 0, storedCredentials{}, CredentialsUnknown,

@@ -28,4 +28,6 @@ func TestIsNugetSourceEnabled(t *testing.T) {
 	assert.True(t, IsNugetSourceEnabled("E "+source+"\n", source))
 	assert.True(t, IsNugetSourceEnabled("EM "+source+"\n", source))
 	assert.True(t, IsNugetSourceEnabled("EO https://api.nuget.org/v3/index.json\n", source), "a source missing from the list counts as enabled")
+	const folder = `C:\My Packages`
+	assert.False(t, IsNugetSourceEnabled("D  "+folder+"\n", folder), "a local folder source may contain spaces")
 }

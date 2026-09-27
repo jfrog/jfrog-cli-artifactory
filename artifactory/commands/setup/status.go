@@ -161,8 +161,9 @@ func probeRepository(serverDetails *config.ServerDetails, repoKey string, creds 
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		log.Debug("Setup status deep probe failed:", err.Error())
-		return DeepStatus{AuthOk: ProbeUnknown, Error: probeErrorMessage(err)}
+		message := probeErrorMessage(err)
+		log.Debug("Setup status deep probe failed:", message)
+		return DeepStatus{AuthOk: ProbeUnknown, Error: message}
 	}
 	defer func() { _ = response.Body.Close() }()
 
@@ -174,6 +175,10 @@ func probeRepository(serverDetails *config.ServerDetails, repoKey string, creds 
 		}
 		return DeepStatus{RepoReachable: true, AuthOk: ProbeUnknown}
 	case http.StatusUnauthorized, http.StatusForbidden:
+		if authenticated && code == http.StatusForbidden {
+			// Recognised but not permitted: the package manager cannot read the repository either.
+			return DeepStatus{AuthOk: ProbeFalse, Error: fmt.Sprintf("the stored credentials are not allowed to read repository %s (HTTP %d)", repoKey, code)}
+		}
 		if authenticated {
 			return DeepStatus{AuthOk: ProbeFalse, Error: fmt.Sprintf("the stored credentials were rejected (HTTP %d)", code)}
 		}

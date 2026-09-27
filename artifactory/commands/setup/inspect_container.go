@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
@@ -112,36 +113,66 @@ func inspectDocker(serverDetails *config.ServerDetails) (inspection, error) {
 	return inspectContainerAuth(filepath.Join(configDir, "config.json"), binaryFound("docker"), serverDetails)
 }
 
-// podmanAuthFile applies Podman's lookup order: REGISTRY_AUTH_FILE, then the runtime
-// directory on Linux, then the per-user config directory.
-func podmanAuthFile() (string, error) {
+// podmanAuthFiles returns the files Podman searches for a registry's login, in its own
+// order (containers/image getAuthFilePaths): REGISTRY_AUTH_FILE alone when set; otherwise
+// the primary auth file `podman login` writes, then $XDG_CONFIG_HOME/containers/auth.json,
+// then Docker's config.json. The legacy ~/.dockercfg, in an older format, is not read.
+func podmanAuthFiles(goos string) ([]string, error) {
 	if custom := os.Getenv("REGISTRY_AUTH_FILE"); custom != "" {
-		return filepath.Clean(custom), nil
+		return []string{filepath.Clean(custom)}, nil
 	}
-	if runtimeDir := os.Getenv("XDG_RUNTIME_DIR"); runtime.GOOS == "linux" && runtimeDir != "" {
-		candidate := filepath.Join(runtimeDir, "containers", "auth.json")
-		// #nosec G703 -- Podman's own auth file under XDG_RUNTIME_DIR; only its existence is checked
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate, nil
-		}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, errorutils.CheckError(err)
+	}
+	var primary string
+	switch {
+	case goos != "linux":
+		primary = filepath.Join(home, ".config", "containers", "auth.json")
+	case os.Getenv("XDG_RUNTIME_DIR") != "":
+		primary = filepath.Join(os.Getenv("XDG_RUNTIME_DIR"), "containers", "auth.json")
+	default:
+		primary = filepath.Join("/run", "containers", strconv.Itoa(os.Getuid()), "auth.json")
 	}
 	configHome := os.Getenv("XDG_CONFIG_HOME")
 	if configHome == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", errorutils.CheckError(err)
-		}
 		configHome = filepath.Join(home, ".config")
 	}
-	return filepath.Join(configHome, "containers", "auth.json"), nil
+	dockerConfig := os.Getenv("DOCKER_CONFIG")
+	if dockerConfig == "" {
+		dockerConfig = filepath.Join(home, ".docker")
+	}
+	files := []string{primary}
+	for _, candidate := range []string{filepath.Join(configHome, "containers", "auth.json"), filepath.Join(dockerConfig, "config.json")} {
+		if !slices.Contains(files, candidate) {
+			files = append(files, candidate)
+		}
+	}
+	return files, nil
 }
 
+// inspectPodman reports the first file, in Podman's search order, that holds a login for
+// the server's registry. When none does, it reports the primary file `podman login` writes.
 func inspectPodman(serverDetails *config.ServerDetails) (inspection, error) {
-	path, err := podmanAuthFile()
+	files, err := podmanAuthFiles(runtime.GOOS)
 	if err != nil {
 		return inspection{}, err
 	}
-	return inspectContainerAuth(path, binaryFound("podman"), serverDetails)
+	found := binaryFound("podman")
+	var primary inspection
+	for i, path := range files {
+		result, err := inspectContainerAuth(path, found, serverDetails)
+		if err != nil {
+			return inspection{}, err
+		}
+		if result.status.State == StateConfigured {
+			return result, nil
+		}
+		if i == 0 {
+			primary = result
+		}
+	}
+	return primary, nil
 }
 
 // helmRegistryConfig returns the registry config `helm registry login` writes:
