@@ -99,6 +99,9 @@ var packageManagerConfigs = map[project.ProjectType]packageManagerConfig{
 	project.UV:     {location: "your user-level uv configuration (uv.toml)", overrideEnv: python.UVConfigFileEnv},
 	project.Nuget:  {location: "your user-level NuGet configuration (NuGet.Config)"},
 	project.Dotnet: {location: "your user-level NuGet configuration (NuGet.Config)"},
+	// PSResourceGet has no environment-variable override for where PSResourceRepository.xml lives,
+	// unlike, say, pip's PIP_CONFIG_FILE or Go's GOENV.
+	project.PSResource: {location: "your user-level PSResourceGet configuration (PSResourceRepository.xml)"},
 	// `go env -w` writes to the file GOENV points at, defaulting to the per-user Go env file.
 	project.Go: {location: "your user-level Go environment (GOPROXY in your Go env file)", overrideEnv: "GOENV"},
 	// gradle.WriteInitScript drops the script under GRADLE_USER_HOME when it is set.
@@ -166,6 +169,9 @@ var packageManagerToRepositoryPackageType = map[project.ProjectType]string{
 	project.Nuget:  repository.Nuget,
 	project.Dotnet: repository.Nuget,
 	project.Choco:  repository.Nuget,
+	// PSResourceGet feeds are backed by a NuGet repository - Artifactory has no distinct
+	// PowerShell package type.
+	project.PSResource: repository.Nuget,
 
 	// Docker package managers
 	project.Docker: repository.Docker,
@@ -281,6 +287,11 @@ func (sc *SetupCommand) Run() (err error) {
 			return err
 		}
 	}
+	if sc.packageManager == project.PSResource {
+		if err = ValidatePSResourcePlatform(); err != nil {
+			return err
+		}
+	}
 
 	// If the repository name is not provided, and the package manager is not Docker or Podman, prompt the user to select a repository.
 	// Docker and Podman do not require a repository name as they authenticate directly with the platform and require the repository name as part of the image name.
@@ -320,6 +331,8 @@ func (sc *SetupCommand) Run() (err error) {
 		err = sc.configureDotnetNuget()
 	case project.Choco:
 		err = sc.configureChoco()
+	case project.PSResource:
+		err = sc.configurePSResource()
 	case project.Docker, project.Podman:
 		err = sc.configureContainer()
 	case project.Helm:
