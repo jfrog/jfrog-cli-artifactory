@@ -73,23 +73,18 @@ func inspectGo(serverDetails *config.ServerDetails) (inspection, error) {
 	return result, nil
 }
 
-// classifyGoProxy uses the first GOPROXY entry that points at the server. Without one,
-// the first entry that is not a public default decides between other-host and
-// not-configured.
+// classifyGoProxy decides from the first GOPROXY entry only: go does not try a later entry
+// until the first one fails, so a server listed after another proxy (or after "direct")
+// is not the one go resolves through.
 func classifyGoProxy(result *inspection, goProxy string, serverDetails *config.ServerDetails) {
 	entries := splitGoProxy(goProxy)
-	goRepoKey := func(rest string) string { return repoKeyAfter(rest, "api", "go") }
-	for _, entry := range entries {
-		if matched, _ := matchServerURL(entry, serverDetails); matched {
-			result.status.State, result.status.Host, result.status.RepoKey = classify(project.Go, entry, serverDetails, goRepoKey)
-			applyURLCredentials(result, entry, CredentialsAbsent)
-			return
-		}
+	if len(entries) == 0 {
+		return
 	}
-	for _, entry := range entries {
-		if state, host, _ := classify(project.Go, entry, serverDetails, nil); state == StateOtherHost {
-			result.status.State, result.status.Host = state, host
-			return
-		}
+	first := entries[0]
+	goRepoKey := func(rest string) string { return repoKeyAfter(rest, "api", "go") }
+	result.status.State, result.status.Host, result.status.RepoKey = classify(project.Go, first, serverDetails, goRepoKey)
+	if result.status.State == StateConfigured {
+		applyURLCredentials(result, first, CredentialsAbsent)
 	}
 }

@@ -483,9 +483,11 @@ func TestInspectGo(t *testing.T) {
 		host    string
 	}{
 		{"empty", "", StateNotConfigured, "", ""},
-		{"public default", "https://proxy.golang.org,direct", StateNotConfigured, "", ""},
+		{"public default", "https://proxy.golang.org,direct", StateNotConfigured, "", "proxy.golang.org"},
 		{"configured", "https://u:tok@acme.jfrog.io/artifactory/api/go/go-virtual,direct", StateConfigured, "go-virtual", "acme.jfrog.io"},
-		{"configured after another entry", "https://goproxy.example.com|https://acme.jfrog.io/artifactory/api/go/go-remote", StateConfigured, "go-remote", "acme.jfrog.io"},
+		{"server after another proxy", "https://goproxy.example.com|https://acme.jfrog.io/artifactory/api/go/go-remote", StateOtherHost, "", "goproxy.example.com"},
+		{"server after direct", "direct,https://acme.jfrog.io/artifactory/api/go/go-remote", StateNotConfigured, "", ""},
+		{"server after the public default", "https://proxy.golang.org,https://acme.jfrog.io/artifactory/api/go/go-remote", StateNotConfigured, "", "proxy.golang.org"},
 		{"other host", "https://goproxy.example.com,direct", StateOtherHost, "", "goproxy.example.com"},
 	}
 	for _, test := range tests {
@@ -739,26 +741,35 @@ func TestInspect_ReadsWhatSetupWrites(t *testing.T) {
 
 func TestInspectContainers(t *testing.T) {
 	basic := base64.StdEncoding.EncodeToString([]byte("admin:secret"))
+	serverLogin := `{"https://acme.jfrog.io":"admin"}`
+	otherLogin := `{"https://index.docker.io/v1/":"someone"}`
 	tests := []struct {
 		name        string
 		authFile    string
+		tools       map[string]string
 		state       ConfigState
 		credentials CredentialsState
 		creds       storedCredentials
 	}{
-		{"missing file", "", StateNotConfigured, CredentialsNotApplicable, storedCredentials{}},
-		{"other registries only", `{"auths":{"https://index.docker.io/v1/":{"auth":"eA=="}}}`, StateNotConfigured, CredentialsNotApplicable, storedCredentials{}},
-		{"inline auth", `{"auths":{"acme.jfrog.io":{"auth":"` + basic + `"}}}`, StateConfigured, CredentialsPresent, storedCredentials{user: "admin", password: "secret"}},
-		{"credential store", `{"auths":{"https://acme.jfrog.io":{}},"credsStore":"desktop"}`, StateConfigured, CredentialsPresent, storedCredentials{}},
-		{"credential helper", `{"credHelpers":{"acme.jfrog.io":"ecr-login"}}`, StateConfigured, CredentialsPresent, storedCredentials{}},
-		{"scheme and default port", `{"auths":{"https://acme.jfrog.io:443/v1/":{"auth":"` + basic + `"}}}`, StateConfigured, CredentialsPresent, storedCredentials{user: "admin", password: "secret"}},
-		{"duplicate keys prefer the one with a secret", `{"auths":{"https://acme.jfrog.io/v1/":{},"https://acme.jfrog.io":{"auth":"` + basic + `"}}}`, StateConfigured, CredentialsPresent, storedCredentials{user: "admin", password: "secret"}},
-		{"bare host wins", `{"auths":{"acme.jfrog.io":{},"https://acme.jfrog.io":{"auth":"` + basic + `"}}}`, StateConfigured, CredentialsAbsent, storedCredentials{}},
+		{"missing file", "", nil, StateNotConfigured, CredentialsNotApplicable, storedCredentials{}},
+		{"other registries only", `{"auths":{"https://index.docker.io/v1/":{"auth":"eA=="}}}`, nil, StateNotConfigured, CredentialsNotApplicable, storedCredentials{}},
+		{"inline auth", `{"auths":{"acme.jfrog.io":{"auth":"` + basic + `"}}}`, nil, StateConfigured, CredentialsPresent, storedCredentials{user: "admin", password: "secret"}},
+		{"credential store", `{"auths":{"https://acme.jfrog.io":{}},"credsStore":"desktop"}`, nil, StateConfigured, CredentialsPresent, storedCredentials{}},
+		{"credential store without an auths entry", `{"auths":{},"credsStore":"osxkeychain"}`, map[string]string{"docker-credential-osxkeychain list": serverLogin}, StateConfigured, CredentialsPresent, storedCredentials{}},
+		{"credential store without this server", `{"credsStore":"osxkeychain"}`, map[string]string{"docker-credential-osxkeychain list": otherLogin}, StateNotConfigured, CredentialsNotApplicable, storedCredentials{}},
+		{"credential store that cannot run", `{"credsStore":"osxkeychain"}`, nil, StateNotConfigured, CredentialsNotApplicable, storedCredentials{}},
+		{"credential store with a path is not run", `{"credsStore":"../evil"}`, map[string]string{"docker-credential-../evil list": serverLogin}, StateNotConfigured, CredentialsNotApplicable, storedCredentials{}},
+		{"credential helper", `{"credHelpers":{"acme.jfrog.io":"ecr-login"}}`, map[string]string{"docker-credential-ecr-login list": serverLogin}, StateConfigured, CredentialsPresent, storedCredentials{}},
+		{"credential helper without this server", `{"credHelpers":{"acme.jfrog.io":"ecr-login"}}`, map[string]string{"docker-credential-ecr-login list": otherLogin}, StateNotConfigured, CredentialsNotApplicable, storedCredentials{}},
+		{"scheme and default port", `{"auths":{"https://acme.jfrog.io:443/v1/":{"auth":"` + basic + `"}}}`, nil, StateConfigured, CredentialsPresent, storedCredentials{user: "admin", password: "secret"}},
+		{"duplicate keys prefer the one with a secret", `{"auths":{"https://acme.jfrog.io/v1/":{},"https://acme.jfrog.io":{"auth":"` + basic + `"}}}`, nil, StateConfigured, CredentialsPresent, storedCredentials{user: "admin", password: "secret"}},
+		{"bare host wins", `{"auths":{"acme.jfrog.io":{},"https://acme.jfrog.io":{"auth":"` + basic + `"}}}`, nil, StateConfigured, CredentialsAbsent, storedCredentials{}},
 	}
 	for _, packageManager := range []project.ProjectType{project.Docker, project.Podman, project.Helm} {
 		for _, test := range tests {
 			t.Run(packageManager.String()+"/"+test.name, func(t *testing.T) {
 				isolateStatusEnv(t)
+				stubTools(t, nil, test.tools)
 				authPath := filepath.Join(t.TempDir(), "auth.json")
 				switch packageManager {
 				case project.Docker:

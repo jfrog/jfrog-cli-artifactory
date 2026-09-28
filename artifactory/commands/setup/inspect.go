@@ -180,7 +180,8 @@ func binaryFound(names ...string) bool {
 
 // GetStatus reports whether the user-level configuration `jf setup` writes for
 // packageManager points at the given server. It reads files and may run the package
-// manager's binary, but never prompts and never contacts the network.
+// manager's binary or a container credential helper's list action, but never prompts
+// and never contacts the network.
 func GetStatus(packageManager project.ProjectType, serverDetails *config.ServerDetails) (PackageManagerStatus, error) {
 	result, err := inspect(packageManager, serverDetails)
 	return result.status, err

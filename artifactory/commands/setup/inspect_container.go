@@ -44,12 +44,17 @@ func inspectContainerAuth(path string, found bool, serverDetails *config.ServerD
 	}
 	for key, helper := range authFile.CredHelpers {
 		if helper != "" && matchServerHost(key, serverDetails) {
-			result.status.State, result.status.Host, result.status.Credentials = StateConfigured, serverHost, CredentialsPresent
+			applyHelperLogin(&result, helper, serverHost, serverDetails)
 			return result, nil
 		}
 	}
 	key, ok := containerAuthKey(authFile, serverHost, serverDetails)
 	if !ok {
+		// helm registry login keeps the login only in the native credential store it
+		// detects (osxkeychain, wincred, ...) and writes no auths entry.
+		if authFile.CredsStore != "" {
+			applyHelperLogin(&result, authFile.CredsStore, serverHost, serverDetails)
+		}
 		return result, nil
 	}
 	entry := authFile.Auths[key]
@@ -59,7 +64,7 @@ func inspectContainerAuth(path string, found bool, serverDetails *config.ServerD
 		result.status.Credentials = CredentialsPresent
 		result.credentials = decodeContainerAuth(entry.Auth)
 	case entry.IdentityToken != "", authFile.CredsStore != "":
-		// The secret lives in a credential helper, which status does not run.
+		// The secret lives in a credential helper; the entry records the login.
 		result.status.Credentials = CredentialsPresent
 	default:
 		result.status.Credentials = CredentialsAbsent
@@ -90,6 +95,29 @@ func containerAuthKey(authFile containerAuthFile, serverHost string, serverDetai
 		}
 	}
 	return matching[0], true
+}
+
+// applyHelperLogin marks the server's registry configured when the credential helper holds
+// a login for it. It runs the helper's list action, which returns server URLs and user
+// names but never secrets, and does not prompt.
+func applyHelperLogin(result *inspection, helper, serverHost string, serverDetails *config.ServerDetails) {
+	if strings.ContainsAny(helper, `/\`) {
+		return
+	}
+	out, err := runTool("docker-credential-"+helper, "list")
+	if err != nil {
+		return
+	}
+	var logins map[string]string
+	if json.Unmarshal(out, &logins) != nil {
+		return
+	}
+	for serverURL := range logins {
+		if matchServerHost(serverURL, serverDetails) {
+			result.status.State, result.status.Host, result.status.Credentials = StateConfigured, serverHost, CredentialsPresent
+			return
+		}
+	}
 }
 
 func decodeContainerAuth(encoded string) storedCredentials {
