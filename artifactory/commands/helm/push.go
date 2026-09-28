@@ -185,8 +185,8 @@ func splitOCIChartPath(ociChartPath string) (path, name string) {
 func resolvePropertiesRepository(serviceManager artifactory.ArtifactoryServicesManager, repoName string) string {
 	repoDetails := &services.VirtualRepositoryBaseParams{}
 	if err := serviceManager.GetRepository(repoName, repoDetails); err != nil {
-		log.Debug("Could not resolve repository details for '", repoName, "', proceeding with it as-is for setting build properties: ", err)
-		return repoName
+		log.Warn("Could not resolve repository details for '", repoName, "'; skipping build properties on the manifest folder: ", err)
+		return ""
 	}
 	if repoDetails.Rclass != services.VirtualRepositoryRepoType {
 		return repoName
