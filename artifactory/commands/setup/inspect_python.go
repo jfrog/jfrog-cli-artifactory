@@ -1,8 +1,10 @@
 package setup
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/python"
@@ -75,7 +77,8 @@ func pipOverrides(userConfig string) []ConfigOverride {
 }
 
 func inspectUV(serverDetails *config.ServerDetails) (inspection, error) {
-	result := newInspection(binaryFound("uv"))
+	found := binaryFound("uv")
+	result := newInspection(found)
 	configPath, err := python.GetUserUVConfigPath()
 	if err != nil {
 		return inspection{}, err
@@ -86,15 +89,82 @@ func inspectUV(serverDetails *config.ServerDetails) (inspection, error) {
 		return inspection{}, err
 	}
 	result.status.State, result.status.Host, result.status.RepoKey = classify(project.UV, indexURL, serverDetails, pypiRepoKey)
-	// `jf setup uv` stores credentials with `uv auth login`, in a store status cannot read.
+	// `jf setup uv` stores credentials with `uv auth login`. Without a login in uv's
+	// plaintext store they may still be in the system keyring, which status cannot read.
 	applyURLCredentials(&result, indexURL, CredentialsUnknown)
+	if found && result.status.Credentials == CredentialsUnknown {
+		if creds, ok := uvStoredLogin(indexURL); ok {
+			result.status.Credentials, result.credentials = CredentialsPresent, creds
+		}
+	}
 	result.status.OverriddenBy = uvOverrides(configPath)
 	return result, nil
 }
 
+// uvCredentialStore is the plaintext credentials.toml `uv auth login` writes by default.
+type uvCredentialStore struct {
+	Credential []struct {
+		Service  string `toml:"service"`
+		Username string `toml:"username"`
+		Scheme   string `toml:"scheme"`
+		Password string `toml:"password"`
+	} `toml:"credential"`
+}
+
+// uvStoredLogin finds the login uv sends to indexURL: the basic-auth entry whose service
+// has the same scheme and host and the longest path that prefixes the index path. An
+// unreadable store counts as no login.
+func uvStoredLogin(indexURL string) (storedCredentials, bool) {
+	index, err := url.Parse(indexURL)
+	if err != nil {
+		return storedCredentials{}, false
+	}
+	out, err := runTool("uv", "auth", "dir")
+	if err != nil || strings.TrimSpace(string(out)) == "" {
+		return storedCredentials{}, false
+	}
+	content, exists, err := readOptionalFile(filepath.Join(strings.TrimSpace(string(out)), "credentials.toml"))
+	if err != nil || !exists {
+		return storedCredentials{}, false
+	}
+	var store uvCredentialStore
+	if _, err = toml.Decode(string(content), &store); err != nil {
+		return storedCredentials{}, false
+	}
+	indexEndpoint, ok := normalizeEndpoint(indexURL)
+	if !ok {
+		return storedCredentials{}, false
+	}
+	var best storedCredentials
+	bestPathLen := -1
+	for _, entry := range store.Credential {
+		service, parseErr := url.Parse(entry.Service)
+		if parseErr != nil || (entry.Scheme != "" && entry.Scheme != "basic") || entry.Password == "" ||
+			!strings.EqualFold(service.Scheme, index.Scheme) {
+			continue
+		}
+		if urlUser := index.User.Username(); urlUser != "" && urlUser != entry.Username {
+			continue
+		}
+		serviceEndpoint, endpointOk := normalizeEndpoint(entry.Service)
+		if !endpointOk || serviceEndpoint.host != indexEndpoint.host {
+			continue
+		}
+		if serviceEndpoint.path != "" && indexEndpoint.path != serviceEndpoint.path &&
+			!strings.HasPrefix(indexEndpoint.path, serviceEndpoint.path+"/") {
+			continue
+		}
+		if len(serviceEndpoint.path) > bestPathLen {
+			best, bestPathLen = storedCredentials{user: entry.Username, password: entry.Password}, len(serviceEndpoint.path)
+		}
+	}
+	return best, bestPathLen >= 0
+}
+
 // uvOverrides lists what beats the user-level index: the index environment variables, and
 // the nearest project uv.toml or pyproject.toml [tool.uv] that sets an index. uv skips
-// project discovery when UV_CONFIG_FILE names the file or UV_NO_CONFIG is set.
+// project discovery when UV_CONFIG_FILE names the file or UV_NO_CONFIG is set; without
+// UV_CONFIG_FILE, UV_NO_CONFIG also makes uv ignore the user-level uv.toml.
 func uvOverrides(userConfig string) []ConfigOverride {
 	var overrides []ConfigOverride
 	for _, env := range []string{"UV_DEFAULT_INDEX", "UV_INDEX_URL", "UV_INDEX", "UV_EXTRA_INDEX_URL"} {
@@ -102,8 +172,11 @@ func uvOverrides(userConfig string) []ConfigOverride {
 			overrides = append(overrides, ConfigOverride{Source: env + " environment variable"})
 		}
 	}
-	if os.Getenv(python.UVConfigFileEnv) != "" || os.Getenv("UV_NO_CONFIG") != "" {
+	if os.Getenv(python.UVConfigFileEnv) != "" {
 		return overrides
+	}
+	if os.Getenv("UV_NO_CONFIG") != "" {
+		return append(overrides, ConfigOverride{Source: "UV_NO_CONFIG environment variable"})
 	}
 	if path, ok := uvProjectIndexConfig(userConfig); ok {
 		overrides = append(overrides, ConfigOverride{Source: "project " + filepath.Base(path), Path: path})

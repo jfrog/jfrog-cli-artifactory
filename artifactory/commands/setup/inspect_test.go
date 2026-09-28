@@ -431,6 +431,55 @@ func TestInspectUV(t *testing.T) {
 	assert.Equal(t, CredentialsUnknown, status.Credentials)
 }
 
+func TestInspectUV_StoredLogin(t *testing.T) {
+	login := func(service, user, password string) string {
+		return "[[credential]]\nservice = \"" + service + "\"\nusername = \"" + user + "\"\nscheme = \"basic\"\npassword = \"" + password + "\"\n\n"
+	}
+	tests := []struct {
+		name        string
+		indexURL    string
+		store       string
+		uvFound     bool
+		credentials CredentialsState
+		creds       storedCredentials
+	}{
+		{"host login, as jf setup writes", "", login("https://acme.jfrog.io", "admin", "secret"), true, CredentialsPresent, storedCredentials{user: "admin", password: "secret"}},
+		{"longest service path wins", "", login("https://acme.jfrog.io", "admin", "host") + login("https://acme.jfrog.io/artifactory/api/pypi/pypi-remote", "admin", "repo"), true, CredentialsPresent, storedCredentials{user: "admin", password: "repo"}},
+		{"another repository's path", "", login("https://acme.jfrog.io/artifactory/api/pypi/other", "admin", "secret"), true, CredentialsUnknown, storedCredentials{}},
+		{"other host", "", login("https://other.jfrog.io", "admin", "secret"), true, CredentialsUnknown, storedCredentials{}},
+		{"other scheme", "", login("http://acme.jfrog.io", "admin", "secret"), true, CredentialsUnknown, storedCredentials{}},
+		{"non-basic scheme", "", "[[credential]]\nservice = \"https://acme.jfrog.io\"\nscheme = \"bearer\"\ntoken = \"t\"\n", true, CredentialsUnknown, storedCredentials{}},
+		{"username in the index URL must match", "https://someone@acme.jfrog.io/artifactory/api/pypi/pypi-remote/simple", login("https://acme.jfrog.io", "admin", "secret"), true, CredentialsUnknown, storedCredentials{}},
+		{"no store", "", "", true, CredentialsUnknown, storedCredentials{}},
+		{"uv not found", "", login("https://acme.jfrog.io", "admin", "secret"), false, CredentialsUnknown, storedCredentials{}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			isolateStatusEnv(t)
+			indexURL := test.indexURL
+			if indexURL == "" {
+				indexURL = "https://acme.jfrog.io/artifactory/api/pypi/pypi-remote/simple"
+			}
+			uvConfig := filepath.Join(t.TempDir(), "uv.toml")
+			writeTestFile(t, uvConfig, "[[index]]\nname = \"jfrog-pypi\"\nurl = \""+indexURL+"\"\ndefault = true\n")
+			t.Setenv("UV_CONFIG_FILE", uvConfig)
+			credentialsDir := t.TempDir()
+			if test.store != "" {
+				writeTestFile(t, filepath.Join(credentialsDir, "credentials.toml"), test.store)
+			}
+			var binaries []string
+			if test.uvFound {
+				binaries = []string{"uv"}
+			}
+			stubTools(t, binaries, map[string]string{"uv auth dir": credentialsDir + "\n"})
+			status, creds := requireStatus(t, project.UV)
+			assert.Equal(t, StateConfigured, status.State)
+			assert.Equal(t, test.credentials, status.Credentials)
+			assert.Equal(t, test.creds, creds)
+		})
+	}
+}
+
 func TestUVOverrides(t *testing.T) {
 	userConfig := filepath.Join(t.TempDir(), "uv.toml")
 	withProject := func(t *testing.T, files map[string]string) string {
@@ -462,6 +511,17 @@ func TestUVOverrides(t *testing.T) {
 	})
 	t.Run("UV_CONFIG_FILE skips project discovery", func(t *testing.T) {
 		withProject(t, map[string]string{"uv.toml": "index-url = \"https://pypi.example.com/simple\"\n"})
+		t.Setenv("UV_CONFIG_FILE", userConfig)
+		assert.Empty(t, uvOverrides(userConfig))
+	})
+	t.Run("UV_NO_CONFIG ignores the user-level uv.toml", func(t *testing.T) {
+		withProject(t, map[string]string{"uv.toml": "index-url = \"https://pypi.example.com/simple\"\n"})
+		t.Setenv("UV_NO_CONFIG", "1")
+		assert.Equal(t, []ConfigOverride{{Source: "UV_NO_CONFIG environment variable"}}, uvOverrides(userConfig))
+	})
+	t.Run("UV_NO_CONFIG with UV_CONFIG_FILE", func(t *testing.T) {
+		isolateStatusEnv(t)
+		t.Setenv("UV_NO_CONFIG", "1")
 		t.Setenv("UV_CONFIG_FILE", userConfig)
 		assert.Empty(t, uvOverrides(userConfig))
 	})
@@ -516,6 +576,19 @@ func TestInspectGo_WithoutGoBinary(t *testing.T) {
 	assert.False(t, *status.BinaryFound)
 	assert.Equal(t, CredentialsAbsent, status.Credentials)
 	assert.Equal(t, []ConfigOverride{{Source: "GOPROXY environment variable"}}, status.OverriddenBy)
+}
+
+func TestInspectGo_GoEnvOff(t *testing.T) {
+	for name, binaries := range map[string][]string{"go found": {"go"}, "no go binary": nil} {
+		t.Run(name, func(t *testing.T) {
+			isolateStatusEnv(t)
+			t.Setenv("GOENV", "off")
+			stubTools(t, binaries, map[string]string{"go env GOENV": "\n"})
+			status, _ := requireStatus(t, project.Go)
+			assert.Equal(t, StateNotConfigured, status.State)
+			assert.Equal(t, CredentialsNotApplicable, status.Credentials)
+		})
+	}
 }
 
 func TestInspectMaven(t *testing.T) {

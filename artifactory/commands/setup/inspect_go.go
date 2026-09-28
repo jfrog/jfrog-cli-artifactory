@@ -12,29 +12,23 @@ import (
 
 // goEnvFileForStatus returns the file `go env -w` writes to. It asks go when it is
 // installed, and otherwise applies go's own default (GOENV, then the per-user config
-// dir) so the file is still read. An empty path means GOENV=off: there is no such file.
+// dir) so the file is still read. An empty path means GOENV=off: there is no such file,
+// and `go env GOENV` then prints an empty line.
 func goEnvFileForStatus(goFound bool) (string, error) {
-	var path string
 	switch {
+	case os.Getenv("GOENV") == "off":
+		return "", nil
 	case goFound:
-		resolved, err := goEnvFilePath()
-		if err != nil {
-			return "", err
-		}
-		path = resolved
+		return goEnvFilePath()
 	case os.Getenv("GOENV") != "":
-		path = os.Getenv("GOENV")
+		return os.Getenv("GOENV"), nil
 	default:
 		configDir, err := os.UserConfigDir()
 		if err != nil {
 			return "", errorutils.CheckError(err)
 		}
-		path = filepath.Join(configDir, "go", "env")
+		return filepath.Join(configDir, "go", "env"), nil
 	}
-	if path == "off" {
-		return "", nil
-	}
-	return path, nil
 }
 
 // readGoEnvValue returns the value of key in a Go env file, which holds KEY=VALUE lines.
