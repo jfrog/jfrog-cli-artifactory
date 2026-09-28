@@ -3,6 +3,7 @@ package setup
 import (
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -931,9 +932,10 @@ func TestHelmRegistryConfigFallback(t *testing.T) {
 }
 
 func TestProbeRepository(t *testing.T) {
-	originalTimeout := deepProbeTimeout
-	t.Cleanup(func() { deepProbeTimeout = originalTimeout })
-	deepProbeTimeout = 200 * time.Millisecond
+	originalTimeout := verifyTimeout
+	t.Cleanup(func() { verifyTimeout = originalTimeout })
+	verifyTimeout = 200 * time.Millisecond
+	t.Setenv(coreutils.HomeDir, t.TempDir())
 
 	tests := []struct {
 		name     string
@@ -941,28 +943,28 @@ func TestProbeRepository(t *testing.T) {
 		delay    time.Duration
 		creds    storedCredentials
 		state    CredentialsState
-		expected DeepStatus
+		expected VerifyStatus
 	}{
-		{"ok with credentials", http.StatusOK, 0, storedCredentials{token: "tok"}, CredentialsPresent, DeepStatus{RepoReachable: true, AuthOk: ProbeTrue}},
-		{"ok anonymously", http.StatusOK, 0, storedCredentials{}, CredentialsAbsent, DeepStatus{RepoReachable: true, AuthOk: ProbeUnknown}},
+		{"ok with credentials", http.StatusOK, 0, storedCredentials{token: "tok"}, CredentialsPresent, VerifyStatus{RepoReachable: true, AuthOk: ProbeTrue}},
+		{"ok anonymously", http.StatusOK, 0, storedCredentials{}, CredentialsAbsent, VerifyStatus{RepoReachable: true, AuthOk: ProbeUnknown}},
 		{"rejected credentials", http.StatusUnauthorized, 0, storedCredentials{user: "u", password: "p"}, CredentialsPresent,
-			DeepStatus{AuthOk: ProbeFalse, Error: "the stored credentials were rejected (HTTP 401)"}},
+			VerifyStatus{AuthOk: ProbeFalse, Error: "the stored credentials were rejected (HTTP 401)"}},
 		{"forbidden", http.StatusForbidden, 0, storedCredentials{basicAuth: "dTpw"}, CredentialsPresent,
-			DeepStatus{AuthOk: ProbeFalse, Error: "the stored credentials are not allowed to read repository repo (HTTP 403)"}},
+			VerifyStatus{AuthOk: ProbeFalse, Error: "the stored credentials are not allowed to read repository repo (HTTP 403)"}},
 		{"anonymous rejected", http.StatusUnauthorized, 0, storedCredentials{}, CredentialsAbsent,
-			DeepStatus{AuthOk: ProbeUnknown, Error: "the server requires credentials and none are stored (HTTP 401)"}},
+			VerifyStatus{AuthOk: ProbeUnknown, Error: "the server requires credentials and none are stored (HTTP 401)"}},
 		{"unreadable credentials rejected", http.StatusUnauthorized, 0, storedCredentials{}, CredentialsUnknown,
-			DeepStatus{AuthOk: ProbeUnknown, Error: "the server requires credentials, and status cannot read the ones the package manager uses (HTTP 401)"}},
+			VerifyStatus{AuthOk: ProbeUnknown, Error: "the server requires credentials, and status cannot read the ones the package manager uses (HTTP 401)"}},
 		{"redirect is not followed", http.StatusFound, 0, storedCredentials{token: "tok"}, CredentialsPresent,
-			DeepStatus{AuthOk: ProbeUnknown, Error: "unexpected response (HTTP 302)"}},
+			VerifyStatus{AuthOk: ProbeUnknown, Error: "unexpected response (HTTP 302)"}},
 		{"unknown repository key", http.StatusBadRequest, 0, storedCredentials{token: "tok"}, CredentialsPresent,
-			DeepStatus{AuthOk: ProbeUnknown, Error: "repository repo was not found (HTTP 400)"}},
+			VerifyStatus{AuthOk: ProbeUnknown, Error: "repository repo was not found (HTTP 400)"}},
 		{"missing repository", http.StatusNotFound, 0, storedCredentials{token: "tok"}, CredentialsPresent,
-			DeepStatus{AuthOk: ProbeUnknown, Error: "repository repo was not found (HTTP 404)"}},
+			VerifyStatus{AuthOk: ProbeUnknown, Error: "repository repo was not found (HTTP 404)"}},
 		{"server error", http.StatusInternalServerError, 0, storedCredentials{token: "tok"}, CredentialsPresent,
-			DeepStatus{AuthOk: ProbeUnknown, Error: "unexpected response (HTTP 500)"}},
+			VerifyStatus{AuthOk: ProbeUnknown, Error: "unexpected response (HTTP 500)"}},
 		{"timeout", http.StatusOK, time.Second, storedCredentials{token: "tok"}, CredentialsPresent,
-			DeepStatus{AuthOk: ProbeUnknown, Error: "no response within 200ms"}},
+			VerifyStatus{AuthOk: ProbeUnknown, Error: "no response within 200ms"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -998,17 +1000,100 @@ func TestProbeRepository(t *testing.T) {
 	}
 }
 
-func TestStatusTableRows_DeepError(t *testing.T) {
-	status := PackageManagerStatus{PackageManager: "npm", State: StateConfigured,
-		Deep: &DeepStatus{AuthOk: ProbeUnknown, Error: "no response within 5s"}}
-	assert.Contains(t, statusTableRows(status), statusTableRow{"Deep check error", "no response within 5s"})
-	status.Deep.Error = ""
-	for _, row := range statusTableRows(status) {
-		assert.NotEqual(t, "Deep check error", row.Field)
+func TestProbeRepository_TLS(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	serverDetails := &config.ServerDetails{ArtifactoryUrl: server.URL + "/artifactory/"}
+	verified := VerifyStatus{RepoReachable: true, AuthOk: ProbeTrue}
+	creds := storedCredentials{token: "tok"}
+
+	t.Run("untrusted certificate", func(t *testing.T) {
+		t.Setenv(coreutils.HomeDir, t.TempDir())
+		result := probeRepository(serverDetails, "repo", creds, CredentialsPresent)
+		assert.False(t, result.RepoReachable)
+		assert.Contains(t, result.Error, "certificate")
+	})
+	t.Run("insecure TLS", func(t *testing.T) {
+		t.Setenv(coreutils.HomeDir, t.TempDir())
+		insecure := *serverDetails
+		insecure.InsecureTls = true
+		assert.Equal(t, verified, probeRepository(&insecure, "repo", creds, CredentialsPresent))
+	})
+	t.Run("certificate in the JFrog certs directory", func(t *testing.T) {
+		t.Setenv(coreutils.HomeDir, t.TempDir())
+		certsDir, err := coreutils.GetJfrogCertsDir()
+		require.NoError(t, err)
+		writeTestFile(t, filepath.Join(certsDir, "server.pem"),
+			string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})))
+		assert.Equal(t, verified, probeRepository(serverDetails, "repo", creds, CredentialsPresent))
+	})
+}
+
+func TestRepoKeyAfter_RejectsPathSegments(t *testing.T) {
+	tests := map[string]string{
+		"api/npm/npm-virtual":         "npm-virtual",
+		"api/npm/my%20repo":           "my repo",
+		"api/npm/..":                  "",
+		"api/npm/%2e%2e":              "",
+		"api/npm/.":                   "",
+		"api/npm/%2E":                 "",
+		"api/npm/a%2Fb":               "",
+		"api/npm/a%5Cb":               "",
+		"api/npm/%20":                 "",
+		"api/npm/%zz":                 "",
+		"api/npm":                     "",
+		"api/pypi/pypi-remote/simple": "pypi-remote",
+	}
+	for rest, expected := range tests {
+		t.Run(rest, func(t *testing.T) {
+			markers := []string{"api", strings.Split(rest, "/")[1]}
+			assert.Equal(t, expected, repoKeyAfter(rest, markers...))
+		})
+	}
+	assert.Empty(t, firstSegment(".."))
+}
+
+func TestSetupStatusCommand_VerifyWithoutARepository(t *testing.T) {
+	tests := []struct {
+		name           string
+		packageManager project.ProjectType
+		file           string
+		content        string
+		reason         string
+	}{
+		{"unsupported", project.Yarn, "", "", "status does not support yarn"},
+		{"not configured", project.Npm, "", "", "the configuration does not point at this server"},
+		{"other host", project.Npm, ".npmrc", "registry=https://npm.example.com/\n", "the configuration does not point at this server"},
+		{"no repository key", project.Npm, ".npmrc", "registry=https://acme.jfrog.io/artifactory/api/npm/%2e%2e/\n", "no repository key could be read from the configured URL"},
+		{"container registry", project.Docker, filepath.Join(".docker", "config.json"), `{"auths":{"acme.jfrog.io":{"auth":"eDp5"}}}`,
+			"docker logs in to the registry, not to a repository, so there is no repository to check"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			home := isolateStatusEnv(t)
+			if test.file != "" {
+				writeTestFile(t, filepath.Join(home, test.file), test.content)
+			}
+			command := NewSetupStatusCommand(test.packageManager).SetServerDetails(statusTestServer()).SetVerify(true).SetFormat(format.Json)
+			require.NoError(t, command.Run())
+			assert.Equal(t, &VerifyStatus{AuthOk: ProbeUnknown, Error: "not verified: " + test.reason}, command.Result().Verify)
+		})
 	}
 }
 
-func TestSetupStatusCommand_NoNetworkWithoutDeep(t *testing.T) {
+func TestStatusTableRows_VerifyError(t *testing.T) {
+	status := PackageManagerStatus{PackageManager: "npm", State: StateConfigured,
+		Verify: &VerifyStatus{AuthOk: ProbeUnknown, Error: "no response within 5s"}}
+	assert.Contains(t, statusTableRows(status), statusTableRow{"Verification error", "no response within 5s"})
+	status.Verify.Error = ""
+	for _, row := range statusTableRows(status) {
+		assert.NotEqual(t, "Verification error", row.Field)
+	}
+}
+
+func TestSetupStatusCommand_NoNetworkWithoutVerify(t *testing.T) {
 	home := isolateStatusEnv(t)
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1024,17 +1109,17 @@ func TestSetupStatusCommand_NoNetworkWithoutDeep(t *testing.T) {
 	command := NewSetupStatusCommand(project.Npm).SetServerDetails(serverDetails).SetFormat(format.Json)
 	require.NoError(t, command.Run())
 	assert.Zero(t, requests.Load())
-	assert.Nil(t, command.Result().Deep)
+	assert.Nil(t, command.Result().Verify)
 	usageServer, err := command.ServerDetails()
 	require.NoError(t, err)
 	assert.Nil(t, usageServer, "usage reporting would contact the server")
 
-	require.NoError(t, command.SetDeep(true).Run())
+	require.NoError(t, command.SetVerify(true).Run())
 	assert.Equal(t, int32(1), requests.Load())
-	assert.Equal(t, &DeepStatus{RepoReachable: true, AuthOk: ProbeTrue}, command.Result().Deep)
+	assert.Equal(t, &VerifyStatus{RepoReachable: true, AuthOk: ProbeTrue}, command.Result().Verify)
 	usageServer, err = command.ServerDetails()
 	require.NoError(t, err)
-	assert.Nil(t, usageServer, "deep mode sends only its probe")
+	assert.Nil(t, usageServer, "--verify sends only its single request")
 
 	output, err := json.Marshal(command.Result())
 	require.NoError(t, err)

@@ -1,6 +1,7 @@
 package dotnet
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/build/utils/dotnet"
@@ -247,6 +249,8 @@ func GetNugetSourceURL(cmdType dotnet.ToolchainType) (sourceURL string, enabled 
 	return sourceURL, IsNugetSourceEnabled(short, sourceURL), nil
 }
 
+var nugetListTimeout = 15 * time.Second
+
 func listNugetSources(cmdType dotnet.ToolchainType, listFormat string) (string, error) {
 	cmd, err := dotnet.NewToolchainCmd(cmdType)
 	if err != nil {
@@ -259,11 +263,27 @@ func listNugetSources(cmdType dotnet.ToolchainType, listFormat string) (string, 
 		cmd.Command = append(cmd.Command, "sources", "list")
 		cmd.CommandFlags = append(cmd.CommandFlags, "-Format", listFormat)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), nugetListTimeout)
+	defer cancel()
+	built := cmd.GetCmd()
+	// #nosec G204 -- the toolchain binary and fixed arguments built above.
+	listCmd := exec.CommandContext(ctx, built.Path, built.Args[1:]...)
 	// Run outside the current project, so its NuGet.Config sources and global.json SDK pin
 	// do not change which sources are listed or whether the command runs at all.
-	listCmd := cmd.GetCmd()
 	listCmd.Dir = os.TempDir()
+	// A first run of the .NET SDK otherwise prints a welcome banner and may check for
+	// workload updates, which slows down or pollutes a read-only listing.
+	listCmd.Env = append(os.Environ(),
+		"DOTNET_CLI_TELEMETRY_OPTOUT=1",
+		"DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1",
+		"DOTNET_NOLOGO=1",
+		"DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1")
+	// Child processes the toolchain starts can keep the output open after it is killed.
+	listCmd.WaitDelay = time.Second
 	output, err := listCmd.Output()
+	if ctx.Err() != nil {
+		return "", errorutils.CheckErrorf("listing %s sources did not finish within %s", cmdType.String(), nugetListTimeout)
+	}
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && len(strings.TrimSpace(string(exitErr.Stderr))) > 0 {

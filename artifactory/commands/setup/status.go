@@ -13,18 +13,19 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/common/project"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/jfrog/jfrog-client-go/http/httpclient"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-var deepProbeTimeout = 5 * time.Second
+var verifyTimeout = 5 * time.Second
 
 // SetupStatusCommand implements `jf setup <pm> --status`: a read-only report of whether
 // the configuration `jf setup` writes for a package manager points at the given server.
 type SetupStatusCommand struct {
 	packageManager project.ProjectType
 	serverDetails  *config.ServerDetails
-	deep           bool
+	verify         bool
 	format         format.OutputFormat
 	result         PackageManagerStatus
 }
@@ -38,10 +39,10 @@ func (ssc *SetupStatusCommand) SetServerDetails(serverDetails *config.ServerDeta
 	return ssc
 }
 
-// SetDeep makes the command probe the configured repository with the stored credentials.
+// SetVerify makes the command check the configured repository with the stored credentials.
 // This is the only mode in which the command contacts the network.
-func (ssc *SetupStatusCommand) SetDeep(deep bool) *SetupStatusCommand {
-	ssc.deep = deep
+func (ssc *SetupStatusCommand) SetVerify(verify bool) *SetupStatusCommand {
+	ssc.verify = verify
 	return ssc
 }
 
@@ -55,8 +56,8 @@ func (ssc *SetupStatusCommand) CommandName() string {
 }
 
 // ServerDetails returns no server, so commands.Exec neither reports usage to it nor
-// refreshes its token: plain --status does not contact the server at all, and --deep
-// sends only its single probe.
+// refreshes its token: plain --status does not contact the server at all, and --verify
+// sends only its single request.
 func (ssc *SetupStatusCommand) ServerDetails() (*config.ServerDetails, error) {
 	return nil, nil
 }
@@ -71,12 +72,30 @@ func (ssc *SetupStatusCommand) Run() error {
 	if err != nil {
 		return err
 	}
-	if ssc.deep && found.status.State == StateConfigured && found.status.RepoKey != "" {
-		deep := probeRepository(ssc.serverDetails, found.status.RepoKey, found.credentials, found.status.Credentials)
-		found.status.Deep = &deep
+	if ssc.verify {
+		verify := ssc.verifyRepository(found)
+		found.status.Verify = &verify
 	}
 	ssc.result = found.status
 	return ssc.print()
+}
+
+// verifyRepository checks the configured repository, or says why there is none to check.
+func (ssc *SetupStatusCommand) verifyRepository(found inspection) VerifyStatus {
+	notVerified := func(reason string) VerifyStatus {
+		return VerifyStatus{AuthOk: ProbeUnknown, Error: "not verified: " + reason}
+	}
+	switch {
+	case found.status.State == StateUnsupported:
+		return notVerified("status does not support " + ssc.packageManager.String())
+	case found.status.State != StateConfigured:
+		return notVerified("the configuration does not point at this server")
+	case ssc.packageManager == project.Docker || ssc.packageManager == project.Podman || ssc.packageManager == project.Helm:
+		return notVerified(ssc.packageManager.String() + " logs in to the registry, not to a repository, so there is no repository to check")
+	case found.status.RepoKey == "":
+		return notVerified("no repository key could be read from the configured URL")
+	}
+	return probeRepository(ssc.serverDetails, found.status.RepoKey, found.credentials, found.status.Credentials)
 }
 
 func (ssc *SetupStatusCommand) print() error {
@@ -124,11 +143,11 @@ func statusTableRows(status PackageManagerStatus) []statusTableRow {
 		}
 		rows = append(rows, statusTableRow{"Overridden by", value})
 	}
-	if status.Deep != nil {
+	if status.Verify != nil {
 		rows = append(rows,
-			statusTableRow{"Repository reachable", fmt.Sprint(status.Deep.RepoReachable)},
-			statusTableRow{"Authentication OK", string(status.Deep.AuthOk)})
-		appendIfSet("Deep check error", status.Deep.Error)
+			statusTableRow{"Repository reachable", fmt.Sprint(status.Verify.RepoReachable)},
+			statusTableRow{"Authentication OK", string(status.Verify.AuthOk)})
+		appendIfSet("Verification error", status.Verify.Error)
 	}
 	return rows
 }
@@ -139,13 +158,14 @@ func statusTableRows(status PackageManagerStatus) []statusTableRow {
 // server's keep being refreshed. One endpoint serves every repository type. The storage
 // API is avoided: on a virtual repository it aggregates every member and can take far
 // longer than the probe timeout. Redirects are not followed, so the credentials never
-// reach another host. credentialsState is what the inspection reported: credentials it
-// saw but could not read (a credential store) make the probe anonymous, not "absent".
-func probeRepository(serverDetails *config.ServerDetails, repoKey string, creds storedCredentials, credentialsState CredentialsState) DeepStatus {
+// reach another host. The TLS settings are the server's, as for every other jf request.
+// credentialsState is what the inspection reported: credentials it saw but could not read
+// (a credential store) make the probe anonymous, not "absent".
+func probeRepository(serverDetails *config.ServerDetails, repoKey string, creds storedCredentials, credentialsState CredentialsState) VerifyStatus {
 	endpoint := strings.TrimSuffix(serverDetails.GetArtifactoryUrl(), "/") + "/api/repositories/" + url.PathEscape(repoKey)
 	request, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
-		return DeepStatus{AuthOk: ProbeUnknown, Error: err.Error()}
+		return VerifyStatus{AuthOk: ProbeUnknown, Error: err.Error()}
 	}
 	switch {
 	case creds.token != "":
@@ -155,15 +175,15 @@ func probeRepository(serverDetails *config.ServerDetails, repoKey string, creds 
 	case creds.password != "":
 		request.SetBasicAuth(creds.user, creds.password)
 	}
-	client := &http.Client{
-		Timeout:       deepProbeTimeout,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	client, err := verifyHTTPClient(serverDetails)
+	if err != nil {
+		return VerifyStatus{AuthOk: ProbeUnknown, Error: err.Error()}
 	}
 	response, err := client.Do(request)
 	if err != nil {
 		message := probeErrorMessage(err)
-		log.Debug("Setup status deep probe failed:", message)
-		return DeepStatus{AuthOk: ProbeUnknown, Error: message}
+		log.Debug("Setup status verification failed:", message)
+		return VerifyStatus{AuthOk: ProbeUnknown, Error: message}
 	}
 	defer func() { _ = response.Body.Close() }()
 
@@ -171,27 +191,50 @@ func probeRepository(serverDetails *config.ServerDetails, repoKey string, creds 
 	switch code := response.StatusCode; code {
 	case http.StatusOK:
 		if authenticated {
-			return DeepStatus{RepoReachable: true, AuthOk: ProbeTrue}
+			return VerifyStatus{RepoReachable: true, AuthOk: ProbeTrue}
 		}
-		return DeepStatus{RepoReachable: true, AuthOk: ProbeUnknown}
+		return VerifyStatus{RepoReachable: true, AuthOk: ProbeUnknown}
 	case http.StatusUnauthorized, http.StatusForbidden:
 		if authenticated && code == http.StatusForbidden {
 			// Recognised but not permitted: the package manager cannot read the repository either.
-			return DeepStatus{AuthOk: ProbeFalse, Error: fmt.Sprintf("the stored credentials are not allowed to read repository %s (HTTP %d)", repoKey, code)}
+			return VerifyStatus{AuthOk: ProbeFalse, Error: fmt.Sprintf("the stored credentials are not allowed to read repository %s (HTTP %d)", repoKey, code)}
 		}
 		if authenticated {
-			return DeepStatus{AuthOk: ProbeFalse, Error: fmt.Sprintf("the stored credentials were rejected (HTTP %d)", code)}
+			return VerifyStatus{AuthOk: ProbeFalse, Error: fmt.Sprintf("the stored credentials were rejected (HTTP %d)", code)}
 		}
 		if credentialsState == CredentialsAbsent {
-			return DeepStatus{AuthOk: ProbeUnknown, Error: fmt.Sprintf("the server requires credentials and none are stored (HTTP %d)", code)}
+			return VerifyStatus{AuthOk: ProbeUnknown, Error: fmt.Sprintf("the server requires credentials and none are stored (HTTP %d)", code)}
 		}
-		return DeepStatus{AuthOk: ProbeUnknown, Error: fmt.Sprintf("the server requires credentials, and status cannot read the ones the package manager uses (HTTP %d)", code)}
+		return VerifyStatus{AuthOk: ProbeUnknown, Error: fmt.Sprintf("the server requires credentials, and status cannot read the ones the package manager uses (HTTP %d)", code)}
 	case http.StatusBadRequest, http.StatusNotFound:
 		// Artifactory answers 400 for an unknown repository key.
-		return DeepStatus{AuthOk: ProbeUnknown, Error: fmt.Sprintf("repository %s was not found (HTTP %d)", repoKey, code)}
+		return VerifyStatus{AuthOk: ProbeUnknown, Error: fmt.Sprintf("repository %s was not found (HTTP %d)", repoKey, code)}
 	default:
-		return DeepStatus{AuthOk: ProbeUnknown, Error: fmt.Sprintf("unexpected response (HTTP %d)", code)}
+		return VerifyStatus{AuthOk: ProbeUnknown, Error: fmt.Sprintf("unexpected response (HTTP %d)", code)}
 	}
+}
+
+// verifyHTTPClient builds a client with the server's TLS settings - the certificates jf
+// trusts, InsecureTls and the client certificate - that times out and never follows a
+// redirect.
+func verifyHTTPClient(serverDetails *config.ServerDetails) (*http.Client, error) {
+	certsPath, err := coreutils.GetJfrogCertsDir()
+	if err != nil {
+		return nil, err
+	}
+	httpClient, err := httpclient.ClientBuilder().
+		SetCertificatesPath(certsPath).
+		SetInsecureTls(serverDetails.InsecureTls).
+		SetClientCertPath(serverDetails.GetClientCertPath()).
+		SetClientCertKeyPath(serverDetails.GetClientCertKeyPath()).
+		SetOverallRequestTimeout(verifyTimeout).
+		Build()
+	if err != nil {
+		return nil, err
+	}
+	client := httpClient.GetClient()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return client, nil
 }
 
 // probeErrorMessage describes a failed request without its URL, which the table already shows as Host.
@@ -201,7 +244,7 @@ func probeErrorMessage(err error) string {
 		return err.Error()
 	}
 	if urlErr.Timeout() {
-		return fmt.Sprintf("no response within %s", deepProbeTimeout)
+		return fmt.Sprintf("no response within %s", verifyTimeout)
 	}
 	return urlErr.Err.Error()
 }

@@ -53,7 +53,7 @@ const (
 	CredentialsUnknown CredentialsState = "unknown"
 )
 
-// ProbeResult is a three-valued answer: the deep probe cannot always decide.
+// ProbeResult is a three-valued answer: verification cannot always decide.
 type ProbeResult string
 
 const (
@@ -69,11 +69,12 @@ type ConfigOverride struct {
 	Path   string `json:"path,omitempty"`
 }
 
-// DeepStatus is the result of probing the configured repository with the stored credentials.
-type DeepStatus struct {
+// VerifyStatus is the result of checking the configured repository with the stored credentials.
+type VerifyStatus struct {
 	RepoReachable bool        `json:"repoReachable"`
 	AuthOk        ProbeResult `json:"authOk"`
-	// Error says why the probe did not confirm the repository. It is empty on success.
+	// Error says why the repository was not confirmed, including when there was none to
+	// check. It is empty on success.
 	Error string `json:"error,omitempty"`
 }
 
@@ -89,11 +90,11 @@ type PackageManagerStatus struct {
 	// BinaryFound is nil only for unsupported package managers, which are not inspected.
 	BinaryFound  *bool            `json:"binaryFound,omitempty"`
 	OverriddenBy []ConfigOverride `json:"overriddenBy,omitempty"`
-	Deep         *DeepStatus      `json:"deep,omitempty"`
+	Verify       *VerifyStatus    `json:"verify,omitempty"`
 }
 
 // storedCredentials are the credentials read from the package manager's own
-// configuration. They are only used by the deep probe and are never serialized.
+// configuration. They are only used by --verify and are never serialized.
 type storedCredentials struct {
 	user     string
 	password string
@@ -106,8 +107,8 @@ func (c storedCredentials) isEmpty() bool {
 	return c.password == "" && c.token == "" && c.basicAuth == ""
 }
 
-// inspection is what an inspector found: the public status plus the credentials the
-// deep probe needs.
+// inspection is what an inspector found: the public status plus the credentials
+// --verify needs.
 type inspection struct {
 	status      PackageManagerStatus
 	credentials storedCredentials
@@ -352,19 +353,26 @@ func classify(packageManager project.ProjectType, rawURL string, serverDetails *
 }
 
 // repoKeyAfter returns the path segment that follows the given marker segments, for
-// example "npm-virtual" in "api/npm/npm-virtual/" with markers "api", "npm".
+// example "npm-virtual" in "api/npm/npm-virtual/" with markers "api", "npm". A segment
+// that cannot be a repository key, such as "..", yields no key, so --verify never sends
+// the stored credentials to a path outside the repository.
 func repoKeyAfter(rest string, markers ...string) string {
 	segments := strings.Split(strings.Trim(rest, "/"), "/")
 	for i := 0; i+len(markers) < len(segments); i++ {
 		if slices.Equal(segments[i:i+len(markers)], markers) {
 			repoKey, err := url.PathUnescape(segments[i+len(markers)])
-			if err != nil {
-				return segments[i+len(markers)]
+			if err != nil || !validRepoKey(repoKey) {
+				return ""
 			}
 			return repoKey
 		}
 	}
 	return ""
+}
+
+func validRepoKey(repoKey string) bool {
+	trimmed := strings.TrimSpace(repoKey)
+	return trimmed != "" && trimmed != "." && trimmed != ".." && !strings.ContainsAny(repoKey, `/\`)
 }
 
 // firstSegment returns the first path segment of rest, for layouts that put the
