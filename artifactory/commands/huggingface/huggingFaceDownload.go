@@ -46,6 +46,9 @@ func (hfd *HuggingFaceDownload) Run() error {
 	if err != nil {
 		return err
 	}
+	if err := verifyHuggingFaceHubVersion(pythonPath); err != nil {
+		return err
+	}
 	scriptDir, err := extractPythonScripts()
 	if err != nil {
 		return err
