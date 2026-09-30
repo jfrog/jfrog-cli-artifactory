@@ -313,7 +313,10 @@ func (pc *PoetryCommand) SetPypiRepoUrlWithCredentials() error {
 }
 
 func ConfigPoetryRepo(url, username, password, configRepoName string) error {
-	err := RunPoetryConfig(url, username, password, configRepoName)
+	// Strip /simple path suffix: resolver repo URLs sometimes include /simple as a
+	// URL component, but Poetry 2.x rejects source names containing '/'.
+	sourceName := strings.TrimSuffix(configRepoName, "/simple")
+	err := RunPoetryConfig(url, username, password, sourceName)
 	if err != nil {
 		return err
 	}
@@ -323,7 +326,7 @@ func ConfigPoetryRepo(url, username, password, configRepoName string) error {
 	if err != nil {
 		return errorutils.CheckError(err)
 	}
-	if err = addRepoToPyprojectFile(filepath.Join(currentDir, pyproject), configRepoName, url); err != nil {
+	if err = addRepoToPyprojectFile(filepath.Join(currentDir, pyproject), sourceName, url); err != nil {
 		return err
 	}
 	return poetryUpdate()
