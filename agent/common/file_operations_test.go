@@ -29,15 +29,6 @@ func TestExpandHome(t *testing.T) {
 	}
 }
 
-func TestValidateExistingDir(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, ValidateExistingDir(dir))
-
-	err := ValidateExistingDir(filepath.Join(dir, "missing"))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not exist")
-}
-
 func TestCopyDir(t *testing.T) {
 	srcDir := t.TempDir()
 	dstDir := filepath.Join(t.TempDir(), "dest")

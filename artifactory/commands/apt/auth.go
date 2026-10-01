@@ -28,7 +28,14 @@ var keyringsDir = "/etc/apt/keyrings"
 //
 // Caller must defer os.Remove(path) to clean up.
 func WriteTempSourcesList(serverDetails *config.ServerDetails, repoName, dist, component string, trusted bool) (string, error) {
-	jfrogLine, err := buildSourcesLine(serverDetails, repoName, dist, component, trusted, "")
+	// Auto-detect a keyring installed by a prior 'jf setup apt --import-key' run.
+	// When found and --trusted is not set, inject signed-by= so the temp source is
+	// verified with the same key rather than falling back to NO_PUBKEY.
+	signedBy := ""
+	if !trusted {
+		signedBy = existingKeyringPath(repoName, dist)
+	}
+	jfrogLine, err := buildSourcesLine(serverDetails, repoName, dist, component, trusted, signedBy)
 	if err != nil {
 		return "", err
 	}

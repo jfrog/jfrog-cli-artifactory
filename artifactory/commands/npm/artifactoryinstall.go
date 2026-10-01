@@ -23,6 +23,9 @@ func (nri *npmRtInstall) Run() (err error) {
 	if err = nri.CreateTempNpmrc(); err != nil {
 		return
 	}
+	if err = nri.applyZeroTouchRemediation(); err != nil {
+		return
+	}
 	if err = nri.prepareBuildInfoModule(); err != nil {
 		return
 	}

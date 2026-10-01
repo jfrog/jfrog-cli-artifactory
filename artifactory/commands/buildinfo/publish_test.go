@@ -36,11 +36,11 @@ func (m *mockServicesManager) SearchFiles(params services.SearchParams) (*conten
 	return reader, args.Error(1)
 }
 
-func createTestSearchReader(t *testing.T) (*content.ContentReader, func()) {
+func createSearchReader(t *testing.T, jsonContent string) (*content.ContentReader, func()) {
 	t.Helper()
 	tmpFile, err := os.CreateTemp("", "test-search-*.json")
 	assert.NoError(t, err)
-	_, err = tmpFile.WriteString(`{"results":[{"repo":"libs-release","path":"com/example","name":"file.jar","type":"file","size":0,"created":"","modified":""}]}`)
+	_, err = tmpFile.WriteString(jsonContent)
 	assert.NoError(t, err)
 	assert.NoError(t, tmpFile.Close())
 	filePath := tmpFile.Name()
@@ -52,56 +52,245 @@ func createTestSearchReader(t *testing.T) (*content.ContentReader, func()) {
 	}
 }
 
-func TestSetCIVcsPropsOnArtifacts(t *testing.T) {
-	t.Setenv("GITHUB_SERVER_URL", "")
-	t.Setenv("GITHUB_SHA", "")
-	t.Setenv("GITHUB_REF", "")
-	t.Setenv("GITHUB_REF_NAME", "")
-	t.Setenv("GITHUB_HEAD_REF", "")
+func createTestSearchReader(t *testing.T) (*content.ContentReader, func()) {
+	return createSearchReader(t, `{"results":[{"repo":"libs-release","path":"com/example","name":"file.jar","type":"file","size":0,"created":"","modified":""}]}`)
+}
+
+func createEmptySearchReader(t *testing.T) (*content.ContentReader, func()) {
+	return createSearchReader(t, `{"results":[]}`)
+}
+
+func setUpCIGitHubEnv(t *testing.T) {
+	t.Helper()
 	t.Setenv("CI", "true")
 	t.Setenv("GITHUB_ACTIONS", "true")
 	t.Setenv("GITHUB_WORKFLOW", "test")
 	t.Setenv("GITHUB_RUN_ID", "123")
 	t.Setenv("GITHUB_REPOSITORY_OWNER", "jfrog")
 	t.Setenv("GITHUB_REPOSITORY", "jfrog/jfrog-cli")
+	t.Setenv("GITHUB_SERVER_URL", "")
+	t.Setenv("GITHUB_SHA", "")
+	t.Setenv("GITHUB_REF", "")
+	t.Setenv("GITHUB_REF_NAME", "")
+	t.Setenv("GITHUB_HEAD_REF", "")
+}
 
-	// 2. Mock services manager
-	mockSM := new(mockServicesManager)
-	// Use a non-git directory so only CI env props are collected (not local git url/revision/branch).
+// TestSetVcsPropsOnArtifacts_AllPresent_DirectOnly: all artifacts have OriginalDeploymentRepo.
+// Only the direct-path branch fires; build-search is never invoked.
+func TestSetVcsPropsOnArtifacts_AllPresent_DirectOnly(t *testing.T) {
+	setUpCIGitHubEnv(t)
 	nonGitDir := t.TempDir()
 	expectedProps := civcs.GetCIVcsPropsString(nonGitDir)
 
+	mockSM := new(mockServicesManager)
 	searchReader, cleanup := createTestSearchReader(t)
 	defer cleanup()
-	mockSM.On("SearchFiles", mock.Anything).Return(searchReader, nil)
-
-	// Expect SetProps to be called for the artifact
+	// Only pattern-based search calls (direct path) should appear.
+	mockSM.On("SearchFiles", mock.MatchedBy(func(params services.SearchParams) bool {
+		return params.Build == "" && params.Pattern != ""
+	})).Return(searchReader, nil)
 	mockSM.On("SetProps", mock.MatchedBy(func(params services.PropsParams) bool {
 		return params.Props == expectedProps
 	})).Return(1, nil)
 
-	// 3. Setup build info
 	bi := &buildinfo.BuildInfo{
 		Modules: []buildinfo.Module{
 			{
 				Artifacts: []buildinfo.Artifact{
-					{
-						Name:                   "file.jar",
-						Path:                   "com/example/file.jar",
-						OriginalDeploymentRepo: "libs-release",
-					},
+					{Name: "file.jar", Path: "com/example/file.jar", OriginalDeploymentRepo: "libs-release"},
+					{Name: "file2.jar", Path: "com/example/file2.jar", OriginalDeploymentRepo: "libs-release"},
 				},
 			},
 		},
 	}
 
-	// 4. Run command
 	bpc := NewBuildPublishCommand()
 	bpc.SetDotGitPath(nonGitDir)
 	bpc.setVcsPropsOnArtifacts(mockSM, bi)
 
-	// 5. Verify
 	mockSM.AssertExpectations(t)
+	// Build-scoped SearchFiles must NOT have been called.
+	for _, call := range mockSM.Calls {
+		if call.Method == "SearchFiles" {
+			params, ok := call.Arguments.Get(0).(services.SearchParams)
+			require.True(t, ok, "unexpected type for SearchFiles argument")
+			assert.Empty(t, params.Build, "build-search branch must not fire when all artifacts have OriginalDeploymentRepo")
+		}
+	}
+}
+
+// TestSetVcsPropsOnArtifacts_AllMissing_BuildSearchOnly: no artifact has OriginalDeploymentRepo.
+// Only the build-search branch fires; no repo-listing, no direct pattern-search.
+// PRIMARY regression guard for RTECO-2025.
+func TestSetVcsPropsOnArtifacts_AllMissing_BuildSearchOnly(t *testing.T) {
+	setUpCIGitHubEnv(t)
+	nonGitDir := t.TempDir()
+	expectedProps := civcs.GetCIVcsPropsString(nonGitDir)
+
+	mockSM := new(mockServicesManager)
+	searchReader, cleanup := createTestSearchReader(t)
+	defer cleanup()
+	// Only the build-artifacts API should be used; no AQL search.
+	buildApiCalls := stubBuildArtifacts(t, []buildArtifactsResult{{reader: searchReader}})
+	mockSM.On("SetProps", mock.MatchedBy(func(params services.PropsParams) bool {
+		return params.Props == expectedProps
+	})).Return(1, nil)
+
+	bi := &buildinfo.BuildInfo{
+		Name:   "mybuild",
+		Number: "42",
+		Modules: []buildinfo.Module{
+			{
+				Artifacts: []buildinfo.Artifact{
+					// No OriginalDeploymentRepo on either artifact (Gradle extractor scenario).
+					{Name: "minimal-example-1.0.jar", Path: "com/example/minimal-example/1.0/minimal-example-1.0.jar"},
+					{Name: "minimal-example-1.0.pom", Path: "com/example/minimal-example/1.0/minimal-example-1.0.pom"},
+				},
+			},
+		},
+	}
+
+	bpc := NewBuildPublishCommand()
+	bpc.SetDotGitPath(nonGitDir)
+	bpc.buildConfiguration = build.NewBuildConfiguration("mybuild", "42", "", "")
+	bpc.setVcsPropsOnArtifacts(mockSM, bi)
+
+	mockSM.AssertExpectations(t)
+	assert.Equal(t, 1, *buildApiCalls, "exactly one build-artifacts API call expected regardless of artifact count")
+	mockSM.AssertNotCalled(t, "SearchFiles")
+}
+
+// TestSetVcsPropsOnArtifacts_Mixed_BothPaths: some artifacts have OriginalDeploymentRepo, some don't.
+// Both branches fire: direct for present, build-search for missing.
+func TestSetVcsPropsOnArtifacts_Mixed_BothPaths(t *testing.T) {
+	setUpCIGitHubEnv(t)
+	nonGitDir := t.TempDir()
+	expectedProps := civcs.GetCIVcsPropsString(nonGitDir)
+
+	mockSM := new(mockServicesManager)
+	searchReader, cleanup := createTestSearchReader(t)
+	defer cleanup()
+	searchReader2, cleanup2 := createTestSearchReader(t)
+	defer cleanup2()
+
+	// Direct-path call: pattern non-empty, Build empty.
+	mockSM.On("SearchFiles", mock.MatchedBy(func(params services.SearchParams) bool {
+		return params.Build == "" && params.Pattern != ""
+	})).Return(searchReader, nil)
+	// Build-search resolves through the build-artifacts API, not AQL.
+	buildApiCalls := stubBuildArtifacts(t, []buildArtifactsResult{{reader: searchReader2}})
+	mockSM.On("SetProps", mock.MatchedBy(func(params services.PropsParams) bool {
+		return params.Props == expectedProps
+	})).Return(1, nil)
+
+	bi := &buildinfo.BuildInfo{
+		Name:   "mybuild",
+		Number: "42",
+		Modules: []buildinfo.Module{
+			{
+				Artifacts: []buildinfo.Artifact{
+					{Name: "file.jar", Path: "com/example/file.jar", OriginalDeploymentRepo: "libs-release"},
+					{Name: "missing.jar", Path: "com/example/missing.jar"}, // no repo
+				},
+			},
+		},
+	}
+
+	bpc := NewBuildPublishCommand()
+	bpc.SetDotGitPath(nonGitDir)
+	bpc.buildConfiguration = build.NewBuildConfiguration("mybuild", "42", "", "")
+	bpc.setVcsPropsOnArtifacts(mockSM, bi)
+
+	mockSM.AssertExpectations(t)
+	assert.Equal(t, 1, *buildApiCalls, "missing-repo artifacts resolve through the build-artifacts API")
+}
+
+// TestSetVcsPropsOnArtifacts_Disabled: JFROG_CLI_CI_VCS_PROPS_DISABLED=true short-circuits everything.
+func TestSetVcsPropsOnArtifacts_Disabled(t *testing.T) {
+	t.Setenv("JFROG_CLI_CI_VCS_PROPS_DISABLED", "true")
+
+	mockSM := new(mockServicesManager)
+	bi := &buildinfo.BuildInfo{
+		Modules: []buildinfo.Module{
+			{Artifacts: []buildinfo.Artifact{
+				{Name: "file.jar", Path: "com/example/file.jar", OriginalDeploymentRepo: "libs-release"},
+			}},
+		},
+	}
+	bpc := NewBuildPublishCommand()
+	bpc.SetDotGitPath(t.TempDir())
+	bpc.setVcsPropsOnArtifacts(mockSM, bi)
+
+	mockSM.AssertNotCalled(t, "SearchFiles")
+	mockSM.AssertNotCalled(t, "SetProps")
+}
+
+// TestSetVcsPropsOnArtifacts_EmptyProps: non-CI non-git dir → empty props → early return.
+func TestSetVcsPropsOnArtifacts_EmptyProps(t *testing.T) {
+	// Unset all CI env vars so no CI props are collected.
+	for _, v := range []string{
+		"CI", "GITHUB_ACTIONS", "GITHUB_WORKFLOW", "GITHUB_RUN_ID",
+		"GITHUB_REPOSITORY_OWNER", "GITHUB_REPOSITORY",
+		"GITLAB_CI", "JENKINS_URL", "CIRCLECI", "TRAVIS",
+	} {
+		t.Setenv(v, "")
+	}
+
+	mockSM := new(mockServicesManager)
+	bi := &buildinfo.BuildInfo{
+		Modules: []buildinfo.Module{
+			{Artifacts: []buildinfo.Artifact{
+				{Name: "file.jar", Path: "com/example/file.jar", OriginalDeploymentRepo: "libs-release"},
+			}},
+		},
+	}
+	// Use a temp dir with no .git — GetCIVcsPropsString will return "" when no CI env and no git.
+	bpc := NewBuildPublishCommand()
+	bpc.SetDotGitPath(t.TempDir())
+	bpc.setVcsPropsOnArtifacts(mockSM, bi)
+
+	mockSM.AssertNotCalled(t, "SearchFiles")
+	mockSM.AssertNotCalled(t, "SetProps")
+}
+
+// TestSetVcsPropsOnArtifacts_ProjectPropagated: project key flows into the build spec.
+func TestSetVcsPropsOnArtifacts_ProjectPropagated(t *testing.T) {
+	setUpCIGitHubEnv(t)
+	nonGitDir := t.TempDir()
+
+	mockSM := new(mockServicesManager)
+	searchReader, cleanup := createTestSearchReader(t)
+	defer cleanup()
+
+	// Capture what the build-artifacts API is asked for.
+	var gotName, gotNumber, gotProject string
+	originalResolver := resolveBuildArtifacts
+	resolveBuildArtifacts = func(_ artifactory.ArtifactoryServicesManager, buildName, buildNumber, project string) (*content.ContentReader, error) {
+		gotName, gotNumber, gotProject = buildName, buildNumber, project
+		return searchReader, nil
+	}
+	t.Cleanup(func() { resolveBuildArtifacts = originalResolver })
+	mockSM.On("SetProps", mock.Anything).Return(1, nil)
+
+	bi := &buildinfo.BuildInfo{
+		Name:   "mybuild",
+		Number: "42",
+		Modules: []buildinfo.Module{
+			{Artifacts: []buildinfo.Artifact{
+				{Name: "file.jar", Path: "com/example/file.jar"}, // no repo → build-search branch
+			}},
+		},
+	}
+
+	bpc := NewBuildPublishCommand()
+	bpc.SetDotGitPath(nonGitDir)
+	bpc.buildConfiguration = build.NewBuildConfiguration("mybuild", "42", "", "myproject")
+	bpc.setVcsPropsOnArtifacts(mockSM, bi)
+
+	mockSM.AssertExpectations(t)
+	assert.Equal(t, "mybuild", gotName)
+	assert.Equal(t, "42", gotNumber)
+	assert.Equal(t, "myproject", gotProject, "project key must reach the build-artifacts API")
 }
 
 func TestPrintBuildInfoLink(t *testing.T) {
@@ -199,110 +388,6 @@ func TestCalculateBuildNumberFrequency(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := CalculateBuildNumberFrequency(tt.runs)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestExtractArtifactPathsWithWarnings(t *testing.T) {
-	tests := []struct {
-		name            string
-		buildInfo       *buildinfo.BuildInfo
-		expectedPaths   []string
-		expectedSkipped int
-	}{
-		{
-			name: "artifacts with repo path",
-			buildInfo: &buildinfo.BuildInfo{
-				Modules: []buildinfo.Module{
-					{
-						Artifacts: []buildinfo.Artifact{
-							{Name: "file1.jar", Path: "com/example/file1.jar", OriginalDeploymentRepo: "libs-release"},
-							{Name: "file2.jar", Path: "com/example/file2.jar", OriginalDeploymentRepo: "libs-release"},
-						},
-					},
-				},
-			},
-			expectedPaths:   []string{"libs-release/com/example/file1.jar", "libs-release/com/example/file2.jar"},
-			expectedSkipped: 0,
-		},
-		{
-			name: "artifacts without repo path",
-			buildInfo: &buildinfo.BuildInfo{
-				Modules: []buildinfo.Module{
-					{
-						Artifacts: []buildinfo.Artifact{
-							{Name: "file1.jar", Path: "com/example/file1.jar"},
-						},
-					},
-				},
-			},
-			expectedPaths:   []string{"*/com/example/file1.jar"},
-			expectedSkipped: 0,
-		},
-		{
-			name: "mixed artifacts",
-			buildInfo: &buildinfo.BuildInfo{
-				Modules: []buildinfo.Module{
-					{
-						Artifacts: []buildinfo.Artifact{
-							{Name: "file1.jar", Path: "com/example/file1.jar", OriginalDeploymentRepo: "libs-release"},
-							{Name: "file2.jar", Path: "com/example/file2.jar"},
-						},
-					},
-				},
-			},
-			expectedPaths:   []string{"libs-release/com/example/file1.jar", "*/com/example/file2.jar"},
-			expectedSkipped: 0,
-		},
-		{
-			name:            "empty build info",
-			buildInfo:       &buildinfo.BuildInfo{},
-			expectedPaths:   nil,
-			expectedSkipped: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			paths, skipped := extractArtifactPathsWithWarnings(tt.buildInfo)
-			assert.Equal(t, tt.expectedPaths, paths)
-			assert.Equal(t, tt.expectedSkipped, skipped)
-		})
-	}
-}
-
-func TestConstructArtifactPath(t *testing.T) {
-	tests := []struct {
-		name     string
-		artifact buildinfo.Artifact
-		expected string
-	}{
-		{
-			name:     "with path",
-			artifact: buildinfo.Artifact{Name: "file.jar", Path: "com/example/file.jar", OriginalDeploymentRepo: "libs-release"},
-			expected: "libs-release/com/example/file.jar",
-		},
-		{
-			name:     "with name only",
-			artifact: buildinfo.Artifact{Name: "file.jar", OriginalDeploymentRepo: "libs-release"},
-			expected: "libs-release/file.jar",
-		},
-		{
-			name:     "no repo",
-			artifact: buildinfo.Artifact{Name: "file.jar", Path: "com/example/file.jar"},
-			expected: "",
-		},
-		{
-			name:     "empty artifact",
-			artifact: buildinfo.Artifact{},
-			expected: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := constructArtifactPath(tt.artifact)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

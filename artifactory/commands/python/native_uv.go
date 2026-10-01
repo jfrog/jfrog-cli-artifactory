@@ -950,8 +950,12 @@ func uvEnrichDepsFromArtifactory(deps []buildinfo.Dependency, repoKey string, di
 			e.prefix+"*",
 		))
 	}
+	// Artifactory's AQL items domain requires repo, path and name in the include clause to
+	// evaluate a non-admin caller's permissions per result; omitting any of them is rejected
+	// with HTTP 400 for any identity that isn't an admin (see jfrog/jfrog-cli-artifactory#558,
+	// which reports the same omission in cargo's checksum enrichment).
 	aqlQuery := fmt.Sprintf(
-		`items.find({"repo":%q,"$or":[%s]}).include("name","actual_sha1","actual_md5","sha256")`,
+		`items.find({"repo":%q,"$or":[%s]}).include("repo","path","name","actual_sha1","actual_md5","sha256")`,
 		searchRepo, strings.Join(orClauses, ","),
 	)
 

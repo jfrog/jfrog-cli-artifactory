@@ -132,6 +132,47 @@ func TestWriteTempSourcesList_Trusted(t *testing.T) {
 	assert.Contains(t, string(content), "[trusted=yes]")
 }
 
+func TestWriteTempSourcesList_AutoDetectsKeyring(t *testing.T) {
+	// Simulate a prior 'jf setup apt --import-key' having installed a keyring.
+	tmpDir := t.TempDir()
+	origKeyringsDir := keyringsDir
+	keyringsDir = tmpDir
+	defer func() { keyringsDir = origKeyringsDir }()
+
+	keyFile := filepath.Join(tmpDir, "jfrog-repo-noble.asc")
+	require.NoError(t, os.WriteFile(keyFile, []byte("fake-key"), 0644))
+
+	sd := fakeServerDetails("https://host/artifactory/", "u", "p")
+	path, err := WriteTempSourcesList(sd, "repo", "noble", "main", false)
+	require.NoError(t, err)
+	defer func() { _ = os.Remove(path) }()
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "[signed-by="+keyFile+"]", "must inject signed-by when keyring exists")
+	assert.NotContains(t, string(content), "trusted=yes")
+}
+
+func TestWriteTempSourcesList_TrustedOverridesKeyring(t *testing.T) {
+	// --trusted must win even when a keyring file exists.
+	tmpDir := t.TempDir()
+	origKeyringsDir := keyringsDir
+	keyringsDir = tmpDir
+	defer func() { keyringsDir = origKeyringsDir }()
+
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "jfrog-repo-noble.asc"), []byte("fake-key"), 0644))
+
+	sd := fakeServerDetails("https://host/artifactory/", "u", "p")
+	path, err := WriteTempSourcesList(sd, "repo", "noble", "main", true)
+	require.NoError(t, err)
+	defer func() { _ = os.Remove(path) }()
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "[trusted=yes]")
+	assert.NotContains(t, string(content), "signed-by=")
+}
+
 // ── FetchAndInstallPublicKey (HTTP mock) ──────────────────────────────────────
 
 func TestFetchAndInstallPublicKey_AutoDetectsKeyName(t *testing.T) {

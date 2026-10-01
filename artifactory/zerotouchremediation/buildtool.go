@@ -20,7 +20,7 @@ type BuildTool interface {
 	EnsureLockfiles(ctx context.Context, projectRoot, command string, runner CommandRunner, bootstrapArgs ...string) (bootstrapped []string, err error)
 	// DiscoverLockfiles returns lock artifacts relative to project root.
 	// Tools without lockfiles return a nil/empty slice; the generic flow then skips apply.
-	DiscoverLockfiles(workingDir string) ([]Lockfile, error)
+	DiscoverLockfiles(projectRoot string) ([]Lockfile, error)
 }
 
 func IsRelevantCommand(tool BuildTool, command string) bool {

@@ -1,6 +1,7 @@
 package common
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -43,6 +44,39 @@ func TestResolvePathInstallBase_NotPathMode(t *testing.T) {
 	abs, err := ResolvePathInstallBase(InstallFlagInput{RawHarness: "cursor"})
 	require.NoError(t, err)
 	assert.Empty(t, abs)
+}
+
+func TestResolvePathInstallBase_CreatesMissingDir(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "does-not-exist-yet")
+
+	abs, err := ResolvePathInstallBase(InstallFlagInput{PathInstallBase: missing})
+	require.NoError(t, err)
+	assert.NotEmpty(t, abs)
+
+	info, statErr := os.Stat(abs)
+	require.NoError(t, statErr)
+	assert.True(t, info.IsDir())
+}
+
+func TestResolvePathInstallBase_CreatesNestedMissingDirs(t *testing.T) {
+	nested := filepath.Join(t.TempDir(), "a", "b", "c")
+
+	abs, err := ResolvePathInstallBase(InstallFlagInput{PathInstallBase: nested})
+	require.NoError(t, err)
+	assert.NotEmpty(t, abs)
+
+	info, statErr := os.Stat(abs)
+	require.NoError(t, statErr)
+	assert.True(t, info.IsDir())
+}
+
+func TestResolvePathInstallBase_RejectsExistingFile(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	require.NoError(t, os.WriteFile(blocker, []byte("hi"), 0o644))
+
+	_, err := ResolvePathInstallBase(InstallFlagInput{PathInstallBase: blocker})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not a directory")
 }
 
 func TestResolveInstallProjectDir(t *testing.T) {
@@ -102,10 +136,11 @@ func TestValidateInstallFlags_Errors(t *testing.T) {
 			wantSub: "mutually exclusive",
 		},
 		{
-			name: "path not a directory",
+			name: "path points at an existing file",
 			setup: func(c *components.Context) {
-				missing := filepath.Join(t.TempDir(), "nope")
-				c.AddStringFlag(InstallPathFlag, missing)
+				blocker := filepath.Join(t.TempDir(), "blocker")
+				require.NoError(t, os.WriteFile(blocker, []byte("hi"), 0o644))
+				c.AddStringFlag(InstallPathFlag, blocker)
 			},
 			wantSub: "--path:",
 		},
@@ -135,6 +170,23 @@ func TestValidateInstallFlags_PathModeOK(t *testing.T) {
 	assert.Empty(t, flags.Specs)
 	assert.Empty(t, flags.ProjectDirAbs)
 	assert.False(t, flags.IsGlobal)
+}
+
+func TestValidateInstallFlags_PathModeCreatesMissingDir(t *testing.T) {
+	missingPath := filepath.Join(t.TempDir(), "skills-target")
+	c := testutil.NewCLIContext()
+	c.AddStringFlag(InstallPathFlag, missingPath)
+
+	flags, err := ValidateInstallFlags(c, testSkillsAgents, SkillsAgentsKey, testSkillsHelp)
+	require.NoError(t, err)
+	wantAbs, err := filepath.Abs(missingPath)
+	require.NoError(t, err)
+	assert.True(t, flags.PathMode())
+	assert.Equal(t, wantAbs, flags.AbsoluteInstallBaseDir)
+
+	info, statErr := os.Stat(wantAbs)
+	require.NoError(t, statErr)
+	assert.True(t, info.IsDir())
 }
 
 func TestValidateInstallFlags_SkillsHarnessProjectOK(t *testing.T) {

@@ -481,6 +481,7 @@ func distribute(c *components.Context) error {
 		SetSync(c.GetBoolFlagValue(flagkit.Sync)).
 		SetMaxWaitMinutes(maxWaitMinutes).
 		SetPriority(distribution.GetPriorityFlagValue(c)).
+		SetIncludeEvidence(c.GetBoolFlagValue(flagkit.IncludeEvidence)).
 		SetOutputFormat(outputFormat)
 	return commands.Exec(distributeCmd)
 }

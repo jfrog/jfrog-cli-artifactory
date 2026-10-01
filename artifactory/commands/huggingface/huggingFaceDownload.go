@@ -180,7 +180,7 @@ func (hfd *HuggingFaceDownload) ServerDetails() (*config.ServerDetails, error) {
 
 // CommandName returns the name of the command
 func (hfd *HuggingFaceDownload) CommandName() string {
-	return hfd.name
+	return "rt_hf_download"
 }
 
 // NewHuggingFaceDownload creates a new instance of HFDownloadCmd

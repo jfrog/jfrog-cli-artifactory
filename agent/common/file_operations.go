@@ -22,29 +22,6 @@ func ExpandHome(path string) string {
 	return path
 }
 
-// ValidateExistingDir requires path to exist and be a directory (after filepath.Abs).
-func ValidateExistingDir(path string) error {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return fmt.Errorf("invalid path %q: %w", path, err)
-	}
-	info, err := os.Stat(abs)
-	if err != nil {
-		return existingDirStatError(path, err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("directory %q exists but is not a directory", path)
-	}
-	return nil
-}
-
-func existingDirStatError(path string, err error) error {
-	if errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("directory %q does not exist", path)
-	}
-	return fmt.Errorf("cannot access directory %q: %w", path, err)
-}
-
 // EnsureDestinationDir mkdirs the path if missing; errors when the path exists and is not a directory.
 func EnsureDestinationDir(dest string) error {
 	info, err := os.Stat(dest)

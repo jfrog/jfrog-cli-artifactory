@@ -163,12 +163,14 @@ func ResolvePathInstallBase(flags InstallFlagInput) (string, error) {
 	if flags.ProjectDir != "" {
 		return "", fmt.Errorf("--path cannot be combined with --project-dir")
 	}
-	if err := ValidateExistingDir(flags.PathInstallBase); err != nil {
-		return "", fmt.Errorf("--path: %w", err)
-	}
 	absPath, err := filepath.Abs(flags.PathInstallBase)
 	if err != nil {
 		return "", fmt.Errorf("invalid --path %q: %w", flags.PathInstallBase, err)
+	}
+	// --path may point at a directory that doesn't exist yet; create it (including any
+	// missing parents) instead of failing, matching mkdir -p semantics on all platforms.
+	if err := EnsureDestinationDir(absPath); err != nil {
+		return "", fmt.Errorf("--path: %w", err)
 	}
 	return absPath, nil
 }

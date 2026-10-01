@@ -1,12 +1,16 @@
 package buildinfo
 
 import (
+	"errors"
 	"testing"
+	"time"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
+	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 func TestBuildSpecFromPaths(t *testing.T) {
@@ -50,7 +54,6 @@ func TestBuildSpecFromPaths(t *testing.T) {
 			assert.NotNil(t, specFiles)
 			assert.Len(t, specFiles.Files, tt.expectedCount)
 
-			// Verify each path is correctly set as a pattern
 			for i, path := range tt.artifactPaths {
 				assert.Equal(t, path, specFiles.Files[i].Pattern)
 			}
@@ -58,7 +61,7 @@ func TestBuildSpecFromPaths(t *testing.T) {
 	}
 }
 
-func TestConstructArtifactPathWithFallback(t *testing.T) {
+func TestConstructPresentArtifactPath(t *testing.T) {
 	tests := []struct {
 		name     string
 		artifact buildinfo.Artifact
@@ -82,35 +85,35 @@ func TestConstructArtifactPathWithFallback(t *testing.T) {
 			expected: "my-repo/file.jar",
 		},
 		{
-			name: "without OriginalDeploymentRepo - wildcard repo search prefix",
+			name: "without OriginalDeploymentRepo returns empty",
 			artifact: buildinfo.Artifact{
 				Path: "my-repo/path/to/file.jar",
 				Name: "file.jar",
 			},
-			expected: "*/my-repo/path/to/file.jar",
+			expected: "",
 		},
 		{
-			name: "gradle extractor path without OriginalDeploymentRepo",
+			name: "gradle extractor path without OriginalDeploymentRepo returns empty",
 			artifact: buildinfo.Artifact{
 				Path: "minimal-example/1.0/minimal-example-1.0.jar",
 				Name: "minimal-example-1.0.jar",
 			},
-			expected: "*/minimal-example/1.0/minimal-example-1.0.jar",
+			expected: "",
 		},
 		{
-			name: "without OriginalDeploymentRepo or Path - fallback to Name",
+			name: "Name-only without OriginalDeploymentRepo returns empty",
 			artifact: buildinfo.Artifact{
 				Name: "file.jar",
 			},
-			expected: "*/file.jar",
+			expected: "",
 		},
 		{
-			name:     "empty artifact",
+			name:     "empty artifact returns empty",
 			artifact: buildinfo.Artifact{},
 			expected: "",
 		},
 		{
-			name: "virtual repo path",
+			name: "virtual repo path with OriginalDeploymentRepo",
 			artifact: buildinfo.Artifact{
 				OriginalDeploymentRepo: "cli-pypi-virtual",
 				Path:                   "jfrog-example/1.0/example-1.0.whl",
@@ -118,162 +121,121 @@ func TestConstructArtifactPathWithFallback(t *testing.T) {
 			},
 			expected: "cli-pypi-virtual/jfrog-example/1.0/example-1.0.whl",
 		},
+		{
+			name: "leading slash in Path is trimmed",
+			artifact: buildinfo.Artifact{
+				OriginalDeploymentRepo: "my-repo",
+				Path:                   "/path/to/file.jar",
+			},
+			expected: "my-repo/path/to/file.jar",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := constructArtifactPathWithFallback(tt.artifact)
+			result := constructPresentArtifactPath(tt.artifact)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
-func TestCivcsExtractArtifactPathsWithWarnings(t *testing.T) {
+func TestExtractArtifactPaths(t *testing.T) {
 	tests := []struct {
-		name            string
-		buildInfo       *buildinfo.BuildInfo
-		expectedPaths   int
-		expectedSkipped int
+		name                string
+		buildInfo           *buildinfo.BuildInfo
+		expectedPresent     []string
+		expectedMissing     int
 	}{
 		{
 			name:            "empty build info",
 			buildInfo:       &buildinfo.BuildInfo{},
-			expectedPaths:   0,
-			expectedSkipped: 0,
+			expectedPresent: nil,
+			expectedMissing: 0,
 		},
 		{
-			name: "build info with artifacts",
+			name: "all artifacts have OriginalDeploymentRepo",
 			buildInfo: &buildinfo.BuildInfo{
 				Modules: []buildinfo.Module{
 					{
 						Artifacts: []buildinfo.Artifact{
-							{
-								OriginalDeploymentRepo: "repo1",
-								Path:                   "path/file1.jar",
-								Name:                   "file1.jar",
-							},
-							{
-								OriginalDeploymentRepo: "repo2",
-								Path:                   "path/file2.jar",
-								Name:                   "file2.jar",
-							},
+							{OriginalDeploymentRepo: "repo1", Path: "path/file1.jar", Name: "file1.jar"},
+							{OriginalDeploymentRepo: "repo2", Path: "path/file2.jar", Name: "file2.jar"},
 						},
 					},
 				},
 			},
-			expectedPaths:   2,
-			expectedSkipped: 0,
+			expectedPresent: []string{"repo1/path/file1.jar", "repo2/path/file2.jar"},
+			expectedMissing: 0,
 		},
 		{
-			name: "build info with some empty artifacts",
+			name: "all artifacts missing OriginalDeploymentRepo",
 			buildInfo: &buildinfo.BuildInfo{
 				Modules: []buildinfo.Module{
 					{
 						Artifacts: []buildinfo.Artifact{
-							{
-								OriginalDeploymentRepo: "repo1",
-								Path:                   "path/file1.jar",
-								Name:                   "file1.jar",
-							},
-							{}, // Empty artifact - should be skipped
-							{
-								Path: "path/file3.jar", // No repo but has path - should use fallback
-								Name: "file3.jar",
-							},
+							{Path: "path/file1.jar", Name: "file1.jar"},
+							{Name: "file2.jar"},
 						},
 					},
 				},
 			},
-			expectedPaths:   2,
-			expectedSkipped: 1,
+			expectedPresent: nil,
+			expectedMissing: 2,
 		},
 		{
-			name: "build info with virtual repo paths",
+			name: "mixed: some present some missing",
 			buildInfo: &buildinfo.BuildInfo{
 				Modules: []buildinfo.Module{
 					{
 						Artifacts: []buildinfo.Artifact{
-							{
-								OriginalDeploymentRepo: "cli-pypi-virtual",
-								Path:                   "jfrog-example/1.0/example-1.0.whl",
-								Name:                   "example-1.0.whl",
-							},
-							{
-								OriginalDeploymentRepo: "cli-pypi-virtual",
-								Path:                   "jfrog-example/1.0/example-1.0.tar.gz",
-								Name:                   "example-1.0.tar.gz",
-							},
+							{OriginalDeploymentRepo: "repo1", Path: "path/file1.jar", Name: "file1.jar"},
+							{Path: "path/file2.jar", Name: "file2.jar"},
 						},
 					},
 				},
 			},
-			expectedPaths:   2,
-			expectedSkipped: 0,
+			expectedPresent: []string{"repo1/path/file1.jar"},
+			expectedMissing: 1,
+		},
+		{
+			name: "completely empty artifact is counted as missing",
+			buildInfo: &buildinfo.BuildInfo{
+				Modules: []buildinfo.Module{
+					{
+						Artifacts: []buildinfo.Artifact{{}},
+					},
+				},
+			},
+			expectedPresent: nil,
+			expectedMissing: 1,
+		},
+		{
+			name: "virtual repo path",
+			buildInfo: &buildinfo.BuildInfo{
+				Modules: []buildinfo.Module{
+					{
+						Artifacts: []buildinfo.Artifact{
+							{OriginalDeploymentRepo: "cli-pypi-virtual", Path: "jfrog-example/1.0/example-1.0.whl"},
+							{OriginalDeploymentRepo: "cli-pypi-virtual", Path: "jfrog-example/1.0/example-1.0.tar.gz"},
+						},
+					},
+				},
+			},
+			expectedPresent: []string{
+				"cli-pypi-virtual/jfrog-example/1.0/example-1.0.whl",
+				"cli-pypi-virtual/jfrog-example/1.0/example-1.0.tar.gz",
+			},
+			expectedMissing: 0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			paths, skipped := extractArtifactPathsWithWarnings(tt.buildInfo)
-			assert.Len(t, paths, tt.expectedPaths)
-			assert.Equal(t, tt.expectedSkipped, skipped)
+			present, missing := extractArtifactPaths(tt.buildInfo)
+			assert.Equal(t, tt.expectedPresent, present)
+			assert.Equal(t, tt.expectedMissing, missing)
 		})
 	}
-}
-
-func TestExpandWildcardPathsToLocalRepos(t *testing.T) {
-	t.Run("no wildcard paths", func(t *testing.T) {
-		paths := []string{"libs-release/com/example/foo.jar"}
-		expanded, err := expandWildcardPathsToLocalRepos(nil, paths)
-		assert.NoError(t, err)
-		assert.Equal(t, paths, expanded)
-	})
-
-	t.Run("expands wildcard paths to local repos", func(t *testing.T) {
-		mockSM := &mockReposServicesManager{
-			repos: []services.RepositoryDetails{
-				{Key: "libs-release"},
-				{Key: "libs-snapshot-local"},
-			},
-		}
-		paths := []string{
-			"libs-release/com/example/foo.jar",
-			"*/com/example/bar.jar",
-		}
-		expanded, err := expandWildcardPathsToLocalRepos(mockSM, paths)
-		assert.NoError(t, err)
-		assert.Equal(t, []string{
-			"libs-release/com/example/foo.jar",
-			"libs-release/com/example/bar.jar",
-			"libs-snapshot-local/com/example/bar.jar",
-		}, expanded)
-	})
-
-	t.Run("returns error when listing repos fails", func(t *testing.T) {
-		mockSM := &mockReposServicesManager{err: assert.AnError}
-		paths := []string{"*/com/example/foo.jar"}
-		expanded, err := expandWildcardPathsToLocalRepos(mockSM, paths)
-		assert.Error(t, err)
-		assert.Equal(t, paths, expanded)
-	})
-}
-
-type mockReposServicesManager struct {
-	artifactory.EmptyArtifactoryServicesManager
-	repos []services.RepositoryDetails
-	err   error
-}
-
-func (m *mockReposServicesManager) GetAllRepositoriesFiltered(services.RepositoriesFilterParams) (*[]services.RepositoryDetails, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return &m.repos, nil
-}
-
-func TestIsWildcardRepoPath(t *testing.T) {
-	assert.True(t, isWildcardRepoPath("*/com/example/foo.jar"))
-	assert.False(t, isWildcardRepoPath("libs-release/com/example/foo.jar"))
 }
 
 func TestCivcsIs404Error(t *testing.T) {
@@ -289,8 +251,8 @@ func TestCivcsIs404Error(t *testing.T) {
 		},
 		{
 			name:     "404 error",
-			err:      assert.AnError, // Will check manually
-			expected: false,          // AnError doesn't contain 404
+			err:      assert.AnError,
+			expected: false,
 		},
 	}
 
@@ -301,7 +263,6 @@ func TestCivcsIs404Error(t *testing.T) {
 		})
 	}
 
-	// Test with actual 404 message
 	t.Run("error containing 404", func(t *testing.T) {
 		err := &mockError{msg: "server response: 404 Not Found"}
 		assert.True(t, is404Error(err))
@@ -341,4 +302,148 @@ type mockError struct {
 
 func (e *mockError) Error() string {
 	return e.msg
+}
+
+// zeroRetryDelay sets retryDelayBase to 0 for the duration of the test to avoid real-time waits.
+func zeroRetryDelay(t *testing.T) {
+	t.Helper()
+	retryDelayBase = 0
+	t.Cleanup(func() { retryDelayBase = time.Second })
+}
+
+// stubBuildArtifacts substitutes the build-artifacts API resolver for the duration of the test.
+// readers are returned in order, one per call; errs[i] pairs with readers[i].
+func stubBuildArtifacts(t *testing.T, results []buildArtifactsResult) *int {
+	t.Helper()
+	original := resolveBuildArtifacts
+	calls := 0
+	resolveBuildArtifacts = func(_ artifactory.ArtifactoryServicesManager, _, _, _ string) (*content.ContentReader, error) {
+		i := calls
+		calls++
+		if i >= len(results) {
+			return nil, errors.New("unexpected extra call to resolveBuildArtifacts")
+		}
+		return results[i].reader, results[i].err
+	}
+	t.Cleanup(func() { resolveBuildArtifacts = original })
+	return &calls
+}
+
+type buildArtifactsResult struct {
+	reader *content.ContentReader
+	err    error
+}
+
+// TestSetPropsViaBuildSearch_Success: the API returns an artifact; SetProps is called once.
+func TestSetPropsViaBuildSearch_Success(t *testing.T) {
+	zeroRetryDelay(t)
+
+	props := "vcs.provider=github;vcs.org=jfrog"
+	mockSM := new(mockServicesManager)
+	searchReader, cleanup := createTestSearchReader(t)
+	defer cleanup()
+
+	calls := stubBuildArtifacts(t, []buildArtifactsResult{{reader: searchReader}})
+	mockSM.On("SetProps", mock.MatchedBy(func(params services.PropsParams) bool {
+		return params.Props == props
+	})).Return(1, nil)
+
+	setPropsViaBuildSearch(mockSM, "mybuild", "42", "", props)
+
+	mockSM.AssertExpectations(t)
+	assert.Equal(t, 1, *calls, "build-artifacts API should be called once")
+	mockSM.AssertNumberOfCalls(t, "SetProps", 1)
+	// The AQL-based search path must not be used for build resolution.
+	mockSM.AssertNotCalled(t, "SearchFiles")
+}
+
+// TestSetPropsViaBuildSearch_EmptyResults: the API returns no artifacts; SetProps is never called.
+func TestSetPropsViaBuildSearch_EmptyResults(t *testing.T) {
+	zeroRetryDelay(t)
+
+	mockSM := new(mockServicesManager)
+	emptyReader, cleanup := createEmptySearchReader(t)
+	defer cleanup()
+
+	stubBuildArtifacts(t, []buildArtifactsResult{{reader: emptyReader}})
+
+	setPropsViaBuildSearch(mockSM, "mybuild", "42", "", "vcs.provider=github")
+
+	mockSM.AssertNotCalled(t, "SetProps")
+}
+
+// TestSetPropsViaBuildSearch_MissingBuildInfo: empty build name/number → no calls at all.
+func TestSetPropsViaBuildSearch_MissingBuildInfo(t *testing.T) {
+	zeroRetryDelay(t)
+
+	mockSM := new(mockServicesManager)
+	calls := stubBuildArtifacts(t, nil)
+
+	setPropsViaBuildSearch(mockSM, "", "", "", "vcs.provider=github")
+	setPropsViaBuildSearch(mockSM, "mybuild", "", "", "vcs.provider=github")
+
+	assert.Equal(t, 0, *calls, "build-artifacts API must not be called without build name/number")
+	mockSM.AssertNotCalled(t, "SetProps")
+}
+
+// TestSetPropsViaBuildSearch_SearchRetries: first API call errors, second succeeds.
+func TestSetPropsViaBuildSearch_SearchRetries(t *testing.T) {
+	zeroRetryDelay(t)
+
+	mockSM := new(mockServicesManager)
+	searchReader, cleanup := createTestSearchReader(t)
+	defer cleanup()
+
+	calls := stubBuildArtifacts(t, []buildArtifactsResult{
+		{err: errors.New("transient timeout")},
+		{reader: searchReader},
+	})
+	mockSM.On("SetProps", mock.Anything).Return(1, nil)
+
+	setPropsViaBuildSearch(mockSM, "mybuild", "42", "", "vcs.provider=github")
+
+	assert.Equal(t, 2, *calls)
+	mockSM.AssertCalled(t, "SetProps", mock.Anything)
+}
+
+// TestSetPropsViaBuildSearch_SetProps404NoRetry: 404 from SetProps stops immediately, no further retry.
+func TestSetPropsViaBuildSearch_SetProps404NoRetry(t *testing.T) {
+	zeroRetryDelay(t)
+
+	mockSM := new(mockServicesManager)
+	searchReader, cleanup := createTestSearchReader(t)
+	defer cleanup()
+
+	calls := stubBuildArtifacts(t, []buildArtifactsResult{{reader: searchReader}})
+	mockSM.On("SetProps", mock.Anything).Return(0, errors.New("server returned 404 Not Found"))
+
+	setPropsViaBuildSearch(mockSM, "mybuild", "42", "", "vcs.provider=github")
+
+	assert.Equal(t, 1, *calls)
+	mockSM.AssertNumberOfCalls(t, "SetProps", 1)
+}
+
+// TestSetPropsViaBuildSearch_SearchError_Retries: a failing API call is retried maxRetries times.
+func TestSetPropsViaBuildSearch_SearchError_Retries(t *testing.T) {
+	zeroRetryDelay(t)
+
+	for _, errMsg := range []string{
+		"server returned 404 Not Found",
+		"server returned 403 Forbidden",
+		"transient network error",
+	} {
+		t.Run(errMsg, func(t *testing.T) {
+			mockSM := new(mockServicesManager)
+			var results []buildArtifactsResult
+			for i := 0; i < maxRetries; i++ {
+				results = append(results, buildArtifactsResult{err: errors.New(errMsg)})
+			}
+			calls := stubBuildArtifacts(t, results)
+
+			setPropsViaBuildSearch(mockSM, "mybuild", "42", "", "vcs.provider=github")
+
+			assert.Equal(t, maxRetries, *calls)
+			mockSM.AssertNotCalled(t, "SetProps")
+		})
+	}
 }

@@ -12,6 +12,9 @@ func (ni *npmInstall) PrepareInstallPrerequisites(repo string) error {
 }
 
 func (ni *npmInstall) Run() (err error) {
+	if err = ni.applyZeroTouchRemediation(); err != nil {
+		return
+	}
 	if err = ni.prepareBuildInfoModule(); err != nil {
 		return
 	}

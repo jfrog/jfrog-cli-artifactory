@@ -1,0 +1,290 @@
+package setup
+
+import (
+	"errors"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/repository"
+	"github.com/jfrog/jfrog-cli-core/v2/common/project"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
+	"github.com/jfrog/jfrog-client-go/artifactory/services"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestChocoSourceDetailsUsesV2URL(t *testing.T) {
+	serverDetails := &config.ServerDetails{
+		ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
+		User:           "john",
+		Password:       "secret",
+	}
+
+	sourceURL, user, password, err := chocoSourceDetails(serverDetails, "choco-virtual")
+	require.NoError(t, err)
+	assert.Equal(t, "https://acme.jfrog.io/artifactory/api/nuget/choco-virtual", sourceURL)
+	assert.NotContains(t, sourceURL, "/v3/")
+	assert.NotContains(t, sourceURL, "index.json")
+	assert.Equal(t, "john", user)
+	assert.Equal(t, "secret", password)
+}
+
+func TestChocoSourceDetailsValidatesInput(t *testing.T) {
+	_, _, _, err := chocoSourceDetails(nil, "choco-virtual")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "server details")
+
+	_, _, _, err = chocoSourceDetails(&config.ServerDetails{ArtifactoryUrl: "https://acme.jfrog.io/artifactory/"}, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "repository")
+
+	_, _, _, err = chocoSourceDetails(&config.ServerDetails{ArtifactoryUrl: "https://acme.jfrog.io/artifactory/"}, "choco-virtual")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "credentials")
+}
+
+// Chocolatey authenticates to a NuGet feed with basic authentication for both reads and pushes, so
+// it needs a username. A reference token or API-key access-token carries no subject to derive one
+// from - see auth.ExtractUsernameFromAccessToken - and there is no placeholder Artifactory accepts.
+// Failing here beats adding a source whose first "choco install" returns an unexplained 401.
+func TestChocoSourceDetailsRequiresUsernameForSubjectlessToken(t *testing.T) {
+	_, _, _, err := chocoSourceDetails(&config.ServerDetails{
+		ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
+		AccessToken:    "AKCp8" + strings.Repeat("x", 68),
+	}, "choco-virtual")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "username is required")
+}
+
+// A username configured alongside an API key or reference token is the supported way to use one:
+// the token is the secret, the username makes basic authentication possible.
+func TestChocoSourceDetailsAcceptsUsernameWithToken(t *testing.T) {
+	// #nosec G101 -- This is a fake test token with no real credentials.
+	referenceToken := "cmVmdG9rZW4"
+	sourceURL, user, password, err := chocoSourceDetails(&config.ServerDetails{
+		ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
+		User:           "john",
+		AccessToken:    referenceToken,
+	}, "choco-virtual")
+	require.NoError(t, err)
+	assert.Equal(t, "https://acme.jfrog.io/artifactory/api/nuget/choco-virtual", sourceURL)
+	assert.Equal(t, "john", user)
+	assert.Equal(t, referenceToken, password)
+}
+
+func TestChocoSourceName(t *testing.T) {
+	sourceName, err := chocoSourceName(
+		&config.ServerDetails{ArtifactoryUrl: "https://Acme.JFrog.io/artifactory/"},
+		"Team Repo/Release",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "jfrt-acme.jfrog.io-team-repo-release", sourceName)
+}
+
+func TestChocoSourceNameValidatesInput(t *testing.T) {
+	_, err := chocoSourceName(nil, "choco-virtual")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "server details")
+
+	_, err = chocoSourceName(&config.ServerDetails{ArtifactoryUrl: "://invalid"}, "choco-virtual")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Artifactory URL")
+}
+
+func TestNormalizeChocoRepositoryType(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"virtual", "virtual", services.VirtualRepositoryRepoType},
+		{"local", "local", services.LocalRepositoryRepoType},
+		{"remote", "remote", services.RemoteRepositoryRepoType},
+		// The padding and casing are the point: the value is trimmed and lower-cased before
+		// being matched, so a repository class read back from Artifactory normalizes either way.
+		{"padded and upper-cased", " REMOTE ", services.RemoteRepositoryRepoType},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			actual, err := normalizeChocoRepositoryType(testCase.input)
+			require.NoError(t, err)
+			assert.Equal(t, testCase.expected, actual)
+		})
+	}
+
+	_, err := normalizeChocoRepositoryType("federated")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "virtual, local, or remote")
+}
+
+func TestConfigureChocoCreatesVirtualSource(t *testing.T) {
+	calls := stubChocoCommandRunner(t)
+	stubChocoPlatformChecker(t, true)
+	stubChocoRepoClassResolver(t, services.VirtualRepositoryRepoType)
+
+	configureChocoForTest(t, "choco-virtual")
+
+	const sourceURL = "https://acme.jfrog.io/artifactory/api/nuget/choco-virtual"
+	// No "source remove" beforehand: "source add" is an upsert by name, and removing first would
+	// leave every user on this machine without a working source for the span between the calls.
+	assert.Equal(t, [][]string{
+		{"choco", "source", "add", "-n=jfrt-acme.jfrog.io-choco-virtual", "-s=" + sourceURL,
+			"-u=john", "-p=secret", "--priority=1"},
+		{"choco", "apikey", "add", "-s=" + sourceURL, "-k=john:secret"},
+	}, *calls)
+}
+
+// A JWT access token carries its username in the subject, so it configures both stores exactly like
+// a username and password do.
+func TestConfigureChocoUsesAccessTokenForBothStores(t *testing.T) {
+	calls := stubChocoCommandRunner(t)
+	stubChocoPlatformChecker(t, true)
+	stubChocoRepoClassResolver(t, services.VirtualRepositoryRepoType)
+
+	command := &SetupCommand{
+		packageManager: project.Choco,
+		repoName:       "choco-virtual",
+		serverDetails: &config.ServerDetails{
+			ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
+			User:           "john",
+			AccessToken:    "reference-token",
+		},
+	}
+	require.NoError(t, command.configureChoco())
+
+	const sourceURL = "https://acme.jfrog.io/artifactory/api/nuget/choco-virtual"
+	assert.Equal(t, [][]string{
+		{"choco", "source", "add", "-n=jfrt-acme.jfrog.io-choco-virtual", "-s=" + sourceURL,
+			"-u=john", "-p=reference-token", "--priority=1"},
+		{"choco", "apikey", "add", "-s=" + sourceURL, "-k=john:reference-token"},
+	}, *calls)
+}
+
+// Setup must not leave a half-configured machine behind: with no username, basic authentication is
+// impossible, so neither store is written.
+func TestConfigureChocoWithoutUsernameFailsBeforeTouchingChoco(t *testing.T) {
+	calls := stubChocoCommandRunner(t)
+	stubChocoPlatformChecker(t, true)
+	stubChocoRepoClassResolver(t, services.VirtualRepositoryRepoType)
+
+	command := &SetupCommand{
+		packageManager: project.Choco,
+		repoName:       "choco-virtual",
+		serverDetails: &config.ServerDetails{
+			ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
+			AccessToken:    "AKCp8" + strings.Repeat("x", 68),
+		},
+	}
+	err := command.configureChoco()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "username is required")
+	assert.Empty(t, *calls)
+}
+
+func TestConfigureChocoCreatesLocalSourceWithoutPriority(t *testing.T) {
+	calls := stubChocoCommandRunner(t)
+	stubChocoPlatformChecker(t, true)
+	stubChocoRepoClassResolver(t, services.LocalRepositoryRepoType)
+
+	configureChocoForTest(t, "choco-local")
+
+	assert.Equal(t, []string{
+		"choco", "source", "add", "-n=jfrt-acme.jfrog.io-choco-local",
+		"-s=https://acme.jfrog.io/artifactory/api/nuget/choco-local", "-u=john", "-p=secret",
+	}, (*calls)[0])
+}
+
+func TestConfigureChocoCreatesRemoteSourceWithPriority(t *testing.T) {
+	calls := stubChocoCommandRunner(t)
+	stubChocoPlatformChecker(t, true)
+	stubChocoRepoClassResolver(t, services.RemoteRepositoryRepoType)
+
+	configureChocoForTest(t, "choco-remote")
+
+	assert.Equal(t, []string{
+		"choco", "source", "add", "-n=jfrt-acme.jfrog.io-choco-remote",
+		"-s=https://acme.jfrog.io/artifactory/api/nuget/choco-remote", "-u=john", "-p=secret",
+		"--priority=1",
+	}, (*calls)[0])
+}
+
+func TestConfigureChocoDoesNotLeakSecrets(t *testing.T) {
+	stubChocoPlatformChecker(t, true)
+	stubChocoRepoClassResolver(t, services.VirtualRepositoryRepoType)
+	originalRunner := chocoCommandRunner
+	chocoCommandRunner = func(string, ...string) error { return errors.New("boom") }
+	t.Cleanup(func() { chocoCommandRunner = originalRunner })
+
+	err := newChocoSetupCommand("choco-virtual", "sup3rs3cr3t").configureChoco()
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "sup3rs3cr3t")
+}
+
+func TestConfigureChocoNonWindowsFailsClearly(t *testing.T) {
+	stubChocoPlatformChecker(t, false)
+
+	err := ValidateChocoPlatform()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Windows")
+	assert.Contains(t, err.Error(), runtime.GOOS)
+}
+
+func TestConfigScopeNoteChocoIsMachineWide(t *testing.T) {
+	note := configScopeNote(project.Choco)
+	assert.Contains(t, note, "every user on this machine")
+	assert.NotContains(t, note, "for this user")
+}
+
+func TestChocoIsSupportedBySetup(t *testing.T) {
+	assert.True(t, IsSupportedPackageManager(project.Choco))
+	assert.Contains(t, GetSupportedPackageManagersList(), "choco")
+
+	packageType, err := GetRepositoryPackageType(project.Choco)
+	require.NoError(t, err)
+	assert.Equal(t, repository.Nuget, packageType)
+}
+
+func configureChocoForTest(t *testing.T, repoName string) {
+	t.Helper()
+	require.NoError(t, newChocoSetupCommand(repoName, "secret").configureChoco())
+}
+
+func newChocoSetupCommand(repoName, password string) *SetupCommand {
+	return &SetupCommand{
+		packageManager: project.Choco,
+		repoName:       repoName,
+		serverDetails: &config.ServerDetails{
+			ArtifactoryUrl: "https://acme.jfrog.io/artifactory/",
+			User:           "john",
+			Password:       password,
+		},
+	}
+}
+
+func stubChocoCommandRunner(t *testing.T) *[][]string {
+	t.Helper()
+	var calls [][]string
+	originalRunner := chocoCommandRunner
+	chocoCommandRunner = func(name string, args ...string) error {
+		calls = append(calls, append([]string{name}, args...))
+		return nil
+	}
+	t.Cleanup(func() { chocoCommandRunner = originalRunner })
+	return &calls
+}
+
+func stubChocoPlatformChecker(t *testing.T, isWindows bool) {
+	t.Helper()
+	originalChecker := chocoPlatformChecker
+	chocoPlatformChecker = func() bool { return isWindows }
+	t.Cleanup(func() { chocoPlatformChecker = originalChecker })
+}
+
+func stubChocoRepoClassResolver(t *testing.T, repoClass string) {
+	t.Helper()
+	originalResolver := chocoRepoClassResolver
+	chocoRepoClassResolver = func(*config.ServerDetails, string) (string, error) {
+		return repoClass, nil
+	}
+	t.Cleanup(func() { chocoRepoClassResolver = originalResolver })
+}

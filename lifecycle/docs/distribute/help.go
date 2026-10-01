@@ -25,12 +25,14 @@ Common patterns:
   $ jf release-bundle-distribute my-bundle 1.0.0 --dist-rules=./rules.json --max-wait-minutes=60
   $ jf release-bundle-distribute my-bundle 1.0.0 --site="edge-eu" --priority=high --sync
   $ jf release-bundle-distribute my-bundle 1.0.0 --site="edge-eu" --mapping-pattern="(.*)/staging/(.*)" --mapping-target="$1/prod/$2"
+  $ jf release-bundle-distribute my-bundle 1.0.0 --site="edge-eu" --include-evidence --sync
 
 Gotchas:
 - --mapping-pattern and --mapping-target must be provided together; either alone errors out.
 - --dist-rules conflicts with --site/--city/--country-code.
 - --create-repo auto-creates missing target repos on edge nodes.
 - --priority accepts low, medium, or high; omitted defaults to medium on the server.
+- --include-evidence also moves Evidence on the bundle and its artifacts to the target (server support required).
 
 Related: jf release-bundle-promote, jf release-bundle-delete-remote, jf release-bundle-export`
 }
