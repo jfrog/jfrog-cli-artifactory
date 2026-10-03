@@ -269,3 +269,143 @@ func TestExtractOutFilePath(t *testing.T) {
 		})
 	}
 }
+
+func TestUploadProcessor_ExtractUploadInfo_WithConan1xReferences(t *testing.T) {
+	tests := []struct {
+		name             string
+		output           ConanUploadOutput
+		expectedRemote   string
+		expectedPkgCount int
+	}{
+		{
+			name: "Single package uploaded with Conan 1.x reference",
+			output: ConanUploadOutput{
+				"conan-local": {
+					"simplelib/1.0.0@user/stable": ConanUploadRecipe{
+						Revisions: map[string]ConanUploadRecipeRevision{
+							"86deb56ab95f8fe27d07debf8a6ee3f9": {},
+						},
+					},
+				},
+			},
+			expectedRemote:   "conan-local",
+			expectedPkgCount: 1,
+		},
+		{
+			name: "Multiple packages uploaded with Conan 1.x references",
+			output: ConanUploadOutput{
+				"my-remote": {
+					"zlib/1.2.13@myuser/release": {
+						Revisions: map[string]ConanUploadRecipeRevision{
+							"abc123": {},
+						},
+					},
+					"openssl/3.1.2@security/stable": {
+						Revisions: map[string]ConanUploadRecipeRevision{
+							"def456": {},
+						},
+					},
+				},
+			},
+			expectedRemote:   "my-remote",
+			expectedPkgCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			processor := &UploadProcessor{}
+			remote, packages := processor.extractUploadInfo(tt.output)
+			assert.Equal(t, tt.expectedRemote, remote)
+			assert.Len(t, packages, tt.expectedPkgCount)
+		})
+	}
+}
+
+func TestUploadProcessor_BuildArtifactPathsFromJSON_WithConan1xReferences(t *testing.T) {
+	tests := []struct {
+		name          string
+		packages      map[string]ConanUploadRecipe
+		expectedPaths []string
+	}{
+		{
+			name: "Recipe only with Conan 1.x reference",
+			packages: map[string]ConanUploadRecipe{
+				"simplelib/1.0.0@user/stable": {
+					Revisions: map[string]ConanUploadRecipeRevision{
+						"86deb56ab95f8fe27d07debf8a6ee3f9": {},
+					},
+				},
+			},
+			expectedPaths: []string{
+				"user/simplelib/1.0.0/stable/86deb56ab95f8fe27d07debf8a6ee3f9/export",
+			},
+		},
+		{
+			name: "Recipe with binary package using Conan 1.x reference",
+			packages: map[string]ConanUploadRecipe{
+				"multideps/1.0.0@myuser/release": {
+					Revisions: map[string]ConanUploadRecipeRevision{
+						"797d134a8590a1bfa06d846768443f48": {
+							Packages: map[string]ConanUploadPackageEntry{
+								"594ed0eb2e9dfcc60607438924c35871514e6c2a": {
+									Revisions: map[string]interface{}{
+										"ca858ea14c32f931e49241df0b52bec9": nil,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedPaths: []string{
+				"myuser/multideps/1.0.0/release/797d134a8590a1bfa06d846768443f48/export",
+				"myuser/multideps/1.0.0/release/797d134a8590a1bfa06d846768443f48/package/594ed0eb2e9dfcc60607438924c35871514e6c2a/ca858ea14c32f931e49241df0b52bec9",
+			},
+		},
+		{
+			name: "Multiple packages with Conan 1.x references",
+			packages: map[string]ConanUploadRecipe{
+				"mylib/2.0.0@corp/prod": {
+					Revisions: map[string]ConanUploadRecipeRevision{
+						"aaa111": {
+							Packages: map[string]ConanUploadPackageEntry{
+								"pkg_id_1": {
+									Revisions: map[string]interface{}{
+										"rev_a": nil,
+									},
+								},
+								"pkg_id_2": {
+									Revisions: map[string]interface{}{
+										"rev_b": nil,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedPaths: []string{
+				"corp/mylib/2.0.0/prod/aaa111/export",
+				"corp/mylib/2.0.0/prod/aaa111/package/pkg_id_1/rev_a",
+				"corp/mylib/2.0.0/prod/aaa111/package/pkg_id_2/rev_b",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			processor := &UploadProcessor{}
+			paths := processor.buildArtifactPathsFromJSON(tt.packages)
+
+			if tt.expectedPaths == nil {
+				assert.Nil(t, paths)
+			} else {
+				assert.Len(t, paths, len(tt.expectedPaths))
+				for _, expected := range tt.expectedPaths {
+					assert.Contains(t, paths, expected)
+				}
+			}
+		})
+	}
+}
