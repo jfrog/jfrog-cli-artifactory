@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -70,6 +71,33 @@ func TestReadVcs(t *testing.T) {
 	t.Run("sends nothing outside a git checkout", func(t *testing.T) {
 		assert.Nil(t, readVcs(t.TempDir()))
 	})
+	t.Run("reads a linked worktree's own branch and commit", func(t *testing.T) {
+		repoRoot, _ := gitCheckout(t, "https://github.com/org/repo.git")
+		worktree := filepath.Join(t.TempDir(), "feature")
+		runGit(t, repoRoot, "worktree", "add", "-q", "-b", "feature", worktree)
+		runGit(t, worktree, "commit", "-q", "--allow-empty", "-m", "feature work")
+		assert.Equal(t, &services.ComponentResolutionVcs{
+			Url: "https://github.com/org/repo.git", Branch: "feature", Revision: headRevision(t, worktree),
+		}, readVcs(filepath.Join(worktree, "services", "web")))
+	})
+	t.Run("sends nothing for a malformed git config instead of panicking", func(t *testing.T) {
+		repoRoot, projectDir := gitCheckout(t, "https://github.com/org/repo.git")
+		config := filepath.Join(repoRoot, ".git", "config")
+		content, err := os.ReadFile(config)
+		require.NoError(t, err)
+		malformed := strings.Replace(string(content), "url = https://github.com/org/repo.git", "url", 1)
+		require.NotEqual(t, string(content), malformed, "the origin url line was not found")
+		require.NoError(t, os.WriteFile(config, []byte(malformed), 0644))
+		assert.NotPanics(t, func() { assert.Nil(t, readVcs(projectDir)) })
+	})
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"}, args...)...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
 }
 
 func TestRunIfEnabled_SendsTheLockfilesRepository(t *testing.T) {

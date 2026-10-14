@@ -1,8 +1,11 @@
 package zerotouchremediation
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
@@ -21,7 +24,7 @@ func readVcs(projectRoot string) *services.ComponentResolutionVcs {
 		return nil
 	}
 	manager := clientutils.NewGitManager(gitRoot)
-	if err := manager.ReadConfig(); err != nil {
+	if err := readGitConfig(manager); err != nil {
 		log.Debug("Zero Touch Remediation: could not read git details, sending none: ", err.Error())
 		return nil
 	}
@@ -32,7 +35,60 @@ func readVcs(projectRoot string) *services.ComponentResolutionVcs {
 		log.Debug("Zero Touch Remediation: git checkout has no origin remote; sending no vcs details")
 		return nil
 	}
-	return &services.ComponentResolutionVcs{Url: url, Branch: manager.GetBranch(), Revision: manager.GetRevision()}
+	branch, revision := manager.GetBranch(), manager.GetRevision()
+	if isLinkedCheckout(gitRoot) {
+		var err error
+		if branch, revision, err = checkedOutRef(gitRoot); err != nil {
+			log.Debug("Zero Touch Remediation: could not read the checked-out commit, sending no vcs details: ", err.Error())
+			return nil
+		}
+	}
+	return &services.ComponentResolutionVcs{Url: url, Branch: branch, Revision: revision}
+}
+
+// readGitConfig turns a panic in GitManager.ReadConfig into an error. It indexes into
+// .git/config lines without checking their shape, so a malformed one would otherwise
+// crash the install that remediation is only a best-effort part of.
+func readGitConfig(manager *clientutils.GitManager) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("reading the git config failed: %v", r)
+		}
+	}()
+	return manager.ReadConfig()
+}
+
+// isLinkedCheckout reports whether gitRoot's .git is a file pointing elsewhere, as in a
+// worktree or a submodule.
+func isLinkedCheckout(gitRoot string) bool {
+	info, err := os.Lstat(filepath.Join(gitRoot, ".git"))
+	return err == nil && !info.IsDir()
+}
+
+// checkedOutRef asks git for the branch and commit checked out in dir. GitManager reads
+// HEAD from the repository's shared .git directory, which for a linked worktree is the
+// main checkout's HEAD, not the worktree's. A detached HEAD has no branch.
+func checkedOutRef(dir string) (branch, revision string, err error) {
+	if revision, err = gitOutput(dir, "rev-parse", "HEAD"); err != nil {
+		return "", "", err
+	}
+	if branch, err = gitOutput(dir, "rev-parse", "--abbrev-ref", "HEAD"); err != nil {
+		return "", "", err
+	}
+	if branch == "HEAD" {
+		branch = ""
+	}
+	return branch, revision, nil
+}
+
+func gitOutput(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // findGitRoot walks up from dir to the directory holding .git (a directory, or a file
