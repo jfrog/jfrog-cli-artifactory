@@ -80,6 +80,20 @@ func TestReadVcs(t *testing.T) {
 			Url: "https://github.com/org/repo.git", Branch: "feature", Revision: headRevision(t, worktree),
 		}, readVcs(filepath.Join(worktree, "services", "web")))
 	})
+	t.Run("reads a linked worktree's own commit when git variables point elsewhere", func(t *testing.T) {
+		repoRoot, _ := gitCheckout(t, "https://github.com/org/repo.git")
+		otherRoot, _ := gitCheckout(t, "https://github.com/org/other.git")
+		runGit(t, otherRoot, "commit", "-q", "--allow-empty", "-m", "other work")
+		worktree := filepath.Join(t.TempDir(), "feature")
+		runGit(t, repoRoot, "worktree", "add", "-q", "-b", "feature", worktree)
+		// As inside a git hook or a script run from another checkout.
+		t.Setenv("GIT_DIR", filepath.Join(otherRoot, ".git"))
+		t.Setenv("GIT_WORK_TREE", otherRoot)
+		vcs := readVcs(filepath.Join(worktree, "services", "web"))
+		require.NotNil(t, vcs)
+		assert.Equal(t, "feature", vcs.Branch)
+		assert.Equal(t, revisionOf(t, worktree), vcs.Revision)
+	})
 	t.Run("sends nothing for a malformed git config instead of panicking", func(t *testing.T) {
 		repoRoot, projectDir := gitCheckout(t, "https://github.com/org/repo.git")
 		config := filepath.Join(repoRoot, ".git", "config")
@@ -90,6 +104,22 @@ func TestReadVcs(t *testing.T) {
 		require.NoError(t, os.WriteFile(config, []byte(malformed), 0644))
 		assert.NotPanics(t, func() { assert.Nil(t, readVcs(projectDir)) })
 	})
+}
+
+// revisionOf reads dir's HEAD with git's repository variables cleared, so it answers
+// for dir even while a test has them pointing elsewhere.
+func revisionOf(t *testing.T, dir string) string {
+	t.Helper()
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = dir
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GIT_DIR=") && !strings.HasPrefix(kv, "GIT_WORK_TREE=") {
+			cmd.Env = append(cmd.Env, kv)
+		}
+	}
+	out, err := cmd.Output()
+	require.NoError(t, err)
+	return strings.TrimSpace(string(out))
 }
 
 func runGit(t *testing.T, dir string, args ...string) {

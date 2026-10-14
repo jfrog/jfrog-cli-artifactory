@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
@@ -81,9 +82,21 @@ func checkedOutRef(dir string) (branch, revision string, err error) {
 	return branch, revision, nil
 }
 
+// gitLocalEnvVars are the variables git binds to one repository, as listed by
+// `git rev-parse --local-env-vars`. They take precedence over the working directory,
+// so inherited from a git hook or a script run in another checkout, they would make
+// git answer for that checkout instead of dir.
+var gitLocalEnvVars = []string{
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
+	"GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE", "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE",
+	"GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE", "GIT_PREFIX",
+	"GIT_SHALLOW_FILE", "GIT_COMMON_DIR",
+}
+
 func gitOutput(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
+	cmd.Env = withoutGitLocalEnv(os.Environ())
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
@@ -109,4 +122,15 @@ func findGitRoot(dir string) (string, bool) {
 		}
 		dir = parent
 	}
+}
+
+func withoutGitLocalEnv(env []string) []string {
+	kept := make([]string, 0, len(env))
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		if !slices.Contains(gitLocalEnvVars, name) {
+			kept = append(kept, kv)
+		}
+	}
+	return kept
 }
