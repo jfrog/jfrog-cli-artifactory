@@ -64,12 +64,13 @@ func isLinkedCheckout(gitRoot string) bool {
 // HEAD from the repository's shared .git directory, which for a linked worktree is the
 // main checkout's HEAD, not the worktree's. A detached HEAD has no branch.
 func checkedOutRef(dir string) (branch, revision string, err error) {
-	if revision, err = gitOutput(dir, "rev-parse", "HEAD"); err != nil {
+	// --abbrev-ref applies to the HEAD after it, so one call prints the commit and
+	// then the branch name.
+	out, err := gitOutput(dir, "rev-parse", "HEAD", "--abbrev-ref", "HEAD")
+	if err != nil {
 		return "", "", err
 	}
-	if branch, err = gitOutput(dir, "rev-parse", "--abbrev-ref", "HEAD"); err != nil {
-		return "", "", err
-	}
+	revision, branch, _ = strings.Cut(out, "\n")
 	if branch == "HEAD" {
 		branch = ""
 	}
@@ -99,12 +100,8 @@ func gitOutput(dir string, args ...string) (string, error) {
 }
 
 func withoutGitLocalEnv(env []string) []string {
-	kept := make([]string, 0, len(env))
-	for _, kv := range env {
+	return slices.DeleteFunc(env, func(kv string) bool {
 		name, _, _ := strings.Cut(kv, "=")
-		if !slices.Contains(gitLocalEnvVars, name) {
-			kept = append(kept, kv)
-		}
-	}
-	return kept
+		return slices.Contains(gitLocalEnvVars, name)
+	})
 }

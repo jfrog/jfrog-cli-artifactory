@@ -26,28 +26,25 @@ func gitCheckout(t *testing.T, origin string) (repoRoot, projectDir string) {
 	projectDir = filepath.Join(repoRoot, "services", "web")
 	require.NoError(t, os.MkdirAll(projectDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "package-lock.json"), []byte("{}"), 0644))
-	git := func(args ...string) {
-		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"}, args...)...)
-		cmd.Dir = repoRoot
-		out, err := cmd.CombinedOutput()
-		require.NoError(t, err, string(out))
-	}
-	git("init", "-q", "-b", "main")
+	runGit(t, repoRoot, "init", "-q", "-b", "main")
 	if origin != "" {
-		git("remote", "add", "origin", origin)
+		runGit(t, repoRoot, "remote", "add", "origin", origin)
 	}
-	git("add", ".")
-	git("commit", "-q", "-m", "init")
+	runGit(t, repoRoot, "add", ".")
+	runGit(t, repoRoot, "commit", "-q", "-m", "init")
 	return repoRoot, projectDir
 }
 
-func headRevision(t *testing.T, repoRoot string) string {
+// headRevision reads dir's HEAD with git's repository variables cleared, so it answers
+// for dir even while a test has them pointing elsewhere.
+func headRevision(t *testing.T, dir string) string {
 	t.Helper()
 	cmd := exec.Command("git", "rev-parse", "HEAD")
-	cmd.Dir = repoRoot
+	cmd.Dir = dir
+	cmd.Env = withoutGitLocalEnv(os.Environ())
 	out, err := cmd.Output()
 	require.NoError(t, err)
-	return string(out[:len(out)-1])
+	return strings.TrimSpace(string(out))
 }
 
 func TestReadVcs(t *testing.T) {
@@ -61,7 +58,6 @@ func TestReadVcs(t *testing.T) {
 		_, projectDir := gitCheckout(t, "https://user:secret-token@github.com/org/repo.git")
 		vcs := readVcs(projectDir)
 		require.NotNil(t, vcs)
-		assert.NotContains(t, vcs.Url, "secret-token")
 		assert.Equal(t, "https://github.com/org/repo.git", vcs.Url)
 	})
 	t.Run("sends nothing for a checkout without an origin remote", func(t *testing.T) {
@@ -92,24 +88,8 @@ func TestReadVcs(t *testing.T) {
 		vcs := readVcs(filepath.Join(worktree, "services", "web"))
 		require.NotNil(t, vcs)
 		assert.Equal(t, "feature", vcs.Branch)
-		assert.Equal(t, revisionOf(t, worktree), vcs.Revision)
+		assert.Equal(t, headRevision(t, worktree), vcs.Revision)
 	})
-}
-
-// revisionOf reads dir's HEAD with git's repository variables cleared, so it answers
-// for dir even while a test has them pointing elsewhere.
-func revisionOf(t *testing.T, dir string) string {
-	t.Helper()
-	cmd := exec.Command("git", "rev-parse", "HEAD")
-	cmd.Dir = dir
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "GIT_DIR=") && !strings.HasPrefix(kv, "GIT_WORK_TREE=") {
-			cmd.Env = append(cmd.Env, kv)
-		}
-	}
-	out, err := cmd.Output()
-	require.NoError(t, err)
-	return strings.TrimSpace(string(out))
 }
 
 func runGit(t *testing.T, dir string, args ...string) {
