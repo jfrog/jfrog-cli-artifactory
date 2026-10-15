@@ -502,7 +502,7 @@ func updateScopeRegistries(execPath, registry, npmAuthIdent, npmAuthToken string
 	if err != nil {
 		return errorutils.CheckError(err)
 	}
-	artifactoryScope := yarnNpmScope{NpmAlwaysAuth: true, NpmAuthIdent: npmAuthIdent, NpmAuthToken: npmAuthToken, NpmRegistryServer: registry}
+	artifactoryScope := newArtifactoryNpmScope(registry, npmAuthIdent, npmAuthToken)
 	for scopeName := range npmScopesMap {
 		npmScopesMap[scopeName] = artifactoryScope
 	}
@@ -511,6 +511,26 @@ func updateScopeRegistries(execPath, registry, npmAuthIdent, npmAuthToken string
 		return errorutils.CheckError(err)
 	}
 	return yarn.ConfigSet(NpmScopesConfigName, string(updatedNpmScopesStr), execPath, true)
+}
+
+// newArtifactoryNpmScope builds the scope configuration pointing at Artifactory.
+// The credential itself is never embedded: the scope references the YARN_NPM_AUTH_IDENT /
+// YARN_NPM_AUTH_TOKEN environment variables (already set by ModifyYarnConfigurations), which
+// Yarn interpolates at runtime. This keeps the secret out of the 'yarn config set' argv and
+// out of the project's .yarnrc.yml.
+func newArtifactoryNpmScope(registry, npmAuthIdent, npmAuthToken string) yarnNpmScope {
+	scope := yarnNpmScope{NpmAlwaysAuth: true, NpmRegistryServer: registry}
+	if npmAuthIdent != "" {
+		scope.NpmAuthIdent = envVarReference(yarnNpmAuthIndent)
+	}
+	if npmAuthToken != "" {
+		scope.NpmAuthToken = envVarReference(yarnNpmAuthToken)
+	}
+	return scope
+}
+
+func envVarReference(envVarName string) string {
+	return "${" + envVarName + "}"
 }
 
 type yarnNpmScope struct {

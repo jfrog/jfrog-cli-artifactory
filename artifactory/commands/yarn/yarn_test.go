@@ -1,6 +1,7 @@
 package yarn
 
 import (
+	"encoding/json"
 	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/tests"
@@ -171,4 +172,39 @@ func TestPrintMissingDependencies(t *testing.T) {
 	assert.NotPanics(t, func() { printMissingDependencies(nil) })
 	assert.NotPanics(t, func() { printMissingDependencies([]string{}) })
 	assert.NotPanics(t, func() { printMissingDependencies([]string{"lodash:4.17.21", "chalk:5.3.0"}) })
+}
+
+func TestNewArtifactoryNpmScopeDoesNotEmbedCredentials(t *testing.T) {
+	const registry = "https://acme.jfrog.io/artifactory/api/npm/npm-virtual"
+	testCases := []struct {
+		name          string
+		authIdent     string
+		authToken     string
+		expectedScope yarnNpmScope
+	}{
+		{
+			name:          "access token",
+			authToken:     "secret-access-token",
+			expectedScope: yarnNpmScope{NpmAlwaysAuth: true, NpmAuthToken: "${YARN_NPM_AUTH_TOKEN}", NpmRegistryServer: registry},
+		},
+		{
+			name:          "basic auth",
+			authIdent:     "dXNlcjpwYXNzd29yZA==",
+			expectedScope: yarnNpmScope{NpmAlwaysAuth: true, NpmAuthIdent: "${YARN_NPM_AUTH_IDENT}", NpmRegistryServer: registry},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			scope := newArtifactoryNpmScope(registry, tc.authIdent, tc.authToken)
+			assert.Equal(t, tc.expectedScope, scope)
+
+			serialized, err := json.Marshal(map[string]yarnNpmScope{"my-scope": scope})
+			assert.NoError(t, err)
+			for _, secret := range []string{tc.authIdent, tc.authToken} {
+				if secret != "" {
+					assert.NotContains(t, string(serialized), secret)
+				}
+			}
+		})
+	}
 }
