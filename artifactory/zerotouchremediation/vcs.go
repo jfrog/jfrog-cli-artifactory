@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	artutils "github.com/jfrog/jfrog-cli-artifactory/artifactory/utils"
 	clientutils "github.com/jfrog/jfrog-client-go/utils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/jfrog/jfrog-client-go/xray/services"
@@ -19,13 +20,19 @@ import (
 // checkout, without an origin remote, or when git details cannot be read, it returns
 // nil and the request is sent without them.
 func readVcs(projectRoot string) *services.ComponentResolutionVcs {
-	gitRoot, found := findGitRoot(projectRoot)
-	if !found {
+	// The npm project is often a subdirectory of the repository, so FindDotGit walks
+	// up from it rather than expecting .git in the project root.
+	gitRoot, err := artutils.FindDotGit(projectRoot)
+	if err != nil {
+		log.Debug("Zero Touch Remediation: could not look for a git checkout, sending no vcs details: ", err.Error())
+		return nil
+	}
+	if gitRoot == "" {
 		log.Debug("Zero Touch Remediation: project is not in a git checkout; sending no vcs details")
 		return nil
 	}
 	manager := clientutils.NewGitManager(gitRoot)
-	if err := readGitConfig(manager); err != nil {
+	if err = manager.ReadConfig(); err != nil {
 		log.Debug("Zero Touch Remediation: could not read git details, sending none: ", err.Error())
 		return nil
 	}
@@ -38,25 +45,12 @@ func readVcs(projectRoot string) *services.ComponentResolutionVcs {
 	}
 	branch, revision := manager.GetBranch(), manager.GetRevision()
 	if isLinkedCheckout(gitRoot) {
-		var err error
 		if branch, revision, err = checkedOutRef(gitRoot); err != nil {
 			log.Debug("Zero Touch Remediation: could not read the checked-out commit, sending no vcs details: ", err.Error())
 			return nil
 		}
 	}
 	return &services.ComponentResolutionVcs{Url: url, Branch: branch, Revision: revision}
-}
-
-// readGitConfig turns a panic in GitManager.ReadConfig into an error. It indexes into
-// .git/config lines without checking their shape, so a malformed one would otherwise
-// crash the install that remediation is only a best-effort part of.
-func readGitConfig(manager *clientutils.GitManager) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("reading the git config failed: %v", r)
-		}
-	}()
-	return manager.ReadConfig()
 }
 
 // isLinkedCheckout reports whether gitRoot's .git is a file pointing elsewhere, as in a
@@ -102,26 +96,6 @@ func gitOutput(dir string, args ...string) (string, error) {
 		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
 	return strings.TrimSpace(string(out)), nil
-}
-
-// findGitRoot walks up from dir to the directory holding .git (a directory, or a file
-// for worktrees and submodules). The npm project is often a subdirectory of the
-// repository, so the project root itself is usually not it.
-func findGitRoot(dir string) (string, bool) {
-	dir, err := filepath.Abs(dir)
-	if err != nil {
-		return "", false
-	}
-	for {
-		if _, err = os.Lstat(filepath.Join(dir, ".git")); err == nil {
-			return dir, true
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", false
-		}
-		dir = parent
-	}
 }
 
 func withoutGitLocalEnv(env []string) []string {

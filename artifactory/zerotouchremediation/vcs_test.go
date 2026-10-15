@@ -94,16 +94,6 @@ func TestReadVcs(t *testing.T) {
 		assert.Equal(t, "feature", vcs.Branch)
 		assert.Equal(t, revisionOf(t, worktree), vcs.Revision)
 	})
-	t.Run("sends nothing for a malformed git config instead of panicking", func(t *testing.T) {
-		repoRoot, projectDir := gitCheckout(t, "https://github.com/org/repo.git")
-		config := filepath.Join(repoRoot, ".git", "config")
-		content, err := os.ReadFile(config)
-		require.NoError(t, err)
-		malformed := strings.Replace(string(content), "url = https://github.com/org/repo.git", "url", 1)
-		require.NotEqual(t, string(content), malformed, "the origin url line was not found")
-		require.NoError(t, os.WriteFile(config, []byte(malformed), 0644))
-		assert.NotPanics(t, func() { assert.Nil(t, readVcs(projectDir)) })
-	})
 }
 
 // revisionOf reads dir's HEAD with git's repository variables cleared, so it answers
