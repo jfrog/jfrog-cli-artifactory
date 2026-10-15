@@ -360,8 +360,6 @@ github.com/in-toto/in-toto-golang v0.10.0 h1:+s2eZQSK3WmWfYV85qXVSBfqgawi/5L02Ma
 github.com/in-toto/in-toto-golang v0.10.0/go.mod h1:wjT4RiyFlLWCmLUJjwB8oZcjaq7HA390aMJcD3xXgmg=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
-github.com/israelmls/jfrog-client-go v1.55.1-0.20261006094057-de9eec97f177 h1:XsTU+b9lcf997VR4C5uyZclZxRJIY/yMTYvixP0e1Ro=
-github.com/israelmls/jfrog-client-go v1.55.1-0.20261006094057-de9eec97f177/go.mod h1:7B7eMRKuMhZ0rOdMItbJVpWjRUe1L//J3Jq+PgjiNxI=
 github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=
 github.com/jackc/pgpassfile v1.0.0/go.mod h1:CEx0iS5ambNFdcRtxPj5JhEz+xB6uRky5eyVu/W2HEg=
 github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 h1:iCEnooe7UlwOQYpKFhBabPMi4aNAfoODPEFNiAnClxo=
@@ -390,6 +388,8 @@ github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260925084932-b47892ded3a0 h1:SNXw
 github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20260925084932-b47892ded3a0/go.mod h1:SwV+DNLBnWLxBeNeZpJk+xxAbqJ8ywq1va56up+AGu4=
 github.com/jfrog/jfrog-cli-evidence v0.9.0 h1:i9DhkQUxSZkhpp5oGR+N+SVAaqWDiUylbJcoDhM91uQ=
 github.com/jfrog/jfrog-cli-evidence v0.9.0/go.mod h1:R9faPfyQESBmKrdZCmHvlpmYSHmffswjNnFeT3RMq8I=
+github.com/jfrog/jfrog-client-go v1.55.1-0.20261014133608-3b4b900d8174 h1:vBoBTNBoeAkXIZu6KfOtJsX65c+bSrncfMsb28bCgGo=
+github.com/jfrog/jfrog-client-go v1.55.1-0.20261014133608-3b4b900d8174/go.mod h1:7B7eMRKuMhZ0rOdMItbJVpWjRUe1L//J3Jq+PgjiNxI=
 github.com/jmespath/go-jmespath v0.4.1-0.20220621161143-b0104c826a24 h1:liMMTbpW34dhU4az1GN0pTPADwNmvoRSeoZ6PItiqnY=
 github.com/jmespath/go-jmespath v0.4.1-0.20220621161143-b0104c826a24/go.mod h1:T8mJZnbsbmF+m6zOOFylbeCJqk5+pHWvzYPziyZiYoo=
 github.com/kevinburke/ssh_config v1.6.0 h1:J1FBfmuVosPHf5GRdltRLhPJtJpTlMdKTBjRgTaQBFY=
