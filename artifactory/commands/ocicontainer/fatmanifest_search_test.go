@@ -76,6 +76,11 @@ func newFakeArtifactory(t *testing.T, repo *fakeDockerRepo) (artifactory.Artifac
 			_, _ = w.Write([]byte(`{"version":"7.104.0"}`))
 			return
 		}
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/"+FatManifestJsonFile) {
+			_, fatManifest := testFatManifest(fatManifestTestTag)
+			assert.NoError(t, json.NewEncoder(w).Encode(fatManifest))
+			return
+		}
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 		require.True(t, strings.HasSuffix(r.URL.Path, "/api/search/aql"), r.URL.Path)
@@ -159,5 +164,26 @@ func TestMultiPlatformImageSearchRowsIndependentOfTagsCount(t *testing.T) {
 			// 2 platforms * (manifest.json + config + layer)
 			assert.Equal(t, 6, recorder.returnedRows)
 		})
+	}
+}
+
+func TestSearchLayersForFatManifestUsesExactPaths(t *testing.T) {
+	serviceManager, recorder := newFakeArtifactory(t, newFakeDockerRepo(100))
+	fatManifestResult, _ := testFatManifest(fatManifestTestTag)
+
+	layers, err := searchLayersForFatManifest(map[string]*utils.ResultItem{FatManifestJsonFile: fatManifestResult}, serviceManager, fatManifestTestRepo)
+	require.NoError(t, err)
+
+	require.Len(t, recorder.queries, 1)
+	assert.NotContains(t, recorder.queries[0], "$match")
+	assert.NotContains(t, recorder.queries[0], `"property"`)
+	// The fat manifest + 2 platforms * (manifest.json + config + layer)
+	require.Len(t, *layers, 7)
+	assert.Equal(t, FatManifestJsonFile, (*layers)[0].Name)
+	for _, layer := range (*layers)[1:] {
+		assert.Contains(t, []string{
+			fatManifestTestImage + "/sha256:" + platformDigestHex(fatManifestTestTag, "amd64"),
+			fatManifestTestImage + "/sha256:" + platformDigestHex(fatManifestTestTag, "arm64"),
+		}, layer.Path)
 	}
 }
