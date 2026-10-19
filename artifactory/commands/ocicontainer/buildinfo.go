@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"regexp"
 	"strings"
 
 	ioutils "github.com/jfrog/gofrog/io"
@@ -380,7 +381,11 @@ func performMultiPlatformImageSearch(fatManifestResult *utils.ResultItem, fatMan
 	if len(paths) == 0 {
 		return
 	}
-	results, err := artCliUtils.ExecuteAqlQuery(serviceManager, createPlatformManifestsAql(fatManifestResult.Repo, paths))
+	aqlQuery, err := createPlatformManifestsAql(fatManifestResult.Repo, paths)
+	if err != nil {
+		return nil, err
+	}
+	results, err := artCliUtils.ExecuteAqlQuery(serviceManager, aqlQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -399,13 +404,19 @@ func performMultiPlatformImageSearch(fatManifestResult *utils.ResultItem, fatMan
 	return
 }
 
+// A platform manifest digest, as listed in a fat manifest.
+var platformManifestDigestRegex = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+
 // Return the folders of the platform manifests listed in the fat manifest.
 // Artifactory may name a digest folder either 'sha256:<hex>' or 'sha256__<hex>', so both are returned.
+// The fat manifest content is uploaded by the image publisher, so digests that aren't valid sha256 digests are skipped,
+// to keep the searched paths within the image root.
 func getPlatformManifestsPaths(imageRootPath string, fatManifest *FatManifest) []string {
 	var paths []string
 	seen := make(map[string]bool)
 	for _, manifest := range fatManifest.Manifests {
-		if manifest.Digest == "" {
+		if !platformManifestDigestRegex.MatchString(manifest.Digest) {
+			log.Debug("Skipping invalid platform manifest digest in fat manifest:", fmt.Sprintf("%q", manifest.Digest))
 			continue
 		}
 		for _, folder := range []string{manifest.Digest, digestToLayer(manifest.Digest)} {
@@ -421,13 +432,27 @@ func getPlatformManifestsPaths(imageRootPath string, fatManifest *FatManifest) [
 
 // Create an AQL query matching the files directly under the given folders, using exact paths only.
 // Properties are not included, as they are not needed and joining them is expensive.
-func createPlatformManifestsAql(repo string, paths []string) string {
+func createPlatformManifestsAql(repo string, paths []string) (string, error) {
 	pathConditions := make([]string, 0, len(paths))
 	for _, folderPath := range paths {
-		pathConditions = append(pathConditions, fmt.Sprintf(`{"path":%q}`, folderPath))
+		quotedPath, err := toAqlString(folderPath)
+		if err != nil {
+			return "", err
+		}
+		pathConditions = append(pathConditions, `{"path":`+quotedPath+`}`)
 	}
-	return fmt.Sprintf(`items.find({"repo":%q,"type":"file","$or":[%s]}).include("name","repo","path","actual_md5","actual_sha1","sha256","size","type","modified","created")`,
-		repo, strings.Join(pathConditions, ","))
+	quotedRepo, err := toAqlString(repo)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(`items.find({"repo":%s,"type":"file","$or":[%s]}).include("name","repo","path","actual_md5","actual_sha1","sha256","size","type","modified","created")`,
+		quotedRepo, strings.Join(pathConditions, ",")), nil
+}
+
+// Encode a value as a JSON string, to be safely embedded in an AQL query.
+func toAqlString(value string) (string, error) {
+	encoded, err := json.Marshal(value)
+	return string(encoded), errorutils.CheckError(err)
 }
 
 // Digest of type sha256:30daa5c11544632449b01f450bebfef6b89644e9e683258ed05797abe7c32a6e to

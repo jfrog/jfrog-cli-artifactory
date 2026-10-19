@@ -1,6 +1,8 @@
 package ocicontainer
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -44,7 +46,8 @@ func newFakeDockerRepo(tags int) *fakeDockerRepo {
 }
 
 func platformDigestHex(tag, platform string) string {
-	return "digest-" + tag + "-" + platform
+	sum := sha256.Sum256([]byte(tag + "/" + platform))
+	return hex.EncodeToString(sum[:])
 }
 
 func (repo *fakeDockerRepo) addFile(path, name, sha256 string) {
@@ -147,10 +150,69 @@ func TestPerformMultiPlatformImageSearchWithoutManifests(t *testing.T) {
 }
 
 func TestGetPlatformManifestsPaths(t *testing.T) {
-	fatManifest := &FatManifest{Manifests: []ManifestDetails{{Digest: "sha256:aaa"}, {Digest: "sha256:aaa"}, {Digest: ""}, {Digest: "sha256:bbb"}}}
+	aaa, bbb := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	fatManifest := &FatManifest{Manifests: []ManifestDetails{{Digest: "sha256:" + aaa}, {Digest: "sha256:" + aaa}, {Digest: "sha256:" + bbb}}}
 	assert.Equal(t,
-		[]string{"org/img/sha256:aaa", "org/img/sha256__aaa", "org/img/sha256:bbb", "org/img/sha256__bbb"},
+		[]string{"org/img/sha256:" + aaa, "org/img/sha256__" + aaa, "org/img/sha256:" + bbb, "org/img/sha256__" + bbb},
 		getPlatformManifestsPaths("org/img", fatManifest))
+}
+
+// The fat manifest content is uploaded by the image publisher, so its digests must not be able to change the searched paths.
+func TestGetPlatformManifestsPathsSkipsInvalidDigests(t *testing.T) {
+	valid := "sha256:" + strings.Repeat("a", 64)
+	invalidDigests := []string{
+		"",
+		"sha256:",
+		"sha256:aaa",
+		"sha256:" + strings.Repeat("A", 64),
+		"sha256:" + strings.Repeat("a", 65),
+		"sha512:" + strings.Repeat("a", 128),
+		"../../other-image/" + valid,
+		"sha256:../../other-image",
+		valid + "/../../other-image",
+		valid + `"},{"path":{"$match":"*"}}`,
+		valid + "\n",
+		"sha256:" + strings.Repeat("a", 63) + "\x00",
+	}
+	manifests := []ManifestDetails{{Digest: valid}}
+	for _, digest := range invalidDigests {
+		manifests = append(manifests, ManifestDetails{Digest: digest})
+	}
+	assert.Equal(t,
+		[]string{"org/img/" + valid, "org/img/" + digestToLayer(valid)},
+		getPlatformManifestsPaths("org/img", &FatManifest{Manifests: manifests}))
+}
+
+func TestCreatePlatformManifestsAqlEscapesValues(t *testing.T) {
+	maliciousRepo := `docker-local","$or":[{"path":{"$match":"*"}}],"repo":"x`
+	maliciousPath := "org/img\"},{\"path\":{\"$match\":\"*\"}}"
+	query, err := createPlatformManifestsAql(maliciousRepo, []string{maliciousPath, "a\x00\x7f\xff"})
+	require.NoError(t, err)
+
+	// The query must parse as a single repo condition and exact path conditions, holding the values unchanged.
+	criteria := strings.TrimSuffix(strings.TrimPrefix(query, "items.find("), `).include("name","repo","path","actual_md5","actual_sha1","sha256","size","type","modified","created")`)
+	var parsed struct {
+		Repo string              `json:"repo"`
+		Type string              `json:"type"`
+		Or   []map[string]string `json:"$or"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(criteria), &parsed), criteria)
+	assert.Equal(t, maliciousRepo, parsed.Repo)
+	assert.Equal(t, "file", parsed.Type)
+	require.Len(t, parsed.Or, 2)
+	assert.Equal(t, maliciousPath, parsed.Or[0]["path"])
+	assert.Equal(t, "a\x00\x7f\uFFFD", parsed.Or[1]["path"])
+}
+
+func TestPerformMultiPlatformImageSearchWithOnlyInvalidDigests(t *testing.T) {
+	serviceManager, recorder := newFakeArtifactory(t, newFakeDockerRepo(1))
+	fatManifestResult, _ := testFatManifest(fatManifestTestTag)
+	fatManifest := &FatManifest{Manifests: []ManifestDetails{{Digest: "../../other-image"}, {Digest: "sha256:abc"}}}
+
+	resultMap, err := performMultiPlatformImageSearch(fatManifestResult, fatManifest, serviceManager)
+	require.NoError(t, err)
+	assert.Empty(t, resultMap)
+	assert.Empty(t, recorder.queries)
 }
 
 // The rows returned for a multi-platform image must not depend on the number of tags pushed under the image.
