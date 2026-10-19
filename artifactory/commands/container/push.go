@@ -220,16 +220,20 @@ func (pc *PushCommand) Run() error {
 	return nil
 }
 
+// Return the layer's sha256 property, or its sha256 checksum if the layer was searched without properties.
+func getLayerSha256(layer servicesutils.ResultItem) string {
+	for _, property := range layer.Properties {
+		if property.Key == "sha256" {
+			return property.Value
+		}
+	}
+	return layer.Sha256
+}
+
 func (pc *PushCommand) layersMapToFileTransferDetails(artifactoryUrl string, layers *[]servicesutils.ResultItem) error {
 	var details []clientutils.FileTransferDetails
 	for _, layer := range *layers {
-		sha256 := ""
-		for _, property := range layer.Properties {
-			if property.Key == "sha256" {
-				sha256 = property.Value
-			}
-		}
-		details = append(details, clientutils.FileTransferDetails{TargetPath: path.Join(layer.Repo, layer.Path, layer.Name), RtUrl: artifactoryUrl, Sha256: sha256})
+		details = append(details, clientutils.FileTransferDetails{TargetPath: path.Join(layer.Repo, layer.Path, layer.Name), RtUrl: artifactoryUrl, Sha256: getLayerSha256(layer)})
 	}
 	tempFile, err := clientutils.SaveFileTransferDetailsInTempFile(&details)
 	if err != nil {

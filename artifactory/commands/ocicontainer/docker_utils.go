@@ -58,24 +58,10 @@ func searchArtifactoryForFilesByPath(repository string, paths []string, serviceM
 		return []utils.ResultItem{}, nil
 	}
 
-	var pathConditions []string
-	for _, item := range paths {
-		pathConditions = append(pathConditions, fmt.Sprintf(`{"path": {"$eq": "%s"}}`, item))
+	aqlQuery, err := createExactPathsAql(repository, paths, false, []string{"name", "repo", "path", "sha256", "actual_sha1", "actual_md5"})
+	if err != nil {
+		return []utils.ResultItem{}, err
 	}
-
-	// Build AQL query with $and and $or operators
-	aqlQuery := fmt.Sprintf(`items.find({
-  "$and": [
-    { "repo": "%s" },
-    {
-      "$or": [
-        %s
-      ]
-    }
-  ]
-})
-.include("name", "repo", "path", "sha256", "actual_sha1", "actual_md5")`,
-		repository, strings.Join(pathConditions, ",\n        "))
 
 	// Execute AQL search
 	allResults, err := artUtils.ExecuteAqlQuery(serviceManager, aqlQuery)

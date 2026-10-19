@@ -75,6 +75,9 @@ func (rabib *RemoteAgentBuildInfoBuilder) handleFatManifestImage(results map[str
 		if err != nil {
 			return nil, nil, nil, err
 		}
+		if fatManifest == nil {
+			return nil, nil, nil, errorutils.CheckErrorf(`couldn't parse image "%s" fat manifest`, rabib.buildInfoBuilder.image.name)
+		}
 		multiPlatformImages, err := performMultiPlatformImageSearch(fatManifestResult, fatManifest, rabib.buildInfoBuilder.serviceManager)
 		return multiPlatformImages, fatManifestResult, fatManifest, err
 	}

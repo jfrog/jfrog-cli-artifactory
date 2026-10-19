@@ -371,23 +371,21 @@ func performSearch(imagePathPattern string, serviceManager artifactory.Artifacto
 
 // Returns a map of: image-sha2 -> image-layers, for the platform manifests listed in the fat manifest.
 // Each platform manifest is stored in a folder named after its digest, next to the tag folder holding the fat manifest.
-// Only these folders are searched, using exact paths, so the query cost doesn't depend on the number of tags under the image.
+// Only these folders are searched, using exact paths, so the query cost is bounded by the number of platform manifests,
+// rather than by the number of tags under the image.
 func performMultiPlatformImageSearch(fatManifestResult *utils.ResultItem, fatManifest *FatManifest, serviceManager artifactory.ArtifactoryServicesManager) (resultMap map[string][]*utils.ResultItem, err error) {
 	resultMap = make(map[string][]*utils.ResultItem)
-	if fatManifestResult == nil || fatManifest == nil {
-		return
-	}
-	paths := getPlatformManifestsPaths(path.Dir(fatManifestResult.Path), fatManifest)
+	paths := getPlatformManifestPaths(path.Dir(fatManifestResult.Path), fatManifest)
 	if len(paths) == 0 {
 		return
 	}
-	aqlQuery, err := createPlatformManifestsAql(fatManifestResult.Repo, paths)
+	aqlQuery, err := createExactPathsAql(fatManifestResult.Repo, paths, true, platformManifestsReturnFields)
 	if err != nil {
 		return nil, err
 	}
 	results, err := artCliUtils.ExecuteAqlQuery(serviceManager, aqlQuery)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to search the platform manifests of '%s': %w", path.Join(fatManifestResult.Repo, fatManifestResult.Path, fatManifestResult.Name), err)
 	}
 	pathToSha2 := make(map[string]string)
 	pathToImageLayers := make(map[string][]*utils.ResultItem)
@@ -407,16 +405,19 @@ func performMultiPlatformImageSearch(fatManifestResult *utils.ResultItem, fatMan
 // A platform manifest digest, as listed in a fat manifest.
 var platformManifestDigestRegex = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 
+// The fields returned when searching the platform manifests. Properties are not needed, and joining them is expensive.
+var platformManifestsReturnFields = []string{"name", "repo", "path", "actual_md5", "actual_sha1", "sha256", "size", "type", "modified", "created"}
+
 // Return the folders of the platform manifests listed in the fat manifest.
 // Artifactory may name a digest folder either 'sha256:<hex>' or 'sha256__<hex>', so both are returned.
 // The fat manifest content is uploaded by the image publisher, so digests that aren't valid sha256 digests are skipped,
 // to keep the searched paths within the image root.
-func getPlatformManifestsPaths(imageRootPath string, fatManifest *FatManifest) []string {
+func getPlatformManifestPaths(imageRootPath string, fatManifest *FatManifest) []string {
 	var paths []string
 	seen := make(map[string]bool)
 	for _, manifest := range fatManifest.Manifests {
 		if !platformManifestDigestRegex.MatchString(manifest.Digest) {
-			log.Debug("Skipping invalid platform manifest digest in fat manifest:", fmt.Sprintf("%q", manifest.Digest))
+			log.Warn(fmt.Sprintf("Skipping invalid platform manifest digest %q found in the fat manifest", manifest.Digest))
 			continue
 		}
 		for _, folder := range []string{manifest.Digest, digestToLayer(manifest.Digest)} {
@@ -431,8 +432,15 @@ func getPlatformManifestsPaths(imageRootPath string, fatManifest *FatManifest) [
 }
 
 // Create an AQL query matching the files directly under the given folders, using exact paths only.
-// Properties are not included, as they are not needed and joining them is expensive.
-func createPlatformManifestsAql(repo string, paths []string) (string, error) {
+func createExactPathsAql(repo string, paths []string, filesOnly bool, returnFields []string) (string, error) {
+	quotedRepo, err := toAqlString(repo)
+	if err != nil {
+		return "", err
+	}
+	criteria := []string{`"repo":` + quotedRepo}
+	if filesOnly {
+		criteria = append(criteria, `"type":"file"`)
+	}
 	pathConditions := make([]string, 0, len(paths))
 	for _, folderPath := range paths {
 		quotedPath, err := toAqlString(folderPath)
@@ -441,12 +449,16 @@ func createPlatformManifestsAql(repo string, paths []string) (string, error) {
 		}
 		pathConditions = append(pathConditions, `{"path":`+quotedPath+`}`)
 	}
-	quotedRepo, err := toAqlString(repo)
-	if err != nil {
-		return "", err
+	criteria = append(criteria, `"$or":[`+strings.Join(pathConditions, ",")+`]`)
+	quotedFields := make([]string, 0, len(returnFields))
+	for _, field := range returnFields {
+		quotedField, err := toAqlString(field)
+		if err != nil {
+			return "", err
+		}
+		quotedFields = append(quotedFields, quotedField)
 	}
-	return fmt.Sprintf(`items.find({"repo":%s,"type":"file","$or":[%s]}).include("name","repo","path","actual_md5","actual_sha1","sha256","size","type","modified","created")`,
-		quotedRepo, strings.Join(pathConditions, ",")), nil
+	return fmt.Sprintf(`items.find({%s}).include(%s)`, strings.Join(criteria, ","), strings.Join(quotedFields, ",")), nil
 }
 
 // Encode a value as a JSON string, to be safely embedded in an AQL query.

@@ -8,9 +8,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path"
+	"regexp"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/auth"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
@@ -28,15 +33,21 @@ const (
 // Simulates an image with many tags, each pushed as a multi-platform image.
 type fakeDockerRepo struct {
 	files []utils.ResultItem
+	// The prefix of the platform manifest folders: "sha256:" or "sha256__".
+	digestFolderPrefix string
 }
 
 func newFakeDockerRepo(tags int) *fakeDockerRepo {
-	repo := &fakeDockerRepo{}
+	return newFakeDockerRepoWithLayout(tags, "sha256:")
+}
+
+func newFakeDockerRepoWithLayout(tags int, digestFolderPrefix string) *fakeDockerRepo {
+	repo := &fakeDockerRepo{digestFolderPrefix: digestFolderPrefix}
 	for i := 0; i < tags; i++ {
 		tag := fmt.Sprintf("%d.0", i+1)
 		repo.addFile(fatManifestTestImage+"/"+tag, FatManifestJsonFile, "fat"+tag)
 		for _, platform := range []string{"amd64", "arm64"} {
-			folder := fatManifestTestImage + "/sha256:" + platformDigestHex(tag, platform)
+			folder := fatManifestTestImage + "/" + digestFolderPrefix + platformDigestHex(tag, platform)
 			repo.addFile(folder, ManifestJsonFile, platformDigestHex(tag, platform))
 			repo.addFile(folder, "sha256__config"+tag+platform, "config"+tag+platform)
 			repo.addFile(folder, "sha256__layer"+tag+platform, "layer"+tag+platform)
@@ -51,25 +62,76 @@ func platformDigestHex(tag, platform string) string {
 }
 
 func (repo *fakeDockerRepo) addFile(path, name, sha256 string) {
-	repo.files = append(repo.files, utils.ResultItem{Repo: fatManifestTestRepo, Path: path, Name: name, Type: "file", Sha256: sha256})
+	repo.files = append(repo.files, utils.ResultItem{Repo: fatManifestTestRepo, Path: path, Name: name, Type: "file", Size: 1,
+		Sha256: sha256, Actual_Sha1: "sha1-" + sha256, Actual_Md5: "md5-" + sha256,
+		Properties: []utils.Property{{Key: "sha256", Value: sha256}}})
 }
 
-// Returns the files matching an exact-paths query, or all files under the image root for a recursive root query.
-func (repo *fakeDockerRepo) find(aql string) []utils.ResultItem {
+var aqlFindRegex = regexp.MustCompile(`^items\.find\((.*)\)\.include\((.*)\)$`)
+
+// Evaluates an exact-paths AQL query: a repo and type condition and an $or of exact paths.
+// Only the fields listed in the include part are returned, like Artifactory does.
+func (repo *fakeDockerRepo) find(t *testing.T, aql string) []utils.ResultItem {
+	match := aqlFindRegex.FindStringSubmatch(aql)
+	require.Len(t, match, 3, aql)
+	var criteria struct {
+		Repo string              `json:"repo"`
+		Type string              `json:"type"`
+		Or   []map[string]string `json:"$or"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(match[1]), &criteria), aql)
+	var fields []string
+	require.NoError(t, json.Unmarshal([]byte("["+match[2]+"]"), &fields), aql)
+	paths := make(map[string]bool)
+	for _, condition := range criteria.Or {
+		paths[condition["path"]] = true
+	}
 	var results []utils.ResultItem
-	recursiveRootQuery := strings.Contains(aql, `"$match":"`+fatManifestTestImage+`/*"`)
 	for _, file := range repo.files {
-		if recursiveRootQuery && strings.HasPrefix(file.Path, fatManifestTestImage+"/") ||
-			strings.Contains(aql, fmt.Sprintf(`{"path":%q}`, file.Path)) {
-			results = append(results, file)
+		if file.Repo == criteria.Repo && (criteria.Type == "" || file.Type == criteria.Type) && paths[file.Path] {
+			results = append(results, includeFields(file, fields))
 		}
 	}
 	return results
 }
 
+func includeFields(file utils.ResultItem, fields []string) utils.ResultItem {
+	result := utils.ResultItem{}
+	for _, field := range fields {
+		switch field {
+		case "name":
+			result.Name = file.Name
+		case "repo":
+			result.Repo = file.Repo
+		case "path":
+			result.Path = file.Path
+		case "type":
+			result.Type = file.Type
+		case "size":
+			result.Size = file.Size
+		case "sha256":
+			result.Sha256 = file.Sha256
+		case "actual_sha1":
+			result.Actual_Sha1 = file.Actual_Sha1
+		case "actual_md5":
+			result.Actual_Md5 = file.Actual_Md5
+		case "property":
+			result.Properties = file.Properties
+		}
+	}
+	return result
+}
+
 type aqlRecorder struct {
 	queries      []string
 	returnedRows int
+	// The paths build properties were set on.
+	propsPaths []string
+	// The fat manifest returned when downloading list.manifest.json.
+	fatManifest *FatManifest
+	// If set, AQL requests fail with this status.
+	failWithStatus int
+	propsMutex     sync.Mutex
 }
 
 func newFakeArtifactory(t *testing.T, repo *fakeDockerRepo) (artifactory.ArtifactoryServicesManager, *aqlRecorder) {
@@ -80,15 +142,30 @@ func newFakeArtifactory(t *testing.T, repo *fakeDockerRepo) (artifactory.Artifac
 			return
 		}
 		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/"+FatManifestJsonFile) {
-			_, fatManifest := testFatManifest(fatManifestTestTag)
+			fatManifest := recorder.fatManifest
+			if fatManifest == nil {
+				_, fatManifest = testFatManifest(fatManifestTestTag)
+			}
 			assert.NoError(t, json.NewEncoder(w).Encode(fatManifest))
+			return
+		}
+		if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/api/storage/") {
+			assert.Contains(t, r.URL.RawQuery, "build.name")
+			recorder.propsMutex.Lock()
+			recorder.propsPaths = append(recorder.propsPaths, strings.SplitN(r.URL.Path, "/api/storage/", 2)[1])
+			recorder.propsMutex.Unlock()
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 		require.True(t, strings.HasSuffix(r.URL.Path, "/api/search/aql"), r.URL.Path)
 		recorder.queries = append(recorder.queries, string(body))
-		results := repo.find(string(body))
+		if recorder.failWithStatus != 0 {
+			w.WriteHeader(recorder.failWithStatus)
+			return
+		}
+		results := repo.find(t, string(body))
 		recorder.returnedRows += len(results)
 		assert.NoError(t, json.NewEncoder(w).Encode(map[string]interface{}{"results": results}))
 	}))
@@ -121,7 +198,7 @@ func TestPerformMultiPlatformImageSearchUsesExactPaths(t *testing.T) {
 	require.Len(t, recorder.queries, 1)
 	query := recorder.queries[0]
 	assert.NotContains(t, query, "$match")
-	assert.NotContains(t, query, `"property"`)
+	assert.NotContains(t, query, `property`)
 	assert.Contains(t, query, `"repo":"docker-local"`)
 	for _, platform := range []string{"amd64", "arm64"} {
 		hex := platformDigestHex(fatManifestTestTag, platform)
@@ -131,12 +208,58 @@ func TestPerformMultiPlatformImageSearchUsesExactPaths(t *testing.T) {
 
 	require.Len(t, resultMap, 2)
 	for _, manifest := range fatManifest.Manifests {
-		layers := resultMap[manifest.Digest]
-		require.Len(t, layers, 3)
-		for _, layer := range layers {
-			assert.Equal(t, fatManifestTestImage+"/"+manifest.Digest, layer.Path)
-		}
+		assertPlatformLayers(t, resultMap[manifest.Digest], fatManifestTestImage+"/"+manifest.Digest)
 	}
+}
+
+// Assert the layers of a platform manifest are found, with the fields needed for the build-info.
+func assertPlatformLayers(t *testing.T, layers []*utils.ResultItem, expectedPath string) {
+	require.Len(t, layers, 3)
+	for _, layer := range layers {
+		assert.Equal(t, fatManifestTestRepo, layer.Repo)
+		assert.Equal(t, expectedPath, layer.Path)
+		assert.NotEmpty(t, layer.Name)
+		assert.NotEmpty(t, layer.Sha256)
+		assert.Equal(t, "sha1-"+layer.Sha256, layer.Actual_Sha1)
+		assert.Equal(t, "md5-"+layer.Sha256, layer.Actual_Md5)
+		assert.Empty(t, layer.Properties)
+	}
+}
+
+func TestPerformMultiPlatformImageSearchWithUnderscoreDigestFolders(t *testing.T) {
+	serviceManager, _ := newFakeArtifactory(t, newFakeDockerRepoWithLayout(3, "sha256__"))
+	fatManifestResult, fatManifest := testFatManifest(fatManifestTestTag)
+
+	resultMap, err := performMultiPlatformImageSearch(fatManifestResult, fatManifest, serviceManager)
+	require.NoError(t, err)
+	require.Len(t, resultMap, 2)
+	for _, manifest := range fatManifest.Manifests {
+		assertPlatformLayers(t, resultMap[manifest.Digest], fatManifestTestImage+"/"+digestToLayer(manifest.Digest))
+	}
+}
+
+// The platform manifests must be searched in the repository the fat manifest was found in,
+// e.g. the remote repository cache.
+func TestPerformMultiPlatformImageSearchUsesFatManifestRepo(t *testing.T) {
+	serviceManager, recorder := newFakeArtifactory(t, newFakeDockerRepo(1))
+	fatManifestResult, fatManifest := testFatManifest(fatManifestTestTag)
+	fatManifestResult.Repo = "docker-remote-cache"
+
+	resultMap, err := performMultiPlatformImageSearch(fatManifestResult, fatManifest, serviceManager)
+	require.NoError(t, err)
+	assert.Empty(t, resultMap)
+	require.Len(t, recorder.queries, 1)
+	assert.Contains(t, recorder.queries[0], `"repo":"docker-remote-cache"`)
+}
+
+func TestPerformMultiPlatformImageSearchAqlError(t *testing.T) {
+	serviceManager, recorder := newFakeArtifactory(t, newFakeDockerRepo(1))
+	recorder.failWithStatus = http.StatusInternalServerError
+	fatManifestResult, fatManifest := testFatManifest(fatManifestTestTag)
+
+	resultMap, err := performMultiPlatformImageSearch(fatManifestResult, fatManifest, serviceManager)
+	assert.ErrorContains(t, err, "failed to search the platform manifests of 'docker-local/org/img/1.0/list.manifest.json'")
+	assert.Nil(t, resultMap)
 }
 
 func TestPerformMultiPlatformImageSearchWithoutManifests(t *testing.T) {
@@ -154,7 +277,7 @@ func TestGetPlatformManifestsPaths(t *testing.T) {
 	fatManifest := &FatManifest{Manifests: []ManifestDetails{{Digest: "sha256:" + aaa}, {Digest: "sha256:" + aaa}, {Digest: "sha256:" + bbb}}}
 	assert.Equal(t,
 		[]string{"org/img/sha256:" + aaa, "org/img/sha256__" + aaa, "org/img/sha256:" + bbb, "org/img/sha256__" + bbb},
-		getPlatformManifestsPaths("org/img", fatManifest))
+		getPlatformManifestPaths("org/img", fatManifest))
 }
 
 // The fat manifest content is uploaded by the image publisher, so its digests must not be able to change the searched paths.
@@ -180,13 +303,13 @@ func TestGetPlatformManifestsPathsSkipsInvalidDigests(t *testing.T) {
 	}
 	assert.Equal(t,
 		[]string{"org/img/" + valid, "org/img/" + digestToLayer(valid)},
-		getPlatformManifestsPaths("org/img", &FatManifest{Manifests: manifests}))
+		getPlatformManifestPaths("org/img", &FatManifest{Manifests: manifests}))
 }
 
 func TestCreatePlatformManifestsAqlEscapesValues(t *testing.T) {
 	maliciousRepo := `docker-local","$or":[{"path":{"$match":"*"}}],"repo":"x`
 	maliciousPath := "org/img\"},{\"path\":{\"$match\":\"*\"}}"
-	query, err := createPlatformManifestsAql(maliciousRepo, []string{maliciousPath, "a\x00\x7f\xff"})
+	query, err := createExactPathsAql(maliciousRepo, []string{maliciousPath, "a\x00\x7f\xff"}, true, platformManifestsReturnFields)
 	require.NoError(t, err)
 
 	// The query must parse as a single repo condition and exact path conditions, holding the values unchanged.
@@ -238,7 +361,7 @@ func TestSearchLayersForFatManifestUsesExactPaths(t *testing.T) {
 
 	require.Len(t, recorder.queries, 1)
 	assert.NotContains(t, recorder.queries[0], "$match")
-	assert.NotContains(t, recorder.queries[0], `"property"`)
+	assert.NotContains(t, recorder.queries[0], `property`)
 	// The fat manifest + 2 platforms * (manifest.json + config + layer)
 	require.Len(t, *layers, 7)
 	assert.Equal(t, FatManifestJsonFile, (*layers)[0].Name)
@@ -248,4 +371,72 @@ func TestSearchLayersForFatManifestUsesExactPaths(t *testing.T) {
 			fatManifestTestImage + "/sha256:" + platformDigestHex(fatManifestTestTag, "arm64"),
 		}, layer.Path)
 	}
+}
+
+// The build-info of a multi-platform image holds a module per platform manifest listed in the fat manifest,
+// including attestation manifests, and build properties are set on exactly these files and the fat manifest.
+func TestHandleFatManifestImageCreatesBuildInfo(t *testing.T) {
+	repo := newFakeDockerRepo(50)
+	attestationHex := platformDigestHex(fatManifestTestTag, "attestation")
+	attestationFolder := fatManifestTestImage + "/sha256:" + attestationHex
+	repo.addFile(attestationFolder, ManifestJsonFile, attestationHex)
+	repo.addFile(attestationFolder, "sha256__attestationconfig", "attestationconfig")
+	repo.addFile(attestationFolder, "sha256__attestationlayer", "attestationlayer")
+	serviceManager, recorder := newFakeArtifactory(t, repo)
+	fatManifestResult, fatManifest := testFatManifest(fatManifestTestTag)
+	fatManifest.Manifests = append(fatManifest.Manifests, ManifestDetails{
+		Digest:      "sha256:" + attestationHex,
+		Platform:    Platform{Os: unknownPlatformPlaceholder, Architecture: unknownPlatformPlaceholder},
+		Annotations: Annotations{ReferenceType: attestationManifestRefType},
+	})
+	recorder.fatManifest = fatManifest
+	buildName, buildNumber := "rteco485-fat-manifest-test", "1"
+	require.NoError(t, build.SaveBuildGeneralDetails(buildName, buildNumber, ""))
+	t.Cleanup(func() { _ = build.RemoveBuildDir(buildName, buildNumber, "") }) // best-effort test cleanup
+
+	builder := &RemoteAgentBuildInfoBuilder{buildInfoBuilder: &buildInfoBuilder{
+		image:             NewImage("my.registry.io/" + fatManifestTestRepo + "/" + fatManifestTestImage + ":" + fatManifestTestTag),
+		repositoryDetails: RepositoryDetails{key: fatManifestTestRepo, repoType: "local"},
+		buildName:         buildName,
+		buildNumber:       buildNumber,
+		serviceManager:    serviceManager,
+		workingDirectory:  t.TempDir(),
+	}}
+	multiPlatformImages, fatManifestDetails, downloadedFatManifest, err := builder.handleFatManifestImage(map[string]*utils.ResultItem{FatManifestJsonFile: fatManifestResult})
+	require.NoError(t, err)
+	buildInfo, err := builder.buildInfoBuilder.createMultiPlatformBuildInfo(downloadedFatManifest, fatManifestDetails, multiPlatformImages, "")
+	require.NoError(t, err)
+
+	moduleId := "img:" + fatManifestTestTag
+	expectedModules := map[string]string{
+		moduleId:                  "",
+		"linux/amd64/" + moduleId: fatManifestTestImage + "/sha256:" + platformDigestHex(fatManifestTestTag, "amd64"),
+		"linux/arm64/" + moduleId: fatManifestTestImage + "/sha256:" + platformDigestHex(fatManifestTestTag, "arm64"),
+		AttestationsModuleIdPrefix + "/" + moduleId: attestationFolder,
+	}
+	require.Len(t, buildInfo.Modules, len(expectedModules))
+	expectedPropsPaths := []string{path.Join(fatManifestTestRepo, fatManifestResult.Path, FatManifestJsonFile)}
+	for _, module := range buildInfo.Modules {
+		folder, ok := expectedModules[module.Id]
+		require.True(t, ok, module.Id)
+		if folder == "" {
+			require.Len(t, module.Artifacts, 1)
+			assert.Equal(t, FatManifestJsonFile, module.Artifacts[0].Name)
+			continue
+		}
+		require.Len(t, module.Artifacts, 3, module.Id)
+		for _, artifact := range module.Artifacts {
+			assert.Equal(t, folder, path.Dir(artifact.Path))
+			assert.Equal(t, fatManifestTestRepo, artifact.OriginalDeploymentRepo)
+			assert.NotEmpty(t, artifact.Sha256)
+			assert.Equal(t, "sha1-"+artifact.Sha256, artifact.Sha1)
+			assert.Equal(t, "md5-"+artifact.Sha256, artifact.Md5)
+			expectedPropsPaths = append(expectedPropsPaths, path.Join(fatManifestTestRepo, artifact.Path))
+		}
+	}
+	sort.Strings(expectedPropsPaths)
+	sort.Strings(recorder.propsPaths)
+	assert.Equal(t, expectedPropsPaths, recorder.propsPaths)
+	// A single query for the platform manifests, whatever the number of tags.
+	require.Len(t, recorder.queries, 1)
 }
