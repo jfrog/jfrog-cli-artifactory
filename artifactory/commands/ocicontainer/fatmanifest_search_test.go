@@ -144,7 +144,7 @@ func newFakeArtifactory(t *testing.T, repo *fakeDockerRepo) (artifactory.Artifac
 		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/"+FatManifestJsonFile) {
 			fatManifest := recorder.fatManifest
 			if fatManifest == nil {
-				_, fatManifest = testFatManifest(fatManifestTestTag)
+				_, fatManifest = testFatManifest()
 			}
 			assert.NoError(t, json.NewEncoder(w).Encode(fatManifest))
 			return
@@ -179,7 +179,8 @@ func newFakeArtifactory(t *testing.T, repo *fakeDockerRepo) (artifactory.Artifac
 	return serviceManager, recorder
 }
 
-func testFatManifest(tag string) (*utils.ResultItem, *FatManifest) {
+func testFatManifest() (*utils.ResultItem, *FatManifest) {
+	tag := fatManifestTestTag
 	fatManifestResult := &utils.ResultItem{Repo: fatManifestTestRepo, Path: fatManifestTestImage + "/" + tag, Name: FatManifestJsonFile}
 	fatManifest := &FatManifest{Manifests: []ManifestDetails{
 		{Digest: "sha256:" + platformDigestHex(tag, "amd64"), Platform: Platform{Os: "linux", Architecture: "amd64"}},
@@ -190,7 +191,7 @@ func testFatManifest(tag string) (*utils.ResultItem, *FatManifest) {
 
 func TestPerformMultiPlatformImageSearchUsesExactPaths(t *testing.T) {
 	serviceManager, recorder := newFakeArtifactory(t, newFakeDockerRepo(3))
-	fatManifestResult, fatManifest := testFatManifest(fatManifestTestTag)
+	fatManifestResult, fatManifest := testFatManifest()
 
 	resultMap, err := performMultiPlatformImageSearch(fatManifestResult, fatManifest, serviceManager)
 	require.NoError(t, err)
@@ -228,7 +229,7 @@ func assertPlatformLayers(t *testing.T, layers []*utils.ResultItem, expectedPath
 
 func TestPerformMultiPlatformImageSearchWithUnderscoreDigestFolders(t *testing.T) {
 	serviceManager, _ := newFakeArtifactory(t, newFakeDockerRepoWithLayout(3, "sha256__"))
-	fatManifestResult, fatManifest := testFatManifest(fatManifestTestTag)
+	fatManifestResult, fatManifest := testFatManifest()
 
 	resultMap, err := performMultiPlatformImageSearch(fatManifestResult, fatManifest, serviceManager)
 	require.NoError(t, err)
@@ -242,7 +243,7 @@ func TestPerformMultiPlatformImageSearchWithUnderscoreDigestFolders(t *testing.T
 // e.g. the remote repository cache.
 func TestPerformMultiPlatformImageSearchUsesFatManifestRepo(t *testing.T) {
 	serviceManager, recorder := newFakeArtifactory(t, newFakeDockerRepo(1))
-	fatManifestResult, fatManifest := testFatManifest(fatManifestTestTag)
+	fatManifestResult, fatManifest := testFatManifest()
 	fatManifestResult.Repo = "docker-remote-cache"
 
 	resultMap, err := performMultiPlatformImageSearch(fatManifestResult, fatManifest, serviceManager)
@@ -255,7 +256,7 @@ func TestPerformMultiPlatformImageSearchUsesFatManifestRepo(t *testing.T) {
 func TestPerformMultiPlatformImageSearchAqlError(t *testing.T) {
 	serviceManager, recorder := newFakeArtifactory(t, newFakeDockerRepo(1))
 	recorder.failWithStatus = http.StatusInternalServerError
-	fatManifestResult, fatManifest := testFatManifest(fatManifestTestTag)
+	fatManifestResult, fatManifest := testFatManifest()
 
 	resultMap, err := performMultiPlatformImageSearch(fatManifestResult, fatManifest, serviceManager)
 	assert.ErrorContains(t, err, "failed to search the platform manifests of 'docker-local/org/img/1.0/list.manifest.json'")
@@ -264,7 +265,7 @@ func TestPerformMultiPlatformImageSearchAqlError(t *testing.T) {
 
 func TestPerformMultiPlatformImageSearchWithoutManifests(t *testing.T) {
 	serviceManager, recorder := newFakeArtifactory(t, newFakeDockerRepo(1))
-	fatManifestResult, _ := testFatManifest(fatManifestTestTag)
+	fatManifestResult, _ := testFatManifest()
 
 	resultMap, err := performMultiPlatformImageSearch(fatManifestResult, &FatManifest{}, serviceManager)
 	require.NoError(t, err)
@@ -329,7 +330,7 @@ func TestCreatePlatformManifestsAqlEscapesValues(t *testing.T) {
 
 func TestPerformMultiPlatformImageSearchWithOnlyInvalidDigests(t *testing.T) {
 	serviceManager, recorder := newFakeArtifactory(t, newFakeDockerRepo(1))
-	fatManifestResult, _ := testFatManifest(fatManifestTestTag)
+	fatManifestResult, _ := testFatManifest()
 	fatManifest := &FatManifest{Manifests: []ManifestDetails{{Digest: "../../other-image"}, {Digest: "sha256:abc"}}}
 
 	resultMap, err := performMultiPlatformImageSearch(fatManifestResult, fatManifest, serviceManager)
@@ -343,7 +344,7 @@ func TestMultiPlatformImageSearchRowsIndependentOfTagsCount(t *testing.T) {
 	for _, tags := range []int{1, 100, 10000} {
 		t.Run(fmt.Sprintf("tags=%d", tags), func(t *testing.T) {
 			serviceManager, recorder := newFakeArtifactory(t, newFakeDockerRepo(tags))
-			fatManifestResult, fatManifest := testFatManifest(fatManifestTestTag)
+			fatManifestResult, fatManifest := testFatManifest()
 			_, err := performMultiPlatformImageSearch(fatManifestResult, fatManifest, serviceManager)
 			require.NoError(t, err)
 			// 2 platforms * (manifest.json + config + layer)
@@ -354,7 +355,7 @@ func TestMultiPlatformImageSearchRowsIndependentOfTagsCount(t *testing.T) {
 
 func TestSearchLayersForFatManifestUsesExactPaths(t *testing.T) {
 	serviceManager, recorder := newFakeArtifactory(t, newFakeDockerRepo(100))
-	fatManifestResult, _ := testFatManifest(fatManifestTestTag)
+	fatManifestResult, _ := testFatManifest()
 
 	layers, err := searchLayersForFatManifest(map[string]*utils.ResultItem{FatManifestJsonFile: fatManifestResult}, serviceManager, fatManifestTestRepo)
 	require.NoError(t, err)
@@ -383,7 +384,7 @@ func TestHandleFatManifestImageCreatesBuildInfo(t *testing.T) {
 	repo.addFile(attestationFolder, "sha256__attestationconfig", "attestationconfig")
 	repo.addFile(attestationFolder, "sha256__attestationlayer", "attestationlayer")
 	serviceManager, recorder := newFakeArtifactory(t, repo)
-	fatManifestResult, fatManifest := testFatManifest(fatManifestTestTag)
+	fatManifestResult, fatManifest := testFatManifest()
 	fatManifest.Manifests = append(fatManifest.Manifests, ManifestDetails{
 		Digest:      "sha256:" + attestationHex,
 		Platform:    Platform{Os: unknownPlatformPlaceholder, Architecture: unknownPlatformPlaceholder},
