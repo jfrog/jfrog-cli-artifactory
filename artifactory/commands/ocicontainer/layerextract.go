@@ -190,9 +190,8 @@ func searchLayersForFatManifest(resultMap map[string]*utils.ResultItem, serviceM
 	}
 
 	// The fat manifest sits at <root>/<tag>/list.manifest.json. Each platform manifest
-	// lives in a sibling folder named after its digest, so search the parent root.
-	fatManifestRootPath := getFatManifestRoot(fatManifestResult.GetItemRelativeLocation()) + "/*"
-	multiPlatformImages, err := performMultiPlatformImageSearch(fatManifestRootPath, serviceManager)
+	// lives in a sibling folder named after its digest, so search only these folders.
+	multiPlatformImages, err := performMultiPlatformImageSearch(fatManifestResult, fatManifest, serviceManager)
 	if err != nil {
 		return nil, err
 	}

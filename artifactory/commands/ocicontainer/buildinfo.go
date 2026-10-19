@@ -368,22 +368,26 @@ func performSearch(imagePathPattern string, serviceManager artifactory.Artifacto
 	return
 }
 
-// Returns a map of: image-sha2 -> image-layers
-func performMultiPlatformImageSearch(imagePathPattern string, serviceManager artifactory.ArtifactoryServicesManager) (resultMap map[string][]*utils.ResultItem, err error) {
-	searchParams := services.NewSearchParams()
-	searchParams.CommonParams = &utils.CommonParams{}
-	searchParams.Pattern = imagePathPattern
-	searchParams.Recursive = true
-	var reader *content.ContentReader
-	reader, err = serviceManager.SearchFiles(searchParams)
+// Returns a map of: image-sha2 -> image-layers, for the platform manifests listed in the fat manifest.
+// Each platform manifest is stored in a folder named after its digest, next to the tag folder holding the fat manifest.
+// Only these folders are searched, using exact paths, so the query cost doesn't depend on the number of tags under the image.
+func performMultiPlatformImageSearch(fatManifestResult *utils.ResultItem, fatManifest *FatManifest, serviceManager artifactory.ArtifactoryServicesManager) (resultMap map[string][]*utils.ResultItem, err error) {
+	resultMap = make(map[string][]*utils.ResultItem)
+	if fatManifestResult == nil || fatManifest == nil {
+		return
+	}
+	paths := getPlatformManifestsPaths(path.Dir(fatManifestResult.Path), fatManifest)
+	if len(paths) == 0 {
+		return
+	}
+	results, err := artCliUtils.ExecuteAqlQuery(serviceManager, createPlatformManifestsAql(fatManifestResult.Repo, paths))
 	if err != nil {
 		return nil, err
 	}
-	defer ioutils.Close(reader, &err)
 	pathToSha2 := make(map[string]string)
 	pathToImageLayers := make(map[string][]*utils.ResultItem)
-	resultMap = make(map[string][]*utils.ResultItem)
-	for resultItem := new(utils.ResultItem); reader.NextRecord(resultItem) == nil; resultItem = new(utils.ResultItem) {
+	for i := range results {
+		resultItem := &results[i]
 		pathToImageLayers[resultItem.Path] = append(pathToImageLayers[resultItem.Path], resultItem)
 		if resultItem.Name == ManifestJsonFile {
 			pathToSha2[resultItem.Path] = "sha256:" + resultItem.Sha256
@@ -392,8 +396,38 @@ func performMultiPlatformImageSearch(imagePathPattern string, serviceManager art
 	for k, v := range pathToSha2 {
 		resultMap[v] = append(resultMap[v], pathToImageLayers[k]...)
 	}
-	err = reader.GetError()
 	return
+}
+
+// Return the folders of the platform manifests listed in the fat manifest.
+// Artifactory may name a digest folder either 'sha256:<hex>' or 'sha256__<hex>', so both are returned.
+func getPlatformManifestsPaths(imageRootPath string, fatManifest *FatManifest) []string {
+	var paths []string
+	seen := make(map[string]bool)
+	for _, manifest := range fatManifest.Manifests {
+		if manifest.Digest == "" {
+			continue
+		}
+		for _, folder := range []string{manifest.Digest, digestToLayer(manifest.Digest)} {
+			folderPath := path.Join(imageRootPath, folder)
+			if !seen[folderPath] {
+				seen[folderPath] = true
+				paths = append(paths, folderPath)
+			}
+		}
+	}
+	return paths
+}
+
+// Create an AQL query matching the files directly under the given folders, using exact paths only.
+// Properties are not included, as they are not needed and joining them is expensive.
+func createPlatformManifestsAql(repo string, paths []string) string {
+	pathConditions := make([]string, 0, len(paths))
+	for _, folderPath := range paths {
+		pathConditions = append(pathConditions, fmt.Sprintf(`{"path":%q}`, folderPath))
+	}
+	return fmt.Sprintf(`items.find({"repo":%q,"type":"file","$or":[%s]}).include("name","repo","path","actual_md5","actual_sha1","sha256","size","type","modified","created")`,
+		repo, strings.Join(pathConditions, ","))
 }
 
 // Digest of type sha256:30daa5c11544632449b01f450bebfef6b89644e9e683258ed05797abe7c32a6e to

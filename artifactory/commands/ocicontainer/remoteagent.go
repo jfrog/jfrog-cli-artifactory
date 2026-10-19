@@ -71,12 +71,11 @@ func (rabib *RemoteAgentBuildInfoBuilder) handleManifest(resultMap map[string]*u
 func (rabib *RemoteAgentBuildInfoBuilder) handleFatManifestImage(results map[string]*utils.ResultItem) (map[string][]*utils.ResultItem, *utils.ResultItem, *FatManifest, error) {
 	if fatManifestResult, ok := results["list.manifest.json"]; ok {
 		log.Debug("Found list.manifest.json. Proceeding to create build-info.")
-		fatManifestRootPath := getFatManifestRoot(fatManifestResult.GetItemRelativeLocation()) + "/*"
 		fatManifest, err := getFatManifest(results, rabib.buildInfoBuilder.serviceManager, rabib.buildInfoBuilder.repositoryDetails.key)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		multiPlatformImages, err := performMultiPlatformImageSearch(fatManifestRootPath, rabib.buildInfoBuilder.serviceManager)
+		multiPlatformImages, err := performMultiPlatformImageSearch(fatManifestResult, fatManifest, rabib.buildInfoBuilder.serviceManager)
 		return multiPlatformImages, fatManifestResult, fatManifest, err
 	}
 	return nil, nil, nil, errorutils.CheckErrorf(`couldn't find image "%s" fat manifest in Artifactory`, rabib.buildInfoBuilder.image.name)
@@ -141,9 +140,4 @@ func (rabib *RemoteAgentBuildInfoBuilder) isVerifiedManifest(imageManifest *util
 		return false
 	}
 	return true
-}
-
-func getFatManifestRoot(fatManifestPath string) string {
-	fatManifestPath = strings.TrimSuffix(fatManifestPath, "/")
-	return fatManifestPath[:strings.LastIndex(fatManifestPath, "/")]
 }
