@@ -105,6 +105,7 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 		return skipAfterBootstrap("Zero Touch Remediation skipped: could not discover lockfiles: ", err)
 	}
 	log.Debug("Discovered lockfiles: ", getLockfilePaths(lockfiles))
+	vcs := readVcs(projectRoot)
 	var toWrite []Lockfile
 	var totalChanges int
 	for _, lf := range lockfiles {
@@ -112,6 +113,7 @@ func RunIfEnabled(ctx context.Context, client ComponentResolutionClient, repo st
 			BuildTool: tool.ToolName(),
 			Repo:      repo,
 			Lockfile:  string(lf.Content),
+			Vcs:       vcs,
 		})
 		if err != nil {
 			return skipAfterBootstrap("Zero Touch Remediation skipped: ", err)
