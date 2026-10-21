@@ -1,6 +1,7 @@
 package ocicontainer
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -60,13 +61,13 @@ func searchArtifactoryForFilesByPath(repository string, paths []string, serviceM
 
 	var pathConditions []string
 	for _, item := range paths {
-		pathConditions = append(pathConditions, fmt.Sprintf(`{"path": {"$eq": "%s"}}`, item))
+		pathConditions = append(pathConditions, fmt.Sprintf(`{"path": {"$eq": %s}}`, toAqlString(item)))
 	}
 
 	// Build AQL query with $and and $or operators
 	aqlQuery := fmt.Sprintf(`items.find({
   "$and": [
-    { "repo": "%s" },
+    { "repo": %s },
     {
       "$or": [
         %s
@@ -75,7 +76,7 @@ func searchArtifactoryForFilesByPath(repository string, paths []string, serviceM
   ]
 })
 .include("name", "repo", "path", "sha256", "actual_sha1", "actual_md5")`,
-		repository, strings.Join(pathConditions, ",\n        "))
+		toAqlString(repository), strings.Join(pathConditions, ",\n        "))
 
 	// Execute AQL search
 	allResults, err := artUtils.ExecuteAqlQuery(serviceManager, aqlQuery)
@@ -84,6 +85,12 @@ func searchArtifactoryForFilesByPath(repository string, paths []string, serviceM
 	}
 	log.Debug(fmt.Sprintf("Found %d artifacts matching %d paths", len(allResults), len(paths)))
 	return allResults, nil
+}
+
+// toAqlString encodes a value as a quoted JSON string, so it can't break out of the AQL string it is embedded in.
+func toAqlString(value string) string {
+	encoded, _ := json.Marshal(value) //nolint:errchkjson // Marshaling a string never fails.
+	return string(encoded)
 }
 
 // SearchForImageLayersInPath performs AQL query with $match/$nmatch patterns
