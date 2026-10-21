@@ -167,7 +167,7 @@ func SearchLayersForDetailedSummary(image *Image, repo string, serviceManager ar
 // searchLayersForFatManifest aggregates all artifacts that belong to a multi-platform
 // (fat) manifest image: the fat manifest itself, and each platform's manifest.json,
 // config layer and content layers. It downloads the fat manifest to know which
-// platform digests to include and performs a recursive search to find their layers.
+// platform digests to include and searches only those digest folders to find their layers.
 func searchLayersForFatManifest(resultMap map[string]*utils.ResultItem, serviceManager artifactory.ArtifactoryServicesManager, repo string) (*[]utils.ResultItem, error) {
 	fatManifestResult, ok := resultMap[FatManifestJsonFile]
 	if !ok {
@@ -185,14 +185,7 @@ func searchLayersForFatManifest(resultMap map[string]*utils.ResultItem, serviceM
 		}
 		return nil, err
 	}
-	if fatManifest == nil {
-		return nil, errorutils.CheckErrorf("could not parse fat manifest in Artifactory")
-	}
-
-	// The fat manifest sits at <root>/<tag>/list.manifest.json. Each platform manifest
-	// lives in a sibling folder named after its digest, so search the parent root.
-	fatManifestRootPath := getFatManifestRoot(fatManifestResult.GetItemRelativeLocation()) + "/*"
-	multiPlatformImages, err := performMultiPlatformImageSearch(fatManifestRootPath, serviceManager)
+	multiPlatformImages, err := searchFatManifestPlatformImages(fatManifestResult, fatManifest, serviceManager)
 	if err != nil {
 		return nil, err
 	}
