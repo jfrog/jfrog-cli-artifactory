@@ -8,6 +8,7 @@ import (
 	"path"
 	"strings"
 
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	ioutils "github.com/jfrog/gofrog/io"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
@@ -368,32 +369,55 @@ func performSearch(imagePathPattern string, serviceManager artifactory.Artifacto
 	return
 }
 
-// Returns a map of: image-sha2 -> image-layers
-func performMultiPlatformImageSearch(imagePathPattern string, serviceManager artifactory.ArtifactoryServicesManager) (resultMap map[string][]*utils.ResultItem, err error) {
-	searchParams := services.NewSearchParams()
-	searchParams.CommonParams = &utils.CommonParams{}
-	searchParams.Pattern = imagePathPattern
-	searchParams.Recursive = true
-	var reader *content.ContentReader
-	reader, err = serviceManager.SearchFiles(searchParams)
+// Returns a map of: image-sha2 -> image-layers.
+// Searches only the platform folders listed in the fat manifest, instead of all the versions under the image root.
+func searchFatManifestPlatformImages(fatManifestResult *utils.ResultItem, fatManifest *FatManifest, serviceManager artifactory.ArtifactoryServicesManager) (map[string][]*utils.ResultItem, error) {
+	paths, err := getFatManifestPlatformPaths(fatManifestResult, fatManifest)
 	if err != nil {
 		return nil, err
 	}
-	defer ioutils.Close(reader, &err)
+	results, err := searchArtifactoryForFilesByPath(fatManifestResult.Repo, paths, serviceManager)
+	if err != nil {
+		return nil, err
+	}
+	return groupLayersByManifestDigest(results), nil
+}
+
+// Each platform manifest is stored in a sibling folder of the tag folder, named after its digest.
+// Local repositories use 'sha256:<hex>' and remote cache repositories use 'sha256__<hex>', so both are returned.
+func getFatManifestPlatformPaths(fatManifestResult *utils.ResultItem, fatManifest *FatManifest) ([]string, error) {
+	if fatManifest == nil {
+		return nil, errorutils.CheckErrorf("could not parse fat manifest in Artifactory")
+	}
+	imageRoot := path.Dir(fatManifestResult.Path)
+	paths := make([]string, 0, 2*len(fatManifest.Manifests))
+	for _, platformManifest := range fatManifest.Manifests {
+		digest, err := v1.NewHash(platformManifest.Digest)
+		if err != nil {
+			log.Warn(fmt.Sprintf("Skipping invalid manifest digest '%s' in fat manifest: %s", platformManifest.Digest, err.Error()))
+			continue
+		}
+		paths = append(paths, path.Join(imageRoot, sha256Prefix+digest.Hex), path.Join(imageRoot, sha256RemoteFormat+digest.Hex))
+	}
+	return paths, nil
+}
+
+// Returns a map of: image-sha2 -> image-layers, by grouping the items with the folder of their manifest.json.
+func groupLayersByManifestDigest(items []utils.ResultItem) map[string][]*utils.ResultItem {
 	pathToSha2 := make(map[string]string)
 	pathToImageLayers := make(map[string][]*utils.ResultItem)
-	resultMap = make(map[string][]*utils.ResultItem)
-	for resultItem := new(utils.ResultItem); reader.NextRecord(resultItem) == nil; resultItem = new(utils.ResultItem) {
-		pathToImageLayers[resultItem.Path] = append(pathToImageLayers[resultItem.Path], resultItem)
-		if resultItem.Name == ManifestJsonFile {
-			pathToSha2[resultItem.Path] = "sha256:" + resultItem.Sha256
+	for i := range items {
+		item := &items[i]
+		pathToImageLayers[item.Path] = append(pathToImageLayers[item.Path], item)
+		if item.Name == ManifestJsonFile {
+			pathToSha2[item.Path] = sha256Prefix + item.Sha256
 		}
 	}
+	resultMap := make(map[string][]*utils.ResultItem)
 	for k, v := range pathToSha2 {
 		resultMap[v] = append(resultMap[v], pathToImageLayers[k]...)
 	}
-	err = reader.GetError()
-	return
+	return resultMap
 }
 
 // Digest of type sha256:30daa5c11544632449b01f450bebfef6b89644e9e683258ed05797abe7c32a6e to

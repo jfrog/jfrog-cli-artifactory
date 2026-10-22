@@ -1,11 +1,16 @@
 package ocicontainer
 
 import (
+	"errors"
+	"io"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetManifestPaths(t *testing.T) {
@@ -160,4 +165,137 @@ func createManifestConfigWithForeignLayer() (map[string]*utils.ResultItem, *mani
 	searchResults["manifest.json"] = dummySearchResults
 	searchResults["sha__1"] = dummySearchResults
 	return searchResults, manifest
+}
+
+// fakeAqlManager implements only the Aql method of the services manager, and records the queries it receives.
+type fakeAqlManager struct {
+	artifactory.ArtifactoryServicesManager
+	queries  []string
+	response string
+	err      error
+}
+
+func (f *fakeAqlManager) Aql(aql string) (io.ReadCloser, error) {
+	f.queries = append(f.queries, aql)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return io.NopCloser(strings.NewReader(f.response)), nil
+}
+
+func TestGetFatManifestPlatformPaths(t *testing.T) {
+	hexA, hexB := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	fatManifestResult := &utils.ResultItem{Repo: "docker-local", Path: "org/hello-world/1"}
+	pathsOf := func(hex string) []string {
+		return []string{"org/hello-world/sha256:" + hex, "org/hello-world/sha256__" + hex}
+	}
+
+	testCases := []struct {
+		name     string
+		digests  []string
+		expected []string
+	}{
+		{name: "two platforms", digests: []string{"sha256:" + hexA, "sha256:" + hexB}, expected: append(pathsOf(hexA), pathsOf(hexB)...)},
+		{name: "no manifests", digests: nil, expected: []string{}},
+		// Invalid digests never matched a platform folder, so a fat manifest holding only invalid digests is not an error.
+		// The build-info then holds only the fat manifest.
+		{name: "all digests invalid", digests: []string{`sha256:a"}`, "abc"}, expected: []string{}},
+		{name: "invalid digest is skipped", digests: []string{`sha256:a"}`, "sha256:" + hexA}, expected: pathsOf(hexA)},
+		{name: "sha512 digest is skipped", digests: []string{"sha512:" + strings.Repeat("c", 128), "sha256:" + hexA}, expected: pathsOf(hexA)},
+		{name: "short digest is skipped", digests: []string{"sha256:abc"}, expected: []string{}},
+		{name: "uppercase digest is skipped", digests: []string{"sha256:" + strings.ToUpper(hexA)}, expected: []string{}},
+		{name: "digest without algorithm is skipped", digests: []string{hexA}, expected: []string{}},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fatManifest := &FatManifest{}
+			for _, digest := range testCase.digests {
+				fatManifest.Manifests = append(fatManifest.Manifests, ManifestDetails{Digest: digest})
+			}
+			paths, err := getFatManifestPlatformPaths(fatManifestResult, fatManifest)
+			assert.NoError(t, err)
+			assert.Equal(t, testCase.expected, paths)
+		})
+	}
+
+	t.Run("nil fat manifest", func(t *testing.T) {
+		_, err := getFatManifestPlatformPaths(fatManifestResult, nil)
+		assert.Error(t, err)
+	})
+}
+
+func TestSearchFatManifestPlatformImages(t *testing.T) {
+	hexA, hexB := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	// The fat manifest was found in the remote cache repository, so this is the repository to search.
+	fatManifestResult := &utils.ResultItem{Repo: "docker-remote-cache", Path: "org/hello-world/1", Name: FatManifestJsonFile}
+	fatManifest := &FatManifest{Manifests: []ManifestDetails{{Digest: "sha256:" + hexA}, {Digest: "sha256:" + hexB}}}
+
+	t.Run("searches only the platform folders", func(t *testing.T) {
+		fake := &fakeAqlManager{response: `{"results":[
+			{"repo":"docker-remote-cache","path":"org/hello-world/sha256__` + hexA + `","name":"manifest.json","sha256":"` + hexA + `"},
+			{"repo":"docker-remote-cache","path":"org/hello-world/sha256__` + hexA + `","name":"sha256__layer1"},
+			{"repo":"docker-remote-cache","path":"org/hello-world/sha256__` + hexB + `","name":"manifest.json","sha256":"` + hexB + `"},
+			{"repo":"docker-remote-cache","path":"org/hello-world/sha256__` + hexB + `","name":"sha256__layer2"}]}`}
+
+		result, err := searchFatManifestPlatformImages(fatManifestResult, fatManifest, fake)
+		require.NoError(t, err)
+
+		require.Len(t, fake.queries, 1)
+		assert.Contains(t, fake.queries[0], `{ "repo": "docker-remote-cache" }`)
+		for _, hex := range []string{hexA, hexB} {
+			assert.Contains(t, fake.queries[0], `{"path": {"$eq": "org/hello-world/sha256:`+hex+`"}}`)
+			assert.Contains(t, fake.queries[0], `{"path": {"$eq": "org/hello-world/sha256__`+hex+`"}}`)
+		}
+		assert.Equal(t, 4, strings.Count(fake.queries[0], `"$eq"`))
+		assert.NotContains(t, fake.queries[0], "$match")
+
+		require.Len(t, result, 2)
+		assert.Equal(t, []string{ManifestJsonFile, "sha256__layer1"}, layerNames(result["sha256:"+hexA]))
+		assert.Equal(t, []string{ManifestJsonFile, "sha256__layer2"}, layerNames(result["sha256:"+hexB]))
+	})
+
+	t.Run("returns the AQL error", func(t *testing.T) {
+		errNetwork := errors.New("network down")
+		result, err := searchFatManifestPlatformImages(fatManifestResult, fatManifest, &fakeAqlManager{err: errNetwork})
+		assert.ErrorIs(t, err, errNetwork)
+		assert.Nil(t, result)
+	})
+
+	t.Run("does not search without platform digests", func(t *testing.T) {
+		fake := &fakeAqlManager{}
+		result, err := searchFatManifestPlatformImages(fatManifestResult, &FatManifest{}, fake)
+		assert.NoError(t, err)
+		assert.Empty(t, result)
+		assert.Empty(t, fake.queries)
+	})
+
+	t.Run("nil fat manifest", func(t *testing.T) {
+		fake := &fakeAqlManager{}
+		_, err := searchFatManifestPlatformImages(fatManifestResult, nil, fake)
+		assert.Error(t, err)
+		assert.Empty(t, fake.queries)
+	})
+}
+
+func layerNames(layers []*utils.ResultItem) []string {
+	names := make([]string, 0, len(layers))
+	for _, layer := range layers {
+		names = append(names, layer.Name)
+	}
+	return names
+}
+
+func TestGroupLayersByManifestDigest(t *testing.T) {
+	items := []utils.ResultItem{
+		{Path: "hello-world/sha256:aaa", Name: ManifestJsonFile, Sha256: "aaa"},
+		{Path: "hello-world/sha256:aaa", Name: "sha256__layer1"},
+		{Path: "hello-world/sha256:bbb", Name: ManifestJsonFile, Sha256: "bbb"},
+		{Path: "hello-world/sha256:bbb", Name: "sha256__layer2"},
+		// Folder without manifest.json is ignored.
+		{Path: "hello-world/1", Name: FatManifestJsonFile},
+	}
+	result := groupLayersByManifestDigest(items)
+	assert.Len(t, result, 2)
+	assert.Equal(t, []string{ManifestJsonFile, "sha256__layer1"}, layerNames(result["sha256:aaa"]))
+	assert.Equal(t, []string{ManifestJsonFile, "sha256__layer2"}, layerNames(result["sha256:bbb"]))
 }
