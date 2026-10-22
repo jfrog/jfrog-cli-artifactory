@@ -2,8 +2,12 @@ package lifecycle
 
 import (
 	"bytes"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jfrog/jfrog-cli-artifactory/cliutils/flagkit"
@@ -418,6 +422,45 @@ func TestValidateFinalizeReleaseBundleContext(t *testing.T) {
 			} else {
 				assert.NoError(t, err, buffer)
 			}
+		})
+	}
+}
+
+func TestReleaseBundleSearchConnectionFlags(t *testing.T) {
+	t.Setenv("JFROG_CLI_HOME_DIR", t.TempDir())
+	t.Setenv("JFROG_CLI_OFFER_CONFIG", "false")
+	t.Setenv("JFROG_CLI_REPORT_USAGE", "false")
+	for _, tc := range []struct {
+		name     string
+		args     []string
+		endpoint string
+	}{
+		{"names", []string{"names"}, "groups"},
+		{"versions", []string{"versions", "my-bundle"}, "records/my-bundle"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				assert.Equal(t, "GET", r.Method)
+				assert.True(t, strings.HasPrefix(r.URL.Path, "/lifecycle/"), r.URL.Path)
+				assert.True(t, strings.HasSuffix(r.URL.Path, "/"+tc.endpoint), r.URL.Path)
+				assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+				if tc.name == "versions" {
+					assert.Equal(t, "my-project", r.URL.Query().Get("project"))
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprint(w, `{"release_bundles": [], "total": 0}`)
+			}))
+			defer server.Close()
+			app, err := components.ConvertApp(components.CreateApp("jf", "", "", GetCommands()))
+			if !assert.NoError(t, err) {
+				return
+			}
+			args := append([]string{"jf", "release-bundle-search"}, tc.args...)
+			args = append(args, "--url="+server.URL, "--access-token=test-token", "--project=my-project", "--format=json")
+			assert.NoError(t, app.Run(args))
+			assert.EqualValues(t, 1, requests.Load())
 		})
 	}
 }

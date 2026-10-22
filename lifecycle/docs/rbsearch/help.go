@@ -17,11 +17,11 @@ When to use:
 - Driving downstream automation from bundle metadata.
 
 Prerequisites:
-- A configured platform server with read access to the lifecycle service.
+- A configured platform server or explicit --url and authentication flags, with read access to the lifecycle service.
 - For "versions": the release bundle name must be provided.
 
 Common patterns:
-  $ jf release-bundle-search names
+  $ jf release-bundle-search names --url=https://acme.jfrog.io --access-token=<token>
   $ jf release-bundle-search versions my-bundle
   $ jf release-bundle-search versions my-bundle --filter-by=tag=approved --order-by=created --order-asc=false --format=json
 
