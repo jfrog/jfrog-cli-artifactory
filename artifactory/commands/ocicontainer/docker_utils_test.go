@@ -1,11 +1,14 @@
 package ocicontainer
 
 import (
+	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/jfrog/jfrog-client-go/artifactory/services/utils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestModifyPathForRemoteRepo(t *testing.T) {
@@ -761,4 +764,60 @@ func TestDigestBasedImageDetection(t *testing.T) {
 			assert.Equal(t, tt.isDigest, isDigest)
 		})
 	}
+}
+
+func TestToAqlString(t *testing.T) {
+	assert.Equal(t, `"org/img/sha256:abc"`, toAqlString("org/img/sha256:abc"))
+	// Quotes and backslashes are escaped, so the value can't change the AQL query.
+	assert.Equal(t, `"img/x\"}},{\"path\":{\"$match\":\"*"`, toAqlString(`img/x"}},{"path":{"$match":"*`))
+}
+
+func TestSearchArtifactoryForFilesByPath(t *testing.T) {
+	t.Run("quotes the repository and the paths", func(t *testing.T) {
+		repo := `my"repo`
+		paths := []string{"org/img/sha256:abc", `img/x"}},{"path":{"$match":"*`, `a\b`}
+		fake := &fakeAqlManager{response: `{"results":[{"repo":"my-repo","path":"org/img/sha256:abc","name":"manifest.json"}]}`}
+
+		results, err := searchArtifactoryForFilesByPath(repo, paths, fake)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+		assert.Equal(t, "manifest.json", results[0].Name)
+
+		// The query is a valid AQL find body, which holds the exact repository and paths.
+		require.Len(t, fake.queries, 1)
+		find, _, found := strings.Cut(strings.TrimPrefix(fake.queries[0], "items.find("), "\n.include(")
+		require.True(t, found, fake.queries[0])
+		var body struct {
+			And []struct {
+				Repo string `json:"repo"`
+				Or   []struct {
+					Path struct {
+						Eq string `json:"$eq"`
+					} `json:"path"`
+				} `json:"$or"`
+			} `json:"$and"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(strings.TrimSuffix(find, ")")), &body), find)
+		require.Len(t, body.And, 2)
+		assert.Equal(t, repo, body.And[0].Repo)
+		var queriedPaths []string
+		for _, condition := range body.And[1].Or {
+			queriedPaths = append(queriedPaths, condition.Path.Eq)
+		}
+		assert.Equal(t, paths, queriedPaths)
+	})
+
+	t.Run("does not search without paths", func(t *testing.T) {
+		fake := &fakeAqlManager{}
+		results, err := searchArtifactoryForFilesByPath("repo", nil, fake)
+		assert.NoError(t, err)
+		assert.Empty(t, results)
+		assert.Empty(t, fake.queries)
+	})
+
+	t.Run("returns the AQL error", func(t *testing.T) {
+		errNetwork := errors.New("network down")
+		_, err := searchArtifactoryForFilesByPath("repo", []string{"img"}, &fakeAqlManager{err: errNetwork})
+		assert.ErrorIs(t, err, errNetwork)
+	})
 }
