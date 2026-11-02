@@ -62,7 +62,7 @@ jobs:
           # ubuntu-latest is Ubuntu 26.04: it has no apt-key, and the Mono project repository has no packages for it.
           # Ubuntu's own archive ships Mono 6.14, but without the mono-complete package.
           sudo apt-get update
-          sudo apt-get install -y mono-runtime mono-devel ca-certificates-mono
+          sudo apt-get install -y mono-runtime mono-devel
           mono --version
 
       # Install Mono on macOS to run nuget.exe (due to this issue on macOS that hasn't been fixed yet - https://github.com/NuGet/setup-nuget/issues/168)
