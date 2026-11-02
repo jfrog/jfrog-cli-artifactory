@@ -2,8 +2,10 @@ package helm
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jfrog/jfrog-client-go/artifactory"
@@ -14,11 +16,14 @@ import (
 )
 
 // fakeSearchManager implements only SearchFiles. It records every AQL query and answers with
-// a manifest.json item only when the query targets one of the paths in existingPaths.
+// a manifest.json item, plus one item per name in layerNames, only when the query targets one of the paths in
+// existingPaths. ReadRemoteFile serves manifestJSON.
 type fakeSearchManager struct {
 	artifactory.ArtifactoryServicesManager
 	t             *testing.T
 	existingPaths map[string]bool
+	layerNames    []string
+	manifestJSON  string
 	queries       []string
 }
 
@@ -35,15 +40,21 @@ func (f *fakeSearchManager) SearchFiles(params services.SearchParams) (*content.
 
 	results := []map[string]string{}
 	if f.existingPaths[parsed.Path] {
-		results = append(results, map[string]string{
-			"repo": parsed.Repo, "path": parsed.Path, "name": "manifest.json", "type": "file",
-		})
+		for _, name := range append([]string{"manifest.json"}, f.layerNames...) {
+			results = append(results, map[string]string{
+				"repo": parsed.Repo, "path": parsed.Path, "name": name, "type": "file", "sha256": name,
+			})
+		}
 	}
 	data, err := json.Marshal(map[string]any{"results": results})
 	require.NoError(f.t, err)
 	file := filepath.Join(f.t.TempDir(), "results.json")
 	require.NoError(f.t, os.WriteFile(file, data, 0600))
 	return content.NewContentReader(file, "results"), nil
+}
+
+func (f *fakeSearchManager) ReadRemoteFile(string) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader(f.manifestJSON)), nil
 }
 
 // Helm pushes chart version X.Y.Z+meta under the OCI tag X.Y.Z_meta, so the lookup must search the '_' folder.
