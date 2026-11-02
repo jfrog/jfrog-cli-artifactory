@@ -263,16 +263,20 @@ func TestBuildOCIChartPath(t *testing.T) {
 }
 
 func TestToOCITag(t *testing.T) {
-	tests := map[string]string{
-		"1.0.0":              "1.0.0",
-		"1.2.3+abc1234":      "1.2.3_abc1234",
-		"1.2.3+a+b":          "1.2.3_a_b",
-		"1.2.3-rc.1+build.5": "1.2.3-rc.1_build.5",
-		"1.2.3_abc":          "1.2.3_abc",
+	tests := []struct {
+		name     string
+		version  string
+		expected string
+	}{
+		{name: "No build metadata", version: "1.0.0", expected: "1.0.0"},
+		{name: "Build metadata", version: "1.2.3+abc1234", expected: "1.2.3_abc1234"},
+		{name: "Several plus signs", version: "1.2.3+a+b", expected: "1.2.3_a_b"},
+		{name: "Prerelease with build metadata", version: "1.2.3-rc.1+build.5", expected: "1.2.3-rc.1_build.5"},
+		{name: "Already an OCI tag", version: "1.2.3_abc", expected: "1.2.3_abc"},
 	}
-	for version, expected := range tests {
-		t.Run(version, func(t *testing.T) {
-			assert.Equal(t, expected, toOCITag(version))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, toOCITag(tt.version))
 		})
 	}
 }

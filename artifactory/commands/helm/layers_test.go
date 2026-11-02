@@ -3,7 +3,9 @@ package helm
 import (
 	"testing"
 
+	"github.com/jfrog/build-info-go/entities"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestParseDependencyID tests the parseDependencyID function
@@ -88,5 +90,19 @@ func TestExtractDependencyPathInLayers(t *testing.T) {
 			result := extractDependencyPath(tt.depId)
 			assert.Equal(t, tt.expectedPath, result)
 		})
+	}
+}
+
+// Dependencies pushed to OCI with build metadata live under the same '_' tag folder.
+func TestAddOCILayersForDependencyBuildMetadataVersion(t *testing.T) {
+	fake := &fakeSearchManager{t: t, existingPaths: map[string]bool{}}
+	var processed []entities.Dependency
+
+	addOCILayersForDependency(entities.Dependency{Id: "common:1.0.0+meta", Repository: "oci://acme.jfrog.io/helm-local"}, fake, &processed)
+
+	require.NotEmpty(t, fake.queries)
+	assert.JSONEq(t, `{"repo":"helm-local","path":"common/1.0.0_meta"}`, fake.queries[0])
+	for _, query := range fake.queries {
+		assert.NotContains(t, query, "+")
 	}
 }

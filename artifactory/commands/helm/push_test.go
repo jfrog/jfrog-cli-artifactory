@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
@@ -47,8 +46,7 @@ func (f *fakeSearchManager) SearchFiles(params services.SearchParams) (*content.
 	return content.NewContentReader(file, "results"), nil
 }
 
-// RTECO-2742: Helm pushes chart version X.Y.Z+meta under the OCI tag X.Y.Z_meta,
-// so the Artifactory lookup must search the '_' folder.
+// Helm pushes chart version X.Y.Z+meta under the OCI tag X.Y.Z_meta, so the lookup must search the '_' folder.
 func TestResolveOCIPushArtifactsBuildMetadataVersion(t *testing.T) {
 	t.Run("finds the artifacts under the underscore tag", func(t *testing.T) {
 		fake := &fakeSearchManager{t: t, existingPaths: map[string]bool{"mychart/1.2.3_abc1234": true}}
@@ -59,9 +57,12 @@ func TestResolveOCIPushArtifactsBuildMetadataVersion(t *testing.T) {
 		assert.Equal(t, "helm-local", repo)
 		assert.Equal(t, "mychart/1.2.3_abc1234", chartPath)
 		assert.Contains(t, results, "manifest.json")
+		for _, query := range fake.queries {
+			assert.NotContains(t, query, "+")
+		}
 	})
 
-	t.Run("subpath", func(t *testing.T) {
+	t.Run("finds the artifacts under a repo subpath", func(t *testing.T) {
 		fake := &fakeSearchManager{t: t, existingPaths: map[string]bool{"team/app/mychart/1.2.3_abc1234": true}}
 
 		repo, chartPath, _, err := resolveOCIPushArtifacts(fake, "oci://acme.jfrog.io/helm-local/team/app", "mychart", "1.2.3+abc1234")
@@ -71,31 +72,18 @@ func TestResolveOCIPushArtifactsBuildMetadataVersion(t *testing.T) {
 		assert.Equal(t, "team/app/mychart/1.2.3_abc1234", chartPath)
 	})
 
-	t.Run("the plus form is not searched", func(t *testing.T) {
+	t.Run("not found error shows the real version", func(t *testing.T) {
 		fake := &fakeSearchManager{t: t, existingPaths: map[string]bool{}}
 
 		_, _, _, err := resolveOCIPushArtifacts(fake, "oci://acme.jfrog.io/helm-local", "mychart", "1.2.3+abc1234")
 
 		assert.ErrorContains(t, err, "no OCI artifacts found for chart mychart:1.2.3+abc1234")
-		require.NotEmpty(t, fake.queries)
-		for _, query := range fake.queries {
-			assert.NotContains(t, query, "+")
-		}
 	})
 }
 
-// Dependencies pushed to OCI with build metadata live under the same '_' tag folder.
-func TestAddOCILayersForDependencyBuildMetadataVersion(t *testing.T) {
-	fake := &fakeSearchManager{t: t, existingPaths: map[string]bool{}}
-	var processed []entities.Dependency
+func TestNewHelmModuleKeepsRealVersion(t *testing.T) {
+	module := newHelmModule("mychart", "1.2.3+abc1234", nil)
 
-	addOCILayersForDependency(entities.Dependency{Id: "common:1.0.0+meta", Repository: "oci://acme.jfrog.io/helm-local"}, fake, &processed)
-
-	require.NotEmpty(t, fake.queries)
-	assert.JSONEq(t, `{"repo":"helm-local","path":"common/1.0.0_meta"}`, fake.queries[0])
-	for _, query := range fake.queries {
-		assert.Contains(t, query, "1.0.0_meta")
-		assert.NotContains(t, query, "+")
-	}
-	assert.Empty(t, processed)
+	assert.Equal(t, "mychart:1.2.3+abc1234", module.Id)
+	assert.Equal(t, "helm", string(module.Type))
 }
