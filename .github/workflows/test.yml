@@ -14,7 +14,8 @@ concurrency:
 jobs:
   unit-test:
     name: ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}-latest
+    # Ubuntu is pinned: ubuntu-latest is now 26.04, which has no apt-key, so the Mono install step fails.
+    runs-on: ${{ matrix.os == 'ubuntu' && 'ubuntu-24.04' || format('{0}-latest', matrix.os) }}
     strategy:
       fail-fast: false
       matrix:
