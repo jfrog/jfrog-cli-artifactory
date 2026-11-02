@@ -157,11 +157,21 @@ func searchPushedArtifacts(serviceManager artifactory.ArtifactoryServicesManager
 //
 //	subpath="", chartName="mychart", chartVersion="1.0.0"
 //	  → "mychart/1.0.0"
+//
+// The version is converted to the OCI tag Helm pushes it under (see toOCITag).
 func buildOCIChartPath(subpath, chartName, chartVersion string) string {
+	chartPath := chartName + "/" + toOCITag(chartVersion)
 	if subpath != "" {
-		return fmt.Sprintf("%s/%s/%s", subpath, chartName, chartVersion)
+		return subpath + "/" + chartPath
 	}
-	return fmt.Sprintf("%s/%s", chartName, chartVersion)
+	return chartPath
+}
+
+// toOCITag converts a chart version to the OCI tag Helm pushes it under.
+// OCI tags cannot contain '+', so Helm stores SemVer build metadata
+// (X.Y.Z+meta) as X.Y.Z_meta and maps it back on pull.
+func toOCITag(chartVersion string) string {
+	return strings.ReplaceAll(chartVersion, "+", "_")
 }
 
 // splitOCIChartPath splits a full OCI chart path into the parent directory
