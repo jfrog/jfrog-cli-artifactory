@@ -68,14 +68,20 @@ func handlePushCommand(buildInfo *entities.BuildInfo, helmArgs []string, service
 	for _, artLayer := range artifactsLayers {
 		artifacts = append(artifacts, artLayer.ToArtifact())
 	}
-	helmModule := &entities.Module{
+	helmModule := newHelmModule(chartName, chartVersion, artifacts)
+	appendModuleInExistingBuildInfo(buildInfo, helmModule)
+	removeDuplicateArtifacts(buildInfo)
+	return saveBuildInfo(buildInfo, buildName, buildNumber, project)
+}
+
+// newHelmModule builds the build-info module of a pushed chart.
+// The id keeps the version from Chart.yaml, including SemVer build metadata ('+').
+func newHelmModule(chartName, chartVersion string, artifacts []entities.Artifact) *entities.Module {
+	return &entities.Module{
 		Id:        fmt.Sprintf("%s:%s", chartName, chartVersion),
 		Type:      "helm",
 		Artifacts: artifacts,
 	}
-	appendModuleInExistingBuildInfo(buildInfo, helmModule)
-	removeDuplicateArtifacts(buildInfo)
-	return saveBuildInfo(buildInfo, buildName, buildNumber, project)
 }
 
 // resolveOCIPushArtifacts generates plausible Artifactory repo/subpath
@@ -157,11 +163,20 @@ func searchPushedArtifacts(serviceManager artifactory.ArtifactoryServicesManager
 //
 //	subpath="", chartName="mychart", chartVersion="1.0.0"
 //	  → "mychart/1.0.0"
+//
+// The version is converted to the OCI tag Helm pushes it under (see toOCITag).
 func buildOCIChartPath(subpath, chartName, chartVersion string) string {
+	chartPath := chartName + "/" + toOCITag(chartVersion)
 	if subpath != "" {
-		return fmt.Sprintf("%s/%s/%s", subpath, chartName, chartVersion)
+		return subpath + "/" + chartPath
 	}
-	return fmt.Sprintf("%s/%s", chartName, chartVersion)
+	return chartPath
+}
+
+// toOCITag converts a chart version to the OCI tag Helm pushes it under.
+// OCI tags cannot contain '+', so Helm pushes X.Y.Z+meta as X.Y.Z_meta.
+func toOCITag(chartVersion string) string {
+	return strings.ReplaceAll(chartVersion, "+", "_")
 }
 
 // splitOCIChartPath splits a full OCI chart path into the parent directory

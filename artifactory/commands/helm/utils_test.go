@@ -238,12 +238,45 @@ func TestBuildOCIChartPath(t *testing.T) {
 			chartVersion: "2.3.4",
 			expected:     "team/app/env/mychart/2.3.4",
 		},
+		{
+			name:         "Build metadata - plus becomes underscore",
+			subpath:      "",
+			chartName:    "next-gen-ci-demo",
+			chartVersion: "103.287.0+0b2041e",
+			expected:     "next-gen-ci-demo/103.287.0_0b2041e",
+		},
+		{
+			name:         "Prerelease with build metadata and subpath",
+			subpath:      "team/app",
+			chartName:    "mychart",
+			chartVersion: "1.2.3-rc.1+build.5",
+			expected:     "team/app/mychart/1.2.3-rc.1_build.5",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := buildOCIChartPath(tt.subpath, tt.chartName, tt.chartVersion)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestToOCITag(t *testing.T) {
+	tests := []struct {
+		name     string
+		version  string
+		expected string
+	}{
+		{name: "No build metadata", version: "1.0.0", expected: "1.0.0"},
+		{name: "Build metadata", version: "1.2.3+abc1234", expected: "1.2.3_abc1234"},
+		{name: "Several plus signs", version: "1.2.3+a+b", expected: "1.2.3_a_b"},
+		{name: "Prerelease with build metadata", version: "1.2.3-rc.1+build.5", expected: "1.2.3-rc.1_build.5"},
+		{name: "Already an OCI tag", version: "1.2.3_abc", expected: "1.2.3_abc"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, toOCITag(tt.version))
 		})
 	}
 }
