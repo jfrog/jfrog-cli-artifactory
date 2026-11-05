@@ -114,7 +114,7 @@ require (
 	github.com/jfrog/archiver/v3 v3.6.5 // indirect
 	github.com/jfrog/froggit-go v1.21.1 // indirect
 	github.com/kevinburke/ssh_config v1.6.0 // indirect
-	github.com/klauspost/compress v1.18.6 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/ktrysmt/go-bitbucket v0.9.88 // indirect
