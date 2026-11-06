@@ -657,17 +657,15 @@ func hardenPnpmAuthConfig() {
 // access), so a resolution miss never fails an otherwise-successful setup.
 // Restricting a file without secrets is a harmless no-op.
 func pnpmCredentialFiles() []string {
-	out, err := exec.Command("pnpm", "config", "get", "globalconfig").Output()
+	configDir, err := pnpmConfigDir()
 	if err != nil {
 		log.Warn("Could not resolve pnpm's config directory to restrict its permissions. " +
 			"If it holds an access token, restrict it to owner-only access manually.")
 		return nil
 	}
-	globalConfig := strings.TrimSpace(string(out))
-	if globalConfig == "" {
+	if configDir == "" {
 		return nil
 	}
-	configDir := filepath.Dir(globalConfig)
 	var existing []string
 	for _, name := range pnpmConfigFileNames {
 		path := filepath.Join(configDir, name)
@@ -676,6 +674,20 @@ func pnpmCredentialFiles() []string {
 		}
 	}
 	return existing
+}
+
+// pnpmConfigDir returns pnpm's own config directory, derived from the file pnpm reports as
+// `globalconfig`, or an empty string when pnpm reports none.
+func pnpmConfigDir() (string, error) {
+	out, err := runTool("pnpm", "config", "get", "globalconfig")
+	if err != nil {
+		return "", errorutils.CheckErrorf("failed to query pnpm's config directory: %s", err.Error())
+	}
+	globalConfig := strings.TrimSpace(string(out))
+	if globalConfig == "" || globalConfig == "undefined" {
+		return "", nil
+	}
+	return filepath.Dir(globalConfig), nil
 }
 
 // userFile joins parts onto the current user's home directory. jf setup uses it
@@ -817,7 +829,7 @@ func (sc *SetupCommand) configureGo() error {
 // authoritative source for this path: it applies the same GOENV/default
 // resolution the write used.
 func goEnvFilePath() (string, error) {
-	out, err := exec.Command("go", "env", "GOENV").Output()
+	out, err := runTool("go", "env", "GOENV")
 	if err != nil {
 		return "", errorutils.CheckErrorf("failed to resolve the Go environment file path: %s", err.Error())
 	}
@@ -1744,12 +1756,5 @@ func apkRepoHostname(repoLine string) string {
 }
 
 func apkRedactCredentials(repoURL string) string {
-	parsed, err := url.Parse(repoURL)
-	if err != nil || parsed.User == nil {
-		return repoURL
-	}
-	// Splice in a literal masked userinfo instead of going through url.UserPassword + String(),
-	// which percent-encodes the mask ("*" -> "%2A") and prints noisy "%2A%2A%2A:%2A%2A%2A@host".
-	parsed.User = nil
-	return fmt.Sprintf("%s://***:***@%s", parsed.Scheme, strings.TrimPrefix(parsed.String(), parsed.Scheme+"://"))
+	return redactURL(repoURL)
 }
