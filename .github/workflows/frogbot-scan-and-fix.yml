@@ -47,6 +47,11 @@ jobs:
           # which GITHUB_TOKEN cannot do. Falls back to GITHUB_TOKEN until the secret exists.
           JF_GIT_TOKEN: ${{ secrets.FROGBOT_GIT_TOKEN || secrets.GITHUB_TOKEN }}
 
+          # [Optional]
+          # Group all fixes into a single pull request, instead of one pull request per vulnerable dependency.
+          # Frogbot keeps one branch (frogbot-update-<hash>-dependencies) and force-pushes new fixes to it.
+          JF_GIT_AGGREGATE_FIXES: "true"
+
       # Label and enable auto-merge only on the PRs for branches this run created or updated.
       # Runs even if Frogbot failed part-way, since it may already have opened some PRs.
       - name: Label new Frogbot PRs and enable auto-merge
