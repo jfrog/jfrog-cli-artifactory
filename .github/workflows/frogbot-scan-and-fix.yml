@@ -41,15 +41,18 @@ jobs:
           JF_ACCESS_TOKEN: ${{ secrets.FROGBOT_ACCESS_TOKEN }}
 
           # [Mandatory]
-          # The GitHub token automatically generated for the job
-          JF_GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A PAT or GitHub App token with contents and pull-requests write access, stored in the
+          # FROGBOT_GIT_TOKEN repo secret. PRs opened with it start other workflows (tests, label checks),
+          # which GITHUB_TOKEN cannot do. Falls back to GITHUB_TOKEN until the secret exists.
+          JF_GIT_TOKEN: ${{ secrets.FROGBOT_GIT_TOKEN || secrets.GITHUB_TOKEN }}
 
       # Label and enable auto-merge only on the PRs for branches this run pushed.
       # Runs even if Frogbot failed part-way, since it may already have opened some PRs.
       - name: Label new Frogbot PRs and enable auto-merge
         if: ${{ !cancelled() }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Labels added with the PAT start the "safe to test" integration tests; GITHUB_TOKEN's would not.
+          GH_TOKEN: ${{ secrets.FROGBOT_GIT_TOKEN || secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           BASE_BRANCH: ${{ matrix.branch }}
         run: |
