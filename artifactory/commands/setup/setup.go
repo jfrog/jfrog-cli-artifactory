@@ -1086,7 +1086,7 @@ func (sc *SetupCommand) configureRuby() error {
 
 	// Per-host credentials, for Gemfiles that name the Artifactory source explicitly.
 	if password != "" {
-		credential := username + ":" + password
+		credential := ruby.BundleCredential(username, password)
 		for _, key := range ruby.BundleCredentialKeys(repoUrl.Hostname()) {
 			settings[key] = credential
 		}
