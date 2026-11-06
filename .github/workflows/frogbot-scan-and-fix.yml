@@ -22,6 +22,20 @@ jobs:
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
 
+      # Record the Frogbot PRs that are already open, so that only PRs raised by this run are touched later.
+      - name: Snapshot existing Frogbot PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          BASE_BRANCH: ${{ matrix.branch }}
+        run: |
+          set -euo pipefail
+          # Frogbot names its fix branches "frogbot-<dependency>-<hash>".
+          gh pr list --state open --base "$BASE_BRANCH" --limit 200 \
+            --json number,headRefName \
+            --jq '.[] | select(.headRefName | startswith("frogbot-")) | .number' \
+            | sort > "$RUNNER_TEMP/frogbot-prs-before.txt"
+
       - uses: jfrog/frogbot@v2
         env:
           # [Mandatory]
@@ -36,20 +50,24 @@ jobs:
           # The GitHub token automatically generated for the job
           JF_GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Prepare the pull requests that Frogbot opened (or already has open) against this branch:
-      # label them and enable auto-merge. All commands are safe to re-run.
-      - name: Label Frogbot PRs and enable auto-merge
+      # Label and enable auto-merge only on the PRs this run raised (open now, but not in the snapshot).
+      - name: Label new Frogbot PRs and enable auto-merge
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           BASE_BRANCH: ${{ matrix.branch }}
         run: |
           set -euo pipefail
-          # Frogbot names its fix branches "frogbot-<dependency>-<hash>".
-          prs=$(gh pr list --state open --base "$BASE_BRANCH" --limit 100 \
+          gh pr list --state open --base "$BASE_BRANCH" --limit 200 \
             --json number,headRefName \
-            --jq '.[] | select(.headRefName | startswith("frogbot-")) | .number')
-          for pr in $prs; do
+            --jq '.[] | select(.headRefName | startswith("frogbot-")) | .number' \
+            | sort > "$RUNNER_TEMP/frogbot-prs-after.txt"
+          new_prs=$(comm -13 "$RUNNER_TEMP/frogbot-prs-before.txt" "$RUNNER_TEMP/frogbot-prs-after.txt")
+          if [ -z "$new_prs" ]; then
+            echo "Frogbot raised no new pull requests."
+            exit 0
+          fi
+          for pr in $new_prs; do
             echo "Preparing PR #$pr"
             gh pr edit "$pr" --add-label "ignore for release" --add-label "safe to test"
             gh pr merge "$pr" --auto --squash
