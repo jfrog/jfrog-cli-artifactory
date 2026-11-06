@@ -47,7 +47,6 @@ jobs:
           # Frogbot keeps one branch (frogbot-update-<hash>-dependencies) and force-pushes new fixes to it.
           JF_GIT_AGGREGATE_FIXES: "true"
 
-
       # Label and enable auto-merge only on PRs for branches this run created or updated (new branch or new sha).
       # Runs even if Frogbot failed part-way, since it may already have opened some PRs.
       - name: Label new Frogbot PRs and enable auto-merge
