@@ -22,13 +22,14 @@ jobs:
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
 
-      # Frogbot skips a fix when its branch already exists on the remote, so every "frogbot-*" branch
-      # that appears during this run was pushed by this run. Record the existing ones first.
+      # Record "<sha> <branch>" for every Frogbot branch before the run. Frogbot either pushes a new branch
+      # (one PR per fix) or force-pushes its single aggregated branch, so a branch that is new or has a
+      # different sha after the run was pushed by this run.
       - name: Snapshot existing Frogbot branches
         run: |
           set -euo pipefail
           git ls-remote --heads origin 'refs/heads/frogbot-*' \
-            | sed 's#.*refs/heads/##' | sort > "$RUNNER_TEMP/frogbot-branches-before.txt"
+            | sed 's#\trefs/heads/# #' | sort > "$RUNNER_TEMP/frogbot-branches-before.txt"
 
       - uses: jfrog/frogbot@v2
         env:
@@ -46,7 +47,7 @@ jobs:
           # which GITHUB_TOKEN cannot do. Falls back to GITHUB_TOKEN until the secret exists.
           JF_GIT_TOKEN: ${{ secrets.FROGBOT_GIT_TOKEN || secrets.GITHUB_TOKEN }}
 
-      # Label and enable auto-merge only on the PRs for branches this run pushed.
+      # Label and enable auto-merge only on the PRs for branches this run created or updated.
       # Runs even if Frogbot failed part-way, since it may already have opened some PRs.
       - name: Label new Frogbot PRs and enable auto-merge
         if: ${{ !cancelled() }}
@@ -63,10 +64,11 @@ jobs:
             exit 0
           fi
           git ls-remote --heads origin 'refs/heads/frogbot-*' \
-            | sed 's#.*refs/heads/##' | sort > "$RUNNER_TEMP/frogbot-branches-after.txt"
-          new_branches=$(comm -13 "$before" "$RUNNER_TEMP/frogbot-branches-after.txt")
+            | sed 's#\trefs/heads/# #' | sort > "$RUNNER_TEMP/frogbot-branches-after.txt"
+          # Lines only in the "after" list are new branches or branches whose sha changed.
+          new_branches=$(comm -13 "$before" "$RUNNER_TEMP/frogbot-branches-after.txt" | cut -d' ' -f2-)
           if [ -z "$new_branches" ]; then
-            echo "Frogbot pushed no new branches."
+            echo "Frogbot pushed no new or updated branches."
             exit 0
           fi
           while IFS= read -r branch; do
