@@ -22,6 +22,11 @@ jobs:
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
 
+      # Save "<sha> <branch>" per Frogbot branch, to tell later which branches this run pushed.
+      - name: Snapshot existing Frogbot branches
+        id: snapshot
+        run: git ls-remote origin 'refs/heads/frogbot-*' > "$RUNNER_TEMP/frogbot-before.txt"
+
       - uses: jfrog/frogbot@v2
         env:
           # [Mandatory]
@@ -33,5 +38,34 @@ jobs:
           JF_ACCESS_TOKEN: ${{ secrets.FROGBOT_ACCESS_TOKEN }}
 
           # [Mandatory]
-          # The GitHub token automatically generated for the job
-          JF_GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT or GitHub App token (contents + pull-requests write) in the FROGBOT_GIT_TOKEN secret, so the PRs
+          # it opens start other workflows. Falls back to GITHUB_TOKEN until the secret exists.
+          JF_GIT_TOKEN: ${{ secrets.FROGBOT_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+
+          # [Optional]
+          # Group all fixes into a single pull request, instead of one pull request per vulnerable dependency.
+          # Frogbot keeps one branch (frogbot-update-<hash>-dependencies) and force-pushes new fixes to it.
+          JF_GIT_AGGREGATE_FIXES: "true"
+
+      # Label and enable auto-merge only on PRs for branches this run created or updated (new branch or new sha).
+      # Runs even if Frogbot failed part-way, since it may already have opened some PRs.
+      - name: Label new Frogbot PRs and enable auto-merge
+        if: ${{ !cancelled() && steps.snapshot.conclusion == 'success' }}
+        env:
+          GH_TOKEN: ${{ secrets.FROGBOT_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+          BASE_BRANCH: ${{ matrix.branch }}
+        run: |
+          set -euo pipefail
+          git ls-remote origin 'refs/heads/frogbot-*' \
+            | { grep -vxFf "$RUNNER_TEMP/frogbot-before.txt" || true; } \
+            | cut -f2 | sed 's#^refs/heads/##' \
+            | while IFS= read -r branch; do
+                pr=$(gh pr list --state open --base "$BASE_BRANCH" --head "$branch" --json number --jq '.[0].number // empty')
+                if [ -z "$pr" ]; then
+                  echo "::warning::No open PR found for branch $branch"
+                  continue
+                fi
+                echo "Preparing PR #$pr ($branch)"
+                gh pr edit "$pr" --add-label "ignore for release" --add-label "safe to test"
+                gh pr merge "$pr" --auto --squash
+              done

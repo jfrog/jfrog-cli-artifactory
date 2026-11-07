@@ -8,6 +8,8 @@ permissions:
 jobs:
   scan-pull-request:
     runs-on: ubuntu-latest
+    # Skip Frogbot's own fix PRs. The same-repo check stops a fork from skipping the scan with a "frogbot-*" branch.
+    if: ${{ !(startsWith(github.event.pull_request.head.ref, 'frogbot-') && github.event.pull_request.head.repo.full_name == github.repository) }}
     # A pull request needs to be approved, before Frogbot scans it. Any GitHub user who is associated with the
     # "frogbot" GitHub environment can approve the pull request to be scanned.
     environment: frogbot
