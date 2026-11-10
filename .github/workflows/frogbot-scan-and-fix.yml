@@ -38,8 +38,9 @@ jobs:
           JF_ACCESS_TOKEN: ${{ secrets.FROGBOT_ACCESS_TOKEN }}
 
           # [Mandatory]
-          # PAT or GitHub App token (contents + pull-requests write) in the FROGBOT_GIT_TOKEN secret, so the PRs
-          # it opens start other workflows. Falls back to GITHUB_TOKEN until the secret exists.
+          # Personal access token (contents + pull-requests write) in the FROGBOT_GIT_TOKEN secret, so the PRs it
+          # opens start other workflows. Do not store a GitHub App installation token here: it expires after one hour.
+          # Falls back to GITHUB_TOKEN while the secret is empty. PRs opened with GITHUB_TOKEN start no other workflows.
           JF_GIT_TOKEN: ${{ secrets.FROGBOT_GIT_TOKEN || secrets.GITHUB_TOKEN }}
 
           # [Optional]
@@ -60,7 +61,9 @@ jobs:
             | { grep -vxFf "$RUNNER_TEMP/frogbot-before.txt" || true; } \
             | cut -f2 | sed 's#^refs/heads/##' \
             | while IFS= read -r branch; do
-                pr=$(gh pr list --state open --base "$BASE_BRANCH" --head "$branch" --json number --jq '.[0].number // empty')
+                # --head matches the branch name in any repository, so skip PRs that come from a fork.
+                pr=$(gh pr list --state open --base "$BASE_BRANCH" --head "$branch" --json number,isCrossRepository \
+                  --jq '[.[] | select(.isCrossRepository | not)][0].number // empty')
                 if [ -z "$pr" ]; then
                   echo "::warning::No open PR found for branch $branch"
                   continue
