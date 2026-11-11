@@ -58,16 +58,17 @@ jobs:
         run: |
           set -euo pipefail
           # Frogbot opens its PRs as the owner of this token. A PAT gives a user login. GITHUB_TOKEN cannot call
-          # /user, so then the author is the github-actions app.
+          # /user, so then the author is the github-actions app. PRs that Frogbot opened earlier with GITHUB_TOKEN
+          # keep that author after a switch to a PAT, so the lookup below accepts both.
           author=$(gh api user --jq .login 2>/dev/null || echo "app/github-actions")
           git ls-remote origin 'refs/heads/frogbot-*' \
             | { grep -vxFf "$RUNNER_TEMP/frogbot-before.txt" || true; } \
             | cut -f2 | sed 's#^refs/heads/##' \
             | while IFS= read -r branch; do
                 # --head matches the branch name in any repository, so skip PRs that come from a fork.
-                # --author skips PRs that someone else opened from a "frogbot-*" branch.
-                pr=$(gh pr list --state open --base "$BASE_BRANCH" --head "$branch" --author "$author" \
-                  --json number,isCrossRepository --jq '[.[] | select(.isCrossRepository | not)][0].number // empty')
+                # Also skip PRs that someone else opened from a "frogbot-*" branch.
+                pr=$(gh pr list --state open --base "$BASE_BRANCH" --head "$branch" --json number,isCrossRepository,author \
+                  | jq -r --arg me "$author" '[.[] | select(.isCrossRepository | not) | select(.author.login == $me or .author.login == "app/github-actions")][0].number // empty')
                 if [ -z "$pr" ]; then
                   echo "::warning::No open PR found for branch $branch"
                   continue
