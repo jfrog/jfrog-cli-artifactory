@@ -129,7 +129,7 @@ func (c *NuGetFlexPackCommand) Run() error {
 	// .slnx is only understood by nuget.exe >= 7.0.0 (NuGet 7 / .NET SDK 10). Check the nuget.exe
 	// that will actually run, so newer versions are passed through untouched.
 	if c.toolchainType == dotnetutils.Nuget && hasSlnxTarget(c.args) {
-		if err := checkSlnxSupport(nugetExeVersion()); err != nil {
+		if err := checkSlnxSupport(nugetExeVersionFn()); err != nil {
 			return err
 		}
 	}
@@ -807,6 +807,9 @@ func packTargetDirs(workingDir string, args []string) []string {
 const minSlnxNugetMajor = 7
 
 var nugetVersionRegexp = regexp.MustCompile(`(?i)NuGet Version:\s*(\d+)\.(\d+)(?:\.(\d+))?`)
+
+// nugetExeVersionFn is a variable so tests can simulate different nuget.exe versions.
+var nugetExeVersionFn = nugetExeVersion
 
 // nugetExeVersion returns the version of the nuget.exe found on PATH, or "" if it cannot be
 // determined (not installed, unexpected output).

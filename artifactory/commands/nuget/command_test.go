@@ -528,3 +528,19 @@ func TestCheckSlnxSupport(t *testing.T) {
 	assert.Contains(t, err.Error(), ">= 7.0.0")
 	assert.Contains(t, err.Error(), "found 6.13.2")
 }
+
+func TestRunRejectsSlnxWithOldNugetExe(t *testing.T) {
+	orig := nugetExeVersionFn
+	nugetExeVersionFn = func() string { return "6.13.2" }
+	t.Cleanup(func() { nugetExeVersionFn = orig })
+
+	cmd := NewNuGetFlexPackCommand().
+		SetToolchainType(dotnetutils.Nuget).
+		SetSubCommand("restore").
+		SetArgs([]string{"Test.slnx"}).
+		SetWorkingDir(t.TempDir())
+	err := cmd.Run()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), ".slnx requires nuget.exe >= 7.0.0")
+	assert.Contains(t, err.Error(), "found 6.13.2")
+}
