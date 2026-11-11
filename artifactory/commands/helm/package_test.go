@@ -75,6 +75,32 @@ func TestHandlePackageCommand(t *testing.T) {
 	}
 }
 
+func TestHandlePackageCommand_MultipleCharts(t *testing.T) {
+	t.Setenv("JFROG_CLI_HOME_DIR", t.TempDir())
+
+	chartPath := createHelmChartWithDependencies(t)
+	otherChartPath := filepath.Join(t.TempDir(), "otherchart")
+	createChartFiles(t, otherChartPath, "otherchart", "2.0.0")
+	buildInfo := entities.New()
+	err := handlePackageCommand(
+		buildInfo,
+		[]string{chartPath, otherChartPath, "-d", t.TempDir()},
+		&mockPackageServicesManager{},
+		"helm-package-test",
+		"1",
+		"",
+	)
+	require.NoError(t, err)
+
+	moduleIds := map[string]bool{}
+	for _, module := range buildInfo.Modules {
+		moduleIds[module.Id] = true
+	}
+	require.Len(t, buildInfo.Modules, 2)
+	require.True(t, moduleIds["mychart:1.0.0"])
+	require.True(t, moduleIds["otherchart:2.0.0"])
+}
+
 func TestHandlePackageCommand_NoChartDir(t *testing.T) {
 	t.Setenv("JFROG_CLI_HOME_DIR", t.TempDir())
 	tests := []struct {

@@ -21,8 +21,8 @@ func isChartDir(dir string) bool {
 
 func handlePackageCommand(buildInfoOld *entities.BuildInfo, args []string, serviceManager artifactory.ArtifactoryServicesManager, buildName, buildNumber, project string) error {
 	packagePaths := getPaths(args)
-	var chartPath string
-	// helm package command has only 1 chart path directory.
+	var chartPaths []string
+	// helm package accepts one or more chart directories.
 	// we need to ignore other paths such as archive destination or signing keyring.
 	for _, path := range packagePaths {
 		absolutePath, err := filepath.Abs(path)
@@ -30,27 +30,27 @@ func handlePackageCommand(buildInfoOld *entities.BuildInfo, args []string, servi
 			return fmt.Errorf("failed to get absolute path: %w", err)
 		}
 		if isChartDir(absolutePath) {
-			chartPath = absolutePath
-			break
+			chartPaths = append(chartPaths, absolutePath)
 		}
 	}
-	if chartPath == "" {
+	if len(chartPaths) == 0 {
 		return ErrNoChartDirFound
 	}
-	buildInfo, err := collectBuildInfoWithFlexPack(chartPath, buildName, buildNumber)
-	if err != nil {
-		return fmt.Errorf("failed to collect build info: %w", err)
-	}
-	if buildInfo == nil {
-		return fmt.Errorf("no build info collected, skipping further processing")
-	}
-	updateDependencyOCILayersInBuildInfo(buildInfo, serviceManager)
-	if len(buildInfo.Modules) > 0 {
-		appendModuleInExistingBuildInfo(buildInfoOld, &buildInfo.Modules[0])
+	for _, chartPath := range chartPaths {
+		buildInfo, err := collectBuildInfoWithFlexPack(chartPath, buildName, buildNumber)
+		if err != nil {
+			return fmt.Errorf("failed to collect build info: %w", err)
+		}
+		if buildInfo == nil {
+			return fmt.Errorf("no build info collected, skipping further processing")
+		}
+		updateDependencyOCILayersInBuildInfo(buildInfo, serviceManager)
+		if len(buildInfo.Modules) > 0 {
+			appendModuleInExistingBuildInfo(buildInfoOld, &buildInfo.Modules[0])
+		}
 	}
 	removeDuplicateDependencies(buildInfoOld)
-	err = saveBuildInfo(buildInfoOld, buildName, buildNumber, project)
-	if err != nil {
+	if err := saveBuildInfo(buildInfoOld, buildName, buildNumber, project); err != nil {
 		return fmt.Errorf("failed to save build info: %w", err)
 	}
 	return nil
