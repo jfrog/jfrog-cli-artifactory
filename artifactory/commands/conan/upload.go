@@ -3,6 +3,8 @@ package conan
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/jfrog/build-info-go/entities"
 	conanflex "github.com/jfrog/build-info-go/flexpack/conan"
@@ -152,10 +154,12 @@ func (up *UploadProcessor) extractUploadInfo(output ConanUploadOutput) (string, 
 // For references without @user/channel, user and channel are "_".
 func (up *UploadProcessor) buildArtifactPathsFromJSON(packages map[string]ConanUploadRecipe) []string {
 	var paths []string
+	var skippedRefs []string
 	for pkgRef, recipe := range packages {
 		refPath, err := conanRefToArtifactoryPath(pkgRef)
 		if err != nil {
-			log.Warn(fmt.Sprintf("Skipping artifact collection for '%s': %v", pkgRef, err))
+			log.Debug(fmt.Sprintf("Cannot build Artifactory path for '%s': %v", pkgRef, err))
+			skippedRefs = append(skippedRefs, pkgRef)
 			continue
 		}
 		for recipeRev, revData := range recipe.Revisions {
@@ -169,6 +173,11 @@ func (up *UploadProcessor) buildArtifactPathsFromJSON(packages map[string]ConanU
 				}
 			}
 		}
+	}
+	if len(skippedRefs) > 0 {
+		sort.Strings(skippedRefs)
+		log.Error(fmt.Sprintf("Could not collect build info artifacts for %d uploaded Conan reference(s), unsupported reference format: %s",
+			len(skippedRefs), strings.Join(skippedRefs, ", ")))
 	}
 	return paths
 }

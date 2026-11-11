@@ -1,9 +1,11 @@
 package conan
 
 import (
+	"bytes"
 	"testing"
 
 	conanflex "github.com/jfrog/build-info-go/flexpack/conan"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -251,6 +253,30 @@ func TestUploadProcessor_BuildArtifactPathsFromJSON(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUploadProcessor_BuildArtifactPathsFromJSON_LogsSkippedReferences(t *testing.T) {
+	buf := &bytes.Buffer{}
+	prev := log.GetLogger()
+	log.SetLogger(log.NewLogger(log.INFO, buf))
+	t.Cleanup(func() { log.SetLogger(prev) })
+
+	packages := map[string]ConanUploadRecipe{
+		"invalidref": {
+			Revisions: map[string]ConanUploadRecipeRevision{"rev1": {}},
+		},
+		"valid/1.0": {
+			Revisions: map[string]ConanUploadRecipeRevision{"rev2": {}},
+		},
+	}
+
+	paths := (&UploadProcessor{}).buildArtifactPathsFromJSON(packages)
+
+	assert.Equal(t, []string{"_/valid/1.0/_/rev2/export"}, paths)
+	logged := buf.String()
+	assert.Contains(t, logged, "[Error]")
+	assert.Contains(t, logged, "1 uploaded Conan reference(s)")
+	assert.Contains(t, logged, "invalidref")
 }
 
 func TestNewUploadProcessor(t *testing.T) {
