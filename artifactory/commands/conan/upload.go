@@ -146,24 +146,41 @@ func (up *UploadProcessor) extractUploadInfo(output ConanUploadOutput) (string, 
 
 // buildArtifactPathsFromJSON builds Artifactory paths from the structured upload JSON.
 // Paths follow Conan's Artifactory layout:
-//   - Recipe: _/{name}/{version}/_/{recipe_rev}/export
-//   - Package: _/{name}/{version}/_/{recipe_rev}/package/{pkg_id}/{pkg_rev}
+//   - Recipe: {user}/{name}/{version}/{channel}/{recipe_rev}/export
+//   - Package: {user}/{name}/{version}/{channel}/{recipe_rev}/package/{pkg_id}/{pkg_rev}
+//
+// For references without @user/channel, user and channel are "_".
 func (up *UploadProcessor) buildArtifactPathsFromJSON(packages map[string]ConanUploadRecipe) []string {
 	var paths []string
 	for pkgRef, recipe := range packages {
+		refPath, err := conanRefToArtifactoryPath(pkgRef)
+		if err != nil {
+			log.Warn(fmt.Sprintf("Skipping artifact collection for '%s': %v", pkgRef, err))
+			continue
+		}
 		for recipeRev, revData := range recipe.Revisions {
-			recipePath := fmt.Sprintf("_/%s/_/%s/export", pkgRef, recipeRev)
+			recipePath := fmt.Sprintf("%s/%s/export", refPath, recipeRev)
 			paths = append(paths, recipePath)
 
 			for pkgID, pkgEntry := range revData.Packages {
 				for pkgRev := range pkgEntry.Revisions {
-					pkgPath := fmt.Sprintf("_/%s/_/%s/package/%s/%s", pkgRef, recipeRev, pkgID, pkgRev)
+					pkgPath := fmt.Sprintf("%s/%s/package/%s/%s", refPath, recipeRev, pkgID, pkgRev)
 					paths = append(paths, pkgPath)
 				}
 			}
 		}
 	}
 	return paths
+}
+
+// conanRefToArtifactoryPath converts a Conan reference (name/version or name/version@user/channel)
+// into the Artifactory path prefix {user}/{name}/{version}/{channel}.
+func conanRefToArtifactoryPath(pkgRef string) (string, error) {
+	pkgInfo, err := ParsePackageReference(pkgRef)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s/%s/%s/%s", pkgInfo.User, pkgInfo.Name, pkgInfo.Version, pkgInfo.Channel), nil
 }
 
 // getTargetRepositoryFromRemote resolves a Conan remote name to an Artifactory repository name.

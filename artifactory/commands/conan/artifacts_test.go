@@ -15,7 +15,7 @@ func TestParsePackageReference(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name: "Conan 2.x format - name/version",
+			name: "Without user and channel - name/version",
 			ref:  "zlib/1.3.1",
 			expected: &ConanPackageInfo{
 				Name:    "zlib",
@@ -26,7 +26,7 @@ func TestParsePackageReference(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "Conan 1.x format - name/version@user/channel",
+			name: "With user and channel - name/version@user/channel",
 			ref:  "boost/1.82.0@myuser/stable",
 			expected: &ConanPackageInfo{
 				Name:    "boost",
@@ -77,6 +77,27 @@ func TestParsePackageReference(t *testing.T) {
 		{
 			name:        "Invalid format - empty string",
 			ref:         "",
+			expectError: true,
+		},
+		{
+			name: "User without channel - name/version@user",
+			ref:  "mypackage/0.1.3853@myuser",
+			expected: &ConanPackageInfo{
+				Name:    "mypackage",
+				Version: "0.1.3853",
+				User:    "myuser",
+				Channel: "_",
+			},
+			expectError: false,
+		},
+		{
+			name:        "Invalid format - empty user",
+			ref:         "mypackage/1.0@",
+			expectError: true,
+		},
+		{
+			name:        "Invalid format - empty channel",
+			ref:         "mypackage/1.0@myuser/",
 			expectError: true,
 		},
 	}
