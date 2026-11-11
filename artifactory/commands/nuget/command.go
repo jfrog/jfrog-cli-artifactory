@@ -839,12 +839,18 @@ func checkSlnxSupport(version string) error {
 	if version == "" {
 		return nil
 	}
-	major, err := strconv.Atoi(strings.SplitN(version, ".", 2)[0])
-	if err != nil || major >= minSlnxNugetMajor {
+	// An unparsable version is treated like an unknown one: don't block.
+	if major, ok := majorVersion(version); !ok || major >= minSlnxNugetMajor {
 		return nil
 	}
 	return fmt.Errorf(".slnx requires nuget.exe >= 7.0.0 (and MSBuild >= 17.13); found %s. "+
 		"Upgrade nuget.exe or use 'jf dotnet restore' for SDK-style-only solutions", version)
+}
+
+// majorVersion returns the major component of a dotted version string.
+func majorVersion(version string) (int, bool) {
+	major, err := strconv.Atoi(strings.SplitN(version, ".", 2)[0])
+	return major, err == nil
 }
 
 // hasSlnxTarget returns true if any positional arg is a .slnx file.
