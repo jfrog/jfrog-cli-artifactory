@@ -81,6 +81,8 @@ func TestHandlePackageCommand_MultipleCharts(t *testing.T) {
 	chartPath := createHelmChartWithDependencies(t)
 	otherChartPath := filepath.Join(t.TempDir(), "otherchart")
 	createChartFiles(t, otherChartPath, "otherchart", "2.0.0")
+	// Helm FlexPack requires a Chart.lock even when the chart has no dependencies.
+	writeFile(t, filepath.Join(otherChartPath, "Chart.lock"), "dependencies: []\n")
 	buildInfo := entities.New()
 	err := handlePackageCommand(
 		buildInfo,
