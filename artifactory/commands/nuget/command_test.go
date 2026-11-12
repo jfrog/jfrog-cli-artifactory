@@ -509,3 +509,22 @@ func TestInsertBeforeSeparator(t *testing.T) {
 			"the caller's backing array beyond len must not be overwritten")
 	})
 }
+
+func TestParseNugetVersion(t *testing.T) {
+	assert.Equal(t, "7.9.0", parseNugetVersion("NuGet Version: 7.9.0.12\nusage: NuGet <command>"))
+	assert.Equal(t, "6.13.2", parseNugetVersion("NuGet Version: 6.13.2.1\n"))
+	assert.Equal(t, "7.0", parseNugetVersion("nuget version: 7.0"))
+	assert.Equal(t, "", parseNugetVersion("something else"))
+	assert.Equal(t, "", parseNugetVersion(""))
+}
+
+func TestCheckSlnxSupport(t *testing.T) {
+	assert.NoError(t, checkSlnxSupport("7.0.0"))
+	assert.NoError(t, checkSlnxSupport("7.9.0"))
+	assert.NoError(t, checkSlnxSupport("10.1.0"))
+	assert.NoError(t, checkSlnxSupport(""), "unknown version must not block")
+	err := checkSlnxSupport("6.13.2")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), ">= 7.0.0")
+	assert.Contains(t, err.Error(), "found 6.13.2")
+}

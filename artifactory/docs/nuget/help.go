@@ -34,7 +34,7 @@ Common patterns:
   $ jf rt bp myBuild 1
 
 Gotchas:
-  - .slnx solution files are not supported by nuget.exe; use 'jf dotnet restore' for .slnx projects.
+  - .slnx solution files: use 'jf nuget restore' for solutions with non-SDK-style projects (e.g. packages.config, .sfproj); it requires nuget.exe >= 7.0.0 and MSBuild >= 17.13. For SDK-style-only solutions you can use 'jf dotnet restore' instead.
   - Without JFROG_RUN_NATIVE=true, 'jf nuget-config' must be run first to configure repositories.
 
 Related: jf dotnet, jf nuget-config, jf rt build-publish`
