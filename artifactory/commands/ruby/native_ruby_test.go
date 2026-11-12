@@ -584,3 +584,35 @@ func TestUserHomeDir_PrefersHome(t *testing.T) {
 		assert.Equal(t, expected, fallback)
 	}
 }
+
+func TestBundleCredential(t *testing.T) {
+	cases := []struct {
+		user, pass, want string
+	}{
+		{"myuser", "mypass", "myuser:mypass"},
+		{"jane@example.com", "mypass", "jane%40example.com:mypass"},
+		{"user:name", "p@ss:w/rd", "user%3Aname:p%40ss%3Aw%2Frd"},
+		{"user", "a+b c", "user:a%2Bb%20c"},
+		{"", "token", ":token"},
+	}
+	for _, c := range cases {
+		assert.Equal(t, c.want, BundleCredential(c.user, c.pass), "user %q pass %q", c.user, c.pass)
+	}
+}
+
+func TestRubyInjectAuth_BundleEscapesEmailUsername(t *testing.T) {
+	server := &coreConfig.ServerDetails{
+		User:           "jane@example.com",
+		Password:       "p@ss",
+		ArtifactoryUrl: "https://my.jfrog.io/artifactory/",
+	}
+	key := BundleEnvKeyForHost("my.jfrog.io")
+	t.Setenv(key, "")
+
+	rc := NewRubyCommand().SetNativeTool(toolBundle)
+	env := rc.injectAuth(server, "https://my.jfrog.io/artifactory/api/gems/gems-virtual/")
+	assert.Contains(t, env, key+"=jane%40example.com:p%40ss")
+	for _, e := range env {
+		assert.NotContains(t, e, "jane@example.com", "raw '@' must not reach Bundler's userinfo")
+	}
+}
