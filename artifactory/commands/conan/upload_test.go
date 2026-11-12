@@ -1,9 +1,11 @@
 package conan
 
 import (
+	"bytes"
 	"testing"
 
 	conanflex "github.com/jfrog/build-info-go/flexpack/conan"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -143,6 +145,93 @@ func TestUploadProcessor_BuildArtifactPathsFromJSON(t *testing.T) {
 			},
 		},
 		{
+			name: "Recipe only with user/channel",
+			packages: map[string]ConanUploadRecipe{
+				"mypackage/0.1.3853@myuser/mychannel": {
+					Revisions: map[string]ConanUploadRecipeRevision{
+						"86deb56ab95f8fe27d07debf8a6ee3f9": {},
+					},
+				},
+			},
+			expectedPaths: []string{
+				"myuser/mypackage/0.1.3853/mychannel/86deb56ab95f8fe27d07debf8a6ee3f9/export",
+			},
+		},
+		{
+			name: "Recipe with binary package and user/channel",
+			packages: map[string]ConanUploadRecipe{
+				"mypackage/0.1.3853@myuser/mychannel": {
+					Revisions: map[string]ConanUploadRecipeRevision{
+						"797d134a8590a1bfa06d846768443f48": {
+							Packages: map[string]ConanUploadPackageEntry{
+								"594ed0eb2e9dfcc60607438924c35871514e6c2a": {
+									Revisions: map[string]interface{}{
+										"ca858ea14c32f931e49241df0b52bec9": nil,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedPaths: []string{
+				"myuser/mypackage/0.1.3853/mychannel/797d134a8590a1bfa06d846768443f48/export",
+				"myuser/mypackage/0.1.3853/mychannel/797d134a8590a1bfa06d846768443f48/package/594ed0eb2e9dfcc60607438924c35871514e6c2a/ca858ea14c32f931e49241df0b52bec9",
+			},
+		},
+		{
+			name: "Mixed references with and without user/channel",
+			packages: map[string]ConanUploadRecipe{
+				"liba/1.0": {
+					Revisions: map[string]ConanUploadRecipeRevision{
+						"rev1": {},
+					},
+				},
+				"libb/2.0@user/stable": {
+					Revisions: map[string]ConanUploadRecipeRevision{
+						"rev2": {},
+					},
+				},
+			},
+			expectedPaths: []string{
+				"_/liba/1.0/_/rev1/export",
+				"user/libb/2.0/stable/rev2/export",
+			},
+		},
+		{
+			name: "Recipe with binary package and user only (no channel)",
+			packages: map[string]ConanUploadRecipe{
+				"mypackage/0.1.3853@myuser": {
+					Revisions: map[string]ConanUploadRecipeRevision{
+						"rev1": {
+							Packages: map[string]ConanUploadPackageEntry{
+								"pkgid1": {
+									Revisions: map[string]interface{}{
+										"pkgrev1": nil,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedPaths: []string{
+				"myuser/mypackage/0.1.3853/_/rev1/export",
+				"myuser/mypackage/0.1.3853/_/rev1/package/pkgid1/pkgrev1",
+			},
+		},
+		{
+			name: "Invalid reference is skipped",
+			packages: map[string]ConanUploadRecipe{
+				"invalidref": {
+					Revisions: map[string]ConanUploadRecipeRevision{
+						"rev1": {},
+					},
+				},
+			},
+			expectedPaths: nil,
+		},
+		{
 			name:          "Empty packages",
 			packages:      map[string]ConanUploadRecipe{},
 			expectedPaths: nil,
@@ -164,6 +253,30 @@ func TestUploadProcessor_BuildArtifactPathsFromJSON(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUploadProcessor_BuildArtifactPathsFromJSON_LogsSkippedReferences(t *testing.T) {
+	buf := &bytes.Buffer{}
+	prev := log.GetLogger()
+	log.SetLogger(log.NewLogger(log.INFO, buf))
+	t.Cleanup(func() { log.SetLogger(prev) })
+
+	packages := map[string]ConanUploadRecipe{
+		"invalidref": {
+			Revisions: map[string]ConanUploadRecipeRevision{"rev1": {}},
+		},
+		"valid/1.0": {
+			Revisions: map[string]ConanUploadRecipeRevision{"rev2": {}},
+		},
+	}
+
+	paths := (&UploadProcessor{}).buildArtifactPathsFromJSON(packages)
+
+	assert.Equal(t, []string{"_/valid/1.0/_/rev2/export"}, paths)
+	logged := buf.String()
+	assert.Contains(t, logged, "[Error]")
+	assert.Contains(t, logged, "1 uploaded Conan reference(s)")
+	assert.Contains(t, logged, "invalidref")
 }
 
 func TestNewUploadProcessor(t *testing.T) {

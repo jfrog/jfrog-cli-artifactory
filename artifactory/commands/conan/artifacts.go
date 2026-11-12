@@ -122,13 +122,16 @@ func parseSearchResults(reader *content.ContentReader) []entities.Artifact {
 }
 
 // ParsePackageReference parses a Conan package reference string into structured info.
-// Supports both formats:
-//   - Conan 2.x: name/version (e.g., "zlib/1.2.13")
-//   - Conan 1.x: name/version@user/channel (e.g., "zlib/1.2.13@_/_")
+// Supports the Conan 2 reference formats, where user and channel are optional:
+//   - name/version (e.g., "zlib/1.2.13")
+//   - name/version@user (e.g., "zlib/1.2.13@myuser")
+//   - name/version@user/channel (e.g., "zlib/1.2.13@myuser/stable")
+//
+// A missing user or channel is represented as "_", matching Artifactory's Conan layout.
 func ParsePackageReference(ref string) (*ConanPackageInfo, error) {
 	ref = strings.TrimSpace(ref)
 
-	// Check for @user/channel format (Conan 1.x style)
+	// Check for @user or @user/channel
 	if idx := strings.Index(ref, "@"); idx != -1 {
 		nameVersion := ref[:idx]
 		userChannel := ref[idx+1:]
@@ -136,19 +139,24 @@ func ParsePackageReference(ref string) (*ConanPackageInfo, error) {
 		nameParts := strings.SplitN(nameVersion, "/", 2)
 		channelParts := strings.SplitN(userChannel, "/", 2)
 
-		if len(nameParts) != 2 || len(channelParts) != 2 {
+		if len(nameParts) != 2 || channelParts[0] == "" || (len(channelParts) == 2 && channelParts[1] == "") {
 			return nil, fmt.Errorf("invalid package reference: %s", ref)
+		}
+
+		channel := "_"
+		if len(channelParts) == 2 {
+			channel = channelParts[1]
 		}
 
 		return &ConanPackageInfo{
 			Name:    nameParts[0],
 			Version: nameParts[1],
 			User:    channelParts[0],
-			Channel: channelParts[1],
+			Channel: channel,
 		}, nil
 	}
 
-	// Simple name/version format (Conan 2.x style)
+	// Simple name/version format
 	parts := strings.SplitN(ref, "/", 2)
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid package reference: %s", ref)
@@ -163,9 +171,11 @@ func ParsePackageReference(ref string) (*ConanPackageInfo, error) {
 }
 
 // buildArtifactQuery creates an AQL query for Conan artifacts.
-// Conan stores artifacts in different path formats depending on version:
-//   - Conan 2.x: _/name/version/_/revision/...
-//   - Conan 1.x: user/name/version/channel/revision/...
+// Artifactory stores Conan artifacts under user/name/version/channel/revision/...,
+// using "_" for a missing user or channel:
+//   - name/version:              _/name/version/_/revision/...
+//   - name/version@user:         user/name/version/_/revision/...
+//   - name/version@user/channel: user/name/version/channel/revision/...
 func buildArtifactQuery(repo string, pkg *ConanPackageInfo) string {
 	if pkg.User == "_" && pkg.Channel == "_" {
 		return fmt.Sprintf(`{"repo": "%s", "path": {"$match": "_/%s/%s/_/*"}}`,
