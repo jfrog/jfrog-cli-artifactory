@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/build-info-go/utils/pythonutils"
@@ -17,6 +18,7 @@ import (
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
+	"gopkg.in/ini.v1"
 )
 
 type PipCommand struct {
@@ -111,6 +113,47 @@ func ResolvePipConfigPath() (string, error) {
 		configName = "pip.ini"
 	}
 	return filepath.Join(pipDir, configName), nil
+}
+
+// GetConfiguredPipIndexURL reads global.index-url from the per-user pip config file
+// `jf setup pip` writes (see ResolvePipConfigPath). A missing file or key yields an empty
+// URL, not an error. The URL may embed credentials.
+func GetConfiguredPipIndexURL() (indexURL, configPath string, err error) {
+	configPath, err = ResolvePipConfigPath()
+	if err != nil {
+		return "", "", err
+	}
+	indexURL, err = ReadPipIndexURL(configPath)
+	return indexURL, configPath, err
+}
+
+// ReadPipIndexURL reads global.index-url (or its index_url spelling) from a pip config file.
+func ReadPipIndexURL(configPath string) (string, error) {
+	return ReadPipSectionIndexURL(configPath, "global")
+}
+
+// ReadPipSectionIndexURL reads index-url (or index_url) from one section of a pip config
+// file. A missing file or key yields an empty URL, not an error.
+func ReadPipSectionIndexURL(configPath, section string) (string, error) {
+	if _, statErr := os.Stat(configPath); os.IsNotExist(statErr) {
+		return "", nil
+	}
+	pipConfig, err := ini.LoadSources(ini.LoadOptions{
+		Loose:                      true,
+		Insensitive:                true,
+		IgnoreInlineComment:        true,
+		AllowPythonMultilineValues: true,
+	}, configPath)
+	if err != nil {
+		return "", errorutils.CheckErrorf("failed to parse pip config at %s: %s", configPath, err.Error())
+	}
+	values := pipConfig.Section(section)
+	for _, key := range []string{"index-url", "index_url"} {
+		if value := strings.TrimSpace(values.Key(key).String()); value != "" {
+			return value, nil
+		}
+	}
+	return "", nil
 }
 
 // HardenPipConfigPermissions best-effort restricts the pip config file

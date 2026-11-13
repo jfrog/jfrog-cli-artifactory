@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -327,4 +328,42 @@ func TestSetDefaultPushSource(t *testing.T) {
 			assert.Equal(t, SourceName, actualValue, "defaultPushSource should be set to %s", SourceName)
 		})
 	}
+}
+
+// fakeDotnet puts a dotnet shell script with the given body first on PATH.
+func fakeDotnet(t *testing.T, body string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake dotnet is a shell script")
+	}
+	bin := t.TempDir()
+	// #nosec G306 -- the fake toolchain must be executable.
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "dotnet"), []byte("#!/bin/sh\n"+body+"\n"), 0700))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestListNugetSources_Timeout(t *testing.T) {
+	fakeDotnet(t, "exec sleep 10")
+	originalTimeout := nugetListTimeout
+	t.Cleanup(func() { nugetListTimeout = originalTimeout })
+	nugetListTimeout = 200 * time.Millisecond
+
+	start := time.Now()
+	_, err := listNugetSources(dotnet.DotnetCore, "Short")
+	assert.EqualError(t, err, "listing dotnet sources did not finish within 200ms")
+	assert.Less(t, time.Since(start), 5*time.Second)
+}
+
+func TestListNugetSources_QuietEnvironment(t *testing.T) {
+	fakeDotnet(t, `echo "$DOTNET_CLI_TELEMETRY_OPTOUT $DOTNET_SKIP_FIRST_TIME_EXPERIENCE $DOTNET_NOLOGO $DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE $*"; pwd`)
+	output, err := listNugetSources(dotnet.DotnetCore, "Short")
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	require.Len(t, lines, 2)
+	assert.Equal(t, "1 1 1 1 nuget list source --format Short", lines[0])
+	expectedDir, err := filepath.EvalSymlinks(os.TempDir())
+	require.NoError(t, err)
+	actualDir, err := filepath.EvalSymlinks(lines[1])
+	require.NoError(t, err)
+	assert.Equal(t, expectedDir, actualDir, "the listing runs outside the current project")
 }
