@@ -8,6 +8,11 @@ permissions:
 jobs:
   scan-pull-request:
     runs-on: ubuntu-latest
+    # Skip Frogbot's own fix PRs. A PR is skipped only when all three are true: its branch starts with "frogbot-",
+    # its head is in this repository (not a fork), and its author is the Frogbot account. Any other user who pushes a
+    # "frogbot-*" branch is scanned. The Frogbot account is the repository variable FROGBOT_BOT_LOGIN, the owner of the
+    # FROGBOT_GIT_TOKEN secret. It defaults to github-actions[bot], the author of PRs opened with GITHUB_TOKEN.
+    if: ${{ !(startsWith(github.event.pull_request.head.ref, 'frogbot-') && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == (vars.FROGBOT_BOT_LOGIN || 'github-actions[bot]')) }}
     # A pull request needs to be approved, before Frogbot scans it. Any GitHub user who is associated with the
     # "frogbot" GitHub environment can approve the pull request to be scanned.
     environment: frogbot
