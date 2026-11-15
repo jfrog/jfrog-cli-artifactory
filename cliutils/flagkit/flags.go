@@ -889,6 +889,7 @@ var commandFlags = map[string][]string{
 		url, user, password, accessToken, sshPassphrase, sshKeyPath, serverId, deleteQuiet,
 	},
 	ReleaseBundleSearch: {
+		platformUrl, user, password, accessToken, serverId,
 		Format, OrderBy, FilterBy, OrderAsc, Limit, Offset, Includes, Project,
 	},
 	SkillsPublish: {
