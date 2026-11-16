@@ -23,7 +23,8 @@ void configureMavenRepo(repositories, String rtUrl, String rtUser, String rtPass
 }
 
 // Configure the pluginManagement repositories
-gradle.settingsEvaluated { settings ->
+// beforeSettings is required for Gradle 8.x: pluginManagement is finalized before settingsEvaluated fires.
+gradle.beforeSettings { settings ->
     settings.pluginManagement {
         repositories {
             configureMavenRepo(it, "${artifactoryUrl}/${gradleRepoName}", artifactoryUsername, artifactoryAccessToken, allowInsecure)
