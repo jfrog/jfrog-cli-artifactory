@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -291,23 +292,34 @@ func (pc *PoetryCommand) SetCommandName(commandName string) *PoetryCommand {
 	return pc
 }
 
+// poetryRepoUrl returns the URL Poetry should be configured with for the given command.
+// Publishing targets the upload endpoint (.../api/pypi/<repo>), while every other command
+// resolves packages and needs the PEP 503 index (.../api/pypi/<repo>/simple).
+func poetryRepoUrl(rtUrl *url.URL, commandName string) string {
+	indexUrl := rtUrl.Scheme + "://" + rtUrl.Host + rtUrl.Path
+	if commandName != "publish" {
+		return indexUrl
+	}
+	return strings.TrimSuffix(strings.TrimSuffix(indexUrl, "/simple"), "/")
+}
+
+// SetPypiRepoUrlWithCredentials configures Poetry with the Artifactory repository URL and its
+// credentials. Publish commands only update the Poetry configuration, while resolution commands
+// also register the source in pyproject.toml. It is a no-op when no credentials are available.
 func (pc *PoetryCommand) SetPypiRepoUrlWithCredentials() error {
 	rtUrl, username, password, err := GetPypiRepoUrlWithCredentials(pc.serverDetails, pc.repository, false)
 	if err != nil {
 		return err
 	}
 	if password != "" {
-		// Construct base URL and strip /simple suffix for publishing
-		baseUrl := rtUrl.Scheme + "://" + rtUrl.Host + rtUrl.Path
-		publishUrl := strings.TrimSuffix(baseUrl, "/simple")
-		publishUrl = strings.TrimSuffix(publishUrl, "/")
+		repoUrl := poetryRepoUrl(rtUrl, pc.commandName)
 
 		// For publish commands, only configure Poetry TOML, don't modify pyproject.toml
 		if pc.commandName == "publish" {
-			return RunPoetryConfig(publishUrl, username, password, pc.repository)
+			return RunPoetryConfig(repoUrl, username, password, pc.repository)
 		}
 		// For install/other commands, configure Poetry TOML and add to pyproject.toml
-		return ConfigPoetryRepo(publishUrl, username, password, pc.repository)
+		return ConfigPoetryRepo(repoUrl, username, password, pc.repository)
 	}
 	return nil
 }
