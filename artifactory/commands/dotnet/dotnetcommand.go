@@ -1,12 +1,16 @@
 package dotnet
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jfrog/build-info-go/build"
 	"github.com/jfrog/build-info-go/build/utils/dotnet"
@@ -224,6 +228,107 @@ func RemoveSourceFromNugetConfigIfExists(cmdType dotnet.ToolchainType) error {
 	// It's also fine if the source doesn't exist.
 	_, _, _, _ = frogio.RunCmdWithOutputParser(cmd, false)
 	return nil
+}
+
+// GetNugetSourceURL returns the URL of the JFrogCli source in the configuration the
+// toolchain resolves by default, or an empty string when there is no such source, and
+// whether that source is enabled.
+func GetNugetSourceURL(cmdType dotnet.ToolchainType) (sourceURL string, enabled bool, err error) {
+	detailed, err := listNugetSources(cmdType, "Detailed")
+	if err != nil {
+		return "", false, err
+	}
+	if sourceURL = ParseNugetSourceList(detailed, SourceName); sourceURL == "" {
+		return "", false, nil
+	}
+	// The detailed listing localizes the enabled state; the short one flags it with E or D.
+	short, err := listNugetSources(cmdType, "Short")
+	if err != nil {
+		return "", false, err
+	}
+	return sourceURL, IsNugetSourceEnabled(short, sourceURL), nil
+}
+
+var nugetListTimeout = 15 * time.Second
+
+func listNugetSources(cmdType dotnet.ToolchainType, listFormat string) (string, error) {
+	cmd, err := dotnet.NewToolchainCmd(cmdType)
+	if err != nil {
+		return "", err
+	}
+	if cmdType == dotnet.DotnetCore {
+		cmd.Command = append(cmd.Command, "nuget", "list", "source")
+		cmd.CommandFlags = append(cmd.CommandFlags, "--format", listFormat)
+	} else {
+		cmd.Command = append(cmd.Command, "sources", "list")
+		cmd.CommandFlags = append(cmd.CommandFlags, "-Format", listFormat)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), nugetListTimeout)
+	defer cancel()
+	built := cmd.GetCmd()
+	// #nosec G204 -- the toolchain binary and fixed arguments built above.
+	listCmd := exec.CommandContext(ctx, built.Path, built.Args[1:]...)
+	// Run outside the current project, so its NuGet.Config sources and global.json SDK pin
+	// do not change which sources are listed or whether the command runs at all.
+	listCmd.Dir = os.TempDir()
+	// A first run of the .NET SDK otherwise prints a welcome banner and may check for
+	// workload updates, which slows down or pollutes a read-only listing.
+	listCmd.Env = append(os.Environ(),
+		"DOTNET_CLI_TELEMETRY_OPTOUT=1",
+		"DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1",
+		"DOTNET_NOLOGO=1",
+		"DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1")
+	// Child processes the toolchain starts can keep the output open after it is killed.
+	listCmd.WaitDelay = time.Second
+	output, err := listCmd.Output()
+	if ctx.Err() != nil {
+		return "", errorutils.CheckErrorf("listing %s sources did not finish within %s", cmdType.String(), nugetListTimeout)
+	}
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && len(strings.TrimSpace(string(exitErr.Stderr))) > 0 {
+			return "", errorutils.CheckErrorf("failed to list %s sources: %s: %s", cmdType.String(), err.Error(), strings.TrimSpace(string(exitErr.Stderr)))
+		}
+		return "", errorutils.CheckErrorf("failed to list %s sources: %s", cmdType.String(), err.Error())
+	}
+	return string(output), nil
+}
+
+// IsNugetSourceEnabled reads the short source list, where each line is a state flag
+// ("E" enabled or "D" disabled, optionally followed by M/O markers) and the source, which
+// is a local folder path when it is not a URL and so may contain spaces.
+// A source missing from the list is treated as enabled.
+func IsNugetSourceEnabled(shortOutput, sourceURL string) bool {
+	for _, line := range strings.Split(strings.ReplaceAll(shortOutput, "\r\n", "\n"), "\n") {
+		flag, source, found := strings.Cut(strings.TrimSpace(line), " ")
+		if found && strings.EqualFold(strings.TrimSpace(source), sourceURL) {
+			return !strings.HasPrefix(strings.ToUpper(flag), "D")
+		}
+	}
+	return true
+}
+
+// nugetSourceHeader matches a source's header line in the detailed source list, for
+// example "  2.  JFrogCli [Enabled]". The bracketed state is localized, so any text is accepted.
+var nugetSourceHeader = regexp.MustCompile(`^\s*\d+\.\s+(.+?)\s+\[[^\]]*\]\s*$`)
+
+// ParseNugetSourceList returns the URL of the named source from the output of
+// `dotnet nuget list source` or `nuget sources list`, where each source's URL is on the
+// line after its header.
+func ParseNugetSourceList(output, sourceName string) string {
+	lines := strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n")
+	for i, line := range lines {
+		match := nugetSourceHeader.FindStringSubmatch(line)
+		if match == nil || !strings.EqualFold(match[1], sourceName) {
+			continue
+		}
+		for _, next := range lines[i+1:] {
+			if next = strings.TrimSpace(next); next != "" {
+				return next
+			}
+		}
+	}
+	return ""
 }
 
 // Checks if the user provided input such as -configfile flag or -Source flag.
