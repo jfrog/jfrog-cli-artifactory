@@ -515,8 +515,9 @@ func (c *NuGetFlexPackCommand) collectAndStampPushArtifacts(buildName, buildNumb
 // perform before the Artifactory upload path it belonged to was removed.
 // If repoKey is a virtual repo it returns the virtual repo's defaultDeploymentRepo;
 // for a local repo it returns repoKey unchanged.
-// Failures are hard errors: build-info must never record a virtual repo key that
-// downstream tools would 404 on.
+// build-info must never record a virtual repo key that downstream tools would 404 on, so when the
+// local repo cannot be determined it returns an empty key (with a warning) rather than the virtual key.
+// Lookup and validation failures are still hard errors.
 func (c *NuGetFlexPackCommand) resolveLocalDeployRepo(repoKey string) (string, error) {
 	if repoKey == "" || c.serverDetails == nil {
 		return repoKey, nil
@@ -539,7 +540,14 @@ func (c *NuGetFlexPackCommand) resolveLocalDeployRepo(repoKey string) (string, e
 		return repoKey, nil
 	}
 	if params.DefaultDeploymentRepo == "" {
-		return "", fmt.Errorf("virtual repo %q has no defaultDeploymentRepo configured; cannot determine the local repo for build-info", repoKey)
+		// Artifactory returns defaultDeploymentRepo only to callers allowed to update or delete the
+		// repository; everyone else gets a reduced view without it. The push itself already
+		// succeeded, so warn and skip the repo-dependent steps (build properties and the build-info
+		// repo key) instead of failing the command - the same behavior as the other package managers.
+		log.Warn(fmt.Sprintf("Could not determine the local repository behind virtual repository %q: its defaultDeploymentRepo is not configured, "+
+			"or the current user is not allowed to read it. Build properties will not be set and the artifacts' repository will not be recorded in build-info. "+
+			"To fix this, push to the local repository directly, or use a user that can read the full repository configuration.", repoKey))
+		return "", nil
 	}
 	log.Debug(fmt.Sprintf("Resolved virtual repo %q → local repo %q for OriginalDeploymentRepo", repoKey, params.DefaultDeploymentRepo))
 	return params.DefaultDeploymentRepo, nil

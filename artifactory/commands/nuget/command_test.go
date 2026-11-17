@@ -2,6 +2,8 @@ package nuget
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -508,4 +510,76 @@ func TestInsertBeforeSeparator(t *testing.T) {
 		assert.Equal(t, []string{"sentinel-one", "sentinel-two"}, backing[1:3],
 			"the caller's backing array beyond len must not be overwritten")
 	})
+}
+
+// fakeRepoConfigServer serves GET /artifactory/api/repositories/<key> with the given JSON body.
+func fakeRepoConfigServer(t *testing.T, key, body string) *config.ServerDetails {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/artifactory/api/repositories/"+key {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return &config.ServerDetails{Url: srv.URL + "/", ArtifactoryUrl: srv.URL + "/artifactory/"}
+}
+
+func TestResolveLocalDeployRepo(t *testing.T) {
+	t.Run("local repo is returned as is", func(t *testing.T) {
+		srv := fakeRepoConfigServer(t, "nuget-local", `{"key":"nuget-local","packageType":"nuget","rclass":"local"}`)
+		c := &NuGetFlexPackCommand{serverDetails: srv}
+		repo, err := c.resolveLocalDeployRepo("nuget-local")
+		require.NoError(t, err)
+		assert.Equal(t, "nuget-local", repo)
+	})
+
+	t.Run("virtual repo resolves to its default deployment repo", func(t *testing.T) {
+		srv := fakeRepoConfigServer(t, "nuget-virtual",
+			`{"key":"nuget-virtual","packageType":"nuget","rclass":"virtual","repositories":["nuget-local"],"defaultDeploymentRepo":"nuget-local"}`)
+		c := &NuGetFlexPackCommand{serverDetails: srv}
+		repo, err := c.resolveLocalDeployRepo("nuget-virtual")
+		require.NoError(t, err)
+		assert.Equal(t, "nuget-local", repo)
+	})
+
+	// A user who cannot update or delete the repository gets a reduced view without
+	// defaultDeploymentRepo. The push has already succeeded, so this must warn and carry on with
+	// an empty repo key (build-info must never record the virtual key), not fail the command.
+	t.Run("reduced view without defaultDeploymentRepo does not fail", func(t *testing.T) {
+		srv := fakeRepoConfigServer(t, "nuget-virtual",
+			`{"key":"nuget-virtual","packageType":"nuget","rclass":"virtual","description":"","repositories":["nuget-local"]}`)
+		c := &NuGetFlexPackCommand{serverDetails: srv}
+		repo, err := c.resolveLocalDeployRepo("nuget-virtual")
+		require.NoError(t, err)
+		assert.Empty(t, repo)
+	})
+
+	t.Run("non-NuGet repo is still rejected", func(t *testing.T) {
+		srv := fakeRepoConfigServer(t, "maven-local", `{"key":"maven-local","packageType":"maven","rclass":"local"}`)
+		c := &NuGetFlexPackCommand{serverDetails: srv}
+		_, err := c.resolveLocalDeployRepo("maven-local")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not NuGet")
+	})
+
+	t.Run("remote repo is still rejected", func(t *testing.T) {
+		srv := fakeRepoConfigServer(t, "nuget-remote", `{"key":"nuget-remote","packageType":"nuget","rclass":"remote"}`)
+		c := &NuGetFlexPackCommand{serverDetails: srv}
+		_, err := c.resolveLocalDeployRepo("nuget-remote")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "remote repository")
+	})
+}
+
+// With an empty repo key no artifact has a repository, so no stamping pattern is produced and
+// stampBuildProperties makes no Artifactory call.
+func TestEmptyRepoKeySkipsStamping(t *testing.T) {
+	artifacts := []entities.Artifact{{Name: "Package.1.0.0.nupkg", Path: "Package.1.0.0.nupkg"}}
+	assert.Empty(t, artifactPatterns(artifacts))
+
+	c := &NuGetFlexPackCommand{serverDetails: &config.ServerDetails{Url: "https://acme.jfrog.io/"}, repoDeploy: "nuget-virtual"}
+	assert.NoError(t, c.stampBuildProperties(artifacts, "build", "1"))
 }
