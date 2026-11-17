@@ -22,6 +22,11 @@ jobs:
       - name: Setup Go with cache
         uses: jfrog/.github/actions/install-go-with-cache@main
 
+      # Save "<sha> <branch>" per Frogbot branch, to tell later which branches this run pushed.
+      - name: Snapshot existing Frogbot branches
+        id: snapshot
+        run: git ls-remote origin 'refs/heads/frogbot-*' > "$RUNNER_TEMP/frogbot-before.txt"
+
       - uses: jfrog/frogbot@v2
         env:
           # [Mandatory]
@@ -33,5 +38,42 @@ jobs:
           JF_ACCESS_TOKEN: ${{ secrets.FROGBOT_ACCESS_TOKEN }}
 
           # [Mandatory]
-          # The GitHub token automatically generated for the job
-          JF_GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Personal access token (contents + pull-requests write) in the FROGBOT_GIT_TOKEN secret, so the PRs it
+          # opens start other workflows. Do not store a GitHub App installation token here: it expires after one hour.
+          # Falls back to GITHUB_TOKEN while the secret is empty. PRs opened with GITHUB_TOKEN start no other workflows.
+          JF_GIT_TOKEN: ${{ secrets.FROGBOT_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+
+          # [Optional]
+          # Group all fixes into a single pull request, instead of one pull request per vulnerable dependency.
+          # Frogbot keeps one branch (frogbot-update-<hash>-dependencies) and force-pushes new fixes to it.
+          JF_GIT_AGGREGATE_FIXES: "true"
+
+      # Label and enable auto-merge only on PRs for branches this run created or updated (new branch or new sha).
+      # Runs even if Frogbot failed part-way, since it may already have opened some PRs.
+      - name: Label new Frogbot PRs and enable auto-merge
+        if: ${{ !cancelled() && steps.snapshot.conclusion == 'success' }}
+        env:
+          GH_TOKEN: ${{ secrets.FROGBOT_GIT_TOKEN || secrets.GITHUB_TOKEN }}
+          BASE_BRANCH: ${{ matrix.branch }}
+        run: |
+          set -euo pipefail
+          # Frogbot opens its PRs as the owner of this token. A PAT gives a user login. GITHUB_TOKEN cannot call
+          # /user, so then the author is the github-actions app. PRs that Frogbot opened earlier with GITHUB_TOKEN
+          # keep that author after a switch to a PAT, so the lookup below accepts both.
+          author=$(gh api user --jq .login 2>/dev/null || echo "app/github-actions")
+          git ls-remote origin 'refs/heads/frogbot-*' \
+            | { grep -vxFf "$RUNNER_TEMP/frogbot-before.txt" || true; } \
+            | cut -f2 | sed 's#^refs/heads/##' \
+            | while IFS= read -r branch; do
+                # --head matches the branch name in any repository, so skip PRs that come from a fork.
+                # Also skip PRs that someone else opened from a "frogbot-*" branch.
+                pr=$(gh pr list --state open --base "$BASE_BRANCH" --head "$branch" --json number,isCrossRepository,author \
+                  | jq -r --arg me "$author" '[.[] | select(.isCrossRepository | not) | select(.author.login == $me or .author.login == "app/github-actions")][0].number // empty')
+                if [ -z "$pr" ]; then
+                  echo "::warning::No open PR found for branch $branch"
+                  continue
+                fi
+                echo "Preparing PR #$pr ($branch)"
+                gh pr edit "$pr" --add-label "ignore for release" --add-label "safe to test"
+                gh pr merge "$pr" --auto --squash
+              done
