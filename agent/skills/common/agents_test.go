@@ -34,6 +34,19 @@ func TestLoadAgentRegistry_FallbackOnly(t *testing.T) {
 	assert.Equal(t, ".cursor/skills", cursor.Config.ProjectDir)
 }
 
+func TestLoadAgentRegistry_KiroBuiltIn(t *testing.T) {
+	testutil.WithJfrogHome(t)
+
+	registry, err := agentcommon.LoadAgentRegistry(Agents, agentcommon.SkillsAgentsKey)
+	require.NoError(t, err)
+
+	kiro, ok := registry["kiro"]
+	require.True(t, ok)
+	assert.False(t, kiro.FromConfig)
+	assert.Equal(t, ".kiro/skills", kiro.Config.ProjectDir)
+	assert.Equal(t, "~/.kiro/skills", kiro.Config.GlobalDir)
+}
+
 func TestLoadAgentRegistry_OverridesAndAdds(t *testing.T) {
 	home := testutil.WithJfrogHome(t)
 	testutil.WriteAgentConfig(t, home, `{
