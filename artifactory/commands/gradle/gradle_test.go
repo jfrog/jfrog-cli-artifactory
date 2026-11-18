@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -376,4 +377,13 @@ func TestExtractBuildFilePathWindowsPaths(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+// The jars of the extractor are cached in a sub folder of this folder for each version. A change of it moves the cache.
+func TestGetGradleDependencyLocalPath(t *testing.T) {
+	dependenciesDir := t.TempDir()
+	t.Setenv(coreutils.DependenciesDir, dependenciesDir)
+	path, err := getGradleDependencyLocalPath()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dependenciesDir, "gradle"), path)
 }

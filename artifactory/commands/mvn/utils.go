@@ -294,7 +294,7 @@ func (mu *MvnUtils) GetBuildInfoFilePath() string {
 	return mu.buildInfoFilePath
 }
 
-// The folder that holds a sub folder for each version of the Maven extractor.
+// getMavenExtractorsBasePath returns the folder that holds a sub folder for each version of the Maven extractor.
 func getMavenExtractorsBasePath() (string, error) {
 	dependenciesPath, err := config.GetJfrogDependenciesPath()
 	if err != nil {

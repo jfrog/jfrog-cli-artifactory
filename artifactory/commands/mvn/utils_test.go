@@ -112,3 +112,12 @@ func createWrapperFixture(t *testing.T, root, wrapperName string) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, ".mvn", "wrapper"), 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, wrapperName), []byte("#!/bin/sh\n"), 0755))
 }
+
+// The jars of the extractor are cached in a sub folder of this folder for each version. A change of it moves the cache.
+func TestGetMavenExtractorsBasePath(t *testing.T) {
+	dependenciesDir := t.TempDir()
+	t.Setenv(coreutils.DependenciesDir, dependenciesDir)
+	path, err := getMavenExtractorsBasePath()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dependenciesDir, "maven"), path)
+}
