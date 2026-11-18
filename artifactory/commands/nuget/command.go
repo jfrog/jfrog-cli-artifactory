@@ -540,13 +540,9 @@ func (c *NuGetFlexPackCommand) resolveLocalDeployRepo(repoKey string) (string, e
 		return repoKey, nil
 	}
 	if params.DefaultDeploymentRepo == "" {
-		// Artifactory returns defaultDeploymentRepo only to callers allowed to update or delete the
-		// repository; everyone else gets a reduced view without it. The push itself already
-		// succeeded, so warn and skip the repo-dependent steps (build properties and the build-info
-		// repo key) instead of failing the command - the same behavior as the other package managers.
-		log.Warn(fmt.Sprintf("Could not determine the local repository behind virtual repository %q: its defaultDeploymentRepo is not configured, "+
-			"or the current user is not allowed to read it. Build properties will not be set and the artifacts' repository will not be recorded in build-info. "+
-			"To fix this, push to the local repository directly, or use a user that can read the full repository configuration.", repoKey))
+		// defaultDeploymentRepo is hidden from users without update rights.
+		log.Warn(fmt.Sprintf("Skipping build properties and the repository in build-info: could not read the local repository behind virtual repository %q. "+
+			"Push to the local repository directly, or use a user that can read the full repository configuration.", repoKey))
 		return "", nil
 	}
 	log.Debug(fmt.Sprintf("Resolved virtual repo %q → local repo %q for OriginalDeploymentRepo", repoKey, params.DefaultDeploymentRepo))
