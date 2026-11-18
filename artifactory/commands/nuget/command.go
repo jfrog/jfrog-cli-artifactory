@@ -515,8 +515,9 @@ func (c *NuGetFlexPackCommand) collectAndStampPushArtifacts(buildName, buildNumb
 // perform before the Artifactory upload path it belonged to was removed.
 // If repoKey is a virtual repo it returns the virtual repo's defaultDeploymentRepo;
 // for a local repo it returns repoKey unchanged.
-// Failures are hard errors: build-info must never record a virtual repo key that
-// downstream tools would 404 on.
+// build-info must never record a virtual repo key that downstream tools would 404 on, so when the
+// local repo cannot be determined it returns an empty key (with a warning) rather than the virtual key.
+// Lookup and validation failures are still hard errors.
 func (c *NuGetFlexPackCommand) resolveLocalDeployRepo(repoKey string) (string, error) {
 	if repoKey == "" || c.serverDetails == nil {
 		return repoKey, nil
@@ -539,7 +540,10 @@ func (c *NuGetFlexPackCommand) resolveLocalDeployRepo(repoKey string) (string, e
 		return repoKey, nil
 	}
 	if params.DefaultDeploymentRepo == "" {
-		return "", fmt.Errorf("virtual repo %q has no defaultDeploymentRepo configured; cannot determine the local repo for build-info", repoKey)
+		// defaultDeploymentRepo is hidden from users without update rights.
+		log.Warn(fmt.Sprintf("Skipping build properties and the repository in build-info: could not read the local repository behind virtual repository %q. "+
+			"Push to the local repository directly, or use a user that can read the full repository configuration.", repoKey))
+		return "", nil
 	}
 	log.Debug(fmt.Sprintf("Resolved virtual repo %q → local repo %q for OriginalDeploymentRepo", repoKey, params.DefaultDeploymentRepo))
 	return params.DefaultDeploymentRepo, nil
