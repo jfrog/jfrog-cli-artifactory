@@ -216,16 +216,17 @@ func RunMvn(mu *MvnUtils) error {
 	if !exists {
 		projectRoot = ""
 	}
-	dependencyLocalPath, err := getMavenDependencyLocalPath()
+	extractorsBasePath, err := getMavenExtractorsBasePath()
 	if err != nil {
 		return err
 	}
-	mavenModule.SetExtractorDetails(dependencyLocalPath,
+	mavenModule.SetExtractorDetails(filepath.Join(extractorsBasePath, build.MavenExtractorDependencyVersion),
 		filepath.Join(coreutils.GetCliPersistentTempDirPath(), buildUtils.PropertiesTempPath),
 		mu.goals,
 		dependencies.DownloadExtractor,
 		props,
 		useWrapper).
+		SetExtractorVersionsFunc(extractorsBasePath, listMavenExtractorVersions).
 		SetOutputWriter(mu.outputWriter)
 	mavenModule.SetMavenOpts(mvnOpts...)
 	mavenModule.SetRootProjectDir(projectRoot)
@@ -293,12 +294,16 @@ func (mu *MvnUtils) GetBuildInfoFilePath() string {
 	return mu.buildInfoFilePath
 }
 
-func getMavenDependencyLocalPath() (string, error) {
+// listMavenExtractorVersions is replaced in the tests.
+var listMavenExtractorVersions = dependencies.ListMavenExtractorVersions
+
+// getMavenExtractorsBasePath returns the folder that holds a sub folder for each version of the Maven extractor.
+func getMavenExtractorsBasePath() (string, error) {
 	dependenciesPath, err := config.GetJfrogDependenciesPath()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dependenciesPath, "maven", build.MavenExtractorDependencyVersion), nil
+	return filepath.Join(dependenciesPath, "maven"), nil
 }
 
 func createMvnRunProps(vConfig *viper.Viper, buildArtifactsDetailsFile string, threads int, insecureTls, disableDeploy bool) (props map[string]string, useWrapper bool, err error) {
