@@ -132,6 +132,8 @@ func TestRunMvnAsksForTheExtractorVersions(t *testing.T) {
 	t.Setenv(coreutils.HomeDir, t.TempDir())
 	t.Setenv(coreutils.DependenciesDir, t.TempDir())
 	t.Setenv(coreutils.TempDir, t.TempDir())
+	// The test replaces the lookup that reads the pin, so the pin does not change it. It stays independent of the shell if the lookup moves.
+	t.Setenv(coreutils.MavenExtractorVersionEnv, "")
 	var asked []string
 	original := listMavenExtractorVersions
 	listMavenExtractorVersions = func(majorLine string) (biutils.ExtractorVersions, error) {
