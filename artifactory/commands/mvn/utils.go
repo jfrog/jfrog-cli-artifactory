@@ -226,7 +226,7 @@ func RunMvn(mu *MvnUtils) error {
 		dependencies.DownloadExtractor,
 		props,
 		useWrapper).
-		SetExtractorVersionsFunc(extractorsBasePath, dependencies.ListMavenExtractorVersions).
+		SetExtractorVersionsFunc(extractorsBasePath, listMavenExtractorVersions).
 		SetOutputWriter(mu.outputWriter)
 	mavenModule.SetMavenOpts(mvnOpts...)
 	mavenModule.SetRootProjectDir(projectRoot)
@@ -293,6 +293,9 @@ func stampMavenBuildMode(buildInfoPath, mode string) {
 func (mu *MvnUtils) GetBuildInfoFilePath() string {
 	return mu.buildInfoFilePath
 }
+
+// listMavenExtractorVersions is replaced in the tests.
+var listMavenExtractorVersions = dependencies.ListMavenExtractorVersions
 
 // getMavenExtractorsBasePath returns the folder that holds a sub folder for each version of the Maven extractor.
 func getMavenExtractorsBasePath() (string, error) {

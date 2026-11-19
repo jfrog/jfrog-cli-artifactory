@@ -1,11 +1,15 @@
 package mvn
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	biutils "github.com/jfrog/build-info-go/utils"
+	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -120,4 +124,26 @@ func TestGetMavenExtractorsBasePath(t *testing.T) {
 	path, err := getMavenExtractorsBasePath()
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(dependenciesDir, "maven"), path)
+}
+
+// Without SetExtractorVersionsFunc in RunMvn, the extractor stays at the fixed version of the CLI and the lookup is never asked.
+// The lookup answers that the version is invalid, so RunMvn stops there and needs no Maven and no download.
+func TestRunMvnAsksForTheExtractorVersions(t *testing.T) {
+	t.Setenv(coreutils.HomeDir, t.TempDir())
+	t.Setenv(coreutils.DependenciesDir, t.TempDir())
+	t.Setenv(coreutils.TempDir, t.TempDir())
+	var asked []string
+	original := listMavenExtractorVersions
+	listMavenExtractorVersions = func(majorLine string) (biutils.ExtractorVersions, error) {
+		asked = append(asked, majorLine)
+		return biutils.ExtractorVersions{}, fmt.Errorf("stop: %w", biutils.ErrInvalidExtractorVersion)
+	}
+	t.Cleanup(func() { listMavenExtractorVersions = original })
+
+	vConfig := viper.New()
+	vConfig.Set("type", "maven")
+	mu := NewMvnUtils().SetConfig(vConfig).SetGoals([]string{"validate"}).SetBuildConf(buildUtils.NewBuildConfiguration("wiring-test", "1", "", ""))
+	err := RunMvn(mu)
+	assert.ErrorIs(t, err, biutils.ErrInvalidExtractorVersion)
+	assert.Equal(t, []string{"2"}, asked, "the lookup is asked once, for the major line of the Maven extractor")
 }
