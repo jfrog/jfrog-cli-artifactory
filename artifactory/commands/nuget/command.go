@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -125,9 +126,12 @@ func (c *NuGetFlexPackCommand) Run() error {
 		c.workingDir = workingDir
 	}
 
-	// .slnx is an SDK-only solution format; nuget.exe has no parser for it.
+	// .slnx is only understood by nuget.exe >= 7.0.0 (NuGet 7 / .NET SDK 10). Check the nuget.exe
+	// that will actually run, so newer versions are passed through untouched.
 	if c.toolchainType == dotnetutils.Nuget && hasSlnxTarget(c.args) {
-		return fmt.Errorf(".slnx solution files are not supported by nuget.exe; use 'jf dotnet restore' instead")
+		if err := checkSlnxSupport(nugetExeVersion()); err != nil {
+			return err
+		}
 	}
 
 	// Decide up front whether the native client performs the upload itself, so the decision is
@@ -736,8 +740,6 @@ func restoreOptionTakesValue(arg string) bool {
 	}
 }
 
-// hasSlnxTarget returns true if any positional arg is a .slnx file. Used to detect SDK-only
-// solution formats before passing them to nuget.exe, which has no .slnx parser.
 // performsRestore reports whether the subcommand downloads packages and therefore needs the
 // Artifactory source declared.
 //
@@ -801,6 +803,51 @@ func packTargetDirs(workingDir string, args []string) []string {
 	return dirs
 }
 
+// minSlnxNugetMajor is the first nuget.exe major version that can restore .slnx solutions.
+const minSlnxNugetMajor = 7
+
+var nugetVersionRegexp = regexp.MustCompile(`(?i)NuGet Version:\s*(\d+)\.(\d+)(?:\.(\d+))?`)
+
+// nugetExeVersion returns the version of the nuget.exe found on PATH, or "" if it cannot be
+// determined (not installed, unexpected output).
+func nugetExeVersion() string {
+	out, err := exec.Command("nuget", "help").CombinedOutput()
+	if err != nil {
+		log.Debug("Could not determine nuget.exe version:", err.Error())
+		return ""
+	}
+	return parseNugetVersion(string(out))
+}
+
+// parseNugetVersion extracts "X.Y[.Z]" from the "NuGet Version: X.Y.Z.B" banner printed by
+// 'nuget help'. Returns "" if the banner is not found.
+func parseNugetVersion(output string) string {
+	m := nugetVersionRegexp.FindStringSubmatch(output)
+	if m == nil {
+		return ""
+	}
+	v := m[1] + "." + m[2]
+	if m[3] != "" {
+		v += "." + m[3]
+	}
+	return v
+}
+
+// checkSlnxSupport fails when the nuget.exe version is known and older than 7.0.0. An unknown
+// version is not blocked: nuget.exe reports its own error if it cannot handle the file.
+func checkSlnxSupport(version string) error {
+	if version == "" {
+		return nil
+	}
+	major, err := strconv.Atoi(strings.SplitN(version, ".", 2)[0])
+	if err != nil || major >= minSlnxNugetMajor {
+		return nil
+	}
+	return fmt.Errorf(".slnx requires nuget.exe >= 7.0.0 (and MSBuild >= 17.13); found %s. "+
+		"Upgrade nuget.exe or use 'jf dotnet restore' for SDK-style-only solutions", version)
+}
+
+// hasSlnxTarget returns true if any positional arg is a .slnx file.
 func hasSlnxTarget(args []string) bool {
 	for _, arg := range args {
 		if strings.EqualFold(filepath.Ext(arg), ".slnx") {
