@@ -1,0 +1,89 @@
+# Config reference: https://docs.coderabbit.ai/reference/configuration
+language: "en-US"
+
+reviews:
+  # assertive => findings are flagged INLINE on the diff; chill keeps them in the walkthrough only.
+  profile: "assertive"
+
+  tools:
+    golangci-lint:
+      enabled: true
+
+  # Blacklist-only: every entry MUST start with `!`. One positive pattern flips the whole list to
+  # whitelist mode and silently skips every file that doesn't match it.
+  path_filters:
+    - "!.coderabbit.yaml"
+    - "!**/testdata/**"
+    - "!**/*_mock.go"
+    - "!README.md"
+    - "!CONTRIBUTING.md"
+    - "!.github/**"
+    # Per-command CLI help text (artifactory/docs, distribution/docs, ide/docs, lifecycle/docs) —
+    # usage copy, not code.
+    - "!**/docs/**"
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true  # review on open and on each push
+    base_branches:
+      - "^main$"
+
+  path_instructions:
+    - path: "**/commands/**/*.go"
+      instructions: |
+        These packages implement JFrog CLI Artifactory subcommands, one directory per package
+        manager (npm, go, python, maven, gradle, docker/container, conan, ruby, nix, dotnet, helm,
+        apt, alpine, terraform, huggingface, yarn, pnpm, oc) plus generic/build-info/replication
+        flows. When reviewing:
+        - Build-info correctness first: a changed command must not drop, duplicate, or misattribute
+          module/dependency/artifact records. This is the highest-value class of bug in this repo.
+        - Errors from jfrog-client-go HTTP calls must be wrapped with context and returned, not
+          swallowed or logged-and-continued on a path that should fail the command.
+        - This module is tested on ubuntu/windows/macos (see .github/workflows/test.yml) — flag
+          hardcoded path separators, shell-specific invocations, or other non-portable assumptions.
+        - A new or changed flag/command needs a matching update in the sibling `docs/` directory for
+          that command group, and (per .github/workflows/analysis.yml's "AI help coverage" check) an
+          AI-oriented description wired through ResolveDescription.
+        - New package-manager commands should mirror the structure already used by neighboring
+          packages in this directory rather than introducing a new pattern.
+
+    - path: "agent/**/*.go"
+      instructions: |
+        AI agent skills/plugins feature (install/publish/search/update flows and per-agent hook
+        wiring, e.g. hooks_codex.go, hooks_marketplace.go). This is the module's main untrusted-input
+        surface — review for:
+        - Path traversal or unsafe file writes when installing/updating a skill or plugin from a
+          user-supplied name, path, or marketplace URL.
+        - Missing validation in scope_validation.go / install_targets on install targets before they
+          are used to read or write files.
+        - New commands here should also be covered by the "AI help coverage" CI check; flag a new
+          command with no AI-oriented description instead of adding it to that check's skip-list.
+
+    - path: "evidence/**/*.go"
+      instructions: |
+        Evidence creation/signing flow (evidence/create). Flag any change that weakens signature
+        verification, widens what is trusted by default, or silently ignores a signing/verification
+        error instead of failing the command.
+
+knowledge_base:
+  code_guidelines:
+    # camelCase `filePatterns` — snake_case `file_patterns` is SILENTLY ignored (verify with
+    # `@coderabbitai configuration`).
+    enabled: true
+    filePatterns:
+      # No dedicated coding-standards doc exists in this repo yet; CONTRIBUTING.md is the closest
+      # thing (local-dev setup, test flags, PR checklist against `go vet`/`go fmt`).
+      - "CONTRIBUTING.md"
+
+  # Cross-repo awareness: surface cross-repo dependencies / breaking changes.
+  linked_repositories:
+    - repository: "jfrog/jfrog-cli"
+      instructions: "Parent CLI project — this repo is an embedded Go-module plugin referenced from jfrog-cli. Flag changes that would break command wiring or flags jfrog-cli expects."
+    - repository: "jfrog/jfrog-cli-core"
+      instructions: "Core CLI framework (config, command base types) this module plugs into. Flag breaking changes to shared interfaces this repo depends on."
+    - repository: "jfrog/jfrog-client-go"
+      instructions: "HTTP client for Artifactory/Xray/Distribution APIs used throughout this repo's commands. Flag changes to request/response models or endpoints this repo calls."
+    - repository: "jfrog/build-info-go"
+      instructions: "Build-info data model and collection logic shared with this repo's package-manager commands. Flag breaking changes to build-info structs or collection APIs."
+    - repository: "jfrog/jfrog-cli-evidence"
+      instructions: "Evidence creation/signing library used by evidence/**. Flag breaking changes to its public API."
