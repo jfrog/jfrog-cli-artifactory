@@ -616,7 +616,7 @@ func (rc *RubyCommand) injectAuth(serverDetails *coreConfig.ServerDetails, sourc
 	var extraEnv []string
 	switch rc.nativeTool {
 	case toolBundle:
-		cred := fmt.Sprintf("%s:%s", user, pass)
+		cred := BundleCredential(user, pass)
 		// Bundler's credential lookup varies by version, and falls back from the
 		// host:port form to the bare hostname, so inject every candidate spelling.
 		candidates := BundleCredentialKeys(host)
@@ -677,6 +677,20 @@ func rubyCredentials(serverDetails *coreConfig.ServerDetails) (user, pass string
 // rubyHasCredentials returns true when at least a password or token is available.
 func rubyHasCredentials(pass string) bool {
 	return pass != ""
+}
+
+// BundleCredential formats a user/password pair as a Bundler per-host credential (the
+// value of BUNDLE_<HOST>, as an env var or in ~/.bundle/config). Bundler assigns that
+// value to the source URI's userinfo, which rejects raw reserved characters such as '@'
+// (e.g. an email username) or a ':' in the username, and later decodes each part with
+// CGI.unescape. Each part is therefore percent-encoded.
+// Spaces are written as %20 rather than '+' so the value also round-trips through
+// decoders that do not treat '+' as a space.
+func BundleCredential(user, pass string) string {
+	escape := func(s string) string {
+		return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
+	}
+	return escape(user) + ":" + escape(pass)
 }
 
 // BundleEnvKeyForHost converts a host into Bundler's per-host credential env var name,

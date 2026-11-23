@@ -129,7 +129,7 @@ func (c *NuGetFlexPackCommand) Run() error {
 	// .slnx is only understood by nuget.exe >= 7.0.0 (NuGet 7 / .NET SDK 10). Check the nuget.exe
 	// that will actually run, so newer versions are passed through untouched.
 	if c.toolchainType == dotnetutils.Nuget && hasSlnxTarget(c.args) {
-		if err := checkSlnxSupport(nugetExeVersion()); err != nil {
+		if err := checkSlnxSupport(nugetExeVersionFn()); err != nil {
 			return err
 		}
 	}
@@ -519,8 +519,9 @@ func (c *NuGetFlexPackCommand) collectAndStampPushArtifacts(buildName, buildNumb
 // perform before the Artifactory upload path it belonged to was removed.
 // If repoKey is a virtual repo it returns the virtual repo's defaultDeploymentRepo;
 // for a local repo it returns repoKey unchanged.
-// Failures are hard errors: build-info must never record a virtual repo key that
-// downstream tools would 404 on.
+// build-info must never record a virtual repo key that downstream tools would 404 on, so when the
+// local repo cannot be determined it returns an empty key (with a warning) rather than the virtual key.
+// Lookup and validation failures are still hard errors.
 func (c *NuGetFlexPackCommand) resolveLocalDeployRepo(repoKey string) (string, error) {
 	if repoKey == "" || c.serverDetails == nil {
 		return repoKey, nil
@@ -543,7 +544,10 @@ func (c *NuGetFlexPackCommand) resolveLocalDeployRepo(repoKey string) (string, e
 		return repoKey, nil
 	}
 	if params.DefaultDeploymentRepo == "" {
-		return "", fmt.Errorf("virtual repo %q has no defaultDeploymentRepo configured; cannot determine the local repo for build-info", repoKey)
+		// defaultDeploymentRepo is hidden from users without update rights.
+		log.Warn(fmt.Sprintf("Skipping build properties and the repository in build-info: could not read the local repository behind virtual repository %q. "+
+			"Push to the local repository directly, or use a user that can read the full repository configuration.", repoKey))
+		return "", nil
 	}
 	log.Debug(fmt.Sprintf("Resolved virtual repo %q → local repo %q for OriginalDeploymentRepo", repoKey, params.DefaultDeploymentRepo))
 	return params.DefaultDeploymentRepo, nil
@@ -808,6 +812,9 @@ const minSlnxNugetMajor = 7
 
 var nugetVersionRegexp = regexp.MustCompile(`(?i)NuGet Version:\s*(\d+)\.(\d+)(?:\.(\d+))?`)
 
+// nugetExeVersionFn is a variable so tests can simulate different nuget.exe versions.
+var nugetExeVersionFn = nugetExeVersion
+
 // nugetExeVersion returns the version of the nuget.exe found on PATH, or "" if it cannot be
 // determined (not installed, unexpected output).
 func nugetExeVersion() string {
@@ -839,12 +846,18 @@ func checkSlnxSupport(version string) error {
 	if version == "" {
 		return nil
 	}
-	major, err := strconv.Atoi(strings.SplitN(version, ".", 2)[0])
-	if err != nil || major >= minSlnxNugetMajor {
+	// An unparsable version is treated like an unknown one: don't block.
+	if major, ok := majorVersion(version); !ok || major >= minSlnxNugetMajor {
 		return nil
 	}
 	return fmt.Errorf(".slnx requires nuget.exe >= 7.0.0 (and MSBuild >= 17.13); found %s. "+
 		"Upgrade nuget.exe or use 'jf dotnet restore' for SDK-style-only solutions", version)
+}
+
+// majorVersion returns the major component of a dotted version string.
+func majorVersion(version string) (int, bool) {
+	major, err := strconv.Atoi(strings.SplitN(version, ".", 2)[0])
+	return major, err == nil
 }
 
 // hasSlnxTarget returns true if any positional arg is a .slnx file.
