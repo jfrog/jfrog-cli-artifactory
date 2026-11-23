@@ -1,11 +1,16 @@
 package gradle
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
+	biutils "github.com/jfrog/build-info-go/utils"
+	buildUtils "github.com/jfrog/jfrog-cli-core/v2/common/build"
+	"github.com/jfrog/jfrog-cli-core/v2/utils/coreutils"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -376,4 +381,44 @@ func TestExtractBuildFilePathWindowsPaths(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+// The jars of the extractor are cached in a sub folder of this folder for each version. A change of it moves the cache.
+func TestGetGradleDependencyLocalPath(t *testing.T) {
+	dependenciesDir := t.TempDir()
+	t.Setenv(coreutils.DependenciesDir, dependenciesDir)
+	path, err := getGradleDependencyLocalPath()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dependenciesDir, "gradle"), path)
+}
+
+// Without SetExtractorVersionsFunc in runGradle, the extractor stays at the fixed version for the Gradle version, and the lookup is never asked.
+// The test puts a small script named gradle first in the PATH, which only prints a version, so no Gradle has to be installed.
+// The lookup answers that the version is invalid, so runGradle stops there and needs no download.
+func TestRunGradleAsksForTheExtractorVersions(t *testing.T) {
+	binDir := t.TempDir()
+	script, content := "gradle", "#!/bin/sh\necho 'Gradle 8.7'\n"
+	if runtime.GOOS == "windows" {
+		script, content = "gradle.bat", "@echo Gradle 8.7\r\n"
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, script), []byte(content), 0755))
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(coreutils.HomeDir, t.TempDir())
+	t.Setenv(coreutils.DependenciesDir, t.TempDir())
+	t.Setenv(coreutils.TempDir, t.TempDir())
+	// The test replaces the lookup that reads the pin, so the pin does not change it. It stays independent of the shell if the lookup moves.
+	t.Setenv(coreutils.GradleExtractorVersionEnv, "")
+	var asked []string
+	original := listGradleExtractorVersions
+	listGradleExtractorVersions = func(majorLine string) (biutils.ExtractorVersions, error) {
+		asked = append(asked, majorLine)
+		return biutils.ExtractorVersions{}, fmt.Errorf("stop: %w", biutils.ErrInvalidExtractorVersion)
+	}
+	t.Cleanup(func() { listGradleExtractorVersions = original })
+
+	vConfig := viper.New()
+	vConfig.Set("type", "gradle")
+	err := runGradle(vConfig, []string{"help"}, "", buildUtils.NewBuildConfiguration("wiring-test", "1", "", ""), 0, true)
+	assert.ErrorIs(t, err, biutils.ErrInvalidExtractorVersion)
+	assert.Equal(t, []string{"5"}, asked, "the lookup is asked once, for the major line of the Gradle extractor of Gradle 8.7")
 }
