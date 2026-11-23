@@ -43,7 +43,7 @@ func TestSlnxGateWithRealNugetExe(t *testing.T) {
 	runErr := NewNuGetFlexPackCommand().
 		SetToolchainType(dotnetutils.Nuget).
 		SetSubCommand("restore").
-		SetArgs([]string{"Test.slnx"}).
+		SetArgs([]string{filepath.Join(dir, "Test.slnx")}).
 		SetWorkingDir(dir).
 		Run()
 
