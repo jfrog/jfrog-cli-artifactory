@@ -471,9 +471,13 @@ func runGradle(vConfig *viper.Viper, tasks []string, deployableArtifactsFile str
 	if err != nil {
 		return err
 	}
-	gradleModule.SetExtractorDetails(dependencyLocalPath, filepath.Join(coreutils.GetCliPersistentTempDirPath(), build.PropertiesTempPath), tasks, wrapper, plugin, dependencies.DownloadExtractor, props)
+	gradleModule.SetExtractorDetails(dependencyLocalPath, filepath.Join(coreutils.GetCliPersistentTempDirPath(), build.PropertiesTempPath), tasks, wrapper, plugin, dependencies.DownloadExtractor, props).
+		SetExtractorVersionsFunc(listGradleExtractorVersions)
 	return coreutils.ConvertExitCodeError(gradleModule.CalcDependencies())
 }
+
+// listGradleExtractorVersions is replaced in the tests.
+var listGradleExtractorVersions = dependencies.ListGradleExtractorVersions
 
 func getGradleDependencyLocalPath() (string, error) {
 	dependenciesPath, err := config.GetJfrogDependenciesPath()
