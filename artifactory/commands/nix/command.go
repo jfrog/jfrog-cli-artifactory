@@ -392,8 +392,11 @@ func (c *NixCommand) collectBuildInfoFromStorePaths(storePaths []string) error {
 	return nil
 }
 
-// nixStorePathInfo mirrors the JSON output of "nix path-info --json -r" for a single path.
+// nixStorePathInfo mirrors one entry from "nix path-info --json -r" output.
+// nix < ~2.20 outputs an object keyed by store path; the Path field is unused in that case.
+// nix >= ~2.20 outputs a JSON array where each entry carries the store path in the Path field.
 type nixStorePathInfo struct {
+	Path       string   `json:"path,omitempty"` // populated in array format (nix >= ~2.20)
 	NarHash    string   `json:"narHash"`
 	NarSize    int64    `json:"narSize"`
 	References []string `json:"references,omitempty"`
@@ -410,9 +413,23 @@ func collectRuntimeClosure(rootPaths []string) (deps map[string]string, depGraph
 		return nil, nil, fmt.Errorf("nix path-info failed: %w", err)
 	}
 
-	var pathInfoMap map[string]nixStorePathInfo
-	if err := json.Unmarshal(output, &pathInfoMap); err != nil {
-		return nil, nil, fmt.Errorf("parse nix path-info output: %w", err)
+	// nix path-info --json changed its output format around nix 2.20:
+	//   old (object): { "/nix/store/...": { narHash, narSize, references }, ... }
+	//   new (array):  [ { "path": "/nix/store/...", narHash, narSize, references }, ... ]
+	// Detect the format from the first non-whitespace byte and normalise to a map.
+	pathInfoMap := make(map[string]nixStorePathInfo)
+	if trimmed := strings.TrimSpace(string(output)); len(trimmed) > 0 && trimmed[0] == '[' {
+		var entries []nixStorePathInfo
+		if err := json.Unmarshal(output, &entries); err != nil {
+			return nil, nil, fmt.Errorf("parse nix path-info output: %w", err)
+		}
+		for _, e := range entries {
+			pathInfoMap[e.Path] = e
+		}
+	} else {
+		if err := json.Unmarshal(output, &pathInfoMap); err != nil {
+			return nil, nil, fmt.Errorf("parse nix path-info output: %w", err)
+		}
 	}
 
 	rootIDs := make(map[string]bool, len(rootPaths))
