@@ -1228,6 +1228,23 @@ func TestWriteBundleSettings_BundlerReadsMirrorAndCredentials(t *testing.T) {
 	assert.Equal(t, "admin:secret", parsed["BUNDLE_MY___CO__JFROG__IO"])
 }
 
+// TestConfigureRuby_EscapesEmailUsername guards against an email-style username being
+// written raw into the per-host credential: Bundler rejects a bare '@' in a URI userinfo,
+// so the credential must be percent-encoded.
+func TestConfigureRuby_EscapesEmailUsername(t *testing.T) {
+	tmpHome := withTempHome(t)
+
+	cmd := createTestSetupCommand(project.Ruby)
+	cmd.serverDetails.User = "jane@example.com"
+	cmd.serverDetails.Password = "p@ss" + "word"
+
+	require.NoError(t, cmd.configureRuby())
+
+	parsed := readBundleConfig(t, tmpHome)
+	assert.Equal(t, "jane%40example.com:p%40ssword", parsed["BUNDLE_ACME__JFROG__IO"])
+	assert.NotContains(t, parsed["BUNDLE_ACME__JFROG__IO"], "@", "raw '@' must not reach Bundler's userinfo")
+}
+
 func TestAddGemrcSource_EmptyFile(t *testing.T) {
 	tmpHome := withTempHome(t)
 
