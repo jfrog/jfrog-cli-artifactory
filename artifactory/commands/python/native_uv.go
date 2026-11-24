@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -178,6 +179,7 @@ func (c *NativeUVCommand) injectCredentials(workingDir, deployerRepo string, ser
 	if len(indexes) == 0 {
 		indexes = uvReadIndexesFromToml(workingDir)
 	}
+	uvAutoNameDefaultIndex(serverDetails, c.serverID != "", append(uvConfigIndexes(workingDir), indexes...))
 	// Merge UV_DEFAULT_INDEX / UV_INDEX entries — env vars override config-file entries
 	// to match UV's own precedence rules.
 	indexes = uvMergeIndexes(indexes, uvReadIndexesFromEnv())
@@ -505,10 +507,81 @@ func uvParseIndexEnvEntry(raw string) (uvIndexEntry, bool) {
 	}
 	name := strings.TrimSpace(parts[0])
 	indexURL := strings.TrimSpace(parts[1])
-	if name == "" || indexURL == "" {
+	if !uvIndexNamePattern.MatchString(name) || indexURL == "" {
 		return uvIndexEntry{}, false
 	}
 	return uvIndexEntry{Name: name, URL: indexURL}, true
+}
+
+var uvIndexNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+var uvAutoIndexNames = []string{"jfrog", "jfrog-default"}
+
+// uvAutoNameDefaultIndex names a plain-URL UV_DEFAULT_INDEX so per-index credentials can be injected for it.
+// The rename only affects the environment inherited by the uv process.
+func uvAutoNameDefaultIndex(serverDetails *coreConfig.ServerDetails, explicitServerID bool, existing []uvIndexEntry) {
+	indexURL := strings.TrimSpace(os.Getenv("UV_DEFAULT_INDEX"))
+	if indexURL == "" {
+		return
+	}
+	if _, named := uvParseIndexEnvEntry(indexURL); named {
+		return
+	}
+	if uvURLHasEmbeddedCredentials(indexURL) || uvNetrcHasCredentials(indexURL) {
+		return
+	}
+	if !explicitServerID && !uvHostMatchesServer(indexURL, serverDetails.ArtifactoryUrl) {
+		return
+	}
+	taken := make(map[string]bool)
+	for _, idx := range existing {
+		taken[uvIndexEnvName(idx.Name)] = true
+	}
+	for _, raw := range strings.Fields(os.Getenv("UV_INDEX")) {
+		if idx, ok := uvParseIndexEnvEntry(raw); ok {
+			taken[uvIndexEnvName(idx.Name)] = true
+		}
+	}
+	for _, name := range uvAutoIndexNames {
+		envName := uvIndexEnvName(name)
+		if taken[envName] || os.Getenv(uvIndexUsernameKey(envName)) != "" || os.Getenv(uvIndexPasswordKey(envName)) != "" {
+			continue
+		}
+		_ = os.Setenv("UV_DEFAULT_INDEX", name+"="+indexURL)
+		log.Info(fmt.Sprintf("UV auth: UV_DEFAULT_INDEX has no name; naming it %q for this uv run", name))
+		return
+	}
+	log.Debug("UV auth: all auto index names are in use; leaving UV_DEFAULT_INDEX unnamed")
+}
+
+// uvConfigIndexes returns the [[index]] entries from the project and user uv.toml files.
+func uvConfigIndexes(workingDir string) []uvIndexEntry {
+	paths := []string{filepath.Join(workingDir, "uv.toml"), os.Getenv("UV_CONFIG_FILE")}
+	if configHome := os.Getenv("XDG_CONFIG_HOME"); configHome != "" {
+		paths = append(paths, filepath.Join(configHome, "uv", "uv.toml"))
+	} else if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(home, ".config", "uv", "uv.toml"))
+	}
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		paths = append(paths, filepath.Join(appData, "uv", "uv.toml"))
+	}
+	var entries []uvIndexEntry
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Clean(path))
+		if err != nil {
+			continue
+		}
+		var config struct {
+			Index []uvIndexEntry `toml:"index"`
+		}
+		if toml.Unmarshal(data, &config) == nil {
+			entries = append(entries, config.Index...)
+		}
+	}
+	return entries
 }
 
 // uvReadIndexesFromEnv parses UV_DEFAULT_INDEX and UV_INDEX into named index entries.
@@ -518,9 +591,9 @@ func uvReadIndexesFromEnv() []uvIndexEntry {
 	var entries []uvIndexEntry
 	warnUnnamed := func(envVar, raw string) {
 		log.Warn(fmt.Sprintf(
-			"UV auth: %s entry %q has no name; credentials cannot be injected via UV per-index env vars. "+
+			"UV auth: %s entry for host %q has no name; credentials cannot be injected via UV per-index env vars. "+
 				"Use name=url format, embed credentials in the URL, or use ~/.netrc.",
-			envVar, raw))
+			envVar, uvHostOf(raw)))
 	}
 	if def := strings.TrimSpace(os.Getenv("UV_DEFAULT_INDEX")); def != "" {
 		if entry, ok := uvParseIndexEnvEntry(def); ok {
