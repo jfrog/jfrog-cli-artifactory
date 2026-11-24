@@ -8,9 +8,9 @@ require (
 	github.com/forPelevin/gomoji v1.4.1
 	github.com/google/go-containerregistry v0.21.6
 	github.com/jedib0t/go-pretty/v6 v6.8.3
-	github.com/jfrog/build-info-go v1.13.1-0.20261119035914-0b17e15171f8
+	github.com/jfrog/build-info-go v1.13.1-0.20261119035914-0b17e15171f8 // TODO(RTECO-2747): bump to the build-info-go commit that has the new Gradle plugin version. Merge after the build-info-go and jfrog-cli-core PRs.
 	github.com/jfrog/gofrog v1.7.7
-	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20261119051937-b4b31ed75132
+	github.com/jfrog/jfrog-cli-core/v2 v2.60.1-0.20261119051937-b4b31ed75132 // TODO(RTECO-2747): bump to the jfrog-cli-core commit that has the new build-info-go. Merge after the jfrog-cli-core PR.
 	github.com/jfrog/jfrog-cli-evidence v0.9.0
 	github.com/jfrog/jfrog-client-go v1.55.1-0.20261014133608-3b4b900d8174
 	github.com/pkg/errors v0.9.1
