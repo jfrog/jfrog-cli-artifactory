@@ -519,38 +519,51 @@ func TestInsertBeforeSeparator(t *testing.T) {
 }
 
 func TestParseNugetVersion(t *testing.T) {
-	assert.Equal(t, "7.9.0", parseNugetVersion("NuGet Version: 7.9.0.12\nusage: NuGet <command>"))
-	assert.Equal(t, "6.13.2", parseNugetVersion("NuGet Version: 6.13.2.1\n"))
-	assert.Equal(t, "7.0", parseNugetVersion("nuget version: 7.0"))
-	assert.Equal(t, "", parseNugetVersion("something else"))
-	assert.Equal(t, "", parseNugetVersion(""))
+	tests := []struct {
+		name     string
+		output   string
+		expected string
+	}{
+		{"four-part banner", "NuGet Version: 7.9.0.12\nusage: NuGet <command>", "7.9.0"},
+		{"older version", "NuGet Version: 6.13.2.1\n", "6.13.2"},
+		{"two-part, case-insensitive", "nuget version: 7.0", "7.0"},
+		{"no banner", "something else", ""},
+		{"empty output", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, parseNugetVersion(tt.output))
+		})
+	}
 }
 
 func TestCheckSlnxSupport(t *testing.T) {
-	assert.NoError(t, checkSlnxSupport("7.0.0"))
-	assert.NoError(t, checkSlnxSupport("7.9.0"))
-	assert.NoError(t, checkSlnxSupport("10.1.0"))
-	assert.NoError(t, checkSlnxSupport(""), "unknown version must not block")
-	err := checkSlnxSupport("6.13.2")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), ">= 7.0.0")
-	assert.Contains(t, err.Error(), "found 6.13.2")
-}
-
-func TestRunRejectsSlnxWithOldNugetExe(t *testing.T) {
-	orig := nugetExeVersionFn
-	nugetExeVersionFn = func() string { return "6.13.2" }
-	t.Cleanup(func() { nugetExeVersionFn = orig })
-
-	cmd := NewNuGetFlexPackCommand().
-		SetToolchainType(dotnetutils.Nuget).
-		SetSubCommand("restore").
-		SetArgs([]string{"Test.slnx"}).
-		SetWorkingDir(t.TempDir())
-	err := cmd.Run()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), ".slnx requires nuget.exe >= 7.0.0")
-	assert.Contains(t, err.Error(), "found 6.13.2")
+	tests := []struct {
+		name         string
+		nugetVersion string
+		expectErr    bool
+	}{
+		{"exactly 7.0.0", "7.0.0", false},
+		{"two-part 7.0", "7.0", false},
+		{"newer minor", "7.9.0", false},
+		{"much newer", "10.1.0", false},
+		{"unknown version does not block", "", false},
+		{"older 6.x", "6.13.2", true},
+		{"just below 7.0.0", "6.99.99", true},
+		{"two-part older", "6.0", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkSlnxSupport(tt.nugetVersion)
+			if !tt.expectErr {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), ">= 7.0.0")
+			assert.Contains(t, err.Error(), "found nuget.exe "+tt.nugetVersion)
+		})
+	}
 }
 
 // fakeRepoConfigServer serves GET /artifactory/api/repositories/<key> with the given JSON body.

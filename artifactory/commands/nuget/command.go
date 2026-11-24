@@ -2,6 +2,7 @@ package nuget
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"fmt"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/jfrog/build-info-go/entities"
 	buildinfoflex "github.com/jfrog/build-info-go/flexpack"
 	nugetflex "github.com/jfrog/build-info-go/flexpack/nuget"
+	"github.com/jfrog/gofrog/version"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/commands/generic"
 	"github.com/jfrog/jfrog-cli-artifactory/artifactory/utils/civcs"
 	rtutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -129,7 +131,7 @@ func (c *NuGetFlexPackCommand) Run() error {
 	// .slnx is only understood by nuget.exe >= 7.0.0 (NuGet 7 / .NET SDK 10). Check the nuget.exe
 	// that will actually run, so newer versions are passed through untouched.
 	if c.toolchainType == dotnetutils.Nuget && hasSlnxTarget(c.args) {
-		if err := checkSlnxSupport(nugetExeVersionFn()); err != nil {
+		if err := checkSlnxSupport(nugetExeVersion()); err != nil {
 			return err
 		}
 	}
@@ -255,7 +257,7 @@ func (c *NuGetFlexPackCommand) buildCmd() *exec.Cmd {
 	if c.toolchainType == dotnetutils.DotnetCore {
 		return exec.Command("dotnet", append(strings.Fields(c.subCommand), c.args...)...)
 	}
-	return exec.Command("nuget", append([]string{c.subCommand}, c.args...)...)
+	return exec.Command(nugetExecutable, append([]string{c.subCommand}, c.args...)...)
 }
 
 // injectCredentialsViaTempConfig writes a temporary nuget.config declaring the Artifactory
@@ -807,18 +809,23 @@ func packTargetDirs(workingDir string, args []string) []string {
 	return dirs
 }
 
-// minSlnxNugetMajor is the first nuget.exe major version that can restore .slnx solutions.
-const minSlnxNugetMajor = 7
+// nugetExecutable is the native NuGet client binary looked up on PATH.
+const nugetExecutable = "nuget"
+
+// minSlnxNugetVersion is the first nuget.exe version that can restore .slnx solutions.
+const minSlnxNugetVersion = "7.0.0"
+
+// nugetVersionTimeout bounds the 'nuget help' call used to detect the nuget.exe version.
+const nugetVersionTimeout = 15 * time.Second
 
 var nugetVersionRegexp = regexp.MustCompile(`(?i)NuGet Version:\s*(\d+)\.(\d+)(?:\.(\d+))?`)
 
-// nugetExeVersionFn is a variable so tests can simulate different nuget.exe versions.
-var nugetExeVersionFn = nugetExeVersion
-
 // nugetExeVersion returns the version of the nuget.exe found on PATH, or "" if it cannot be
-// determined (not installed, unexpected output).
+// determined (not installed, timed out, unexpected output).
 func nugetExeVersion() string {
-	out, err := exec.Command("nuget", "help").CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), nugetVersionTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, nugetExecutable, "help").CombinedOutput()
 	if err != nil {
 		log.Debug("Could not determine nuget.exe version:", err.Error())
 		return ""
@@ -829,35 +836,30 @@ func nugetExeVersion() string {
 // parseNugetVersion extracts "X.Y[.Z]" from the "NuGet Version: X.Y.Z.B" banner printed by
 // 'nuget help'. Returns "" if the banner is not found.
 func parseNugetVersion(output string) string {
-	m := nugetVersionRegexp.FindStringSubmatch(output)
-	if m == nil {
+	matches := nugetVersionRegexp.FindStringSubmatch(output)
+	if matches == nil {
 		return ""
 	}
-	v := m[1] + "." + m[2]
-	if m[3] != "" {
-		v += "." + m[3]
+	v := matches[1] + "." + matches[2]
+	if matches[3] != "" {
+		v += "." + matches[3]
 	}
 	return v
 }
 
 // checkSlnxSupport fails when the nuget.exe version is known and older than 7.0.0. An unknown
 // version is not blocked: nuget.exe reports its own error if it cannot handle the file.
-func checkSlnxSupport(version string) error {
-	if version == "" {
+// The MSBuild version (>= 17.13 is also required) is not checked by jf.
+func checkSlnxSupport(nugetVersion string) error {
+	if nugetVersion == "" {
+		log.Debug("Could not determine the nuget.exe version; skipping the .slnx support check.")
 		return nil
 	}
-	// An unparsable version is treated like an unknown one: don't block.
-	if major, ok := majorVersion(version); !ok || major >= minSlnxNugetMajor {
+	if version.NewVersion(nugetVersion).AtLeast(minSlnxNugetVersion) {
 		return nil
 	}
-	return fmt.Errorf(".slnx requires nuget.exe >= 7.0.0 (and MSBuild >= 17.13); found %s. "+
-		"Upgrade nuget.exe or use 'jf dotnet restore' for SDK-style-only solutions", version)
-}
-
-// majorVersion returns the major component of a dotted version string.
-func majorVersion(version string) (int, bool) {
-	major, err := strconv.Atoi(strings.SplitN(version, ".", 2)[0])
-	return major, err == nil
+	return fmt.Errorf(".slnx requires nuget.exe >= %s (and requires MSBuild >= 17.13, which jf does not check); found nuget.exe %s. "+
+		"Upgrade nuget.exe or use 'jf dotnet restore' for SDK-style-only solutions", minSlnxNugetVersion, nugetVersion)
 }
 
 // hasSlnxTarget returns true if any positional arg is a .slnx file.
