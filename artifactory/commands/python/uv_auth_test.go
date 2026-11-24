@@ -2,6 +2,7 @@ package python
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -194,538 +195,198 @@ func TestUvIndexHasNativeCredentials(t *testing.T) {
 	})
 }
 
-// TestUvParseIndexEnvEntry covers the "[name=]url" parser used for UV_INDEX
-// and UV_DEFAULT_INDEX entries.
 func TestUvParseIndexEnvEntry(t *testing.T) {
-	cases := []struct {
-		name     string
-		input    string
-		wantOK   bool
-		wantName string
-		wantURL  string
-	}{
-		{"named", "myidx=https://h/simple", true, "myidx", "https://h/simple"},
-		{"trims surrounding whitespace", "  myidx = https://h/simple  ", true, "myidx", "https://h/simple"},
-		{"no equals sign", "https://h/simple", false, "", ""},
-		{"empty input", "", false, "", ""},
-		{"empty name", "=https://h/simple", false, "", ""},
-		{"empty url", "myidx=", false, "", ""},
-		{"url contains equals", "myidx=https://h/path?q=1&r=2", true, "myidx", "https://h/path?q=1&r=2"},
-		{"hyphen in name preserved", "my-idx=https://h/simple", true, "my-idx", "https://h/simple"},
-		{"unnamed url with query string", "https://h/simple?a=b", false, "", ""},
-		{"name containing slash", "a/b=https://h/simple", false, "", ""},
-		{"name containing colon", "https://h=x", false, "", ""},
+	cases := []struct{ input, wantName, wantURL string }{
+		{"myidx=https://h/simple", "myidx", "https://h/simple"},
+		{"  myidx = https://h/simple  ", "myidx", "https://h/simple"},
+		{"myidx=https://h/path?q=1&r=2", "myidx", "https://h/path?q=1&r=2"},
+		{"my-idx=https://h/simple", "my-idx", "https://h/simple"},
+		{"https://h/simple", "", ""},
+		{"", "", ""},
+		{"=https://h/simple", "", ""},
+		{"myidx=", "", ""},
+		{"https://h/simple?a=b", "", ""},
+		{"a/b=https://h/simple", "", ""},
+		{"https://h=x", "", ""},
 	}
 	for _, tc := range cases {
-		tc := tc
+		entry, ok := uvParseIndexEnvEntry(tc.input)
+		assert.Equal(t, tc.wantName != "", ok, tc.input)
+		assert.Equal(t, uvIndexEntry{Name: tc.wantName, URL: tc.wantURL}, entry, tc.input)
+	}
+}
+
+func TestUvReadIndexesFromEnv(t *testing.T) {
+	a := uvIndexEntry{Name: "a", URL: "https://a/simple"}
+	c := uvIndexEntry{Name: "c", URL: "https://c/simple"}
+	def := uvIndexEntry{Name: "def", URL: "https://d/simple", Default: true}
+	cases := []struct {
+		defaultIndex, index string
+		want                []uvIndexEntry
+	}{
+		{"", "", nil},
+		{"def=https://d/simple", "", []uvIndexEntry{def}},
+		{"def=https://d/simple", "a=https://a/simple \tc=https://c/simple", []uvIndexEntry{def, a, c}},
+		{"https://d/simple", "a=https://a/simple https://b/simple\nc=https://c/simple", []uvIndexEntry{a, c}},
+	}
+	for _, tc := range cases {
+		t.Setenv("UV_DEFAULT_INDEX", tc.defaultIndex)
+		t.Setenv("UV_INDEX", tc.index)
+		assert.Equal(t, tc.want, uvReadIndexesFromEnv(), "%q / %q", tc.defaultIndex, tc.index)
+	}
+}
+
+func TestUvReadIndexesFromEnvDoesNotLogCredentials(t *testing.T) {
+	t.Setenv("UV_DEFAULT_INDEX", "https://default-token@d.example.com/simple")
+	t.Setenv("UV_INDEX", "https://extra-token@i.example.com/simple")
+	logOutput := captureUvLog(t)
+
+	uvReadIndexesFromEnv()
+
+	assert.NotContains(t, logOutput.String(), "default-token")
+	assert.NotContains(t, logOutput.String(), "extra-token")
+	assert.Contains(t, logOutput.String(), "d.example.com")
+	assert.Contains(t, logOutput.String(), "i.example.com")
+}
+
+func TestUvMergeIndexes(t *testing.T) {
+	a := uvIndexEntry{Name: "a", URL: "https://a/simple"}
+	b := uvIndexEntry{Name: "b", URL: "https://b/simple"}
+	c := uvIndexEntry{Name: "c", URL: "https://c/simple"}
+	fromToml := uvIndexEntry{Name: "my-idx", URL: "https://toml/simple"}
+	fromEnv := uvIndexEntry{Name: "my-idx", URL: "https://env/simple"}
+	sameEnvName := uvIndexEntry{Name: "my.idx", URL: "https://env/simple"}
+	cases := []struct{ base, override, want []uvIndexEntry }{
+		{[]uvIndexEntry{a}, nil, []uvIndexEntry{a}},
+		{nil, []uvIndexEntry{a, b, c}, []uvIndexEntry{a, b, c}},
+		{[]uvIndexEntry{a}, []uvIndexEntry{b}, []uvIndexEntry{b, a}},
+		{[]uvIndexEntry{fromToml}, []uvIndexEntry{fromEnv}, []uvIndexEntry{fromEnv}},
+		{[]uvIndexEntry{fromToml}, []uvIndexEntry{sameEnvName}, []uvIndexEntry{sameEnvName}},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.want, uvMergeIndexes(tc.base, tc.override))
+	}
+}
+
+func TestUvResolveBuildInfoIndexURL(t *testing.T) {
+	cases := []struct{ defaultIndex, index, legacy, wantVar, wantURL string }{
+		{"def=https://d/simple", "a=https://a/simple", "https://l/simple", "UV_DEFAULT_INDEX", "https://d/simple"},
+		{"https://d/simple", "", "", "UV_DEFAULT_INDEX", "https://d/simple"},
+		{"", "a=https://a/simple b=https://b/simple", "", "UV_INDEX", "https://a/simple"},
+		{"", "", "https://l/simple", "UV_INDEX_URL", "https://l/simple"},
+		{"", "", "", "", ""},
+	}
+	for _, tc := range cases {
+		t.Setenv("UV_DEFAULT_INDEX", tc.defaultIndex)
+		t.Setenv("UV_INDEX", tc.index)
+		t.Setenv("UV_INDEX_URL", tc.legacy)
+		envVar, indexURL := uvResolveBuildInfoIndexURL()
+		assert.Equal(t, tc.wantVar, envVar)
+		assert.Equal(t, tc.wantURL, indexURL)
+	}
+}
+
+func TestInjectCredentials_EnvVarIndexes(t *testing.T) {
+	type vars = map[string]string
+	const jfIndex = "https://host.example.com/artifactory/api/pypi/repo/simple"
+	const otherIndex = "https://other.example.net/simple"
+	// pyproject, projectUvToml and userUvToml name an index on otherIndex.
+	cases := []struct {
+		name                                 string
+		env                                  vars
+		pyproject, projectUvToml, userUvToml string
+		serverID                             string
+		want                                 vars
+	}{
+		{name: "named default index", env: vars{"UV_DEFAULT_INDEX": "myidx=" + jfIndex},
+			want: vars{"UV_INDEX_MYIDX_USERNAME": "u", "UV_INDEX_MYIDX_PASSWORD": "p", "UV_KEYRING_PROVIDER": "disabled"}},
+		{name: "named UV_INDEX entries", env: vars{"UV_INDEX": "first=" + jfIndex + " second=" + jfIndex},
+			want: vars{"UV_INDEX_FIRST_USERNAME": "u", "UV_INDEX_SECOND_PASSWORD": "p"}},
+		{name: "named index on other host", env: vars{"UV_DEFAULT_INDEX": "myidx=" + otherIndex},
+			want: vars{"UV_INDEX_MYIDX_USERNAME": "", "UV_INDEX_MYIDX_PASSWORD": ""}},
+		{name: "named index on other host with server-id", env: vars{"UV_DEFAULT_INDEX": "myidx=" + otherIndex}, serverID: "e2e",
+			want: vars{"UV_INDEX_MYIDX_USERNAME": "u", "UV_INDEX_MYIDX_PASSWORD": "p"}},
+		{name: "env overrides same-named pyproject index", env: vars{"UV_DEFAULT_INDEX": "myidx=" + jfIndex}, pyproject: "myidx",
+			want: vars{"UV_INDEX_MYIDX_USERNAME": "u"}},
+		{name: "env vars shared with foreign pyproject index", env: vars{"UV_INDEX": "corp-index=" + jfIndex}, pyproject: "corp_index",
+			want: vars{"UV_INDEX_CORP_INDEX_USERNAME": "", "UV_INDEX_CORP_INDEX_PASSWORD": ""}},
+		{name: "password-only env credential is kept", env: vars{"UV_DEFAULT_INDEX": "corp=" + jfIndex, "UV_INDEX_CORP_PASSWORD": "shell-token"},
+			want: vars{"UV_INDEX_CORP_PASSWORD": "shell-token", "UV_INDEX_CORP_USERNAME": ""}},
+		{name: "named index is not renamed", env: vars{"UV_DEFAULT_INDEX": "corp=" + jfIndex},
+			want: vars{"UV_DEFAULT_INDEX": "corp=" + jfIndex, "UV_INDEX_CORP_USERNAME": "u", "UV_INDEX_JFROG_USERNAME": ""}},
+		{name: "plain default index is named jfrog", env: vars{"UV_DEFAULT_INDEX": jfIndex},
+			want: vars{"UV_DEFAULT_INDEX": "jfrog=" + jfIndex, "UV_INDEX_JFROG_USERNAME": "u", "UV_INDEX_JFROG_PASSWORD": "p", "UV_KEYRING_PROVIDER": "disabled"}},
+		{name: "plain URL with query string", env: vars{"UV_DEFAULT_INDEX": jfIndex + "?a=b"},
+			want: vars{"UV_DEFAULT_INDEX": "jfrog=" + jfIndex + "?a=b", "UV_INDEX_JFROG_USERNAME": "u"}},
+		{name: "jfrog credentials already in env", env: vars{"UV_DEFAULT_INDEX": jfIndex, "UV_INDEX_JFROG_USERNAME": "shell-user", "UV_INDEX_JFROG_PASSWORD": "shell-pass"},
+			want: vars{"UV_DEFAULT_INDEX": "jfrog-default=" + jfIndex, "UV_INDEX_JFROG_DEFAULT_USERNAME": "u", "UV_INDEX_JFROG_USERNAME": "shell-user"}},
+		{name: "pyproject uses jfrog", env: vars{"UV_DEFAULT_INDEX": jfIndex}, pyproject: "jfrog",
+			want: vars{"UV_DEFAULT_INDEX": "jfrog-default=" + jfIndex, "UV_INDEX_JFROG_DEFAULT_PASSWORD": "p"}},
+		{name: "project uv.toml uses jfrog", env: vars{"UV_DEFAULT_INDEX": jfIndex}, projectUvToml: "jfrog",
+			want: vars{"UV_DEFAULT_INDEX": "jfrog-default=" + jfIndex, "UV_INDEX_JFROG_USERNAME": ""}},
+		{name: "user uv.toml uses jfrog", env: vars{"UV_DEFAULT_INDEX": jfIndex}, userUvToml: "jfrog",
+			want: vars{"UV_DEFAULT_INDEX": "jfrog-default=" + jfIndex, "UV_INDEX_JFROG_USERNAME": ""}},
+		{name: "both auto names taken", env: vars{"UV_DEFAULT_INDEX": jfIndex, "UV_INDEX_JFROG_PASSWORD": "x", "UV_INDEX_JFROG_DEFAULT_PASSWORD": "x"},
+			want: vars{"UV_DEFAULT_INDEX": jfIndex, "UV_INDEX_JFROG_DEFAULT_USERNAME": ""}},
+		{name: "plain URL on other host", env: vars{"UV_DEFAULT_INDEX": otherIndex},
+			want: vars{"UV_DEFAULT_INDEX": otherIndex, "UV_INDEX_JFROG_USERNAME": "", "UV_KEYRING_PROVIDER": ""}},
+		{name: "plain URL on other host with server-id", env: vars{"UV_DEFAULT_INDEX": otherIndex}, serverID: "e2e",
+			want: vars{"UV_DEFAULT_INDEX": "jfrog=" + otherIndex, "UV_INDEX_JFROG_USERNAME": "u"}},
+		{name: "plain URL with embedded credentials", env: vars{"UV_DEFAULT_INDEX": "https://user@host.example.com/simple"},
+			want: vars{"UV_DEFAULT_INDEX": "https://user@host.example.com/simple", "UV_INDEX_JFROG_USERNAME": ""}},
+	}
+	writeIndex := func(t *testing.T, path, table, name string) {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0700))
+		content := fmt.Sprintf("[[%s]]\nname = %q\nurl = %q\n", table, name, otherIndex)
+		require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+	}
+	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			entry, ok := uvParseIndexEnvEntry(tc.input)
-			assert.Equal(t, tc.wantOK, ok, "ok mismatch for %q", tc.input)
-			assert.Equal(t, tc.wantName, entry.Name, "name mismatch for %q", tc.input)
-			assert.Equal(t, tc.wantURL, entry.URL, "url mismatch for %q", tc.input)
+			for _, key := range []string{"UV_DEFAULT_INDEX", "UV_INDEX", "UV_INDEX_URL", "UV_KEYRING_PROVIDER", "UV_CONFIG_FILE", "XDG_CONFIG_HOME", "APPDATA"} {
+				t.Setenv(key, "")
+			}
+			for _, name := range []string{"MYIDX", "FIRST", "SECOND", "CORP", "CORP_INDEX", "JFROG", "JFROG_DEFAULT"} {
+				t.Setenv(uvIndexUsernameKey(name), "")
+				t.Setenv(uvIndexPasswordKey(name), "")
+			}
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("NETRC", filepath.Join(t.TempDir(), "missing-netrc"))
+			workDir := t.TempDir()
+			if tc.pyproject != "" {
+				writeIndex(t, filepath.Join(workDir, "pyproject.toml"), "tool.uv.index", tc.pyproject)
+			}
+			if tc.projectUvToml != "" {
+				writeIndex(t, filepath.Join(workDir, "uv.toml"), "index", tc.projectUvToml)
+			}
+			if tc.userUvToml != "" {
+				configHome := t.TempDir()
+				t.Setenv("XDG_CONFIG_HOME", configHome)
+				writeIndex(t, filepath.Join(configHome, "uv", "uv.toml"), "index", tc.userUvToml)
+			}
+			for key, value := range tc.env {
+				t.Setenv(key, value)
+			}
+
+			c := &NativeUVCommand{commandName: "install", serverID: tc.serverID}
+			c.injectCredentials(workDir, "", &config.ServerDetails{ArtifactoryUrl: "https://host.example.com/artifactory/", User: "u", Password: "p"}, nil)
+
+			for key, value := range tc.want {
+				assert.Equal(t, value, os.Getenv(key), key)
+			}
 		})
 	}
-}
-
-// TestUvReadIndexesFromEnv covers parsing of UV_DEFAULT_INDEX and UV_INDEX
-// into uvIndexEntry slices, including unnamed/empty handling.
-func TestUvReadIndexesFromEnv(t *testing.T) {
-	// Make sure no inherited env leaks across sub-tests.
-	clearUvIndexEnv := func(t *testing.T) {
-		t.Setenv("UV_DEFAULT_INDEX", "")
-		t.Setenv("UV_INDEX", "")
-	}
-
-	t.Run("default only, named", func(t *testing.T) {
-		clearUvIndexEnv(t)
-		t.Setenv("UV_DEFAULT_INDEX", "def=https://d.example.com/simple")
-		got := uvReadIndexesFromEnv()
-		require.Len(t, got, 1)
-		assert.Equal(t, "def", got[0].Name)
-		assert.Equal(t, "https://d.example.com/simple", got[0].URL)
-		assert.True(t, got[0].Default, "UV_DEFAULT_INDEX entries are flagged Default")
-	})
-
-	t.Run("index only, single", func(t *testing.T) {
-		clearUvIndexEnv(t)
-		t.Setenv("UV_INDEX", "a=https://a.example.com/simple")
-		got := uvReadIndexesFromEnv()
-		require.Len(t, got, 1)
-		assert.Equal(t, "a", got[0].Name)
-		assert.False(t, got[0].Default)
-	})
-
-	t.Run("index only, multiple spaces", func(t *testing.T) {
-		clearUvIndexEnv(t)
-		t.Setenv("UV_INDEX", "a=https://a.example.com/simple    b=https://b.example.com/simple")
-		got := uvReadIndexesFromEnv()
-		require.Len(t, got, 2)
-		assert.Equal(t, "a", got[0].Name)
-		assert.Equal(t, "b", got[1].Name)
-	})
-
-	t.Run("tabs and mixed whitespace", func(t *testing.T) {
-		clearUvIndexEnv(t)
-		t.Setenv("UV_INDEX", "a=https://a.example.com/simple\tb=https://b.example.com/simple\nc=https://c.example.com/simple")
-		got := uvReadIndexesFromEnv()
-		require.Len(t, got, 3)
-		assert.Equal(t, "a", got[0].Name)
-		assert.Equal(t, "b", got[1].Name)
-		assert.Equal(t, "c", got[2].Name)
-	})
-
-	t.Run("default and index combined", func(t *testing.T) {
-		clearUvIndexEnv(t)
-		t.Setenv("UV_DEFAULT_INDEX", "def=https://d.example.com/simple")
-		t.Setenv("UV_INDEX", "a=https://a.example.com/simple b=https://b.example.com/simple")
-		got := uvReadIndexesFromEnv()
-		require.Len(t, got, 3)
-		assert.Equal(t, "def", got[0].Name, "default entry comes first")
-		assert.True(t, got[0].Default)
-		assert.Equal(t, "a", got[1].Name)
-		assert.Equal(t, "b", got[2].Name)
-	})
-
-	t.Run("unnamed entries are not logged verbatim", func(t *testing.T) {
-		clearUvIndexEnv(t)
-		t.Setenv("UV_DEFAULT_INDEX", "https://default-token@d.example.com/simple")
-		t.Setenv("UV_INDEX", "https://extra-token@i.example.com/simple")
-		logOutput := captureUvLog(t)
-
-		uvReadIndexesFromEnv()
-
-		assert.NotContains(t, logOutput.String(), "default-token")
-		assert.NotContains(t, logOutput.String(), "extra-token")
-		assert.Contains(t, logOutput.String(), "d.example.com")
-		assert.Contains(t, logOutput.String(), "i.example.com")
-	})
-
-	t.Run("unnamed default skipped", func(t *testing.T) {
-		clearUvIndexEnv(t)
-		t.Setenv("UV_DEFAULT_INDEX", "https://d.example.com/simple")
-		got := uvReadIndexesFromEnv()
-		assert.Empty(t, got, "unnamed UV_DEFAULT_INDEX cannot be authenticated via per-index env vars")
-	})
-
-	t.Run("mixed named and unnamed in UV_INDEX", func(t *testing.T) {
-		clearUvIndexEnv(t)
-		t.Setenv("UV_INDEX", "a=https://a.example.com/simple https://b.example.com/simple c=https://c.example.com/simple")
-		got := uvReadIndexesFromEnv()
-		require.Len(t, got, 2)
-		assert.Equal(t, "a", got[0].Name)
-		assert.Equal(t, "c", got[1].Name)
-	})
-
-	t.Run("both empty", func(t *testing.T) {
-		clearUvIndexEnv(t)
-		got := uvReadIndexesFromEnv()
-		assert.Empty(t, got)
-	})
-}
-
-// TestUvMergeIndexes covers the precedence rules: env entries first (in their
-// declared order), then non-conflicting base entries; dedup by canonical env name.
-func TestUvMergeIndexes(t *testing.T) {
-	t.Run("env overrides toml same name", func(t *testing.T) {
-		base := []uvIndexEntry{{Name: "myidx", URL: "https://toml.example.com/simple"}}
-		override := []uvIndexEntry{{Name: "myidx", URL: "https://env.example.com/simple"}}
-		got := uvMergeIndexes(base, override)
-		require.Len(t, got, 1)
-		assert.Equal(t, "https://env.example.com/simple", got[0].URL)
-	})
-
-	t.Run("toml-only kept", func(t *testing.T) {
-		base := []uvIndexEntry{{Name: "a", URL: "https://a.example.com/simple"}}
-		got := uvMergeIndexes(base, nil)
-		assert.Equal(t, base, got)
-	})
-
-	t.Run("env-only kept", func(t *testing.T) {
-		override := []uvIndexEntry{{Name: "b", URL: "https://b.example.com/simple"}}
-		got := uvMergeIndexes(nil, override)
-		require.Len(t, got, 1)
-		assert.Equal(t, "b", got[0].Name)
-	})
-
-	t.Run("env first then toml", func(t *testing.T) {
-		base := []uvIndexEntry{{Name: "a", URL: "https://a.example.com/simple"}}
-		override := []uvIndexEntry{{Name: "b", URL: "https://b.example.com/simple"}}
-		got := uvMergeIndexes(base, override)
-		require.Len(t, got, 2)
-		assert.Equal(t, "b", got[0].Name)
-		assert.Equal(t, "a", got[1].Name)
-	})
-
-	t.Run("dedup by canonical env name", func(t *testing.T) {
-		// "my-idx" and "my.idx" both canonicalize to "MY_IDX" via uvIndexEnvName.
-		base := []uvIndexEntry{{Name: "my-idx", URL: "https://toml.example.com/simple"}}
-		override := []uvIndexEntry{{Name: "my.idx", URL: "https://env.example.com/simple"}}
-		got := uvMergeIndexes(base, override)
-		require.Len(t, got, 1, "entries collapsing to the same UV env-var name should dedupe")
-		assert.Equal(t, "https://env.example.com/simple", got[0].URL)
-	})
-
-	t.Run("preserves env declaration order", func(t *testing.T) {
-		override := []uvIndexEntry{
-			{Name: "a", URL: "https://a.example.com/simple"},
-			{Name: "b", URL: "https://b.example.com/simple"},
-			{Name: "c", URL: "https://c.example.com/simple"},
-		}
-		got := uvMergeIndexes(nil, override)
-		require.Len(t, got, 3)
-		assert.Equal(t, "a", got[0].Name)
-		assert.Equal(t, "b", got[1].Name)
-		assert.Equal(t, "c", got[2].Name)
-	})
-}
-
-// TestUvResolveBuildInfoIndexURL covers the env-var fallback chain used by
-// build-info: UV_DEFAULT_INDEX → first UV_INDEX entry → UV_INDEX_URL.
-func TestUvResolveBuildInfoIndexURL(t *testing.T) {
-	clearEnv := func(t *testing.T) {
-		t.Setenv("UV_DEFAULT_INDEX", "")
-		t.Setenv("UV_INDEX", "")
-		t.Setenv("UV_INDEX_URL", "")
-	}
-
-	t.Run("UV_DEFAULT_INDEX named wins", func(t *testing.T) {
-		clearEnv(t)
-		t.Setenv("UV_DEFAULT_INDEX", "def=https://d.example.com/simple")
-		t.Setenv("UV_INDEX", "a=https://a.example.com/simple")
-		t.Setenv("UV_INDEX_URL", "https://legacy.example.com/simple")
-		envVar, indexURL := uvResolveBuildInfoIndexURL()
-		assert.Equal(t, "UV_DEFAULT_INDEX", envVar)
-		assert.Equal(t, "https://d.example.com/simple", indexURL, "name= prefix should be stripped")
-	})
-
-	t.Run("UV_DEFAULT_INDEX unnamed falls back to raw URL", func(t *testing.T) {
-		clearEnv(t)
-		t.Setenv("UV_DEFAULT_INDEX", "https://d.example.com/simple")
-		envVar, indexURL := uvResolveBuildInfoIndexURL()
-		assert.Equal(t, "UV_DEFAULT_INDEX", envVar)
-		assert.Equal(t, "https://d.example.com/simple", indexURL)
-	})
-
-	t.Run("UV_INDEX used when no UV_DEFAULT_INDEX", func(t *testing.T) {
-		clearEnv(t)
-		t.Setenv("UV_INDEX", "a=https://a.example.com/simple b=https://b.example.com/simple")
-		envVar, indexURL := uvResolveBuildInfoIndexURL()
-		assert.Equal(t, "UV_INDEX", envVar)
-		assert.Equal(t, "https://a.example.com/simple", indexURL, "first named UV_INDEX entry wins")
-	})
-
-	t.Run("UV_INDEX_URL legacy fallback", func(t *testing.T) {
-		clearEnv(t)
-		t.Setenv("UV_INDEX_URL", "https://legacy.example.com/simple")
-		envVar, indexURL := uvResolveBuildInfoIndexURL()
-		assert.Equal(t, "UV_INDEX_URL", envVar)
-		assert.Equal(t, "https://legacy.example.com/simple", indexURL)
-	})
-
-	t.Run("all unset", func(t *testing.T) {
-		clearEnv(t)
-		envVar, indexURL := uvResolveBuildInfoIndexURL()
-		assert.Equal(t, "", envVar)
-		assert.Equal(t, "", indexURL)
-	})
-}
-
-// TestInjectCredentials_EnvVarIndexes exercises NativeUVCommand.injectCredentials
-// end-to-end with UV_INDEX / UV_DEFAULT_INDEX set, verifying that credentials are
-// injected into UV_INDEX_<NAME>_USERNAME/PASSWORD env vars.
-func TestInjectCredentials_EnvVarIndexes(t *testing.T) {
-	newServer := func() *config.ServerDetails {
-		return &config.ServerDetails{
-			ArtifactoryUrl: "https://host.example.com/artifactory/",
-			User:           "u",
-			Password:       "p",
-		}
-	}
-
-	// Each sub-test clears the cred env vars it will check, plus the source
-	// vars, so prior state cannot leak in or out.
-	clearUvIndexEnv := func(t *testing.T, names ...string) {
-		t.Setenv("UV_DEFAULT_INDEX", "")
-		t.Setenv("UV_INDEX", "")
-		t.Setenv("UV_INDEX_URL", "")
-		t.Setenv("UV_KEYRING_PROVIDER", "")
-		for _, n := range names {
-			t.Setenv("UV_INDEX_"+n+"_USERNAME", "")
-			t.Setenv("UV_INDEX_"+n+"_PASSWORD", "")
-		}
-		// Point HOME / NETRC at empty dirs so uvNetrcHasCredentials returns false.
-		t.Setenv("HOME", t.TempDir())
-		t.Setenv("NETRC", filepath.Join(t.TempDir(), "missing-netrc"))
-		t.Setenv("XDG_CONFIG_HOME", "")
-		t.Setenv("UV_CONFIG_FILE", "")
-		t.Setenv("APPDATA", "")
-	}
-
-	t.Run("UV_DEFAULT_INDEX named, host matches", func(t *testing.T) {
-		clearUvIndexEnv(t, "MYIDX")
-		t.Setenv("UV_DEFAULT_INDEX", "myidx=https://host.example.com/artifactory/api/pypi/repo/simple")
-
-		c := &NativeUVCommand{commandName: "install"}
-		c.injectCredentials(t.TempDir(), "", newServer(), nil)
-
-		assert.Equal(t, "u", os.Getenv("UV_INDEX_MYIDX_USERNAME"))
-		assert.Equal(t, "p", os.Getenv("UV_INDEX_MYIDX_PASSWORD"))
-		assert.Equal(t, "disabled", os.Getenv("UV_KEYRING_PROVIDER"))
-	})
-
-	t.Run("UV_INDEX with two named entries", func(t *testing.T) {
-		clearUvIndexEnv(t, "FIRST", "SECOND")
-		t.Setenv("UV_INDEX", "first=https://host.example.com/artifactory/api/pypi/a/simple second=https://host.example.com/artifactory/api/pypi/b/simple")
-
-		c := &NativeUVCommand{commandName: "install"}
-		c.injectCredentials(t.TempDir(), "", newServer(), nil)
-
-		assert.Equal(t, "u", os.Getenv("UV_INDEX_FIRST_USERNAME"))
-		assert.Equal(t, "p", os.Getenv("UV_INDEX_FIRST_PASSWORD"))
-		assert.Equal(t, "u", os.Getenv("UV_INDEX_SECOND_USERNAME"))
-		assert.Equal(t, "p", os.Getenv("UV_INDEX_SECOND_PASSWORD"))
-	})
-
-	const indexURL = "https://host.example.com/artifactory/api/pypi/repo/simple"
-
-	t.Run("UV_DEFAULT_INDEX unnamed is auto-named jfrog", func(t *testing.T) {
-		clearUvIndexEnv(t, "JFROG", "JFROG_DEFAULT")
-		t.Setenv("UV_DEFAULT_INDEX", indexURL)
-
-		c := &NativeUVCommand{commandName: "install"}
-		c.injectCredentials(t.TempDir(), "", newServer(), nil)
-
-		assert.Equal(t, "jfrog="+indexURL, os.Getenv("UV_DEFAULT_INDEX"))
-		assert.Equal(t, "u", os.Getenv("UV_INDEX_JFROG_USERNAME"))
-		assert.Equal(t, "p", os.Getenv("UV_INDEX_JFROG_PASSWORD"))
-		assert.Equal(t, "disabled", os.Getenv("UV_KEYRING_PROVIDER"))
-	})
-
-	t.Run("unnamed URL with query string", func(t *testing.T) {
-		clearUvIndexEnv(t, "JFROG", "JFROG_DEFAULT")
-		t.Setenv("UV_DEFAULT_INDEX", indexURL+"?a=b")
-
-		c := &NativeUVCommand{commandName: "install"}
-		c.injectCredentials(t.TempDir(), "", newServer(), nil)
-
-		assert.Equal(t, "jfrog="+indexURL+"?a=b", os.Getenv("UV_DEFAULT_INDEX"))
-		assert.Equal(t, "u", os.Getenv("UV_INDEX_JFROG_USERNAME"))
-	})
-
-	t.Run("pre-existing JFROG creds in env", func(t *testing.T) {
-		clearUvIndexEnv(t, "JFROG", "JFROG_DEFAULT")
-		t.Setenv("UV_INDEX_JFROG_USERNAME", "shell-user")
-		t.Setenv("UV_INDEX_JFROG_PASSWORD", "shell-pass")
-		t.Setenv("UV_DEFAULT_INDEX", indexURL)
-
-		c := &NativeUVCommand{commandName: "install"}
-		c.injectCredentials(t.TempDir(), "", newServer(), nil)
-
-		assert.Equal(t, "jfrog-default="+indexURL, os.Getenv("UV_DEFAULT_INDEX"))
-		assert.Equal(t, "u", os.Getenv("UV_INDEX_JFROG_DEFAULT_USERNAME"))
-		assert.Equal(t, "shell-user", os.Getenv("UV_INDEX_JFROG_USERNAME"))
-	})
-
-	t.Run("pyproject already uses jfrog", func(t *testing.T) {
-		clearUvIndexEnv(t, "JFROG", "JFROG_DEFAULT")
-		workDir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(workDir, "pyproject.toml"), []byte(`
-[[tool.uv.index]]
-name = "jfrog"
-url = "https://other.example.net/simple"
-`), 0600))
-		t.Setenv("UV_DEFAULT_INDEX", indexURL)
-
-		c := &NativeUVCommand{commandName: "install"}
-		c.injectCredentials(workDir, "", newServer(), nil)
-
-		assert.Equal(t, "jfrog-default="+indexURL, os.Getenv("UV_DEFAULT_INDEX"))
-		assert.Equal(t, "p", os.Getenv("UV_INDEX_JFROG_DEFAULT_PASSWORD"))
-	})
-
-	t.Run("user uv.toml already uses jfrog", func(t *testing.T) {
-		clearUvIndexEnv(t, "JFROG", "JFROG_DEFAULT")
-		configHome := t.TempDir()
-		require.NoError(t, os.MkdirAll(filepath.Join(configHome, "uv"), 0700))
-		require.NoError(t, os.WriteFile(filepath.Join(configHome, "uv", "uv.toml"), []byte(`
-[[index]]
-name = "jfrog"
-url = "https://other.example.net/simple"
-`), 0600))
-		t.Setenv("XDG_CONFIG_HOME", configHome)
-		t.Setenv("UV_DEFAULT_INDEX", indexURL)
-
-		c := &NativeUVCommand{commandName: "install"}
-		c.injectCredentials(t.TempDir(), "", newServer(), nil)
-
-		assert.Equal(t, "jfrog-default="+indexURL, os.Getenv("UV_DEFAULT_INDEX"))
-		assert.Equal(t, "", os.Getenv("UV_INDEX_JFROG_USERNAME"))
-	})
-
-	t.Run("project uv.toml already uses jfrog", func(t *testing.T) {
-		clearUvIndexEnv(t, "JFROG", "JFROG_DEFAULT")
-		workDir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(workDir, "uv.toml"), []byte(`
-[[index]]
-name = "jfrog"
-url = "https://other.example.net/simple"
-`), 0600))
-		t.Setenv("UV_DEFAULT_INDEX", indexURL)
-
-		c := &NativeUVCommand{commandName: "install"}
-		c.injectCredentials(workDir, "", newServer(), nil)
-
-		assert.Equal(t, "jfrog-default="+indexURL, os.Getenv("UV_DEFAULT_INDEX"))
-		assert.Equal(t, "", os.Getenv("UV_INDEX_JFROG_USERNAME"))
-	})
-
-	t.Run("both candidate names taken", func(t *testing.T) {
-		clearUvIndexEnv(t, "JFROG", "JFROG_DEFAULT")
-		t.Setenv("UV_INDEX_JFROG_PASSWORD", "x")
-		t.Setenv("UV_INDEX_JFROG_DEFAULT_PASSWORD", "x")
-		t.Setenv("UV_DEFAULT_INDEX", indexURL)
-
-		c := &NativeUVCommand{commandName: "install"}
-		c.injectCredentials(t.TempDir(), "", newServer(), nil)
-
-		assert.Equal(t, indexURL, os.Getenv("UV_DEFAULT_INDEX"))
-		assert.Equal(t, "", os.Getenv("UV_INDEX_JFROG_DEFAULT_USERNAME"))
-	})
-
-	t.Run("unnamed host mismatch is not renamed", func(t *testing.T) {
-		clearUvIndexEnv(t, "JFROG", "JFROG_DEFAULT")
-		t.Setenv("UV_DEFAULT_INDEX", "https://other.example.net/simple")
-
-		c := &NativeUVCommand{commandName: "install"}
-		c.injectCredentials(t.TempDir(), "", newServer(), nil)
-
-		assert.Equal(t, "https://other.example.net/simple", os.Getenv("UV_DEFAULT_INDEX"))
-		assert.Equal(t, "", os.Getenv("UV_INDEX_JFROG_USERNAME"))
-		assert.Equal(t, "", os.Getenv("UV_KEYRING_PROVIDER"))
-	})
-
-	t.Run("unnamed host mismatch with server-id is renamed", func(t *testing.T) {
-		clearUvIndexEnv(t, "JFROG", "JFROG_DEFAULT")
-		t.Setenv("UV_DEFAULT_INDEX", "https://other.example.net/simple")
-
-		c := &NativeUVCommand{commandName: "install", serverID: "e2e"}
-		c.injectCredentials(t.TempDir(), "", newServer(), nil)
-
-		assert.Equal(t, "jfrog=https://other.example.net/simple", os.Getenv("UV_DEFAULT_INDEX"))
-		assert.Equal(t, "u", os.Getenv("UV_INDEX_JFROG_USERNAME"))
-	})
-
-	t.Run("unnamed with embedded credentials is left alone", func(t *testing.T) {
-		clearUvIndexEnv(t, "JFROG", "JFROG_DEFAULT")
-		embedded := "https://user@host.example.com/artifactory/api/pypi/repo/simple"
-		t.Setenv("UV_DEFAULT_INDEX", embedded)
-
-		c := &NativeUVCommand{commandName: "install"}
-		c.injectCredentials(t.TempDir(), "", newServer(), nil)
-
-		assert.Equal(t, embedded, os.Getenv("UV_DEFAULT_INDEX"))
-		assert.Equal(t, "", os.Getenv("UV_INDEX_JFROG_USERNAME"))
-	})
-
-	t.Run("named index with password-only env keeps that password", func(t *testing.T) {
-		clearUvIndexEnv(t, "CORP")
-		t.Setenv("UV_INDEX_CORP_PASSWORD", "shell-token")
-		t.Setenv("UV_DEFAULT_INDEX", "corp="+indexURL)
-
-		c := &NativeUVCommand{commandName: "install"}
-		c.injectCredentials(t.TempDir(), "", newServer(), nil)
-
-		assert.Equal(t, "shell-token", os.Getenv("UV_INDEX_CORP_PASSWORD"))
-		assert.Equal(t, "", os.Getenv("UV_INDEX_CORP_USERNAME"))
-	})
-
-	t.Run("env index sharing env vars with a foreign pyproject index is not injected", func(t *testing.T) {
-		clearUvIndexEnv(t, "CORP_INDEX")
-		workDir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(workDir, "pyproject.toml"), []byte(`
-[[tool.uv.index]]
-name = "corp_index"
-url = "https://other.example.net/simple"
-`), 0600))
-		t.Setenv("UV_INDEX", "corp-index="+indexURL)
-
-		c := &NativeUVCommand{commandName: "install"}
-		c.injectCredentials(workDir, "", newServer(), nil)
-
-		assert.Equal(t, "", os.Getenv("UV_INDEX_CORP_INDEX_USERNAME"))
-		assert.Equal(t, "", os.Getenv("UV_INDEX_CORP_INDEX_PASSWORD"))
-	})
-
-	t.Run("already named is not renamed", func(t *testing.T) {
-		clearUvIndexEnv(t, "CORP", "JFROG")
-		t.Setenv("UV_DEFAULT_INDEX", "corp="+indexURL)
-
-		c := &NativeUVCommand{commandName: "install"}
-		c.injectCredentials(t.TempDir(), "", newServer(), nil)
-
-		assert.Equal(t, "corp="+indexURL, os.Getenv("UV_DEFAULT_INDEX"))
-		assert.Equal(t, "u", os.Getenv("UV_INDEX_CORP_USERNAME"))
-		assert.Equal(t, "", os.Getenv("UV_INDEX_JFROG_USERNAME"))
-	})
-
-	t.Run("host mismatch without server-id skips injection", func(t *testing.T) {
-		clearUvIndexEnv(t, "MYIDX")
-		t.Setenv("UV_DEFAULT_INDEX", "myidx=https://other.example.net/api/pypi/repo/simple")
-
-		c := &NativeUVCommand{commandName: "install"} // no serverID → no host override
-		c.injectCredentials(t.TempDir(), "", newServer(), nil)
-
-		assert.Equal(t, "", os.Getenv("UV_INDEX_MYIDX_USERNAME"), "host mismatch must skip injection")
-		assert.Equal(t, "", os.Getenv("UV_INDEX_MYIDX_PASSWORD"))
-	})
-
-	t.Run("host mismatch with explicit server-id injects anyway", func(t *testing.T) {
-		clearUvIndexEnv(t, "MYIDX")
-		t.Setenv("UV_DEFAULT_INDEX", "myidx=https://other.example.net/api/pypi/repo/simple")
-
-		c := &NativeUVCommand{commandName: "install", serverID: "explicit"}
-		c.injectCredentials(t.TempDir(), "", newServer(), nil)
-
-		assert.Equal(t, "u", os.Getenv("UV_INDEX_MYIDX_USERNAME"), "explicit --server-id overrides host mismatch")
-		assert.Equal(t, "p", os.Getenv("UV_INDEX_MYIDX_PASSWORD"))
-	})
-
-	t.Run("env override wins over conflicting pyproject toml", func(t *testing.T) {
-		clearUvIndexEnv(t, "MYIDX")
-		// pyproject.toml has myidx pointing at a host that doesn't match the server.
-		workDir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(workDir, "pyproject.toml"), []byte(`
-[[tool.uv.index]]
-name = "myidx"
-url = "https://stale.example.net/simple"
-`), 0600))
-		// UV_DEFAULT_INDEX overrides with a matching host.
-		t.Setenv("UV_DEFAULT_INDEX", "myidx=https://host.example.com/artifactory/api/pypi/repo/simple")
-
-		c := &NativeUVCommand{commandName: "install"}
-		c.injectCredentials(workDir, "", newServer(), nil)
-
-		assert.Equal(t, "u", os.Getenv("UV_INDEX_MYIDX_USERNAME"),
-			"env-var URL host (matches) should win over pyproject.toml URL host (mismatch)")
-	})
 }
 
 func TestUvExtractRepoKeyFromURL(t *testing.T) {
-	cases := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"api url", "https://host.example.com/artifactory/api/pypi/pypi-remote/simple", "pypi-remote"},
-		{"plain repo key", "pypi-local", "pypi-local"},
-		{"url without repo segment", "https://token@host.example.com/", ""},
-		{"url with only simple", "https://host.example.com/simple", ""},
-		{"unparseable url", "https://token@host.example.com/%zz", ""},
+	cases := map[string]string{
+		"https://host.example.com/artifactory/api/pypi/pypi-remote/simple": "pypi-remote",
+		"pypi-local":                         "pypi-local",
+		"https://token@host.example.com/":    "",
+		"https://host.example.com/simple":    "",
+		"https://token@host.example.com/%zz": "",
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, uvExtractRepoKeyFromURL(tc.input))
-		})
+	for input, want := range cases {
+		assert.Equal(t, want, uvExtractRepoKeyFromURL(input), input)
 	}
 }
 
@@ -739,15 +400,9 @@ func TestUvEnrichDepsForIndex(t *testing.T) {
 	serverDetails := &config.ServerDetails{ArtifactoryUrl: server.URL + "/artifactory/", AccessToken: "token"}
 	deps := []buildinfo.Dependency{{Id: "six:1.17.0"}}
 
-	t.Run("index host differs from server", func(t *testing.T) {
-		requests.Store(0)
-		uvEnrichDepsForIndex(deps, "repo", "https://other.example.net/api/pypi/repo/simple", nil, serverDetails)
-		assert.Zero(t, requests.Load())
-	})
+	uvEnrichDepsForIndex(deps, "repo", "https://other.example.net/api/pypi/repo/simple", nil, serverDetails)
+	assert.Zero(t, requests.Load(), "index on another host must not be enriched")
 
-	t.Run("index host matches server", func(t *testing.T) {
-		requests.Store(0)
-		uvEnrichDepsForIndex(deps, "repo", server.URL+"/artifactory/api/pypi/repo/simple", nil, serverDetails)
-		assert.NotZero(t, requests.Load())
-	})
+	uvEnrichDepsForIndex(deps, "repo", server.URL+"/artifactory/api/pypi/repo/simple", nil, serverDetails)
+	assert.NotZero(t, requests.Load(), "index on the server host is enriched")
 }
