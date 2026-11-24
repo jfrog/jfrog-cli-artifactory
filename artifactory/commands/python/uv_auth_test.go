@@ -2,10 +2,14 @@ package python
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
+	buildinfo "github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-cli-core/v2/utils/config"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
@@ -154,7 +158,7 @@ func TestUvIndexHasNativeCredentials(t *testing.T) {
 		t.Setenv("UV_INDEX_MY_INDEX_USERNAME", "testuser")
 		assert.True(t, uvIndexHasNativeCredentials(
 			"https://host.example.com/simple",
-			"UV_INDEX_MY_INDEX_USERNAME",
+			"MY_INDEX",
 		))
 	})
 
@@ -162,7 +166,7 @@ func TestUvIndexHasNativeCredentials(t *testing.T) {
 		// ensure env var is not set (t.Setenv restores on cleanup)
 		assert.True(t, uvIndexHasNativeCredentials(
 			"https://user:pass@host.example.com/simple",
-			"UV_INDEX_NONEXISTENT_VAR_XYZ",
+			"NONEXISTENT_VAR_XYZ",
 		))
 	})
 
@@ -175,7 +179,7 @@ func TestUvIndexHasNativeCredentials(t *testing.T) {
 		t.Setenv("NETRC", netrcPath)
 		assert.True(t, uvIndexHasNativeCredentials(
 			"https://netrchost.example.com/simple",
-			"UV_INDEX_NONEXISTENT_VAR_XYZ2",
+			"NONEXISTENT_VAR_XYZ2",
 		))
 	})
 
@@ -184,7 +188,7 @@ func TestUvIndexHasNativeCredentials(t *testing.T) {
 		t.Setenv("HOME", tmpDir) // no .netrc
 		assert.False(t, uvIndexHasNativeCredentials(
 			"https://host.example.com/simple",
-			"UV_INDEX_NONEXISTENT_VAR_XYZ3",
+			"NONEXISTENT_VAR_XYZ3",
 		))
 	})
 }
@@ -622,6 +626,18 @@ url = "https://other.example.net/simple"
 		assert.Equal(t, "", os.Getenv("UV_INDEX_JFROG_USERNAME"))
 	})
 
+	t.Run("named index with password-only env keeps that password", func(t *testing.T) {
+		clearUvIndexEnv(t, "CORP")
+		t.Setenv("UV_INDEX_CORP_PASSWORD", "shell-token")
+		t.Setenv("UV_DEFAULT_INDEX", "corp="+indexURL)
+
+		c := &NativeUVCommand{commandName: "install"}
+		c.injectCredentials(t.TempDir(), "", newServer(), nil)
+
+		assert.Equal(t, "shell-token", os.Getenv("UV_INDEX_CORP_PASSWORD"))
+		assert.Equal(t, "", os.Getenv("UV_INDEX_CORP_USERNAME"))
+	})
+
 	t.Run("already named is not renamed", func(t *testing.T) {
 		clearUvIndexEnv(t, "CORP", "JFROG")
 		t.Setenv("UV_DEFAULT_INDEX", "corp="+indexURL)
@@ -673,5 +689,47 @@ url = "https://stale.example.net/simple"
 
 		assert.Equal(t, "u", os.Getenv("UV_INDEX_MYIDX_USERNAME"),
 			"env-var URL host (matches) should win over pyproject.toml URL host (mismatch)")
+	})
+}
+
+func TestUvExtractRepoKeyFromURL(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"api url", "https://host.example.com/artifactory/api/pypi/pypi-remote/simple", "pypi-remote"},
+		{"plain repo key", "pypi-local", "pypi-local"},
+		{"url without repo segment", "https://token@host.example.com/", ""},
+		{"url with only simple", "https://host.example.com/simple", ""},
+		{"unparseable url", "https://token@host.example.com/%zz", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, uvExtractRepoKeyFromURL(tc.input))
+		})
+	}
+}
+
+func TestUvEnrichDepsForIndex(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	serverDetails := &config.ServerDetails{ArtifactoryUrl: server.URL + "/artifactory/", AccessToken: "token"}
+	deps := []buildinfo.Dependency{{Id: "six:1.17.0"}}
+
+	t.Run("index host differs from server", func(t *testing.T) {
+		requests.Store(0)
+		uvEnrichDepsForIndex(deps, "repo", "https://other.example.net/api/pypi/repo/simple", nil, serverDetails)
+		assert.Zero(t, requests.Load())
+	})
+
+	t.Run("index host matches server", func(t *testing.T) {
+		requests.Store(0)
+		uvEnrichDepsForIndex(deps, "repo", server.URL+"/artifactory/api/pypi/repo/simple", nil, serverDetails)
+		assert.NotZero(t, requests.Load())
 	})
 }

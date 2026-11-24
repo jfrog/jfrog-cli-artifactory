@@ -186,7 +186,7 @@ func (c *NativeUVCommand) injectCredentials(workingDir, deployerRepo string, ser
 	for _, idx := range indexes {
 		envName := uvIndexEnvName(idx.Name)
 		userKey := uvIndexUsernameKey(envName)
-		if uvIndexHasNativeCredentials(idx.URL, userKey) {
+		if uvIndexHasNativeCredentials(idx.URL, envName) {
 			log.Info(fmt.Sprintf("UV auth [index %q]: native credentials already present (env var, embedded URL, or netrc)", idx.Name))
 		} else {
 			hostMatches := uvHostMatchesServer(idx.URL, serverDetails.ArtifactoryUrl)
@@ -673,8 +673,8 @@ func uvMergeIndexes(base, override []uvIndexEntry) []uvIndexEntry {
 // uvIndexHasNativeCredentials returns true when any native UV mechanism
 // (env var, embedded URL, netrc) already provides credentials for the index,
 // so jf config injection should be skipped.
-func uvIndexHasNativeCredentials(indexURL, envVarUsername string) bool {
-	if os.Getenv(envVarUsername) != "" {
+func uvIndexHasNativeCredentials(indexURL, envName string) bool {
+	if os.Getenv(uvIndexUsernameKey(envName)) != "" || os.Getenv(uvIndexPasswordKey(envName)) != "" {
 		return true
 	}
 	if uvURLHasEmbeddedCredentials(indexURL) {
@@ -910,14 +910,7 @@ func uvGetBuildInfo(workingDir string, buildConfiguration *buildUtils.BuildConfi
 					sd, _ = coreConfig.GetDefaultServerConf()
 				}
 				if sd != nil {
-					if indexURL != "" && !uvHostMatchesServer(indexURL, sd.ArtifactoryUrl) {
-						log.Warn(fmt.Sprintf(
-							"UV build-info: jf server config host (%s) differs from index URL host (%s) — "+
-								"dependency checksum enrichment (sha1/md5) will be skipped. "+
-								"Use --server-id to specify the Artifactory instance that hosts your uv packages.",
-							uvHostOf(sd.ArtifactoryUrl), uvHostOf(indexURL)))
-					}
-					uvEnrichDepsFromArtifactory(bi.Modules[0].Dependencies, repoKey, directURLDeps, sd)
+					uvEnrichDepsForIndex(bi.Modules[0].Dependencies, repoKey, indexURL, directURLDeps, sd)
 				}
 			}
 		}
@@ -992,6 +985,18 @@ func uvGetBuildInfo(workingDir string, buildConfiguration *buildUtils.BuildConfi
 
 	log.Info(fmt.Sprintf("UV build info collected. Use 'jf rt bp %s %s' to publish.", buildName, buildNumber))
 	return nil
+}
+
+func uvEnrichDepsForIndex(deps []buildinfo.Dependency, repoKey, indexURL string, directURLDeps map[string]string, sd *coreConfig.ServerDetails) {
+	if indexURL != "" && !uvHostMatchesServer(indexURL, sd.ArtifactoryUrl) {
+		log.Warn(fmt.Sprintf(
+			"UV build-info: jf server config host (%s) differs from index URL host (%s) — "+
+				"dependency checksum enrichment (sha1/md5) will be skipped. "+
+				"Use --server-id to specify the Artifactory instance that hosts your uv packages.",
+			uvHostOf(sd.ArtifactoryUrl), uvHostOf(indexURL)))
+		return
+	}
+	uvEnrichDepsFromArtifactory(deps, repoKey, directURLDeps, sd)
 }
 
 // uvResolverRepoFromToml extracts the Artifactory repo key from the first
@@ -1200,7 +1205,7 @@ func uvExtractRepoKeyFromURL(repoOrURL string) string {
 	}
 	parsed, err := url.Parse(repoOrURL)
 	if err != nil {
-		return repoOrURL
+		return ""
 	}
 	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
 	for i, seg := range segments {
@@ -1213,7 +1218,7 @@ func uvExtractRepoKeyFromURL(repoOrURL string) string {
 			return segments[i]
 		}
 	}
-	return repoOrURL
+	return ""
 }
 
 // uvCollectDistArtifacts collects wheel/sdist artifacts from the dist/ directory.
