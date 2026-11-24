@@ -39,6 +39,7 @@ func TestUvURLHasEmbeddedCredentials(t *testing.T) {
 		{"not-a-url", false},
 		{"https://host.example.com/api/pypi/repo/simple", false},
 		{"http://user:secret@10.0.0.1:8080/simple", true},
+		{"https://:token@host.example.com/simple", true}, // password only
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -636,6 +637,23 @@ url = "https://other.example.net/simple"
 
 		assert.Equal(t, "shell-token", os.Getenv("UV_INDEX_CORP_PASSWORD"))
 		assert.Equal(t, "", os.Getenv("UV_INDEX_CORP_USERNAME"))
+	})
+
+	t.Run("env index sharing env vars with a foreign pyproject index is not injected", func(t *testing.T) {
+		clearUvIndexEnv(t, "CORP_INDEX")
+		workDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(workDir, "pyproject.toml"), []byte(`
+[[tool.uv.index]]
+name = "corp_index"
+url = "https://other.example.net/simple"
+`), 0600))
+		t.Setenv("UV_INDEX", "corp-index="+indexURL)
+
+		c := &NativeUVCommand{commandName: "install"}
+		c.injectCredentials(workDir, "", newServer(), nil)
+
+		assert.Equal(t, "", os.Getenv("UV_INDEX_CORP_INDEX_USERNAME"))
+		assert.Equal(t, "", os.Getenv("UV_INDEX_CORP_INDEX_PASSWORD"))
 	})
 
 	t.Run("already named is not renamed", func(t *testing.T) {

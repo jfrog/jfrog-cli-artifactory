@@ -179,16 +179,22 @@ func (c *NativeUVCommand) injectCredentials(workingDir, deployerRepo string, ser
 	if len(indexes) == 0 {
 		indexes = uvReadIndexesFromToml(workingDir)
 	}
-	uvAutoNameDefaultIndex(serverDetails, c.serverID != "", append(uvConfigIndexes(workingDir), indexes...))
+	configIndexes := uvConfigIndexes(workingDir)
+	uvAutoNameDefaultIndex(serverDetails, c.serverID != "", append(append([]uvIndexEntry{}, configIndexes...), indexes...))
+	envIndexes := uvReadIndexesFromEnv()
+	knownIndexes := append(append(configIndexes, indexes...), envIndexes...)
 	// Merge UV_DEFAULT_INDEX / UV_INDEX entries — env vars override config-file entries
 	// to match UV's own precedence rules.
-	indexes = uvMergeIndexes(indexes, uvReadIndexesFromEnv())
+	indexes = uvMergeIndexes(indexes, envIndexes)
 	for _, idx := range indexes {
 		envName := uvIndexEnvName(idx.Name)
 		userKey := uvIndexUsernameKey(envName)
-		if uvIndexHasNativeCredentials(idx.URL, envName) {
+		switch {
+		case uvIndexHasNativeCredentials(idx.URL, envName):
 			log.Info(fmt.Sprintf("UV auth [index %q]: native credentials already present (env var, embedded URL, or netrc)", idx.Name))
-		} else {
+		case c.serverID == "" && uvEnvNameSharedWithOtherHost(idx, knownIndexes, serverDetails.ArtifactoryUrl):
+			log.Warn(fmt.Sprintf("UV auth [index %q]: another index shares UV_INDEX_%s_* on a different host; skipping credential injection", idx.Name, envName))
+		default:
 			hostMatches := uvHostMatchesServer(idx.URL, serverDetails.ArtifactoryUrl)
 			explicitServerID := c.serverID != ""
 			if hostMatches || explicitServerID {
@@ -554,6 +560,18 @@ func uvAutoNameDefaultIndex(serverDetails *coreConfig.ServerDetails, explicitSer
 	log.Debug("UV auth: all auto index names are in use; leaving UV_DEFAULT_INDEX unnamed")
 }
 
+// uvEnvNameSharedWithOtherHost reports whether a differently named index maps to the same
+// UV_INDEX_<NAME>_* credential vars but lives on another host; uv would hand it the same credentials.
+func uvEnvNameSharedWithOtherHost(idx uvIndexEntry, known []uvIndexEntry, serverURL string) bool {
+	envName := uvIndexEnvName(idx.Name)
+	for _, other := range known {
+		if other.Name != idx.Name && uvIndexEnvName(other.Name) == envName && !uvHostMatchesServer(other.URL, serverURL) {
+			return true
+		}
+	}
+	return false
+}
+
 // uvConfigIndexes returns the [[index]] entries from the project and user uv.toml files.
 func uvConfigIndexes(workingDir string) []uvIndexEntry {
 	paths := []string{filepath.Join(workingDir, "uv.toml"), os.Getenv("UV_CONFIG_FILE")}
@@ -738,7 +756,11 @@ func uvURLHasEmbeddedCredentials(rawURL string) bool {
 	if err != nil {
 		return false
 	}
-	return parsed.User != nil && parsed.User.Username() != ""
+	if parsed.User == nil {
+		return false
+	}
+	password, _ := parsed.User.Password()
+	return parsed.User.Username() != "" || password != ""
 }
 
 // uvNetrcPath returns the effective netrc file path (respecting the NETRC env var).
