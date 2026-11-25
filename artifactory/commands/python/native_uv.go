@@ -221,7 +221,7 @@ func (c *NativeUVCommand) injectCredentials(workingDir, deployerRepo string, ser
 	}
 
 	if c.commandName == "publish" {
-		uvApplyPublishAuth(deployerRepo, workingDir, serverDetails, user, pass, c.serverID != "")
+		uvApplyPublishAuth(deployerRepo, indexes, serverDetails, user, pass, c.serverID != "")
 	}
 }
 
@@ -719,14 +719,14 @@ func uvHostMatchesServer(publishURL, serverURL string) bool {
 	return uvHostOf(publishURL) != "" && uvHostOf(publishURL) == uvHostOf(serverURL)
 }
 
-// uvMatchingIndexCredentials looks for a [[tool.uv.index]] whose URL shares the
+// uvMatchingIndexCredentials looks for an index (after env overrides) whose URL shares the
 // same hostname as publishURL and returns credentials from the first matching source.
-func uvMatchingIndexCredentials(publishURL, workingDir string) (username, password string) {
+func uvMatchingIndexCredentials(publishURL string, indexes []uvIndexEntry) (username, password string) {
 	publishHost := uvHostOf(publishURL)
 	if publishHost == "" {
 		return "", ""
 	}
-	for _, idx := range uvReadIndexesFromToml(workingDir) {
+	for _, idx := range indexes {
 		if uvHostOf(idx.URL) != publishHost {
 			continue
 		}
@@ -825,7 +825,7 @@ func uvResolveServerDetails(serverID string) (*coreConfig.ServerDetails, error) 
 // uvApplyPublishAuth selects and applies publish credentials following UV's priority chain.
 // explicitServerID is true when the user passed --server-id explicitly; in that case the
 // host-mismatch check is bypassed so credentials are always injected for the publish URL.
-func uvApplyPublishAuth(publishURL, workingDir string, serverDetails *coreConfig.ServerDetails, user, pass string, explicitServerID bool) {
+func uvApplyPublishAuth(publishURL string, indexes []uvIndexEntry, serverDetails *coreConfig.ServerDetails, user, pass string, explicitServerID bool) {
 	switch {
 	case os.Getenv("UV_PUBLISH_TOKEN") != "":
 		log.Debug("UV auth [publish]: using UV_PUBLISH_TOKEN")
@@ -836,14 +836,14 @@ func uvApplyPublishAuth(publishURL, workingDir string, serverDetails *coreConfig
 	case uvNetrcHasCredentials(publishURL):
 		log.Info(fmt.Sprintf("UV auth [publish]: using %s (native, step 4)", uvNetrcPath()))
 	default:
-		uvInjectPublishCredentials(publishURL, workingDir, serverDetails, user, pass, explicitServerID)
+		uvInjectPublishCredentials(publishURL, indexes, serverDetails, user, pass, explicitServerID)
 	}
 }
 
 // uvInjectPublishCredentials injects publish credentials from same-host index credentials
 // or the jf server config. When explicitServerID is true, the host-mismatch check is skipped.
-func uvInjectPublishCredentials(publishURL, workingDir string, serverDetails *coreConfig.ServerDetails, user, pass string, explicitServerID bool) {
-	if idxUser, idxPass := uvMatchingIndexCredentials(publishURL, workingDir); idxUser != "" {
+func uvInjectPublishCredentials(publishURL string, indexes []uvIndexEntry, serverDetails *coreConfig.ServerDetails, user, pass string, explicitServerID bool) {
+	if idxUser, idxPass := uvMatchingIndexCredentials(publishURL, indexes); idxUser != "" {
 		_ = os.Setenv("UV_PUBLISH_USERNAME", idxUser)
 		_ = os.Setenv("UV_PUBLISH_PASSWORD", idxPass)
 		_ = os.Setenv("UV_KEYRING_PROVIDER", "disabled")

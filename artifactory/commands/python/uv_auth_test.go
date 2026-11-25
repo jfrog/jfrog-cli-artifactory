@@ -295,7 +295,7 @@ func TestInjectCredentials_EnvVarIndexes(t *testing.T) {
 		name                                 string
 		env                                  vars
 		pyproject, projectUvToml, userUvToml string
-		serverID                             string
+		serverID, publishURL                 string
 		want                                 vars
 	}{
 		{name: "named default index", env: vars{"UV_DEFAULT_INDEX": "myidx=" + jfIndex},
@@ -334,6 +334,10 @@ func TestInjectCredentials_EnvVarIndexes(t *testing.T) {
 			want: vars{"UV_DEFAULT_INDEX": "jfrog=" + otherIndex, "UV_INDEX_JFROG_USERNAME": "u"}},
 		{name: "plain URL with embedded credentials", env: vars{"UV_DEFAULT_INDEX": "https://user@host.example.com/simple"},
 			want: vars{"UV_DEFAULT_INDEX": "https://user@host.example.com/simple", "UV_INDEX_JFROG_USERNAME": ""}},
+		{name: "publish reuses same-host index credentials", env: vars{"UV_INDEX": "corp=" + jfIndex, "UV_INDEX_CORP_USERNAME": "idx-user", "UV_INDEX_CORP_PASSWORD": "idx-pass"}, publishURL: jfIndex,
+			want: vars{"UV_PUBLISH_USERNAME": "idx-user", "UV_PUBLISH_PASSWORD": "idx-pass"}},
+		{name: "publish ignores index URL overridden by env", env: vars{"UV_INDEX": "corp=" + jfIndex}, pyproject: "corp", publishURL: otherIndex,
+			want: vars{"UV_INDEX_CORP_USERNAME": "u", "UV_PUBLISH_USERNAME": "", "UV_PUBLISH_PASSWORD": ""}},
 	}
 	writeIndex := func(t *testing.T, path, table, name string) {
 		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0700))
@@ -342,7 +346,8 @@ func TestInjectCredentials_EnvVarIndexes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, key := range []string{"UV_DEFAULT_INDEX", "UV_INDEX", "UV_INDEX_URL", "UV_KEYRING_PROVIDER", "UV_CONFIG_FILE", "XDG_CONFIG_HOME", "APPDATA"} {
+			for _, key := range []string{"UV_DEFAULT_INDEX", "UV_INDEX", "UV_INDEX_URL", "UV_KEYRING_PROVIDER", "UV_CONFIG_FILE", "XDG_CONFIG_HOME", "APPDATA",
+				"UV_PUBLISH_TOKEN", "UV_PUBLISH_USERNAME", "UV_PUBLISH_PASSWORD"} {
 				t.Setenv(key, "")
 			}
 			for _, name := range []string{"MYIDX", "FIRST", "SECOND", "CORP", "CORP_INDEX", "JFROG", "JFROG_DEFAULT"} {
@@ -368,7 +373,10 @@ func TestInjectCredentials_EnvVarIndexes(t *testing.T) {
 			}
 
 			c := &NativeUVCommand{commandName: "install", serverID: tc.serverID}
-			c.injectCredentials(workDir, "", &config.ServerDetails{ArtifactoryUrl: "https://host.example.com/artifactory/", User: "u", Password: "p"}, nil)
+			if tc.publishURL != "" {
+				c.commandName = "publish"
+			}
+			c.injectCredentials(workDir, tc.publishURL, &config.ServerDetails{ArtifactoryUrl: "https://host.example.com/artifactory/", User: "u", Password: "p"}, nil)
 
 			for key, value := range tc.want {
 				assert.Equal(t, value, os.Getenv(key), key)
