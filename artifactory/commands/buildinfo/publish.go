@@ -367,6 +367,8 @@ func (bpc *BuildPublishCommand) getNextBuildNumber(buildName string, servicesMan
 // is called at most once per publish. A SetProps failure alone does not trigger the fallback.
 // If fewer artifacts were tagged than the build info lists, one warning is logged with the untagged
 // count, the likely causes and the last error. Never fails the build publish.
+// Note: found and tagged are raw item counts, so a virtual-repo search that returns duplicates, or a
+// lookup that returns extra items, can mask a miss.
 func (bpc *BuildPublishCommand) setVcsPropsOnArtifacts(
 	servicesManager artifactory.ArtifactoryServicesManager,
 	buildInfo *buildinfo.BuildInfo,
@@ -384,11 +386,11 @@ func (bpc *BuildPublishCommand) setVcsPropsOnArtifacts(
 	}
 	props := civcs.GetCIVcsPropsString(searchDir)
 	if props == "" {
-		log.Debug("VCS: Empty props string, skipping")
+		log.Debug("CI VCS: Empty props string, skipping")
 		return
 	}
 	present, missingCount := extractArtifactPaths(buildInfo)
-	log.Debug("VCS: Extracted", len(present), "direct paths,", missingCount, "missing OriginalDeploymentRepo")
+	log.Debug("CI VCS: Extracted", len(present), "direct paths,", missingCount, "missing OriginalDeploymentRepo")
 	total := len(present) + missingCount
 
 	var tagged int
@@ -402,7 +404,7 @@ func (bpc *BuildPublishCommand) setVcsPropsOnArtifacts(
 		// Fewer items than requested also covers a failed lookup (nothing found). A SetProps failure
 		// with every item found is not a lookup problem, so the build lookup cannot help.
 		if outcome.found < len(present) {
-			log.Debug("VCS: exact-path search found", outcome.found, "of", len(present), "artifacts, falling back to the build-artifacts lookup")
+			log.Debug("CI VCS: exact-path search found", outcome.found, "of", len(present), "artifacts, falling back to the build-artifacts lookup")
 			needBuildLookup = true
 		}
 	}
@@ -417,20 +419,6 @@ func (bpc *BuildPublishCommand) setVcsPropsOnArtifacts(
 		}
 	}
 	warnIfUntagged(total, tagged, lastErr)
-}
-
-// warnIfUntagged logs one warning when fewer artifacts were tagged than the build info lists.
-func warnIfUntagged(total, tagged int, lastErr error) {
-	if tagged >= total {
-		return
-	}
-	msg := fmt.Sprintf("CI VCS: %d of %d artifacts were not tagged with VCS properties. "+
-		"Likely causes: missing Annotate permission on the target repository, or the artifact was not found in the repository.",
-		total-tagged, total)
-	if lastErr != nil {
-		msg += " Last error: " + lastErr.Error()
-	}
-	log.Warn(msg)
 }
 
 func (bpc *BuildPublishCommand) excludeDependenciesByScope(buildInfo *buildinfo.BuildInfo) {

@@ -3,7 +3,6 @@ package buildinfo
 import (
 	"errors"
 	"testing"
-	"time"
 
 	buildinfo "github.com/jfrog/build-info-go/entities"
 	"github.com/jfrog/jfrog-client-go/artifactory"
@@ -11,6 +10,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuildSpecFromPaths(t *testing.T) {
@@ -225,7 +225,32 @@ func TestExtractArtifactPaths(t *testing.T) {
 				},
 			},
 			expectedPresent: []string{"repo1/path/file1.jar", "repo1/path/file2.jar"},
-			expectedMissing: 2,
+			expectedMissing: 1,
+		},
+		{
+			name: "same artifact without OriginalDeploymentRepo in two modules is counted once",
+			buildInfo: &buildinfo.BuildInfo{
+				Modules: []buildinfo.Module{
+					{Artifacts: []buildinfo.Artifact{{Path: "path/file1.jar", Name: "file1.jar"}}},
+					{Artifacts: []buildinfo.Artifact{{Path: "path/file1.jar", Name: "file1.jar"}}},
+				},
+			},
+			expectedPresent: nil,
+			expectedMissing: 1,
+		},
+		{
+			name: "missing artifacts differing in name or path are counted separately",
+			buildInfo: &buildinfo.BuildInfo{
+				Modules: []buildinfo.Module{
+					{Artifacts: []buildinfo.Artifact{
+						{Path: "path/file1.jar", Name: "file1.jar"},
+						{Path: "path/file1.jar", Name: "file1.pom"},
+						{Path: "other/file1.jar", Name: "file1.jar"},
+					}},
+				},
+			},
+			expectedPresent: nil,
+			expectedMissing: 3,
 		},
 		{
 			name: "virtual repo path",
@@ -325,8 +350,9 @@ func (e *mockError) Error() string {
 // zeroRetryDelay sets retryDelayBase to 0 for the duration of the test to avoid real-time waits.
 func zeroRetryDelay(t *testing.T) {
 	t.Helper()
+	previous := retryDelayBase
 	retryDelayBase = 0
-	t.Cleanup(func() { retryDelayBase = time.Second })
+	t.Cleanup(func() { retryDelayBase = previous })
 }
 
 // stubBuildArtifacts substitutes the build-artifacts API resolver for the duration of the test.
@@ -590,4 +616,25 @@ func TestSetPropsOnArtifacts_Outcome(t *testing.T) {
 		assert.Equal(t, propsOutcome{}, setPropsOnArtifacts(mockSM, nil, "vcs.provider=github"))
 		mockSM.AssertNotCalled(t, "SearchFiles")
 	})
+}
+
+// TestSetPropsFromSearchWithRetry_ClosesReaderReturnedWithError: generic.SearchItems can return a
+// merged reader together with an error; the reader's file must not be leaked.
+func TestSetPropsFromSearchWithRetry_ClosesReaderReturnedWithError(t *testing.T) {
+	zeroRetryDelay(t)
+
+	mockSM := new(mockServicesManager)
+	var filePaths []string
+	outcome := setPropsFromSearchWithRetry(mockSM, func() (*content.ContentReader, error) {
+		reader := newReaderWithItems(t, "a.jar")
+		filePaths = append(filePaths, reader.GetFilesPaths()...)
+		return reader, errors.New("operation finished with errors")
+	}, "vcs.provider=github")
+
+	require.Len(t, filePaths, maxRetries)
+	for _, filePath := range filePaths {
+		assert.NoFileExists(t, filePath, "the reader returned together with an error must be closed")
+	}
+	assert.EqualError(t, outcome.err, "operation finished with errors")
+	mockSM.AssertNotCalled(t, "SetProps")
 }

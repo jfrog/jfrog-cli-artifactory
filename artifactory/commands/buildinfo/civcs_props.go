@@ -1,6 +1,7 @@
 package buildinfo
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -47,21 +48,27 @@ type propsOutcome struct {
 }
 
 // extractArtifactPaths splits build-info artifacts into de-duplicated direct paths
-// (OriginalDeploymentRepo present, first-seen order preserved) and a count of artifacts missing it
-// (routed to the build-artifacts search).
+// (OriginalDeploymentRepo present, first-seen order preserved) and a count of de-duplicated artifacts
+// missing it (routed to the build-artifacts search). Missing artifacts are keyed on Path and Name, so
+// an artifact listed in several modules counts once.
 func extractArtifactPaths(bi *buildinfo.BuildInfo) (present []string, missingCount int) {
-	seen := make(map[string]struct{})
+	seenPresent := make(map[string]struct{})
+	seenMissing := make(map[string]struct{})
 	for _, m := range bi.Modules {
 		for _, a := range m.Artifacts {
 			p := constructPresentArtifactPath(a)
 			if p == "" {
-				missingCount++
+				key := a.Path + "|" + a.Name
+				if _, duplicate := seenMissing[key]; !duplicate {
+					seenMissing[key] = struct{}{}
+					missingCount++
+				}
 				continue
 			}
-			if _, duplicate := seen[p]; duplicate {
+			if _, duplicate := seenPresent[p]; duplicate {
 				continue
 			}
-			seen[p] = struct{}{}
+			seenPresent[p] = struct{}{}
 			present = append(present, p)
 		}
 	}
@@ -125,7 +132,7 @@ func setPropsViaSpecSearch(sm artifactory.ArtifactoryServicesManager, specFiles 
 // with exponential-backoff retry. Stops early on 404 or 403-after-first-retry from SetProps.
 // Never fails the build: it returns an outcome with the highest number of items a lookup returned
 // (found), the highest SetProps success count over the attempts (tagged) and the last lookup or
-// SetProps error (err, nil when the final attempt succeeded).
+// SetProps error (err, nil when the final attempt succeeded or the search came back empty).
 func setPropsFromSearchWithRetry(sm artifactory.ArtifactoryServicesManager, searchArtifacts func() (*content.ContentReader, error), props string) propsOutcome {
 	closeReader := func(r *content.ContentReader) {
 		if err := r.Close(); err != nil {
@@ -139,6 +146,10 @@ func setPropsFromSearchWithRetry(sm artifactory.ArtifactoryServicesManager, sear
 		}
 		reader, err := searchArtifacts()
 		if err != nil {
+			// generic.SearchItems can return a merged reader together with the error.
+			if reader != nil {
+				closeReader(reader)
+			}
 			// generic.SearchItems wraps all SearchFiles errors into a generic message,
 			// so HTTP status codes (404, 403) cannot be detected here — always retry.
 			outcome.err = err
@@ -176,6 +187,20 @@ func setPropsFromSearchWithRetry(sm artifactory.ArtifactoryServicesManager, sear
 		log.Debug("CI VCS: failed to set properties after retries:", outcome.err)
 	}
 	return outcome
+}
+
+// warnIfUntagged logs one warning when fewer artifacts were tagged than the build info lists.
+func warnIfUntagged(total, tagged int, lastErr error) {
+	if tagged >= total {
+		return
+	}
+	msg := fmt.Sprintf("CI VCS: %d of %d artifacts were not tagged with VCS properties. "+
+		"Likely causes: missing Annotate permission on the target repository, or the artifact was not found in the repository.",
+		total-tagged, total)
+	if lastErr != nil {
+		msg += " Last error: " + lastErr.Error()
+	}
+	log.Warn(msg)
 }
 
 // buildSpecFromPaths creates a SpecFiles object from artifact paths for search-based resolution.

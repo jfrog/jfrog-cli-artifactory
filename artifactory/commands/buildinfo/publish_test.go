@@ -269,6 +269,7 @@ func TestSetVcsPropsOnArtifacts_ShortSearchAndShortBuildLookup_Warns(t *testing.
 	warnings := warnLines(buf)
 	require.Len(t, warnings, 1)
 	assert.Contains(t, warnings[0], "1 of 3")
+	assert.Contains(t, warnings[0], "Annotate")
 }
 
 // TestSetVcsPropsOnArtifacts_LookupFails_Warns: every lookup keeps failing, so nothing is tagged.
@@ -320,6 +321,35 @@ func TestSetVcsPropsOnArtifacts_PresentAndMissing_BuildLookupOnce(t *testing.T) 
 	assert.Empty(t, warnLines(buf))
 }
 
+// TestSetVcsPropsOnArtifacts_SharedArtifactWithoutRepo_NoWarning: the same artifact without
+// OriginalDeploymentRepo listed in two modules is counted once, so one tagged item is enough.
+func TestSetVcsPropsOnArtifacts_SharedArtifactWithoutRepo_NoWarning(t *testing.T) {
+	setUpCIGitHubEnv(t)
+	zeroRetryDelay(t)
+	buf := captureLog(t)
+
+	shared := buildinfo.Artifact{Name: "app-1.0.jar", Path: "com/example/app/1.0/app-1.0.jar"}
+	bi := &buildinfo.BuildInfo{
+		Name:   "mybuild",
+		Number: "42",
+		Modules: []buildinfo.Module{
+			{Artifacts: []buildinfo.Artifact{shared}},
+			{Artifacts: []buildinfo.Artifact{shared}},
+		},
+	}
+
+	mockSM := new(mockServicesManager)
+	buildReader := newReaderWithItems(t, "app-1.0.jar")
+	buildApiCalls := stubBuildArtifacts(t, []buildArtifactsResult{{reader: buildReader}})
+	mockSM.On("SetProps", mock.Anything).Return(1, nil)
+
+	runSetVcsProps(t, mockSM, bi)
+
+	assert.Equal(t, 1, *buildApiCalls)
+	mockSM.AssertNumberOfCalls(t, "SetProps", 1)
+	assert.Empty(t, buf.String(), "an artifact listed in two modules must not produce a false warning")
+}
+
 // TestSetVcsPropsOnArtifacts_AllTagged_NoWarning: the happy path logs nothing at warn level or
 // above, and an artifact listed in several modules is searched and counted once.
 func TestSetVcsPropsOnArtifacts_AllTagged_NoWarning(t *testing.T) {
@@ -347,6 +377,7 @@ func TestSetVcsPropsOnArtifacts_AllTagged_NoWarning(t *testing.T) {
 // Only the direct-path branch fires; build-search is never invoked.
 func TestSetVcsPropsOnArtifacts_AllPresent_DirectOnly(t *testing.T) {
 	setUpCIGitHubEnv(t)
+	zeroRetryDelay(t)
 	nonGitDir := t.TempDir()
 	expectedProps := civcs.GetCIVcsPropsString(nonGitDir)
 
@@ -389,6 +420,7 @@ func TestSetVcsPropsOnArtifacts_AllPresent_DirectOnly(t *testing.T) {
 // PRIMARY regression guard for RTECO-2025.
 func TestSetVcsPropsOnArtifacts_AllMissing_BuildSearchOnly(t *testing.T) {
 	setUpCIGitHubEnv(t)
+	zeroRetryDelay(t)
 	nonGitDir := t.TempDir()
 	expectedProps := civcs.GetCIVcsPropsString(nonGitDir)
 
@@ -428,6 +460,8 @@ func TestSetVcsPropsOnArtifacts_AllMissing_BuildSearchOnly(t *testing.T) {
 // Both branches fire: direct for present, build-search for missing.
 func TestSetVcsPropsOnArtifacts_Mixed_BothPaths(t *testing.T) {
 	setUpCIGitHubEnv(t)
+	zeroRetryDelay(t)
+	buf := captureLog(t)
 	nonGitDir := t.TempDir()
 	expectedProps := civcs.GetCIVcsPropsString(nonGitDir)
 
@@ -464,6 +498,7 @@ func TestSetVcsPropsOnArtifacts_Mixed_BothPaths(t *testing.T) {
 
 	mockSM.AssertExpectations(t)
 	assert.Equal(t, 1, *buildApiCalls, "missing-repo artifacts resolve through the build-artifacts API")
+	assert.Empty(t, warnLines(buf))
 }
 
 // TestSetVcsPropsOnArtifacts_Disabled: JFROG_CLI_CI_VCS_PROPS_DISABLED=true short-circuits everything.
@@ -525,6 +560,7 @@ func TestSetVcsPropsOnArtifacts_EmptyProps(t *testing.T) {
 // TestSetVcsPropsOnArtifacts_ProjectPropagated: project key flows into the build spec.
 func TestSetVcsPropsOnArtifacts_ProjectPropagated(t *testing.T) {
 	setUpCIGitHubEnv(t)
+	zeroRetryDelay(t)
 	nonGitDir := t.TempDir()
 
 	mockSM := new(mockServicesManager)
