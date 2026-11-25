@@ -1,9 +1,12 @@
 package buildinfo
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +18,7 @@ import (
 	"github.com/jfrog/jfrog-client-go/artifactory"
 	"github.com/jfrog/jfrog-client-go/artifactory/services"
 	"github.com/jfrog/jfrog-client-go/utils/io/content"
+	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -30,8 +34,15 @@ func (m *mockServicesManager) SetProps(params services.PropsParams) (int, error)
 	return args.Int(0), args.Error(1)
 }
 
+// searchFunc lets a test compute the SearchFiles result per call. A reader is consumed and its file
+// deleted on Close, so every call must get a fresh reader. Pass it as the first value to Return().
+type searchFunc func(services.SearchParams) (*content.ContentReader, error)
+
 func (m *mockServicesManager) SearchFiles(params services.SearchParams) (*content.ContentReader, error) {
 	args := m.Called(params)
+	if fn, ok := args.Get(0).(searchFunc); ok {
+		return fn(params)
+	}
 	reader, _ := args.Get(0).(*content.ContentReader)
 	return reader, args.Error(1)
 }
@@ -75,23 +86,308 @@ func setUpCIGitHubEnv(t *testing.T) {
 	t.Setenv("GITHUB_HEAD_REF", "")
 }
 
+// newReaderWithItems returns a search reader holding one item per given name.
+// With no names the reader is empty.
+func newReaderWithItems(t *testing.T, names ...string) *content.ContentReader {
+	t.Helper()
+	items := make([]string, len(names))
+	for i, name := range names {
+		items[i] = fmt.Sprintf(`{"repo":"libs-release","path":"com/example","name":%q,"type":"file","size":0,"created":"","modified":""}`, name)
+	}
+	reader, cleanup := createSearchReader(t, `{"results":[`+strings.Join(items, ",")+`]}`)
+	t.Cleanup(cleanup)
+	return reader
+}
+
+// exactSearchHits answers an exact-path SearchFiles call with one item when the pattern is one of
+// existing, and with an empty result otherwise.
+func exactSearchHits(t *testing.T, existing ...string) searchFunc {
+	return func(params services.SearchParams) (*content.ContentReader, error) {
+		for _, pattern := range existing {
+			if params.Pattern == pattern {
+				return newReaderWithItems(t, pattern), nil
+			}
+		}
+		return newReaderWithItems(t), nil
+	}
+}
+
+// matchExactSearch matches the SearchFiles calls made for exact artifact paths (not build-scoped).
+func matchExactSearch() interface{} {
+	return mock.MatchedBy(func(params services.SearchParams) bool {
+		return params.Build == "" && params.Pattern != ""
+	})
+}
+
+// captureLog routes the logger output at WARN level and above to a buffer for the test duration.
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	buf := new(bytes.Buffer)
+	previous := log.Logger
+	log.SetLogger(log.NewLogger(log.WARN, buf))
+	t.Cleanup(func() { log.SetLogger(previous) })
+	return buf
+}
+
+// warnLines returns the captured log lines that were logged at WARN level.
+func warnLines(buf *bytes.Buffer) []string {
+	var lines []string
+	for _, line := range strings.Split(buf.String(), "\n") {
+		if strings.HasPrefix(line, "[Warn]") {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+// runSetVcsProps runs setVcsPropsOnArtifacts for the build info in a CI environment.
+func runSetVcsProps(t *testing.T, sm artifactory.ArtifactoryServicesManager, bi *buildinfo.BuildInfo) {
+	t.Helper()
+	bpc := NewBuildPublishCommand()
+	bpc.SetDotGitPath(t.TempDir())
+	bpc.buildConfiguration = build.NewBuildConfiguration(bi.Name, bi.Number, "", "")
+	bpc.setVcsPropsOnArtifacts(sm, bi)
+}
+
+const (
+	jarPath      = "libs-release/com/example/app/1.0/app-1.0.jar"
+	pomPath      = "libs-release/com/example/app/1.0/app-1.0.pom"
+	snapshotRepo = "libs-snapshot-local"
+)
+
+func releaseBuildInfo() *buildinfo.BuildInfo {
+	return &buildinfo.BuildInfo{
+		Name:   "mybuild",
+		Number: "42",
+		Modules: []buildinfo.Module{{Artifacts: []buildinfo.Artifact{
+			{Name: "app-1.0.jar", Path: "com/example/app/1.0/app-1.0.jar", OriginalDeploymentRepo: "libs-release"},
+			{Name: "app-1.0.pom", Path: "com/example/app/1.0/app-1.0.pom", OriginalDeploymentRepo: "libs-release"},
+		}}},
+	}
+}
+
+// snapshotBuildInfo lists the -SNAPSHOT names the Maven extractor records, although Artifactory
+// stores the files under a timestamped name.
+func snapshotBuildInfo() *buildinfo.BuildInfo {
+	return &buildinfo.BuildInfo{
+		Name:   "mybuild",
+		Number: "42",
+		Modules: []buildinfo.Module{{Artifacts: []buildinfo.Artifact{
+			{Name: "app-1.0-SNAPSHOT.jar", Path: "com/example/app/1.0-SNAPSHOT/app-1.0-SNAPSHOT.jar", OriginalDeploymentRepo: snapshotRepo},
+			{Name: "app-1.0-SNAPSHOT.pom", Path: "com/example/app/1.0-SNAPSHOT/app-1.0-SNAPSHOT.pom", OriginalDeploymentRepo: snapshotRepo},
+		}}},
+	}
+}
+
+// TestSetVcsPropsOnArtifacts_Snapshot_FallsBackToBuildLookup: the exact-path search finds nothing
+// because Artifactory stores a timestamped file; the artifacts are tagged through the build lookup.
+func TestSetVcsPropsOnArtifacts_Snapshot_FallsBackToBuildLookup(t *testing.T) {
+	setUpCIGitHubEnv(t)
+	zeroRetryDelay(t)
+	buf := captureLog(t)
+
+	mockSM := new(mockServicesManager)
+	mockSM.On("SearchFiles", matchExactSearch()).Return(exactSearchHits(t), nil)
+	buildReader := newReaderWithItems(t, "app-1.0-20260101.120000-1.jar", "app-1.0-20260101.120000-1.pom")
+	buildApiCalls := stubBuildArtifacts(t, []buildArtifactsResult{{reader: buildReader}})
+	mockSM.On("SetProps", mock.MatchedBy(func(params services.PropsParams) bool {
+		return params.Reader == buildReader
+	})).Return(2, nil)
+
+	runSetVcsProps(t, mockSM, snapshotBuildInfo())
+
+	mockSM.AssertExpectations(t)
+	mockSM.AssertNumberOfCalls(t, "SetProps", 1)
+	assert.Equal(t, 1, *buildApiCalls, "the build-artifacts lookup is the fallback for the exact-path misses")
+	assert.Empty(t, warnLines(buf))
+}
+
+// TestSetVcsPropsOnArtifacts_Release_ExactSearchOnly: the exact-path search finds every artifact,
+// so the build lookup is never used and SetProps runs once.
+func TestSetVcsPropsOnArtifacts_Release_ExactSearchOnly(t *testing.T) {
+	setUpCIGitHubEnv(t)
+	zeroRetryDelay(t)
+	buf := captureLog(t)
+
+	mockSM := new(mockServicesManager)
+	mockSM.On("SearchFiles", matchExactSearch()).Return(exactSearchHits(t, jarPath, pomPath), nil)
+	mockSM.On("SetProps", mock.Anything).Return(2, nil)
+	buildApiCalls := stubBuildArtifacts(t, nil)
+
+	runSetVcsProps(t, mockSM, releaseBuildInfo())
+
+	mockSM.AssertNumberOfCalls(t, "SetProps", 1)
+	assert.Equal(t, 0, *buildApiCalls, "the build lookup must not run when the exact search found everything")
+	assert.Empty(t, warnLines(buf))
+	assert.Empty(t, buf.String())
+}
+
+// TestSetVcsPropsOnArtifacts_SetProps403_WarnsOnce: a missing Annotate permission (403) tags nothing.
+// The artifacts were found, so there is no fallback, and exactly one warning is logged.
+func TestSetVcsPropsOnArtifacts_SetProps403_WarnsOnce(t *testing.T) {
+	setUpCIGitHubEnv(t)
+	zeroRetryDelay(t)
+	buf := captureLog(t)
+
+	mockSM := new(mockServicesManager)
+	mockSM.On("SearchFiles", matchExactSearch()).Return(exactSearchHits(t, jarPath, pomPath), nil)
+	mockSM.On("SetProps", mock.Anything).Return(0, errors.New("server response: 403 Forbidden"))
+	buildApiCalls := stubBuildArtifacts(t, nil)
+
+	assert.NotPanics(t, func() { runSetVcsProps(t, mockSM, releaseBuildInfo()) })
+
+	assert.Equal(t, 0, *buildApiCalls, "a SetProps failure alone must not trigger the build lookup")
+	warnings := warnLines(buf)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "2 of 2")
+	assert.Contains(t, warnings[0], "Annotate")
+	assert.Contains(t, warnings[0], "403 Forbidden")
+}
+
+// TestSetVcsPropsOnArtifacts_ShortSearchAndShortBuildLookup_Warns: neither the exact search nor the
+// build lookup returns everything the build info lists; the warning carries the untagged count.
+func TestSetVcsPropsOnArtifacts_ShortSearchAndShortBuildLookup_Warns(t *testing.T) {
+	setUpCIGitHubEnv(t)
+	zeroRetryDelay(t)
+	buf := captureLog(t)
+
+	bi := releaseBuildInfo()
+	bi.Modules[0].Artifacts = append(bi.Modules[0].Artifacts,
+		buildinfo.Artifact{Name: "app-1.0.sources.jar", Path: "com/example/app/1.0/app-1.0.sources.jar", OriginalDeploymentRepo: "libs-release"})
+
+	mockSM := new(mockServicesManager)
+	// The exact search finds 2 of the 3 artifacts.
+	mockSM.On("SearchFiles", matchExactSearch()).Return(exactSearchHits(t, jarPath, pomPath), nil)
+	// The build lookup also returns only 2 of the 3.
+	buildReader := newReaderWithItems(t, "app-1.0.jar", "app-1.0.pom")
+	buildApiCalls := stubBuildArtifacts(t, []buildArtifactsResult{{reader: buildReader}})
+	mockSM.On("SetProps", mock.Anything).Return(2, nil)
+
+	runSetVcsProps(t, mockSM, bi)
+
+	assert.Equal(t, 1, *buildApiCalls)
+	warnings := warnLines(buf)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "1 of 3")
+	assert.Contains(t, warnings[0], "Annotate")
+}
+
+// TestSetVcsPropsOnArtifacts_LookupFails_Warns: every lookup keeps failing, so nothing is tagged.
+func TestSetVcsPropsOnArtifacts_LookupFails_Warns(t *testing.T) {
+	setUpCIGitHubEnv(t)
+	zeroRetryDelay(t)
+	buf := captureLog(t)
+
+	mockSM := new(mockServicesManager)
+	mockSM.On("SearchFiles", matchExactSearch()).Return(nil, errors.New("search backend down"))
+	var failures []buildArtifactsResult
+	for i := 0; i < maxRetries; i++ {
+		failures = append(failures, buildArtifactsResult{err: errors.New("build api down")})
+	}
+	buildApiCalls := stubBuildArtifacts(t, failures)
+
+	bi := releaseBuildInfo()
+	runSetVcsProps(t, mockSM, bi)
+
+	mockSM.AssertNotCalled(t, "SetProps")
+	assert.Equal(t, maxRetries, *buildApiCalls, "a failed exact lookup falls back to the build lookup")
+	warnings := warnLines(buf)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "2 of 2")
+	assert.Contains(t, warnings[0], "build api down")
+}
+
+// TestSetVcsPropsOnArtifacts_PresentAndMissing_BuildLookupOnce: the build lookup serves the missing
+// artifacts and also the short exact search, but it runs only once per publish.
+func TestSetVcsPropsOnArtifacts_PresentAndMissing_BuildLookupOnce(t *testing.T) {
+	setUpCIGitHubEnv(t)
+	zeroRetryDelay(t)
+	buf := captureLog(t)
+
+	bi := snapshotBuildInfo()
+	bi.Modules[0].Artifacts = append(bi.Modules[0].Artifacts, buildinfo.Artifact{Name: "app-1.0-SNAPSHOT.module", Path: "com/example/app/1.0-SNAPSHOT/app-1.0-SNAPSHOT.module"})
+
+	mockSM := new(mockServicesManager)
+	// The exact search finds nothing: Artifactory stores timestamped files.
+	mockSM.On("SearchFiles", matchExactSearch()).Return(exactSearchHits(t), nil)
+	buildReader := newReaderWithItems(t, "app-1.jar", "app-1.pom", "app-1.module")
+	buildApiCalls := stubBuildArtifacts(t, []buildArtifactsResult{{reader: buildReader}})
+	mockSM.On("SetProps", mock.Anything).Return(3, nil)
+
+	runSetVcsProps(t, mockSM, bi)
+
+	assert.Equal(t, 1, *buildApiCalls, "the build lookup runs once, never twice")
+	mockSM.AssertNumberOfCalls(t, "SetProps", 1)
+	assert.Empty(t, warnLines(buf))
+}
+
+// TestSetVcsPropsOnArtifacts_SharedArtifactWithoutRepo_NoWarning: the same artifact without
+// OriginalDeploymentRepo listed in two modules is counted once, so one tagged item is enough.
+func TestSetVcsPropsOnArtifacts_SharedArtifactWithoutRepo_NoWarning(t *testing.T) {
+	setUpCIGitHubEnv(t)
+	zeroRetryDelay(t)
+	buf := captureLog(t)
+
+	shared := buildinfo.Artifact{Name: "app-1.0.jar", Path: "com/example/app/1.0/app-1.0.jar"}
+	bi := &buildinfo.BuildInfo{
+		Name:   "mybuild",
+		Number: "42",
+		Modules: []buildinfo.Module{
+			{Artifacts: []buildinfo.Artifact{shared}},
+			{Artifacts: []buildinfo.Artifact{shared}},
+		},
+	}
+
+	mockSM := new(mockServicesManager)
+	buildReader := newReaderWithItems(t, "app-1.0.jar")
+	buildApiCalls := stubBuildArtifacts(t, []buildArtifactsResult{{reader: buildReader}})
+	mockSM.On("SetProps", mock.Anything).Return(1, nil)
+
+	runSetVcsProps(t, mockSM, bi)
+
+	assert.Equal(t, 1, *buildApiCalls)
+	mockSM.AssertNumberOfCalls(t, "SetProps", 1)
+	assert.Empty(t, buf.String(), "an artifact listed in two modules must not produce a false warning")
+}
+
+// TestSetVcsPropsOnArtifacts_AllTagged_NoWarning: the happy path logs nothing at warn level or
+// above, and an artifact listed in several modules is searched and counted once.
+func TestSetVcsPropsOnArtifacts_AllTagged_NoWarning(t *testing.T) {
+	setUpCIGitHubEnv(t)
+	zeroRetryDelay(t)
+	buf := captureLog(t)
+
+	bi := releaseBuildInfo()
+	bi.Modules = append(bi.Modules, buildinfo.Module{Artifacts: []buildinfo.Artifact{bi.Modules[0].Artifacts[0]}})
+
+	mockSM := new(mockServicesManager)
+	mockSM.On("SearchFiles", matchExactSearch()).Return(exactSearchHits(t, jarPath, pomPath), nil)
+	mockSM.On("SetProps", mock.Anything).Return(2, nil)
+	buildApiCalls := stubBuildArtifacts(t, nil)
+
+	runSetVcsProps(t, mockSM, bi)
+
+	mockSM.AssertNumberOfCalls(t, "SearchFiles", 2)
+	mockSM.AssertNumberOfCalls(t, "SetProps", 1)
+	assert.Equal(t, 0, *buildApiCalls)
+	assert.Empty(t, buf.String(), "no log lines expected when every artifact is tagged")
+}
+
 // TestSetVcsPropsOnArtifacts_AllPresent_DirectOnly: all artifacts have OriginalDeploymentRepo.
 // Only the direct-path branch fires; build-search is never invoked.
 func TestSetVcsPropsOnArtifacts_AllPresent_DirectOnly(t *testing.T) {
 	setUpCIGitHubEnv(t)
+	zeroRetryDelay(t)
 	nonGitDir := t.TempDir()
 	expectedProps := civcs.GetCIVcsPropsString(nonGitDir)
 
 	mockSM := new(mockServicesManager)
-	searchReader, cleanup := createTestSearchReader(t)
-	defer cleanup()
-	// Only pattern-based search calls (direct path) should appear.
-	mockSM.On("SearchFiles", mock.MatchedBy(func(params services.SearchParams) bool {
-		return params.Build == "" && params.Pattern != ""
-	})).Return(searchReader, nil)
+	// Only pattern-based search calls (direct path) should appear; each artifact is found.
+	mockSM.On("SearchFiles", matchExactSearch()).Return(
+		exactSearchHits(t, "libs-release/com/example/file.jar", "libs-release/com/example/file2.jar"), nil)
 	mockSM.On("SetProps", mock.MatchedBy(func(params services.PropsParams) bool {
 		return params.Props == expectedProps
-	})).Return(1, nil)
+	})).Return(2, nil)
 
 	bi := &buildinfo.BuildInfo{
 		Modules: []buildinfo.Module{
@@ -124,17 +420,17 @@ func TestSetVcsPropsOnArtifacts_AllPresent_DirectOnly(t *testing.T) {
 // PRIMARY regression guard for RTECO-2025.
 func TestSetVcsPropsOnArtifacts_AllMissing_BuildSearchOnly(t *testing.T) {
 	setUpCIGitHubEnv(t)
+	zeroRetryDelay(t)
 	nonGitDir := t.TempDir()
 	expectedProps := civcs.GetCIVcsPropsString(nonGitDir)
 
 	mockSM := new(mockServicesManager)
-	searchReader, cleanup := createTestSearchReader(t)
-	defer cleanup()
+	searchReader := newReaderWithItems(t, "minimal-example-1.0.jar", "minimal-example-1.0.pom")
 	// Only the build-artifacts API should be used; no AQL search.
 	buildApiCalls := stubBuildArtifacts(t, []buildArtifactsResult{{reader: searchReader}})
 	mockSM.On("SetProps", mock.MatchedBy(func(params services.PropsParams) bool {
 		return params.Props == expectedProps
-	})).Return(1, nil)
+	})).Return(2, nil)
 
 	bi := &buildinfo.BuildInfo{
 		Name:   "mybuild",
@@ -164,24 +460,23 @@ func TestSetVcsPropsOnArtifacts_AllMissing_BuildSearchOnly(t *testing.T) {
 // Both branches fire: direct for present, build-search for missing.
 func TestSetVcsPropsOnArtifacts_Mixed_BothPaths(t *testing.T) {
 	setUpCIGitHubEnv(t)
+	zeroRetryDelay(t)
+	buf := captureLog(t)
 	nonGitDir := t.TempDir()
 	expectedProps := civcs.GetCIVcsPropsString(nonGitDir)
 
 	mockSM := new(mockServicesManager)
-	searchReader, cleanup := createTestSearchReader(t)
-	defer cleanup()
-	searchReader2, cleanup2 := createTestSearchReader(t)
-	defer cleanup2()
-
 	// Direct-path call: pattern non-empty, Build empty.
-	mockSM.On("SearchFiles", mock.MatchedBy(func(params services.SearchParams) bool {
-		return params.Build == "" && params.Pattern != ""
-	})).Return(searchReader, nil)
-	// Build-search resolves through the build-artifacts API, not AQL.
-	buildApiCalls := stubBuildArtifacts(t, []buildArtifactsResult{{reader: searchReader2}})
+	mockSM.On("SearchFiles", matchExactSearch()).Return(exactSearchHits(t, "libs-release/com/example/file.jar"), nil)
+	// Build-search resolves through the build-artifacts API, not AQL, and lists the whole build.
+	buildReader := newReaderWithItems(t, "file.jar", "missing.jar")
+	buildApiCalls := stubBuildArtifacts(t, []buildArtifactsResult{{reader: buildReader}})
 	mockSM.On("SetProps", mock.MatchedBy(func(params services.PropsParams) bool {
-		return params.Props == expectedProps
+		return params.Props == expectedProps && params.Reader != buildReader
 	})).Return(1, nil)
+	mockSM.On("SetProps", mock.MatchedBy(func(params services.PropsParams) bool {
+		return params.Props == expectedProps && params.Reader == buildReader
+	})).Return(2, nil)
 
 	bi := &buildinfo.BuildInfo{
 		Name:   "mybuild",
@@ -203,12 +498,15 @@ func TestSetVcsPropsOnArtifacts_Mixed_BothPaths(t *testing.T) {
 
 	mockSM.AssertExpectations(t)
 	assert.Equal(t, 1, *buildApiCalls, "missing-repo artifacts resolve through the build-artifacts API")
+	assert.Empty(t, warnLines(buf))
 }
 
 // TestSetVcsPropsOnArtifacts_Disabled: JFROG_CLI_CI_VCS_PROPS_DISABLED=true short-circuits everything.
 func TestSetVcsPropsOnArtifacts_Disabled(t *testing.T) {
 	t.Setenv("JFROG_CLI_CI_VCS_PROPS_DISABLED", "true")
 
+	buf := captureLog(t)
+	buildApiCalls := stubBuildArtifacts(t, nil)
 	mockSM := new(mockServicesManager)
 	bi := &buildinfo.BuildInfo{
 		Modules: []buildinfo.Module{
@@ -223,6 +521,8 @@ func TestSetVcsPropsOnArtifacts_Disabled(t *testing.T) {
 
 	mockSM.AssertNotCalled(t, "SearchFiles")
 	mockSM.AssertNotCalled(t, "SetProps")
+	assert.Equal(t, 0, *buildApiCalls)
+	assert.Empty(t, buf.String(), "a disabled or empty-props run must stay silent")
 }
 
 // TestSetVcsPropsOnArtifacts_EmptyProps: non-CI non-git dir → empty props → early return.
@@ -236,6 +536,8 @@ func TestSetVcsPropsOnArtifacts_EmptyProps(t *testing.T) {
 		t.Setenv(v, "")
 	}
 
+	buf := captureLog(t)
+	buildApiCalls := stubBuildArtifacts(t, nil)
 	mockSM := new(mockServicesManager)
 	bi := &buildinfo.BuildInfo{
 		Modules: []buildinfo.Module{
@@ -251,11 +553,14 @@ func TestSetVcsPropsOnArtifacts_EmptyProps(t *testing.T) {
 
 	mockSM.AssertNotCalled(t, "SearchFiles")
 	mockSM.AssertNotCalled(t, "SetProps")
+	assert.Equal(t, 0, *buildApiCalls)
+	assert.Empty(t, buf.String(), "a disabled or empty-props run must stay silent")
 }
 
 // TestSetVcsPropsOnArtifacts_ProjectPropagated: project key flows into the build spec.
 func TestSetVcsPropsOnArtifacts_ProjectPropagated(t *testing.T) {
 	setUpCIGitHubEnv(t)
+	zeroRetryDelay(t)
 	nonGitDir := t.TempDir()
 
 	mockSM := new(mockServicesManager)
