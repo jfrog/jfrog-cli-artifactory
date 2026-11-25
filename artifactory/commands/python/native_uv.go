@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -164,11 +165,13 @@ func (c *NativeUVCommand) injectCredentials(workingDir, deployerRepo string, ser
 
 	injectedAny := false
 
-	// UV_INDEX_URL and UV_DEFAULT_INDEX are UV's global default index env vars.
-	// Log them for visibility; per-named-index injection still proceeds because
-	// these vars only affect the default/fallback index, not named [[tool.uv.index]] entries.
-	if os.Getenv("UV_INDEX_URL") != "" || os.Getenv("UV_DEFAULT_INDEX") != "" {
-		log.Info("UV auth: global index env var set (UV_INDEX_URL or UV_DEFAULT_INDEX); per-index credential injection still proceeds below")
+	// UV_INDEX_URL is the legacy single-URL form with no name= grammar, so credentials
+	// cannot be injected via UV's per-index env vars. Warn the user explicitly.
+	if os.Getenv("UV_INDEX_URL") != "" {
+		log.Warn("UV auth: UV_INDEX_URL is set but has no name form; " +
+			"credentials cannot be injected via UV per-index env vars. " +
+			"Use UV_INDEX or UV_DEFAULT_INDEX with name=url format, " +
+			"embed credentials in the URL, or use ~/.netrc.")
 	}
 
 	// Use script inline indexes when --script is active; fall back to pyproject.toml entries.
@@ -176,12 +179,22 @@ func (c *NativeUVCommand) injectCredentials(workingDir, deployerRepo string, ser
 	if len(indexes) == 0 {
 		indexes = uvReadIndexesFromToml(workingDir)
 	}
+	configIndexes := uvConfigIndexes(workingDir)
+	uvAutoNameDefaultIndex(serverDetails, c.serverID != "", append(append([]uvIndexEntry{}, configIndexes...), indexes...))
+	envIndexes := uvReadIndexesFromEnv()
+	knownIndexes := append(append(configIndexes, indexes...), envIndexes...)
+	// Merge UV_DEFAULT_INDEX / UV_INDEX entries — env vars override config-file entries
+	// to match UV's own precedence rules.
+	indexes = uvMergeIndexes(indexes, envIndexes)
 	for _, idx := range indexes {
 		envName := uvIndexEnvName(idx.Name)
 		userKey := uvIndexUsernameKey(envName)
-		if uvIndexHasNativeCredentials(idx.URL, userKey) {
+		switch {
+		case uvIndexHasNativeCredentials(idx.URL, envName):
 			log.Info(fmt.Sprintf("UV auth [index %q]: native credentials already present (env var, embedded URL, or netrc)", idx.Name))
-		} else {
+		case c.serverID == "" && uvEnvNameSharedWithOtherHost(idx, knownIndexes, serverDetails.ArtifactoryUrl):
+			log.Warn(fmt.Sprintf("UV auth [index %q]: another index shares UV_INDEX_%s_* on a different host; skipping credential injection", idx.Name, envName))
+		default:
 			hostMatches := uvHostMatchesServer(idx.URL, serverDetails.ArtifactoryUrl)
 			explicitServerID := c.serverID != ""
 			if hostMatches || explicitServerID {
@@ -208,7 +221,7 @@ func (c *NativeUVCommand) injectCredentials(workingDir, deployerRepo string, ser
 	}
 
 	if c.commandName == "publish" {
-		uvApplyPublishAuth(deployerRepo, workingDir, serverDetails, user, pass, c.serverID != "")
+		uvApplyPublishAuth(deployerRepo, indexes, serverDetails, user, pass, c.serverID != "")
 	}
 }
 
@@ -486,13 +499,200 @@ func uvReadIndexesFromToml(workingDir string) []uvIndexEntry {
 	return entries
 }
 
+// uvParseIndexEnvEntry parses a single "[name=]url" entry from UV_INDEX / UV_DEFAULT_INDEX.
+// Splits on the first '=' only (URL query strings can contain '=', names cannot).
+// Returns ok=false for empty, unnamed, or malformed entries.
+func uvParseIndexEnvEntry(raw string) (uvIndexEntry, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return uvIndexEntry{}, false
+	}
+	parts := strings.SplitN(raw, "=", 2)
+	if len(parts) != 2 {
+		return uvIndexEntry{}, false
+	}
+	name := strings.TrimSpace(parts[0])
+	indexURL := strings.TrimSpace(parts[1])
+	if !uvIndexNamePattern.MatchString(name) || indexURL == "" {
+		return uvIndexEntry{}, false
+	}
+	return uvIndexEntry{Name: name, URL: indexURL}, true
+}
+
+var uvIndexNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+var uvAutoIndexNames = []string{"jfrog", "jfrog-default"}
+
+// uvAutoNameDefaultIndex names a plain-URL UV_DEFAULT_INDEX so per-index credentials can be injected for it.
+// The rename only affects the environment inherited by the uv process.
+func uvAutoNameDefaultIndex(serverDetails *coreConfig.ServerDetails, explicitServerID bool, existing []uvIndexEntry) {
+	indexURL := strings.TrimSpace(os.Getenv("UV_DEFAULT_INDEX"))
+	if indexURL == "" {
+		return
+	}
+	if _, named := uvParseIndexEnvEntry(indexURL); named {
+		return
+	}
+	if uvURLHasEmbeddedCredentials(indexURL) || uvNetrcHasCredentials(indexURL) {
+		return
+	}
+	if !explicitServerID && !uvHostMatchesServer(indexURL, serverDetails.ArtifactoryUrl) {
+		return
+	}
+	taken := make(map[string]bool)
+	for _, idx := range existing {
+		taken[uvIndexEnvName(idx.Name)] = true
+	}
+	for _, raw := range strings.Fields(os.Getenv("UV_INDEX")) {
+		if idx, ok := uvParseIndexEnvEntry(raw); ok {
+			taken[uvIndexEnvName(idx.Name)] = true
+		}
+	}
+	for _, name := range uvAutoIndexNames {
+		envName := uvIndexEnvName(name)
+		if taken[envName] || os.Getenv(uvIndexUsernameKey(envName)) != "" || os.Getenv(uvIndexPasswordKey(envName)) != "" {
+			continue
+		}
+		_ = os.Setenv("UV_DEFAULT_INDEX", name+"="+indexURL)
+		log.Info(fmt.Sprintf("UV auth: UV_DEFAULT_INDEX has no name; naming it %q for this uv run", name))
+		return
+	}
+	log.Debug("UV auth: all auto index names are in use; leaving UV_DEFAULT_INDEX unnamed")
+}
+
+// uvEnvNameSharedWithOtherHost reports whether a differently named index maps to the same
+// UV_INDEX_<NAME>_* credential vars but lives on another host; uv would hand it the same credentials.
+func uvEnvNameSharedWithOtherHost(idx uvIndexEntry, known []uvIndexEntry, serverURL string) bool {
+	envName := uvIndexEnvName(idx.Name)
+	for _, other := range known {
+		if other.Name != idx.Name && uvIndexEnvName(other.Name) == envName && !uvHostMatchesServer(other.URL, serverURL) {
+			return true
+		}
+	}
+	return false
+}
+
+// uvConfigIndexes returns the [[index]] entries from the project and user uv.toml files.
+func uvConfigIndexes(workingDir string) []uvIndexEntry {
+	paths := []string{filepath.Join(workingDir, "uv.toml"), os.Getenv("UV_CONFIG_FILE")}
+	if configHome := os.Getenv("XDG_CONFIG_HOME"); configHome != "" {
+		paths = append(paths, filepath.Join(configHome, "uv", "uv.toml"))
+	} else if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(home, ".config", "uv", "uv.toml"))
+	}
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		paths = append(paths, filepath.Join(appData, "uv", "uv.toml"))
+	}
+	var entries []uvIndexEntry
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Clean(path))
+		if err != nil {
+			continue
+		}
+		var config struct {
+			Index []uvIndexEntry `toml:"index"`
+		}
+		if toml.Unmarshal(data, &config) == nil {
+			entries = append(entries, config.Index...)
+		}
+	}
+	return entries
+}
+
+// uvReadIndexesFromEnv parses UV_DEFAULT_INDEX and UV_INDEX into named index entries.
+// UV's per-index credential env vars (UV_INDEX_<NAME>_USERNAME/PASSWORD) only work for
+// named entries, so unnamed entries are skipped with a warning.
+func uvReadIndexesFromEnv() []uvIndexEntry {
+	var entries []uvIndexEntry
+	warnUnnamed := func(envVar, raw string) {
+		log.Warn(fmt.Sprintf(
+			"UV auth: %s entry for host %q has no name; credentials cannot be injected via UV per-index env vars. "+
+				"Use name=url format, embed credentials in the URL, or use ~/.netrc.",
+			envVar, uvHostOf(raw)))
+	}
+	if def := strings.TrimSpace(os.Getenv("UV_DEFAULT_INDEX")); def != "" {
+		if entry, ok := uvParseIndexEnvEntry(def); ok {
+			entry.Default = true
+			entries = append(entries, entry)
+		} else {
+			warnUnnamed("UV_DEFAULT_INDEX", def)
+		}
+	}
+	if list := os.Getenv("UV_INDEX"); list != "" {
+		for _, raw := range strings.Fields(list) {
+			if entry, ok := uvParseIndexEnvEntry(raw); ok {
+				entries = append(entries, entry)
+			} else {
+				warnUnnamed("UV_INDEX", raw)
+			}
+		}
+	}
+	return entries
+}
+
+// uvResolveBuildInfoIndexURL returns the (envVarName, url) pair to use as a fallback
+// index URL for build-info dependency enrichment when no pyproject.toml index is
+// configured. Walks UV_DEFAULT_INDEX → first UV_INDEX entry → UV_INDEX_URL (legacy).
+// For UV_DEFAULT_INDEX / UV_INDEX, the optional "name=" prefix is stripped.
+func uvResolveBuildInfoIndexURL() (envVar, indexURL string) {
+	if val := strings.TrimSpace(os.Getenv("UV_DEFAULT_INDEX")); val != "" {
+		if entry, ok := uvParseIndexEnvEntry(val); ok {
+			return "UV_DEFAULT_INDEX", entry.URL
+		}
+		return "UV_DEFAULT_INDEX", val
+	}
+	if list := os.Getenv("UV_INDEX"); list != "" {
+		for _, raw := range strings.Fields(list) {
+			if entry, ok := uvParseIndexEnvEntry(raw); ok {
+				return "UV_INDEX", entry.URL
+			}
+		}
+	}
+	if val := strings.TrimSpace(os.Getenv("UV_INDEX_URL")); val != "" {
+		return "UV_INDEX_URL", val
+	}
+	return "", ""
+}
+
+// uvMergeIndexes returns the union of base and override entries, deduped by
+// uvIndexEnvName(name) (UV's canonical env-var suffix). Override entries appear first
+// in their declared order, then non-conflicting base entries — matching UV's own
+// precedence rule that env vars override pyproject.toml.
+func uvMergeIndexes(base, override []uvIndexEntry) []uvIndexEntry {
+	if len(override) == 0 {
+		return base
+	}
+	seen := make(map[string]bool, len(override)+len(base))
+	result := make([]uvIndexEntry, 0, len(override)+len(base))
+	for _, idx := range override {
+		envName := uvIndexEnvName(idx.Name)
+		if seen[envName] {
+			continue
+		}
+		seen[envName] = true
+		result = append(result, idx)
+	}
+	for _, idx := range base {
+		envName := uvIndexEnvName(idx.Name)
+		if seen[envName] {
+			continue
+		}
+		seen[envName] = true
+		result = append(result, idx)
+	}
+	return result
+}
+
 // ── Credential helpers ────────────────────────────────────────────────────────
 
 // uvIndexHasNativeCredentials returns true when any native UV mechanism
 // (env var, embedded URL, netrc) already provides credentials for the index,
 // so jf config injection should be skipped.
-func uvIndexHasNativeCredentials(indexURL, envVarUsername string) bool {
-	if os.Getenv(envVarUsername) != "" {
+func uvIndexHasNativeCredentials(indexURL, envName string) bool {
+	if os.Getenv(uvIndexUsernameKey(envName)) != "" || os.Getenv(uvIndexPasswordKey(envName)) != "" {
 		return true
 	}
 	if uvURLHasEmbeddedCredentials(indexURL) {
@@ -519,14 +719,14 @@ func uvHostMatchesServer(publishURL, serverURL string) bool {
 	return uvHostOf(publishURL) != "" && uvHostOf(publishURL) == uvHostOf(serverURL)
 }
 
-// uvMatchingIndexCredentials looks for a [[tool.uv.index]] whose URL shares the
+// uvMatchingIndexCredentials looks for an index (after env overrides) whose URL shares the
 // same hostname as publishURL and returns credentials from the first matching source.
-func uvMatchingIndexCredentials(publishURL, workingDir string) (username, password string) {
+func uvMatchingIndexCredentials(publishURL string, indexes []uvIndexEntry) (username, password string) {
 	publishHost := uvHostOf(publishURL)
 	if publishHost == "" {
 		return "", ""
 	}
-	for _, idx := range uvReadIndexesFromToml(workingDir) {
+	for _, idx := range indexes {
 		if uvHostOf(idx.URL) != publishHost {
 			continue
 		}
@@ -556,7 +756,11 @@ func uvURLHasEmbeddedCredentials(rawURL string) bool {
 	if err != nil {
 		return false
 	}
-	return parsed.User != nil && parsed.User.Username() != ""
+	if parsed.User == nil {
+		return false
+	}
+	password, _ := parsed.User.Password()
+	return parsed.User.Username() != "" || password != ""
 }
 
 // uvNetrcPath returns the effective netrc file path (respecting the NETRC env var).
@@ -621,7 +825,7 @@ func uvResolveServerDetails(serverID string) (*coreConfig.ServerDetails, error) 
 // uvApplyPublishAuth selects and applies publish credentials following UV's priority chain.
 // explicitServerID is true when the user passed --server-id explicitly; in that case the
 // host-mismatch check is bypassed so credentials are always injected for the publish URL.
-func uvApplyPublishAuth(publishURL, workingDir string, serverDetails *coreConfig.ServerDetails, user, pass string, explicitServerID bool) {
+func uvApplyPublishAuth(publishURL string, indexes []uvIndexEntry, serverDetails *coreConfig.ServerDetails, user, pass string, explicitServerID bool) {
 	switch {
 	case os.Getenv("UV_PUBLISH_TOKEN") != "":
 		log.Debug("UV auth [publish]: using UV_PUBLISH_TOKEN")
@@ -632,14 +836,14 @@ func uvApplyPublishAuth(publishURL, workingDir string, serverDetails *coreConfig
 	case uvNetrcHasCredentials(publishURL):
 		log.Info(fmt.Sprintf("UV auth [publish]: using %s (native, step 4)", uvNetrcPath()))
 	default:
-		uvInjectPublishCredentials(publishURL, workingDir, serverDetails, user, pass, explicitServerID)
+		uvInjectPublishCredentials(publishURL, indexes, serverDetails, user, pass, explicitServerID)
 	}
 }
 
 // uvInjectPublishCredentials injects publish credentials from same-host index credentials
 // or the jf server config. When explicitServerID is true, the host-mismatch check is skipped.
-func uvInjectPublishCredentials(publishURL, workingDir string, serverDetails *coreConfig.ServerDetails, user, pass string, explicitServerID bool) {
-	if idxUser, idxPass := uvMatchingIndexCredentials(publishURL, workingDir); idxUser != "" {
+func uvInjectPublishCredentials(publishURL string, indexes []uvIndexEntry, serverDetails *coreConfig.ServerDetails, user, pass string, explicitServerID bool) {
+	if idxUser, idxPass := uvMatchingIndexCredentials(publishURL, indexes); idxUser != "" {
 		_ = os.Setenv("UV_PUBLISH_USERNAME", idxUser)
 		_ = os.Setenv("UV_PUBLISH_PASSWORD", idxPass)
 		_ = os.Setenv("UV_KEYRING_PROVIDER", "disabled")
@@ -708,20 +912,17 @@ func uvGetBuildInfo(workingDir string, buildConfiguration *buildUtils.BuildConfi
 	case "sync", "install", "lock", "add", "remove", "run":
 		if len(bi.Modules) > 0 && len(bi.Modules[0].Dependencies) > 0 {
 			// Resolve enrichment repo: prefer [[tool.uv.index]] in pyproject.toml,
-			// fall back to UV_DEFAULT_INDEX / UV_INDEX_URL env vars (used when no
-			// pyproject.toml index is configured, e.g. CI workflows that inject creds
-			// via environment).
+			// fall back to UV_DEFAULT_INDEX, then the first UV_INDEX entry, then the
+			// legacy UV_INDEX_URL (used when no pyproject.toml index is configured,
+			// e.g. CI workflows that inject creds via environment).
 			repoKey := uvResolverRepoFromToml(workingDir)
 			indexURL := uvIndexURLFromToml(workingDir)
 			if repoKey == "" {
-				for _, envVar := range []string{"UV_DEFAULT_INDEX", "UV_INDEX_URL"} {
-					if val := os.Getenv(envVar); val != "" {
-						repoKey = uvExtractRepoKeyFromURL(val)
+				if envVar, val := uvResolveBuildInfoIndexURL(); val != "" {
+					if rk := uvExtractRepoKeyFromURL(val); rk != "" {
+						repoKey = rk
 						indexURL = val
-						if repoKey != "" {
-							log.Debug(fmt.Sprintf("UV build-info: using %s for dependency enrichment repo: %s", envVar, repoKey))
-							break
-						}
+						log.Debug(fmt.Sprintf("UV build-info: using %s for dependency enrichment repo: %s", envVar, repoKey))
 					}
 				}
 			}
@@ -731,14 +932,7 @@ func uvGetBuildInfo(workingDir string, buildConfiguration *buildUtils.BuildConfi
 					sd, _ = coreConfig.GetDefaultServerConf()
 				}
 				if sd != nil {
-					if indexURL != "" && !uvHostMatchesServer(indexURL, sd.ArtifactoryUrl) {
-						log.Warn(fmt.Sprintf(
-							"UV build-info: jf server config host (%s) differs from index URL host (%s) — "+
-								"dependency checksum enrichment (sha1/md5) will be skipped. "+
-								"Use --server-id to specify the Artifactory instance that hosts your uv packages.",
-							uvHostOf(sd.ArtifactoryUrl), uvHostOf(indexURL)))
-					}
-					uvEnrichDepsFromArtifactory(bi.Modules[0].Dependencies, repoKey, directURLDeps, sd)
+					uvEnrichDepsForIndex(bi.Modules[0].Dependencies, repoKey, indexURL, directURLDeps, sd)
 				}
 			}
 		}
@@ -813,6 +1007,18 @@ func uvGetBuildInfo(workingDir string, buildConfiguration *buildUtils.BuildConfi
 
 	log.Info(fmt.Sprintf("UV build info collected. Use 'jf rt bp %s %s' to publish.", buildName, buildNumber))
 	return nil
+}
+
+func uvEnrichDepsForIndex(deps []buildinfo.Dependency, repoKey, indexURL string, directURLDeps map[string]string, sd *coreConfig.ServerDetails) {
+	if indexURL != "" && !uvHostMatchesServer(indexURL, sd.ArtifactoryUrl) {
+		log.Warn(fmt.Sprintf(
+			"UV build-info: jf server config host (%s) differs from index URL host (%s) — "+
+				"dependency checksum enrichment (sha1/md5) will be skipped. "+
+				"Use --server-id to specify the Artifactory instance that hosts your uv packages.",
+			uvHostOf(sd.ArtifactoryUrl), uvHostOf(indexURL)))
+		return
+	}
+	uvEnrichDepsFromArtifactory(deps, repoKey, directURLDeps, sd)
 }
 
 // uvResolverRepoFromToml extracts the Artifactory repo key from the first
@@ -1021,7 +1227,7 @@ func uvExtractRepoKeyFromURL(repoOrURL string) string {
 	}
 	parsed, err := url.Parse(repoOrURL)
 	if err != nil {
-		return repoOrURL
+		return ""
 	}
 	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
 	for i, seg := range segments {
@@ -1034,7 +1240,7 @@ func uvExtractRepoKeyFromURL(repoOrURL string) string {
 			return segments[i]
 		}
 	}
-	return repoOrURL
+	return ""
 }
 
 // uvCollectDistArtifacts collects wheel/sdist artifacts from the dist/ directory.
