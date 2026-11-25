@@ -360,10 +360,13 @@ func (bpc *BuildPublishCommand) getNextBuildNumber(buildName string, servicesMan
 }
 
 // setVcsPropsOnArtifacts sets VCS properties on all artifacts in the build info.
-// Artifacts with OriginalDeploymentRepo are tagged directly by exact path.
-// Artifacts missing OriginalDeploymentRepo are resolved via the dedicated build-artifacts API
-// (one indexed call) instead of an instance-wide wildcard fan-out across all local repos.
-// Never fails the build publish - only logs debug messages on errors.
+// Artifacts with OriginalDeploymentRepo are tagged directly by exact path. When that search returns
+// fewer items than requested or its lookup fails (e.g. a Maven SNAPSHOT recorded as -SNAPSHOT but
+// stored under a timestamped name), the whole build is resolved through the dedicated build-artifacts
+// API as a fallback. Artifacts missing OriginalDeploymentRepo are resolved through the same API; it
+// is called at most once per publish. A SetProps failure alone does not trigger the fallback.
+// If fewer artifacts were tagged than the build info lists, one warning is logged with the untagged
+// count, the likely causes and the last error. Never fails the build publish.
 func (bpc *BuildPublishCommand) setVcsPropsOnArtifacts(
 	servicesManager artifactory.ArtifactoryServicesManager,
 	buildInfo *buildinfo.BuildInfo,
@@ -386,16 +389,48 @@ func (bpc *BuildPublishCommand) setVcsPropsOnArtifacts(
 	}
 	present, missingCount := extractArtifactPaths(buildInfo)
 	log.Debug("VCS: Extracted", len(present), "direct paths,", missingCount, "missing OriginalDeploymentRepo")
+	total := len(present) + missingCount
+
+	var tagged int
+	var lastErr error
+	needBuildLookup := missingCount > 0
 	// Artifacts WITH OriginalDeploymentRepo: tag directly by exact path.
 	if len(present) > 0 {
-		setPropsOnArtifacts(servicesManager, present, props)
+		outcome := setPropsOnArtifacts(servicesManager, present, props)
+		tagged = outcome.tagged
+		lastErr = outcome.err
+		// Fewer items than requested also covers a failed lookup (nothing found). A SetProps failure
+		// with every item found is not a lookup problem, so the build lookup cannot help.
+		if outcome.found < len(present) {
+			log.Debug("VCS: exact-path search found", outcome.found, "of", len(present), "artifacts, falling back to the build-artifacts lookup")
+			needBuildLookup = true
+		}
 	}
-	// Artifacts WITHOUT OriginalDeploymentRepo: resolve via the dedicated build-artifacts API
-	// (one indexed call) instead of the old instance-wide wildcard fan-out.
-	if missingCount > 0 {
-		setPropsViaBuildSearch(servicesManager, buildInfo.Name, buildInfo.Number,
+	// Artifacts WITHOUT OriginalDeploymentRepo, or missed by the exact-path search: resolve via the
+	// dedicated build-artifacts API (one indexed call for the whole build).
+	if needBuildLookup {
+		outcome := setPropsViaBuildSearch(servicesManager, buildInfo.Name, buildInfo.Number,
 			bpc.buildConfiguration.GetProject(), props)
+		tagged = max(tagged, outcome.tagged)
+		if outcome.err != nil {
+			lastErr = outcome.err
+		}
 	}
+	warnIfUntagged(total, tagged, lastErr)
+}
+
+// warnIfUntagged logs one warning when fewer artifacts were tagged than the build info lists.
+func warnIfUntagged(total, tagged int, lastErr error) {
+	if tagged >= total {
+		return
+	}
+	msg := fmt.Sprintf("CI VCS: %d of %d artifacts were not tagged with VCS properties. "+
+		"Likely causes: missing Annotate permission on the target repository, or the artifact was not found in the repository.",
+		total-tagged, total)
+	if lastErr != nil {
+		msg += " Last error: " + lastErr.Error()
+	}
+	log.Warn(msg)
 }
 
 func (bpc *BuildPublishCommand) excludeDependenciesByScope(buildInfo *buildinfo.BuildInfo) {

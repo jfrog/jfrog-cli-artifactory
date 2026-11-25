@@ -141,10 +141,10 @@ func TestConstructPresentArtifactPath(t *testing.T) {
 
 func TestExtractArtifactPaths(t *testing.T) {
 	tests := []struct {
-		name                string
-		buildInfo           *buildinfo.BuildInfo
-		expectedPresent     []string
-		expectedMissing     int
+		name            string
+		buildInfo       *buildinfo.BuildInfo
+		expectedPresent []string
+		expectedMissing int
 	}{
 		{
 			name:            "empty build info",
@@ -208,6 +208,24 @@ func TestExtractArtifactPaths(t *testing.T) {
 			},
 			expectedPresent: nil,
 			expectedMissing: 1,
+		},
+		{
+			name: "duplicate paths are returned once in first-seen order",
+			buildInfo: &buildinfo.BuildInfo{
+				Modules: []buildinfo.Module{
+					{Artifacts: []buildinfo.Artifact{
+						{OriginalDeploymentRepo: "repo1", Path: "path/file1.jar"},
+						{OriginalDeploymentRepo: "repo1", Path: "path/file2.jar"},
+					}},
+					{Artifacts: []buildinfo.Artifact{
+						{OriginalDeploymentRepo: "repo1", Path: "path/file1.jar"},
+						{Path: "path/file3.jar"},
+						{Path: "path/file3.jar"},
+					}},
+				},
+			},
+			expectedPresent: []string{"repo1/path/file1.jar", "repo1/path/file2.jar"},
+			expectedMissing: 2,
 		},
 		{
 			name: "virtual repo path",
@@ -446,4 +464,130 @@ func TestSetPropsViaBuildSearch_SearchError_Retries(t *testing.T) {
 			mockSM.AssertNotCalled(t, "SetProps")
 		})
 	}
+}
+
+// TestSetPropsViaBuildSearch_Outcome: the outcome reports how many items the lookup returned,
+// the best SetProps success count over the attempts, and the last error.
+func TestSetPropsViaBuildSearch_Outcome(t *testing.T) {
+	zeroRetryDelay(t)
+	props := "vcs.provider=github"
+
+	t.Run("all tagged", func(t *testing.T) {
+		mockSM := new(mockServicesManager)
+		stubBuildArtifacts(t, []buildArtifactsResult{{reader: newReaderWithItems(t, "a.jar", "a.pom")}})
+		mockSM.On("SetProps", mock.Anything).Return(2, nil)
+
+		outcome := setPropsViaBuildSearch(mockSM, "mybuild", "42", "", props)
+
+		assert.Equal(t, propsOutcome{found: 2, tagged: 2}, outcome)
+	})
+
+	t.Run("partially tagged", func(t *testing.T) {
+		mockSM := new(mockServicesManager)
+		stubBuildArtifacts(t, []buildArtifactsResult{{reader: newReaderWithItems(t, "a.jar", "a.pom")}})
+		mockSM.On("SetProps", mock.Anything).Return(1, nil)
+
+		outcome := setPropsViaBuildSearch(mockSM, "mybuild", "42", "", props)
+
+		assert.Equal(t, propsOutcome{found: 2, tagged: 1}, outcome)
+	})
+
+	t.Run("empty lookup", func(t *testing.T) {
+		mockSM := new(mockServicesManager)
+		stubBuildArtifacts(t, []buildArtifactsResult{{reader: newReaderWithItems(t)}})
+
+		outcome := setPropsViaBuildSearch(mockSM, "mybuild", "42", "", props)
+
+		assert.Equal(t, propsOutcome{}, outcome)
+	})
+
+	t.Run("SetProps keeps failing: best success count and last error are kept", func(t *testing.T) {
+		mockSM := new(mockServicesManager)
+		var results []buildArtifactsResult
+		for i := 0; i < maxRetries; i++ {
+			results = append(results, buildArtifactsResult{reader: newReaderWithItems(t, "a.jar", "a.pom")})
+		}
+		stubBuildArtifacts(t, results)
+		mockSM.On("SetProps", mock.Anything).Return(1, errors.New("server error 500")).Once()
+		mockSM.On("SetProps", mock.Anything).Return(0, errors.New("server error 502")).Twice()
+
+		outcome := setPropsViaBuildSearch(mockSM, "mybuild", "42", "", props)
+
+		assert.Equal(t, 2, outcome.found)
+		assert.Equal(t, 1, outcome.tagged)
+		assert.EqualError(t, outcome.err, "server error 502")
+	})
+
+	t.Run("SetProps 404 stops at once and reports the error", func(t *testing.T) {
+		mockSM := new(mockServicesManager)
+		calls := stubBuildArtifacts(t, []buildArtifactsResult{{reader: newReaderWithItems(t, "a.jar")}})
+		mockSM.On("SetProps", mock.Anything).Return(0, errors.New("404 Not Found"))
+
+		outcome := setPropsViaBuildSearch(mockSM, "mybuild", "42", "", props)
+
+		assert.Equal(t, 1, *calls)
+		assert.Equal(t, 1, outcome.found)
+		assert.Equal(t, 0, outcome.tagged)
+		assert.EqualError(t, outcome.err, "404 Not Found")
+	})
+
+	t.Run("lookup fails on every attempt", func(t *testing.T) {
+		mockSM := new(mockServicesManager)
+		var results []buildArtifactsResult
+		for i := 0; i < maxRetries; i++ {
+			results = append(results, buildArtifactsResult{err: errors.New("build api down")})
+		}
+		stubBuildArtifacts(t, results)
+
+		outcome := setPropsViaBuildSearch(mockSM, "mybuild", "42", "", props)
+
+		assert.Equal(t, 0, outcome.found)
+		assert.Equal(t, 0, outcome.tagged)
+		assert.EqualError(t, outcome.err, "build api down")
+	})
+
+	t.Run("recovers after a transient lookup error", func(t *testing.T) {
+		mockSM := new(mockServicesManager)
+		stubBuildArtifacts(t, []buildArtifactsResult{
+			{err: errors.New("transient timeout")},
+			{reader: newReaderWithItems(t, "a.jar")},
+		})
+		mockSM.On("SetProps", mock.Anything).Return(1, nil)
+
+		outcome := setPropsViaBuildSearch(mockSM, "mybuild", "42", "", props)
+
+		assert.Equal(t, propsOutcome{found: 1, tagged: 1}, outcome)
+	})
+
+	t.Run("missing build name or number counts as nothing tagged", func(t *testing.T) {
+		mockSM := new(mockServicesManager)
+		calls := stubBuildArtifacts(t, nil)
+
+		assert.Equal(t, propsOutcome{}, setPropsViaBuildSearch(mockSM, "", "", "", props))
+		assert.Equal(t, propsOutcome{}, setPropsViaBuildSearch(mockSM, "mybuild", "", "", props))
+		assert.Equal(t, 0, *calls)
+	})
+}
+
+// TestSetPropsOnArtifacts_Outcome: the exact-path step reports how many of the requested paths
+// the search returned.
+func TestSetPropsOnArtifacts_Outcome(t *testing.T) {
+	zeroRetryDelay(t)
+
+	t.Run("one of two paths found", func(t *testing.T) {
+		mockSM := new(mockServicesManager)
+		mockSM.On("SearchFiles", matchExactSearch()).Return(exactSearchHits(t, "repo/a.jar"), nil)
+		mockSM.On("SetProps", mock.Anything).Return(1, nil)
+
+		outcome := setPropsOnArtifacts(mockSM, []string{"repo/a.jar", "repo/b.jar"}, "vcs.provider=github")
+
+		assert.Equal(t, propsOutcome{found: 1, tagged: 1}, outcome)
+	})
+
+	t.Run("no paths", func(t *testing.T) {
+		mockSM := new(mockServicesManager)
+
+		assert.Equal(t, propsOutcome{}, setPropsOnArtifacts(mockSM, nil, "vcs.provider=github"))
+		mockSM.AssertNotCalled(t, "SearchFiles")
+	})
 }
