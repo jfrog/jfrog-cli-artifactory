@@ -19,6 +19,7 @@ var Agents = map[string]AgentConfig{
 	"windsurf":       {GlobalDir: "~/.codeium/windsurf/skills", ProjectDir: ".windsurf/skills"},
 	"codex":          {GlobalDir: "~/.codex/skills", ProjectDir: ".codex/skills"},
 	"cross-agent":    {GlobalDir: "~/.agents/skills", ProjectDir: ".agents/skills"},
+	"kiro":           {GlobalDir: "~/.kiro/skills", ProjectDir: ".kiro/skills"},
 }
 
 // RegistryHelp configures agent-config.json help text for skills harness resolution.

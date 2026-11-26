@@ -422,6 +422,7 @@ func TestAgents_AllKnownAgents(t *testing.T) {
 		"cross-agent",
 		"cursor",
 		"github-copilot",
+		"kiro",
 		"windsurf",
 	}
 	for _, name := range expected {
