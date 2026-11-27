@@ -4,9 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	dotnetutils "github.com/jfrog/build-info-go/build/utils/dotnet"
+	"github.com/jfrog/gofrog/version"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,11 +23,11 @@ func TestSlnxGateWithRealNugetExe(t *testing.T) {
 	expectedMajor, err := strconv.Atoi(expected)
 	require.NoError(t, err)
 
-	version := nugetExeVersion()
-	t.Logf("nuget.exe version detected: %q", version)
-	require.NotEmpty(t, version, "the 'NuGet Version:' banner must be parsed from the real nuget.exe")
-	major, ok := majorVersion(version)
-	require.True(t, ok)
+	nugetVersion := nugetExeVersion()
+	t.Logf("nuget.exe version detected: %q", nugetVersion)
+	require.NotEmpty(t, nugetVersion, "the 'NuGet Version:' banner must be parsed from the real nuget.exe")
+	major, err := strconv.Atoi(strings.SplitN(nugetVersion, ".", 2)[0])
+	require.NoError(t, err)
 	assert.Equal(t, expectedMajor, major)
 
 	dir := t.TempDir()
@@ -47,7 +49,7 @@ func TestSlnxGateWithRealNugetExe(t *testing.T) {
 		SetWorkingDir(dir).
 		Run()
 
-	if major < minSlnxNugetMajor {
+	if !version.NewVersion(nugetVersion).AtLeast(minSlnxNugetVersion) {
 		require.Error(t, runErr)
 		assert.Contains(t, runErr.Error(), ".slnx requires nuget.exe >= 7.0.0")
 		return
