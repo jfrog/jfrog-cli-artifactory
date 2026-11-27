@@ -1,0 +1,42 @@
+name: Slnx Windows Check (temporary)
+
+# Temporary job for the test PR only: verifies the .slnx gate on Windows with real nuget.exe.
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  slnx-windows:
+    name: nuget ${{ matrix.nuget }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nuget: "6.13.2"
+            major: "6"
+          - nuget: "7.x"
+            major: "7"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install nuget.exe
+        uses: nuget/setup-nuget@v2
+        with:
+          nuget-version: ${{ matrix.nuget }}
+
+      - name: Show tool versions
+        shell: pwsh
+        run: |
+          nuget help | Select-Object -First 1
+          & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.Component.MSBuild -property catalog_productDisplayVersion
+
+      - name: Run slnx gate test against real nuget.exe
+        shell: pwsh
+        env:
+          SLNX_EXPECT_NUGET_MAJOR: ${{ matrix.major }}
+        run: go test ./artifactory/commands/nuget -run TestSlnxGateWithRealNugetExe -v -count=1
