@@ -2,6 +2,7 @@ package utils
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -34,6 +35,8 @@ var (
 	newGitManagerFn     = func(dotGitPath string) gitConfigReader {
 		return clientutils.NewGitManager(dotGitPath)
 	}
+	// Matches an abbreviated or full git commit SHA (SHA-1 or SHA-256).
+	gitCommitShaRegExp = regexp.MustCompile(`^[0-9a-fA-F]{7,64}$`)
 )
 
 type gitConfigReader interface {
@@ -111,6 +114,9 @@ func ParseGitLogFromLastVcsRevision(gitDetails GitLogDetails, logRegExp *gofrogc
 			err = errors.Join(err, cleanupFunc())
 		}
 	}()
+	if err != nil {
+		return err
+	}
 
 	errRegExp, err := createErrRegExpHandler(lastVcsRevision)
 	if err != nil {
@@ -238,6 +244,7 @@ func getVcsFromPreviousBuild(serverDetails *utilsconfig.ServerDetails, buildConf
 }
 
 // Returns the vcs revision that matches th provided vcs url.
+// A revision that is not a valid commit SHA is ignored, so that git log runs without a revision range.
 func getMatchingRevisionFromBuild(buildInfo *buildinfo.BuildInfo, vcsUrl string) string {
 	lastVcsRevision := ""
 	for _, vcs := range buildInfo.VcsList {
@@ -246,7 +253,16 @@ func getMatchingRevisionFromBuild(buildInfo *buildinfo.BuildInfo, vcsUrl string)
 			break
 		}
 	}
+	if lastVcsRevision != "" && !isValidGitCommitSha(lastVcsRevision) {
+		log.Warn(fmt.Sprintf("Ignoring VCS revision %q from the previous build info, since it is not a valid git commit SHA. Collecting git log without a revision range.", lastVcsRevision))
+		return ""
+	}
 	return lastVcsRevision
+}
+
+// The revision is passed to git as a command argument, so it must be a commit SHA and never something git could parse as an option.
+func isValidGitCommitSha(revision string) bool {
+	return gitCommitShaRegExp.MatchString(revision)
 }
 
 // Returns build info, or empty build info struct if not found.
@@ -427,6 +443,11 @@ func validateGitAndGetVcsUrl(gitDetails *GitLogDetails) (string, error) {
 }
 
 func prepareGitLogCommand(gitDetails GitLogDetails, lastVcsRevision string) (logCmd *LogCmd, cleanupFunc func() error, err error) {
+	if lastVcsRevision != "" && !isValidGitCommitSha(lastVcsRevision) {
+		err = errorutils.CheckErrorf("invalid VCS revision %q: expected a git commit SHA", lastVcsRevision)
+		return
+	}
+
 	// Get log with limit, starting from the latest commit.
 	logCmd = &LogCmd{logLimit: gitDetails.LogLimit, lastVcsRevision: lastVcsRevision, prettyFormat: gitDetails.PrettyFormat}
 
@@ -436,7 +457,7 @@ func prepareGitLogCommand(gitDetails GitLogDetails, lastVcsRevision string) (log
 		return
 	}
 	cleanupFunc = func() error {
-		return errors.Join(err, errorutils.CheckError(os.Chdir(wd)))
+		return errorutils.CheckError(os.Chdir(wd))
 	}
 	err = errorutils.CheckError(os.Chdir(gitDetails.DotGitPath))
 	return
@@ -451,6 +472,9 @@ func getPlainGitLogFromLastVcsRevision(gitDetails GitLogDetails, lastVcsRevision
 			err = errors.Join(err, cleanupFunc())
 		}
 	}()
+	if err != nil {
+		return "", err
+	}
 
 	stdOut, errorOut, _, err := gofrogcmd.RunCmdWithOutputParser(logCmd, false)
 	if errorutils.CheckError(err) != nil {
